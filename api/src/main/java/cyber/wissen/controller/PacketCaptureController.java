@@ -2,7 +2,7 @@ package cyber.wissen.controller;
 
 import java.util.List;
 
-import org.pcap4j.packet.Packet;
+import org.pcap4j.core.PcapNativeException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import cyber.wissen.dto.NetworkInterfaceDTO;
+import cyber.wissen.dto.PacketDTO;
 import cyber.wissen.service.PacketCaptureService;
 
 @RestController
@@ -37,8 +39,22 @@ public class PacketCaptureController {
     }
 
     @GetMapping
-    public ResponseEntity<List<Packet>> getCapturedPackets() {
+    public ResponseEntity<List<PacketDTO>> getCapturedPackets() {
         return ResponseEntity.ok(packetCaptureService.getCapturedPackets());
     }
+
+    // clear the stored data
+    @PostMapping("/clear")
+    public ResponseEntity<Void> clearCapturedPackets() {
+        packetCaptureService.clearCapturedPackets();
+        return ResponseEntity.noContent().build(); // 204 No Content
+    }
+
+    // Get available network interface
+    @GetMapping("/nif")
+    public List<NetworkInterfaceDTO> getNetworkInterfaces() throws PcapNativeException {
+        return packetCaptureService.getNetworkInterfaces();
+    }
+    
 }
 

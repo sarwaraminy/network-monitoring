@@ -5,7 +5,7 @@ import { LogoutButton } from '../auth/LogoutButton';
 const NavigationBar = () => {
     return (
         <nav className="navbar navbar-expand-lg navbar-dark bg-dark">
-            <Link className="navbar-brand" to="/">Admin Panel</Link>
+            <Link className="navbar-brand ms-2" to="/">Home</Link>
             <button className="navbar-toggler" type="button" data-toggle="collapse" data-target="#basic-navbar-nav" aria-controls="basic-navbar-nav" aria-expanded="false" aria-label="Toggle navigation">
                 <span className="navbar-toggler-icon"></span>
             </button>
