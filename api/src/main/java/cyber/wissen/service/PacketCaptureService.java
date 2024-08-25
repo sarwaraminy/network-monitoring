@@ -5,12 +5,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.json.JSONObject;
 import org.pcap4j.core.NotOpenException;
 import org.pcap4j.core.PcapHandle;
 import org.pcap4j.core.PcapNativeException;
 import org.pcap4j.core.PcapNetworkInterface;
 import org.pcap4j.core.Pcaps;
 import org.pcap4j.packet.EthernetPacket;
+import org.pcap4j.packet.IpV4Packet;
+import org.pcap4j.packet.IpV6Packet;
 import org.pcap4j.packet.LlcPacket;
 import org.pcap4j.packet.Packet;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +24,9 @@ import cyber.wissen.dto.LlcHeaderDTO;
 import cyber.wissen.dto.NetworkInterfaceDTO;
 import cyber.wissen.dto.PacketDTO;
 import cyber.wissen.entity.Log;
+import cyber.wissen.networkservice.IPGeolocationService;
+import cyber.wissen.networkservice.IPInfoService;
+import cyber.wissen.networkservice.IPWhoisService;
 
 @Service
 public class PacketCaptureService {
@@ -108,6 +114,7 @@ public class PacketCaptureService {
     private PacketDTO createPacketDTO(Packet packet) {
     PacketDTO packetDTO = new PacketDTO();
 
+    // Ethernet header extraction (as you already have)
     EthernetPacket ethernetPacket = packet.get(EthernetPacket.class);
     EthernetHeaderDTO ethernetHeaderDTO = new EthernetHeaderDTO();
     ethernetHeaderDTO.setDestinationAddress(ethernetPacket.getHeader().getDstAddr().toString());
@@ -115,6 +122,24 @@ public class PacketCaptureService {
     ethernetHeaderDTO.setType(ethernetPacket.getHeader().getType().toString());
     packetDTO.setEthernetHeader(ethernetHeaderDTO);
 
+    // Extract IP addresses
+    IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);
+    if (ipV4Packet != null) {
+        String srcIp = ipV4Packet.getHeader().getSrcAddr().getHostAddress();
+        String dstIp = ipV4Packet.getHeader().getDstAddr().getHostAddress();
+        packetDTO.setSourceIpAddress(srcIp);
+        packetDTO.setDestinationIpAddress(dstIp);
+    } else {
+        IpV6Packet ipV6Packet = packet.get(IpV6Packet.class);
+        if (ipV6Packet != null) {
+            String srcIp = ipV6Packet.getHeader().getSrcAddr().getHostAddress();
+            String dstIp = ipV6Packet.getHeader().getDstAddr().getHostAddress();
+            packetDTO.setSourceIpAddress(srcIp);
+            packetDTO.setDestinationIpAddress(dstIp);
+        }
+    }
+
+    // LLC and other data processing (if needed)
     LlcPacket llcPacket = packet.get(LlcPacket.class);
     if (llcPacket != null) {
         LlcHeaderDTO llcHeaderDTO = new LlcHeaderDTO();
@@ -125,12 +150,37 @@ public class PacketCaptureService {
     }
 
     // Example: Converting raw data to hex string for display
-    //HexConverter hexConverter = new HexConverter();  
+    //HexConverter hexConverter = new HexConverter();
     //String hexStream = toHexStream(packet.getRawData());
     //byte[] byteArray = hexConverter.hexStringToByteArray(hexStream);
-    //System.out.println("Byte Array: " + Arrays.toString(byteArray));
     //String readableFormat = hexConverter.formatAsReadable(byteArray);
     //System.out.println("Readable Format: " + readableFormat);
+    
+    //String srcIp = packetDTO.getSourceIpAddress();
+    //String dstIp = packetDTO.getDestinationIpAddress();
+
+    // Get domain names
+    //IPInfoService ipInfoService = new IPInfoService();
+    //String srcDomain = ipInfoService.getDomainName(srcIp);
+    //String dstDomain = ipInfoService.getDomainName(dstIp);
+
+    // Get WHOIS information
+    //IPWhoisService whoisService = new IPWhoisService();
+    //String srcWhois = whoisService.getWhoisData(srcIp);
+    //String dstWhois = whoisService.getWhoisData(dstIp);
+
+    // Get Geolocation information
+    //IPGeolocationService geoService = new IPGeolocationService();
+    //JSONObject srcGeoData = geoService.getGeolocationData(srcIp);
+    //JSONObject dstGeoData = geoService.getGeolocationData(dstIp);
+
+    // Log or store the information as needed we can create a UI to show detail on each IP
+    //System.out.println("Source IP: " + srcIp + " (" + srcDomain + ")");
+    //System.out.println("Destination IP: " + dstIp + " (" + dstDomain + ")");
+    //System.out.println("Source WHOIS: " + srcWhois);
+    //System.out.println("Destination WHOIS: " + dstWhois);
+    //System.out.println("Source Geolocation: " + srcGeoData.toString());
+    //System.out.println("Destination Geolocation: " + dstGeoData.toString());
     
     packetDTO.setDataHexStream(toHexStream(packet.getRawData()));
     // Assume EthernetPad extraction is done similarly

@@ -6,6 +6,8 @@ public class PacketDTO {
     private LlcHeaderDTO llcHeader;
     private String dataHexStream;
     private String ethernetPadHexStream;
+    private String sourceIpAddress;
+    private String destinationIpAddress;
 
     // Getters and setters for the above fields
 
@@ -40,6 +42,23 @@ public class PacketDTO {
 
     public void setEthernetPadHexStream(String ethernetPadHexStream) {
         this.ethernetPadHexStream = ethernetPadHexStream;
+    }
+
+
+    public String getSourceIpAddress() {
+        return this.sourceIpAddress;
+    }
+
+    public void setSourceIpAddress(String sourceIpAddress) {
+        this.sourceIpAddress = sourceIpAddress;
+    }
+
+    public String getDestinationIpAddress() {
+        return this.destinationIpAddress;
+    }
+
+    public void setDestinationIpAddress(String destinationIpAddress) {
+        this.destinationIpAddress = destinationIpAddress;
     }
 
 }

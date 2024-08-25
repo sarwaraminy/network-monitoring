@@ -5,11 +5,11 @@ public class HexConverter {
     public byte[] hexStringToByteArray(String hexString) {
         // Remove all spaces from the hex string
         hexString = hexString.replaceAll("\\s+", "");
-    
+
         if (hexString == null || hexString.length() % 2 != 0) {
             throw new IllegalArgumentException("Invalid hex string: " + hexString);
         }
-    
+
         int len = hexString.length();
         byte[] data = new byte[len / 2];
         for (int i = 0; i < len; i += 2) {
@@ -18,16 +18,21 @@ public class HexConverter {
         }
         return data;
     }
-    
 
     public String formatAsReadable(byte[] data) {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < data.length; i++) {
-            if (i % 16 == 0 && i != 0) {
-                sb.append("\n");
+
+        for (byte b : data) {
+            if (b >= 32 && b <= 126) {
+                // Printable ASCII range
+                sb.append((char) b);
+            } else {
+                // Non-printable characters represented as hex
+                sb.append(String.format("\\x%02X", b));
             }
-            sb.append(String.format("%02X ", data[i]));
         }
+
         return sb.toString();
     }
+    
 }
