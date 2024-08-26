@@ -157,6 +157,8 @@ const PacketCapture = () => {
                 </table>
             </div>
 
+            <div className="row mt-3"><div className="col-md-12 text-center font-weight-bold">Total Number of Records: {packets.length}</div></div>
+
             {/* Bootstrap Modal */}
             {showModal && ipInfo && (
                 <div className="modal show d-block" tabIndex="-1">
