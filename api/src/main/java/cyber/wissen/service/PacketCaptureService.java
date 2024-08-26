@@ -152,32 +152,6 @@ public class PacketCaptureService {
     //String readableFormat = hexConverter.formatAsReadable(byteArray);
     //System.out.println("Readable Format: " + readableFormat);
     
-    //String srcIp = packetDTO.getSourceIpAddress();
-    //String dstIp = packetDTO.getDestinationIpAddress();
-
-    // Get domain names
-    //IPInfoService ipInfoService = new IPInfoService();
-    //String srcDomain = ipInfoService.getDomainName(srcIp);
-    //String dstDomain = ipInfoService.getDomainName(dstIp);
-
-    // Get WHOIS information
-    //IPWhoisService whoisService = new IPWhoisService();
-    //String srcWhois = whoisService.getWhoisData(srcIp);
-    //String dstWhois = whoisService.getWhoisData(dstIp);
-
-    // Get Geolocation information
-    //IPGeolocationService geoService = new IPGeolocationService();
-    //JSONObject srcGeoData = geoService.getGeolocationData(srcIp);
-    //JSONObject dstGeoData = geoService.getGeolocationData(dstIp);
-
-    // Log or store the information as needed we can create a UI to show detail on each IP
-    //System.out.println("Source IP: " + srcIp + " (" + srcDomain + ")");
-    //System.out.println("Destination IP: " + dstIp + " (" + dstDomain + ")");
-    //System.out.println("Source WHOIS: " + srcWhois);
-    //System.out.println("Destination WHOIS: " + dstWhois);
-    //System.out.println("Source Geolocation: " + srcGeoData.toString());
-    //System.out.println("Destination Geolocation: " + dstGeoData.toString());
-    
     packetDTO.setDataHexStream(toHexStream(packet.getRawData()));
     // Assume EthernetPad extraction is done similarly
     packetDTO.setEthernetPadHexStream(extractEthernetPadHexStream(packet));
