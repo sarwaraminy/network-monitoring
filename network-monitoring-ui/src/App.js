@@ -12,6 +12,7 @@ import NavigationBar from './dashboard/NavigationBar';
 import Dashboard from './dashboard/Dashboard';
 import LogPage from './pages/LogPage';
 import PacketCapture from './pages/PacketCapture';
+import PacketCaptureWithIP from './pages/PacketCaptureWithIP';
 
 const App = () => {
   return (
@@ -35,6 +36,7 @@ const App = () => {
                             <Route index element={<Dashboard />} />
                             <Route path='/logs' element={<LogPage />} />
                             <Route path='/capture-packets' element={<PacketCapture />} />
+                            <Route path='/capture-packets-ip' element={<PacketCaptureWithIP />} />
                         </Route>
                     </Route>
                 </Routes>

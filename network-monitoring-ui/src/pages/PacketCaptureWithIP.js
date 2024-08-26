@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const PacketCapture = () => {
+const PacketCaptureWithIP = () => {
     const [packets, setPackets] = useState([]);
     const [capturing, setCapturing] = useState(false);
     const [networkInterfaces, setNetworkInterfaces] = useState([]);
@@ -9,11 +9,12 @@ const PacketCapture = () => {
     const [selectedIp, setSelectedIp] = useState('');
     const [ipInfo, setIpInfo] = useState(null);
     const [showModal, setShowModal] = useState(false);
+    const [filterIp, setFilterIp] = useState('');
 
     const startCapture = async () => {
         try {
-            await axios.post(`${process.env.REACT_APP_API_SERVER}/api/packets/start`, null, {
-                params: { interfaceName: selectedInterface }
+            await axios.post(`${process.env.REACT_APP_API_SERVER}/api/ip/packets/start`, null, {
+                params: { interfaceName: selectedInterface, ipAddress: filterIp }
             });
             setCapturing(true);
         } catch (error) {
@@ -24,7 +25,7 @@ const PacketCapture = () => {
     useEffect(() => {
         const fetchNetworkInterfaces = async () => {
             try {
-                const response = await axios.get(`${process.env.REACT_APP_API_SERVER}/api/packets/nif`);
+                const response = await axios.get(`${process.env.REACT_APP_API_SERVER}/api/ip/packets/nif`);
                 setNetworkInterfaces(response.data);
             } catch (error) {
                 console.error('Error fetching network interfaces:', error);
@@ -38,9 +39,13 @@ const PacketCapture = () => {
         setSelectedInterface(e.target.value);
     };
 
+    const handleIpChange = (e) => {
+        setFilterIp(e.target.value);
+    };
+
     const stopCapture = async () => {
         try {
-            await axios.post(`${process.env.REACT_APP_API_SERVER}/api/packets/stop`);
+            await axios.post(`${process.env.REACT_APP_API_SERVER}/api/ip/packets/stop`);
             setCapturing(false);
         } catch (error) {
             console.error('Error stopping packet capture:', error);
@@ -50,7 +55,7 @@ const PacketCapture = () => {
     useEffect(() => {
         if (capturing) {
             const interval = setInterval(() => {
-                axios.get(`${process.env.REACT_APP_API_SERVER}/api/packets`)
+                axios.get(`${process.env.REACT_APP_API_SERVER}/api/ip/packets`)
                     .then(response => {
                         setPackets(response.data);
                     })
@@ -63,7 +68,7 @@ const PacketCapture = () => {
 
     const clearPacket = async () => {
         try {
-            await axios.post(`${process.env.REACT_APP_API_SERVER}/api/packets/clear`);
+            await axios.post(`${process.env.REACT_APP_API_SERVER}/api/ip/packets/clear`);
             setPackets([]);
         } catch (error) {
             console.error('Error clearing data:', error);
@@ -72,7 +77,7 @@ const PacketCapture = () => {
 
     const handleIpClick = async (ipAddress) => {
         try {
-            const response = await axios.get(`${process.env.REACT_APP_API_SERVER}/api/packets/ip-info`, {
+            const response = await axios.get(`${process.env.REACT_APP_API_SERVER}/api/ip/packets/ip-info`, {
                 params: { ipAddress }
             });
             setSelectedIp(ipAddress);
@@ -102,6 +107,17 @@ const PacketCapture = () => {
                         ))}
                     </select>
                 </div>
+                <div className='form-group col-md-3'>
+                    <label htmlFor="filterIp">Filter by IP Address:</label>
+                    <input 
+                        type="text" 
+                        className='form-control' 
+                        id="filterIp" 
+                        value={filterIp} 
+                        onChange={handleIpChange} 
+                        placeholder="Enter IP address to filter"
+                    />
+                </div>
                 <div className="form-group col-md">
                     <label htmlFor="buttons">Packet Capture:</label>
                     <div id="buttons">
@@ -112,7 +128,7 @@ const PacketCapture = () => {
                     
                 </div>
             </div>
-
+            
             <h2>Captured Packets</h2>
             <div className="table-container">
                 <table className='table table-striped table-bordered table-hover'>
@@ -221,4 +237,4 @@ const PacketCapture = () => {
     );
 };
 
-export default PacketCapture;
+export default PacketCaptureWithIP;

@@ -15,7 +15,10 @@ const NavigationBar = () => {
                         <Link className="nav-link" to="/logs">Show Logs</Link>
                     </li>
                     <li className="nav-item">
-                        <Link className="nav-link" to="/capture-packets">Capture Packet</Link>
+                        <Link className="nav-link" to="/capture-packets">Capture Packet From Local Interface</Link>
+                    </li>
+                    <li className="nav-item">
+                        <Link className="nav-link" to="/capture-packets-ip">Capture Packet Filtered By IP</Link>
                     </li>
                 </ul>
             </div>
