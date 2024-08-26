@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import org.json.JSONObject;
 import org.pcap4j.core.NotOpenException;
 import org.pcap4j.core.PcapHandle;
 import org.pcap4j.core.PcapNativeException;
@@ -24,9 +23,6 @@ import cyber.wissen.dto.LlcHeaderDTO;
 import cyber.wissen.dto.NetworkInterfaceDTO;
 import cyber.wissen.dto.PacketDTO;
 import cyber.wissen.entity.Log;
-import cyber.wissen.networkservice.IPGeolocationService;
-import cyber.wissen.networkservice.IPInfoService;
-import cyber.wissen.networkservice.IPWhoisService;
 
 @Service
 public class PacketCaptureService {

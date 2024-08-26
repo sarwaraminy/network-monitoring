@@ -3,6 +3,9 @@ package cyber.wissen.networkservice;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 
+import org.springframework.stereotype.Service;
+
+@Service
 public class IPInfoService {
 
     public String getDomainName(String ipAddress) {

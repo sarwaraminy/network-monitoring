@@ -6,6 +6,9 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.Socket;
 
+import org.springframework.stereotype.Service;
+
+@Service
 public class IPWhoisService {
 
     public String getWhoisData(String ipAddress) {

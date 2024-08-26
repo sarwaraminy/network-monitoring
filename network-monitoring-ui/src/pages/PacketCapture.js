@@ -6,6 +6,9 @@ const PacketCapture = () => {
     const [capturing, setCapturing] = useState(false);
     const [networkInterfaces, setNetworkInterfaces] = useState([]);
     const [selectedInterface, setSelectedInterface] = useState('');
+    const [selectedIp, setSelectedIp] = useState('');
+    const [ipInfo, setIpInfo] = useState(null);
+    const [showModal, setShowModal] = useState(false);
 
     const startCapture = async () => {
         try {
@@ -49,7 +52,6 @@ const PacketCapture = () => {
             const interval = setInterval(() => {
                 axios.get(`${process.env.REACT_APP_API_SERVER}/api/packets`)
                     .then(response => {
-                        console.log('Packets:', response.data); // Debug log
                         setPackets(response.data);
                     })
                     .catch(error => console.error('Error fetching packets:', error));
@@ -61,16 +63,30 @@ const PacketCapture = () => {
 
     const clearPacket = async () => {
         try {
-            await fetch(`${process.env.REACT_APP_API_SERVER}/api/clear`, {
-                method: 'POST'
-            });
-            console.log('Data cleared successfully');
+            await axios.post(`${process.env.REACT_APP_API_SERVER}/api/packets/clear`);
             setPackets([]);
         } catch (error) {
             console.error('Error clearing data:', error);
         }
     };
 
+    const handleIpClick = async (ipAddress) => {
+        try {
+            const response = await axios.get(`${process.env.REACT_APP_API_SERVER}/api/packets/ip-info`, {
+                params: { ipAddress }
+            });
+            setSelectedIp(ipAddress);
+            setIpInfo(response.data);
+            setShowModal(true);
+        } catch (error) {
+            console.error('Error fetching IP information:', error);
+        }
+    };
+
+    const handleCloseModal = () => {
+        setShowModal(false);
+        setIpInfo(null);
+    };
 
     return (
         <div className='container-fluid mt-3'>
@@ -111,9 +127,17 @@ const PacketCapture = () => {
                         {packets && packets.map((packet, i) => (
                             <tr key={i}>
                                 <td>{packet.ethernetHeader.destinationAddress}</td>
-                                <td>{packet.destinationIpAddress}</td>
+                                <td>
+                                    <button className='btn btn-link' onClick={() => handleIpClick(packet.destinationIpAddress)}>
+                                        {packet.destinationIpAddress}
+                                    </button>
+                                </td>
                                 <td>{packet.ethernetHeader.sourceAddress}</td>
-                                <td>{packet.sourceIpAddress}</td>
+                                <td>
+                                    <button className='btn btn-link' onClick={() => handleIpClick(packet.sourceIpAddress)}>
+                                        {packet.sourceIpAddress}
+                                    </button>
+                                </td>
                                 <td>{packet.ethernetHeader.type}</td>
                                 <td>{packet.llcHeader?.dsap}</td>
                                 <td>{packet.llcHeader?.ssap}</td>
@@ -125,6 +149,67 @@ const PacketCapture = () => {
                     </tbody>
                 </table>
             </div>
+
+            {/* Bootstrap Modal */}
+            {showModal && ipInfo && (
+                <div className="modal show d-block" tabIndex="-1">
+                    <div className="modal-dialog modal-dialog-scrollable" role="document">
+                        <div className="modal-content">
+                            <div className="modal-header">
+                                <h5 className="modal-title">IP Information for {selectedIp}</h5>
+                                <button type="button" className="close" aria-label="Close" onClick={handleCloseModal}>
+                                    <span aria-hidden="true">&times;</span>
+                                </button>
+                            </div>
+                            <div className="modal-body">
+                                <p><strong>Domain Name:</strong> {ipInfo.domainName}</p>
+                                <p><strong>WHOIS Data:</strong> <pre>{ipInfo.whoisData}</pre></p>
+
+                                <h5>Geolocation</h5>
+                                <table className='table table-striped table-bordered'>
+                                    <tbody>
+                                        <tr>
+                                            <td><strong>Country</strong></td>
+                                            <td>{ipInfo.geoData.country}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>City</strong></td>
+                                            <td>{ipInfo.geoData.city}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Region</strong></td>
+                                            <td>{ipInfo.geoData.regionName}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Latitude</strong></td>
+                                            <td>{ipInfo.geoData.lat}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Longitude</strong></td>
+                                            <td>{ipInfo.geoData.lon}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>ISP</strong></td>
+                                            <td>{ipInfo.geoData.isp}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Organization</strong></td>
+                                            <td>{ipInfo.geoData.org}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Timezone</strong></td>
+                                            <td>{ipInfo.geoData.timezone}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={handleCloseModal}>Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
