@@ -16,26 +16,20 @@ public class Log {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     private LocalDateTime timestamp = LocalDateTime.now();
-    private String source;
-    private String destination;
+    private String sourceip;
+    private String sourcemac;
+    private String destinationip;
+    private String destinationmac;
     private String protocol;
+    private String ipversion;
     private String details;
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
-
-    private byte[] packetData;
     // Getters and Setters
+
 
     public Long getId() {
         return this.id;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return this.createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
     }
 
     public void setId(Long id) {
@@ -50,20 +44,36 @@ public class Log {
         this.timestamp = timestamp;
     }
 
-    public String getSource() {
-        return this.source;
+    public String getSourceip() {
+        return this.sourceip;
     }
 
-    public void setSource(String source) {
-        this.source = source;
+    public void setSourceip(String sourceip) {
+        this.sourceip = sourceip;
     }
 
-    public String getDestination() {
-        return this.destination;
+    public String getSourcemac() {
+        return this.sourcemac;
     }
 
-    public void setDestination(String destination) {
-        this.destination = destination;
+    public void setSourcemac(String sourcemac) {
+        this.sourcemac = sourcemac;
+    }
+
+    public String getDestinationip() {
+        return this.destinationip;
+    }
+
+    public void setDestinationip(String destinationip) {
+        this.destinationip = destinationip;
+    }
+
+    public String getDestinationmac() {
+        return this.destinationmac;
+    }
+
+    public void setDestinationmac(String destinationmac) {
+        this.destinationmac = destinationmac;
     }
 
     public String getProtocol() {
@@ -74,6 +84,14 @@ public class Log {
         this.protocol = protocol;
     }
 
+    public String getIpversion() {
+        return this.ipversion;
+    }
+
+    public void setIpversion(String ipversion) {
+        this.ipversion = ipversion;
+    }
+
     public String getDetails() {
         return this.details;
     }
@@ -82,13 +100,12 @@ public class Log {
         this.details = details;
     }
 
-
-    public byte[] getPacketData() {
-        return this.packetData;
+    public LocalDateTime getCreatedAt() {
+        return this.createdAt;
     }
 
-    public void setPacketData(byte[] packetData) {
-        this.packetData = packetData;
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
     }
 
 }

@@ -4,5 +4,5 @@ INSERT INTO users (email, password, role, lang_code,firstname,lastname) VALUES
 ('user@example.com', '$2a$10$6ew/Mx7CgzJuAqJ0o8hvOukno6tdFTc6WQeWPSS79gv.UcXR23jSu', 'USER','fa','cashier','1');
 
 -- Insert Log
-INSERT INTO logs (source, destination, protocol, details) VALUES
+INSERT INTO logs (sourceip, destinationip, protocol, details) VALUES
     ('Pakistan', 'Israil', 'HTTP','Some one in middle of comunication')

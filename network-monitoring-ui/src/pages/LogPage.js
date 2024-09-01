@@ -17,6 +17,7 @@ const LogPage = () => {
                 }
             });
             setLogs(response.data);
+            console.log(response.data);
         } catch (error){
             console.error('Error fetching Logs:', error);
         }
@@ -29,18 +30,24 @@ const LogPage = () => {
             <thead className="sticky-header">
                 <tr>
                     <th>Timestamp</th>
-                    <th>Source</th>
-                    <th>Destination</th>
+                    <th>Source IP</th>
+                    <th>Source MAC</th>
+                    <th>Destination IP</th>
+                    <th>Destination MAC</th>
+                    <th>IP Version</th>
                     <th>Protocol</th>
                     <th>Details</th>
                 </tr>
             </thead>
             <tbody>
-                {logs.map(log => (
+                {logs && logs.map(log => (
                     <tr key={log.id}>
                         <td>{log.timestamp}</td>
-                        <td>{log.source}</td>
-                        <td>{log.destination}</td>
+                        <td>{log.sourceip}</td>
+                        <td>{log.sourcemac}</td>
+                        <td>{log.destinationip}</td>
+                        <td>{log.destinationmac}</td>
+                        <td>{log.ipversion}</td>
                         <td>{log.protocol}</td>
                         <td>{log.details}</td>
                     </tr>

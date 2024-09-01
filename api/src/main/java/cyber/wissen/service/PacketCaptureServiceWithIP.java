@@ -114,7 +114,7 @@ public class PacketCaptureServiceWithIP {
 
     private Log createLogFromPacket(Packet packet) {
         Log log = new Log();
-        log.setPacketData(packet.getRawData());
+        
         log.setTimestamp(LocalDateTime.now());
         return log;
     }

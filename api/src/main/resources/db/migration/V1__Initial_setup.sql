@@ -14,10 +14,14 @@ CREATE TABLE users (
 CREATE TABLE logs (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    source VARCHAR(200) NOT NULL ,
-    destination VARCHAR(200) NOT NULL,  
-    protocol VARCHAR(50) NOT NULL,
-    details VARCHAR(200) NOT NULL,
+    sourceip VARCHAR(200) NOT NULL,
+    sourcemac VARCHAR(2000) NULL,
+    destinationip VARCHAR(200) NOT NULL,
+    destinationmac VARCHAR(2000) NULL,
+    protocol VARCHAR(100) NOT NULL,
+    ipversion VARCHAR(100) NULL,
+    details VARCHAR(2000) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 

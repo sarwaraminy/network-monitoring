@@ -15,6 +15,7 @@ import org.pcap4j.packet.IpV4Packet;
 import org.pcap4j.packet.IpV6Packet;
 import org.pcap4j.packet.LlcPacket;
 import org.pcap4j.packet.Packet;
+import org.pcap4j.packet.TcpPacket;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -95,68 +96,111 @@ public class PacketCaptureService {
     }
 
     private boolean isAnomalous(Packet packet) {
-        // Implement anomaly detection logic
-        return packet.length() > 1500; // Example anomaly detection
+        int packetLength = packet.length();
+        
+        // Check for unusually large or small packet sizes
+        if (packetLength > 1500 || packetLength < 64) {
+            return true;
+        }
+        
+        IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);
+        if (ipV4Packet != null) {
+            // Check for uncommon protocols
+            int protocolNumber = ipV4Packet.getHeader().getProtocol().value();
+            if (protocolNumber != 6 && protocolNumber != 17 && protocolNumber != 1) {
+                return true;
+            }
+    
+            // Example: Detect SYN flood by checking if the SYN flag is set without ACK
+            TcpPacket tcpPacket = packet.get(TcpPacket.class);
+            if (tcpPacket != null && tcpPacket.getHeader().getSyn() && !tcpPacket.getHeader().getAck()) {
+                return true;
+            }
+        }
+        
+        // Further anomaly detection logic can be added here
+        
+        return false;
     }
 
     private Log createLogFromPacket(Packet packet) {
+        PacketDTO packetDTO = createPacketDTO(packet);
         Log log = new Log();
-        log.setPacketData(packet.getRawData());
+    
+        log.setSourceip(packetDTO.getSourceIpAddress());
+        log.setDestinationip(packetDTO.getDestinationIpAddress());
+    
+        EthernetPacket ethernetPacket = packet.get(EthernetPacket.class);
+        if (ethernetPacket != null) {
+            log.setSourcemac(ethernetPacket.getHeader().getSrcAddr().toString());
+            log.setDestinationmac(ethernetPacket.getHeader().getDstAddr().toString());
+            log.setIpversion(ethernetPacket.getHeader().getType().toString());
+        }
+    
+        log.setProtocol(getProtocol(packet));
+    
+        // Convert packet to string and truncate if necessary
+        String details = packet.toString();
+        if (details.length() > 2000) {
+            details = details.substring(0, 2000);
+        }
+        log.setDetails(details);
+    
         log.setTimestamp(LocalDateTime.now());
+    
         return log;
     }
 
-
     private PacketDTO createPacketDTO(Packet packet) {
-    PacketDTO packetDTO = new PacketDTO();
-
-    // Ethernet header extraction (as you already have)
-    EthernetPacket ethernetPacket = packet.get(EthernetPacket.class);
-    EthernetHeaderDTO ethernetHeaderDTO = new EthernetHeaderDTO();
-    ethernetHeaderDTO.setDestinationAddress(ethernetPacket.getHeader().getDstAddr().toString());
-    ethernetHeaderDTO.setSourceAddress(ethernetPacket.getHeader().getSrcAddr().toString());
-    ethernetHeaderDTO.setType(ethernetPacket.getHeader().getType().toString());
-    packetDTO.setEthernetHeader(ethernetHeaderDTO);
-
-    // Extract IP addresses
-    IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);
-    if (ipV4Packet != null) {
-        String srcIp = ipV4Packet.getHeader().getSrcAddr().getHostAddress();
-        String dstIp = ipV4Packet.getHeader().getDstAddr().getHostAddress();
-        packetDTO.setSourceIpAddress(srcIp);
-        packetDTO.setDestinationIpAddress(dstIp);
-    } else {
-        IpV6Packet ipV6Packet = packet.get(IpV6Packet.class);
-        if (ipV6Packet != null) {
-            String srcIp = ipV6Packet.getHeader().getSrcAddr().getHostAddress();
-            String dstIp = ipV6Packet.getHeader().getDstAddr().getHostAddress();
+        PacketDTO packetDTO = new PacketDTO();
+    
+        // Ethernet header extraction (as you already have)
+        EthernetPacket ethernetPacket = packet.get(EthernetPacket.class);
+        EthernetHeaderDTO ethernetHeaderDTO = new EthernetHeaderDTO();
+        ethernetHeaderDTO.setDestinationAddress(ethernetPacket.getHeader().getDstAddr().toString());
+        ethernetHeaderDTO.setSourceAddress(ethernetPacket.getHeader().getSrcAddr().toString());
+        ethernetHeaderDTO.setType(ethernetPacket.getHeader().getType().toString());
+        packetDTO.setEthernetHeader(ethernetHeaderDTO);
+    
+        // Extract IP addresses
+        IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);
+        if (ipV4Packet != null) {
+            String srcIp = ipV4Packet.getHeader().getSrcAddr().getHostAddress();
+            String dstIp = ipV4Packet.getHeader().getDstAddr().getHostAddress();
             packetDTO.setSourceIpAddress(srcIp);
             packetDTO.setDestinationIpAddress(dstIp);
+        } else {
+            IpV6Packet ipV6Packet = packet.get(IpV6Packet.class);
+            if (ipV6Packet != null) {
+                String srcIp = ipV6Packet.getHeader().getSrcAddr().getHostAddress();
+                String dstIp = ipV6Packet.getHeader().getDstAddr().getHostAddress();
+                packetDTO.setSourceIpAddress(srcIp);
+                packetDTO.setDestinationIpAddress(dstIp);
+            }
         }
-    }
 
-    // LLC and other data processing (if needed)
-    LlcPacket llcPacket = packet.get(LlcPacket.class);
-    if (llcPacket != null) {
-        LlcHeaderDTO llcHeaderDTO = new LlcHeaderDTO();
-        llcHeaderDTO.setDsap(llcPacket.getHeader().getDsap().toString());
-        llcHeaderDTO.setSsap(llcPacket.getHeader().getSsap().toString());
-        llcHeaderDTO.setControl(llcPacket.getHeader().getControl().toString());
-        packetDTO.setLlcHeader(llcHeaderDTO);
-    }
+        // LLC and other data processing (if needed)
+        LlcPacket llcPacket = packet.get(LlcPacket.class);
+        if (llcPacket != null) {
+            LlcHeaderDTO llcHeaderDTO = new LlcHeaderDTO();
+            llcHeaderDTO.setDsap(llcPacket.getHeader().getDsap().toString());
+            llcHeaderDTO.setSsap(llcPacket.getHeader().getSsap().toString());
+            llcHeaderDTO.setControl(llcPacket.getHeader().getControl().toString());
+            packetDTO.setLlcHeader(llcHeaderDTO);
+        }
 
-    // Example: Converting raw data to hex string for display
-    //HexConverter hexConverter = new HexConverter();
-    //String hexStream = toHexStream(packet.getRawData());
-    //byte[] byteArray = hexConverter.hexStringToByteArray(hexStream);
-    //String readableFormat = hexConverter.formatAsReadable(byteArray);
-    //System.out.println("Readable Format: " + readableFormat);
+        // Example: Converting raw data to hex string for display
+        //HexConverter hexConverter = new HexConverter();
+        //String hexStream = toHexStream(packet.getRawData());
+        //byte[] byteArray = hexConverter.hexStringToByteArray(hexStream);
+        //String readableFormat = hexConverter.formatAsReadable(byteArray);
+        //System.out.println("Readable Format: " + readableFormat);
+        
+        packetDTO.setDataHexStream(toHexStream(packet.getRawData()));
+        // Assume EthernetPad extraction is done similarly
+        packetDTO.setEthernetPadHexStream(extractEthernetPadHexStream(packet));
     
-    packetDTO.setDataHexStream(toHexStream(packet.getRawData()));
-    // Assume EthernetPad extraction is done similarly
-    packetDTO.setEthernetPadHexStream(extractEthernetPadHexStream(packet));
-
-    return packetDTO;
+        return packetDTO;
    }
 
    private String toHexStream(byte[] data) {
@@ -227,5 +271,19 @@ public class PacketCaptureService {
    // Clear the stored data
    public void clearCapturedPackets() {
     capturedPackets.clear();
+   }
+
+   // extract protocol information from IP
+   private String getProtocol(Packet packet) {
+      IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);
+      if (ipV4Packet != null) {
+          return ipV4Packet.getHeader().getProtocol().name();
+      } else {
+          IpV6Packet ipV6Packet = packet.get(IpV6Packet.class);
+          if (ipV6Packet != null) {
+              return ipV6Packet.getHeader().getNextHeader().name();
+          }
+      }
+      return "Unknown Protocol";
    }
 }

@@ -38,7 +38,6 @@ public class LogController {
     public ResponseEntity<List<Log>> getAllLogs(@RequestHeader("Authorization") String authHeader) {
         String email = jwtService.extractEmailFromToken(authHeader);
         User user = userService.getUserByEmail(email);
-        
         if (user != null) {
             return ResponseEntity.ok(logService.getAllLogs());
         } else {
