@@ -37,9 +37,13 @@ public class PacketCaptureController {
     private IPGeolocationService geoService;
 
     @PostMapping("/start")
-    public ResponseEntity<Void> startCapture(@RequestParam String interfaceName) {
+    public ResponseEntity<Void> startCapture(
+            @RequestParam String interfaceName,
+            @RequestParam int snaplength,
+            @RequestParam int timeout) {
+                
         try {
-            packetCaptureService.startCapture(interfaceName);
+            packetCaptureService.startCapture(interfaceName, snaplength, timeout);
             return ResponseEntity.ok().build();
         } catch (Exception e) {
             return ResponseEntity.status(500).body(null);

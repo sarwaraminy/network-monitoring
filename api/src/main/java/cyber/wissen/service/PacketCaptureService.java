@@ -48,7 +48,7 @@ public class PacketCaptureService {
     }
 
     // start capturing packets from specific giving interface
-    public void startCapture(String interfaceName)  {
+    public void startCapture(String interfaceName, int snapshotLength, int timeout)  {
         if (capturing) return;
 
         try {
@@ -56,9 +56,7 @@ public class PacketCaptureService {
             if (nif == null) {
                 throw new IllegalArgumentException("No such interface found: " + interfaceName);
             }
-
-            int snapshotLength = 65536; // Capture all packets, no truncation
-            int timeout = 10; // In milliseconds
+            
             handle = nif.openLive(snapshotLength, PcapNetworkInterface.PromiscuousMode.PROMISCUOUS, timeout);
 
             capturing = true;
@@ -124,14 +122,23 @@ public class PacketCaptureService {
     }
 
     private Log createLogFromPacket(Packet packet) {
-        PacketDTO packetDTO = createPacketDTO(packet);
         Log log = new Log();
     
-        log.setSourceip(packetDTO.getSourceIpAddress());
-        log.setDestinationip(packetDTO.getDestinationIpAddress());
+        // Extract IP addresses
+        IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);
+        IpV6Packet ipV6Packet = packet.get(IpV6Packet.class);
+        if (ipV4Packet != null) {
+            log.setSourceip(ipV4Packet.getHeader().getSrcAddr().getHostAddress());
+            log.setDestinationip(ipV4Packet.getHeader().getDstAddr().getHostAddress());
+        } else {
+            if (ipV6Packet != null) {
+                log.setSourceip(ipV6Packet.getHeader().getSrcAddr().getHostAddress());
+                log.setDestinationip(ipV6Packet.getHeader().getDstAddr().getHostAddress());
+            }
+        }
     
         EthernetPacket ethernetPacket = packet.get(EthernetPacket.class);
-        if (ethernetPacket != null) {
+        if (ethernetPacket != null && (ipV4Packet != null || ipV6Packet != null )) {
             log.setSourcemac(ethernetPacket.getHeader().getSrcAddr().toString());
             log.setDestinationmac(ethernetPacket.getHeader().getDstAddr().toString());
             log.setIpversion(ethernetPacket.getHeader().getType().toString());
