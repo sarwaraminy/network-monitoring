@@ -10,11 +10,13 @@ const PacketCaptureWithIP = () => {
     const [ipInfo, setIpInfo] = useState(null);
     const [showModal, setShowModal] = useState(false);
     const [filterIp, setFilterIp] = useState('');
+    const [selectedSnapshotLength, setSelectedSnapshotLength] = useState(65536);
+    const [selectedTimeout, setSelectedTimeout] = useState(10);
 
     const startCapture = async () => {
         try {
             await axios.post(`${process.env.REACT_APP_API_SERVER}/api/ip/packets/start`, null, {
-                params: { interfaceName: selectedInterface, ipAddress: filterIp }
+                params: { interfaceName: selectedInterface, ipAddress: filterIp, snaplength: selectedSnapshotLength, timeout: selectedTimeout }
             });
             setCapturing(true);
         } catch (error) {
@@ -107,7 +109,19 @@ const PacketCaptureWithIP = () => {
                         ))}
                     </select>
                 </div>
-                <div className='form-group col-md-3'>
+                <div className='form-group col-md-1'>
+                    <label for="snapshotLength">Snapshot Length:</label>
+                    <input type="number" id="snapshotLength" className="form-control" value={selectedSnapshotLength} 
+                      onChange={e => setSelectedSnapshotLength(e.target.value)}
+                    />
+                </div>
+                <div className='form-group col-md-1'>
+                <label for="timeout">Timeout (ms):</label>
+                    <input type="number" id="timeout" className="form-control" value={selectedTimeout} 
+                      onChange={e => setSelectedTimeout(e.target.value)}
+                    />
+                </div>
+                <div className='form-group col-md-2'>
                     <label htmlFor="filterIp">Filter by IP Address:</label>
                     <input 
                         type="text" 
@@ -148,26 +162,28 @@ const PacketCaptureWithIP = () => {
                     </thead>
                     <tbody>
                         {packets && packets.map((packet, i) => (
-                            <tr key={i}>
-                                <td>{packet.ethernetHeader.destinationAddress}</td>
-                                <td>
-                                    <button className='btn btn-link' onClick={() => handleIpClick(packet.destinationIpAddress)}>
-                                        {packet.destinationIpAddress}
-                                    </button>
-                                </td>
-                                <td>{packet.ethernetHeader.sourceAddress}</td>
-                                <td>
-                                    <button className='btn btn-link' onClick={() => handleIpClick(packet.sourceIpAddress)}>
-                                        {packet.sourceIpAddress}
-                                    </button>
-                                </td>
-                                <td>{packet.ethernetHeader.type}</td>
-                                <td>{packet.llcHeader?.dsap}</td>
-                                <td>{packet.llcHeader?.ssap}</td>
-                                <td>{packet.llcHeader?.control}</td>
-                                <td>{packet.dataHexStream || ''}</td>
-                                <td>{packet.ethernetPadHexStream || ''}</td>
-                            </tr>
+                            packet.destinationIpAddress ? (
+                                <tr key={i}>
+                                    <td>{packet.ethernetHeader.destinationAddress}</td>
+                                    <td>
+                                        <button className='btn btn-link' onClick={() => handleIpClick(packet.destinationIpAddress)}>
+                                            {packet.destinationIpAddress}
+                                        </button>
+                                    </td>
+                                    <td>{packet.ethernetHeader.sourceAddress}</td>
+                                    <td>
+                                        <button className='btn btn-link' onClick={() => handleIpClick(packet.sourceIpAddress)}>
+                                            {packet.sourceIpAddress}
+                                        </button>
+                                    </td>
+                                    <td>{packet.ethernetHeader.type}</td>
+                                    <td>{packet.llcHeader?.dsap || ''}</td>
+                                    <td>{packet.llcHeader?.ssap || ''}</td>
+                                    <td>{packet.llcHeader?.control || ''}</td>
+                                    <td>{packet.dataHexStream || ''}</td>
+                                    <td>{packet.ethernetPadHexStream || ''}</td>
+                                </tr>
+                            ) : null
                         ))}
                     </tbody>
                 </table>

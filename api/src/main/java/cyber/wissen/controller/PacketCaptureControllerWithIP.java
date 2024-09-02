@@ -39,10 +39,14 @@ public class PacketCaptureControllerWithIP {
 
     // Start capturing packets from a specific IP address
     @PostMapping("/start")
-    public ResponseEntity<Void> startCapture(@RequestParam String ipAddress, @RequestParam String interfaceName) {
+    public ResponseEntity<Void> startCapture(
+            @RequestParam String ipAddress, 
+            @RequestParam String interfaceName,
+            @RequestParam int snaplength,
+            @RequestParam int timeout) {
         try {
             packetCaptureServiceWithIP.setFilterIpAddress(ipAddress);  // Set the IP address filter
-            packetCaptureServiceWithIP.startCapture(interfaceName);     // Start capture on the specified interface
+            packetCaptureServiceWithIP.startCapture(interfaceName, snaplength, timeout);     // Start capture on the specified interface
             return ResponseEntity.ok().build();
         } catch (Exception e) {
             e.printStackTrace(); // Log the exception for debugging

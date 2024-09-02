@@ -2,7 +2,10 @@ package cyber.wissen.service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.pcap4j.core.NotOpenException;
@@ -10,12 +13,14 @@ import org.pcap4j.core.PcapHandle;
 import org.pcap4j.core.PcapNativeException;
 import org.pcap4j.core.PcapNetworkInterface;
 import org.pcap4j.core.Pcaps;
+import org.pcap4j.packet.ArpPacket;
 import org.pcap4j.packet.EthernetPacket;
 import org.pcap4j.packet.IpV4Packet;
 import org.pcap4j.packet.IpV6Packet;
 import org.pcap4j.packet.LlcPacket;
 import org.pcap4j.packet.Packet;
 import org.pcap4j.packet.TcpPacket;
+import org.pcap4j.packet.UdpPacket;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -95,31 +100,154 @@ public class PacketCaptureService {
 
     private boolean isAnomalous(Packet packet) {
         int packetLength = packet.length();
-        
-        // Check for unusually large or small packet sizes
-        if (packetLength > 1500 || packetLength < 64) {
+    
+        // Adjusted size check (example: allowing smaller packets if part of an ACK)
+        if (packetLength > 1500 || (packetLength < 64 && !isValidSmallPacket(packet))) {
             return true;
         }
-        
+    
         IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);
         if (ipV4Packet != null) {
-            // Check for uncommon protocols
             int protocolNumber = ipV4Packet.getHeader().getProtocol().value();
             if (protocolNumber != 6 && protocolNumber != 17 && protocolNumber != 1) {
                 return true;
             }
     
-            // Example: Detect SYN flood by checking if the SYN flag is set without ACK
             TcpPacket tcpPacket = packet.get(TcpPacket.class);
             if (tcpPacket != null && tcpPacket.getHeader().getSyn() && !tcpPacket.getHeader().getAck()) {
                 return true;
             }
         }
-        
-        // Further anomaly detection logic can be added here
-        
+    
+        // Example MITM detection: ARP spoofing
+        if (isArpSpoofed(packet)) {
+            return true;
+        }
+    
+        // Example MITM detection: Unusual SSL certificate
+        if (isUnusualSslCertificate(packet)) {
+            return true;
+        }
+    
         return false;
     }
+    
+    
+    // Helper methods for additional checks
+    private boolean isValidSmallPacket(Packet packet) {
+       TcpPacket tcpPacket = packet.get(TcpPacket.class);
+       if (tcpPacket != null) {
+           // ACK-only packets typically have no payload and are small
+           if (tcpPacket.getHeader().getAck() && 
+               !tcpPacket.getHeader().getSyn() && 
+               !tcpPacket.getHeader().getFin() && 
+               !tcpPacket.getHeader().getPsh()) {
+               return true;
+           }
+       }
+
+        UdpPacket udpPacket = packet.get(UdpPacket.class);
+        if (udpPacket != null) {
+            // DNS query/response packets can be small
+            int srcPort = udpPacket.getHeader().getSrcPort().valueAsInt();
+            int dstPort = udpPacket.getHeader().getDstPort().valueAsInt();
+            if (srcPort == 53 || dstPort == 53) {
+                return true;
+            }
+        }
+    
+        return false;
+    }
+
+    
+    private boolean isArpSpoofed(Packet packet) {
+        ArpPacket arpPacket = packet.get(ArpPacket.class);
+        if (arpPacket != null) {
+            ArpPacket.ArpHeader arpHeader = arpPacket.getHeader();
+    
+            String senderIpAddress = arpHeader.getSrcProtocolAddr().toString();
+            String senderMacAddress = arpHeader.getSrcHardwareAddr().toString();
+    
+            // Check for inconsistencies or known spoofed MAC addresses
+            // (You could maintain a mapping of IP-MAC pairs that you trust)
+            if (!isTrustedMapping(senderIpAddress, senderMacAddress)) {
+                return true;
+            }
+        }
+    
+        return false;
+    }
+    
+    private boolean isTrustedMapping(String ipAddress, String macAddress) {
+        // Implement logic to verify if the IP-MAC mapping is trusted
+        // This could involve checking against a list of known devices or recent network changes
+        // For simplicity, let's assume you have a known mapping in a HashMap
+    
+        Map<String, String> knownMappings = getKnownMappings();
+        if (knownMappings.containsKey(ipAddress)) {
+            return !knownMappings.get(ipAddress).equals(macAddress);
+        }
+    
+        return false;
+    }
+    
+    private Map<String, String> getKnownMappings() {
+        // Example of a known mapping; in a real scenario, this would be dynamic
+        Map<String, String> mappings = new HashMap<>();
+        mappings.put("10.0.0.1", "00:11:22:33:44:55");
+        mappings.put("10.0.0.2", "66:77:88:99:AA:BB");
+        return mappings;
+    }
+
+    
+    private boolean isUnusualSslCertificate(Packet packet) {
+        // Assuming you are inspecting a TCP packet on port 443 (HTTPS)
+        TcpPacket tcpPacket = packet.get(TcpPacket.class);
+        if (tcpPacket != null) {
+            int srcPort = tcpPacket.getHeader().getSrcPort().valueAsInt();
+            int dstPort = tcpPacket.getHeader().getDstPort().valueAsInt();
+            
+            if (srcPort == 443 || dstPort == 443) {
+                // Extract SSL/TLS handshake data, if possible
+                // This would typically involve parsing the TLS ClientHello/ServerHello messages
+                byte[] payload = tcpPacket.getPayload().getRawData();
+                if (isSuspiciousCertificate(payload)) {
+                    return true;
+                }
+            }
+        }
+    
+        return false;
+    }
+    
+    private boolean isSuspiciousCertificate(byte[] payload) {
+        // Implement logic to inspect the TLS handshake and extract the certificate details
+        // Example: Check for certificate fields in the payload (requires TLS parsing)
+        
+        // Placeholder: Assume we check for a known suspicious certificate pattern
+        return false;
+    }
+    
+    
+    private boolean isTrustedCertificate(String issuer, String subject) {
+        // Implement logic to verify if the certificate is trusted
+        // This could involve checking the issuer against a list of trusted CAs
+        List<String> trustedCAs = getTrustedCAs();
+        
+        if (!trustedCAs.contains(issuer)) {
+            return false;
+        }
+    
+        // Additional checks can be done on the subject, expiry, etc.
+        return true;
+    }
+    
+    private List<String> getTrustedCAs() {
+        // Example list of trusted CAs; in reality, this could be more extensive and dynamic
+        return Arrays.asList("TrustedCA1", "TrustedCA2", "TrustedCA3");
+    }
+    
+    
 
     private Log createLogFromPacket(Packet packet) {
         Log log = new Log();

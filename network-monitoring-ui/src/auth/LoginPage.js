@@ -60,57 +60,109 @@ export const LoginPage = () => {
     };
 
     return(
-        <div className="container">
-            <div className="row justify-content-center">
-                <div className="col-md-6">
-                    <div className="card md-6">
-                        <div className="card-header text center">
-                            <h3>Login Pag</h3>
-                        </div>
-                        {errorMessage && <div className="alert alert-danger">{errorMessage}</div>}
-                        <div className="card-body">
-                            <div className="form-group">
-                                <label htmlFor="email">Email Address</label>
-                                <input type="email" className="form-control" id="email" placeholder="someone@someemail.com"
-                                  value={emailValue}
-                                  onChange={e => setEmailValue(e.target.value)}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label htmlFor="password">password</label>
-                                <input type="password" className="form-control" id="password" placeholder="password"
-                                 value={passwordValue}
-                                 onChange={e => setPasswordValue(e.target.value)}
-                                />
-                            </div>
-                            <div className="form-group ml-3">
-                                <input type="checkbox" className="form-check-input" id="rememberMe"
-                                 checked={rememberMe} 
-                                 onChange={e => setRememberMe(e.target.value)}
-                                />
-                                <label className="form-check-control" htmlFor="rememberMe">Remember Me</label>
-                            </div>
-                            <button className="btn btn-primary col-12 mt-2"
-                             onClick={handleLogin}
-                             disabled={!emailValue || !passwordValue }
-                            >
-                                Login
-                            </button>
-                            <button className="btn btn-secondary col-12 mt-2"
-                             onClick={() => navigate("/forgot-pass")}
-                            >
-                                Forgot Password?
-                            </button>
-                            <button className="btn btn-primary col-12 mt-2"
-                             onClick={() => navigate("/sign-up")}
-                            >
-                                Dosn't have an account? Sign up
-                            </button>
-                        </div>
+        <section className="vh-100 login-bimg">
+          <div className="container py-5 h-100">
+            <div className="row d-flex justify-content-center align-items-center h-100">
+              <div className="col col-xl-10">
+                <div className="card" style={{ borderRadius: "1rem" }}>
+                  <div className="row g-0">
+                    <div className="col-md-6 col-lg-5 d-none d-md-block">
+                      <img
+                        src="https://mdbcdn.b-cdn.net/img/Photos/new-templates/bootstrap-login-form/img1.webp"
+                        alt="login form"
+                        className="img-fluid"
+                        style={{ borderRadius: "1rem 0 0 1rem" }}
+                      />
                     </div>
                     
+                    <div className="col-md-6 col-lg-7 d-flex align-items-center">
+                      <div className="card-body p-4 p-lg-5 text-black">
+                        <form>
+                          <div className="d-flex align-items-center mb-3 pb-1">
+                            <span className="h1 fw-bold mb-0 login-bimg col-md-12 pb-2 ps-2"><img src='/images/logo.svg' alt=' ' /></span>
+                          </div>
+                          {errorMessage && <div className="alert alert-danger">{errorMessage}</div>}
+                          <h5
+                            className="fw-normal mb-3 pb-3"
+                            style={{ letterSpacing: "1px" }}
+                          >
+                            Sign into your account
+                          </h5>
+        
+                          <div data-mdb-input-init className="form-outline mb-4">
+                            <input
+                              type="email"
+                              id="email"
+                              className="form-control form-control-lg"
+                              placeholder="someone@someemail.com"
+                              value={emailValue}
+                              onChange={e => setEmailValue(e.target.value)}
+                            />
+                            <label
+                              className="form-label"
+                              htmlFor="email"
+                            >
+                              Email address
+                            </label>
+                          </div>
+        
+                          <div data-mdb-input-init className="form-outline mb-4">
+                            <input
+                              type="password"
+                              id="password"
+                              className="form-control form-control-lg"
+                              placeholder="password"
+                              value={passwordValue}
+                              onChange={e => setPasswordValue(e.target.value)}
+                            />
+                            <label
+                              className="form-label"
+                              htmlFor="password"
+                            >
+                              Password
+                            </label>
+                          </div>
+        
+                          <div className="pt-1 mb-4">
+                            <button
+                              data-mdb-button-init
+                              data-mdb-ripple-init
+                              className="btn btn-primary col-12 mt-2"
+                              type="button"
+                              onClick={handleLogin}
+                              disabled={!emailValue || !passwordValue }
+                            >
+                              Login
+                            </button>
+                          </div>
+        
+                          <a className="small text-muted" href="#!">
+                            Forgot password?
+                          </a>
+                          <p
+                            className="mb-5 pb-lg-2"
+                            style={{ color: "#393f81" }}
+                          >
+                            Don't have an account?{" "}
+                            <a href="/sign-up" style={{ color: "#393f81" }}>
+                              Register here
+                            </a>
+                          </p>
+                          <a href="#!" className="small text-muted">
+                            Terms of use.
+                          </a>
+                          <a href="#!" className="small text-muted">
+                            Privacy policy
+                          </a>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
                 </div>
+              </div>
             </div>
-        </div>
+          </div>
+        </section>
+
     );
 };

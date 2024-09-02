@@ -45,7 +45,7 @@ const LogPage = () => {
 
     return (
         <>
-        <div className="table-container">
+        <div className="table-container mt-3">
         <table className="table table-striped table-bordered table-hover">
             <thead className="sticky-header">
                 <tr>

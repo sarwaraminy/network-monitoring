@@ -16,6 +16,7 @@ import org.pcap4j.packet.IpV4Packet;
 import org.pcap4j.packet.IpV6Packet;
 import org.pcap4j.packet.LlcPacket;
 import org.pcap4j.packet.Packet;
+import org.pcap4j.packet.TcpPacket;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -54,7 +55,7 @@ public class PacketCaptureServiceWithIP {
     }
     
     // Start capturing packets from a specific interface with a filter
-    public void startCapture(String interfaceName) throws NotOpenException {
+    public void startCapture(String interfaceName, int snapshotLength, int timeout) throws NotOpenException {
         if (capturing) return;
 
         try {
@@ -63,8 +64,6 @@ public class PacketCaptureServiceWithIP {
                 throw new IllegalArgumentException("No such interface found: " + interfaceName);
             }
 
-            int snapshotLength = 65536; // Capture all packets, no truncation
-            int timeout = 10; // In milliseconds
             handle = nif.openLive(snapshotLength, PcapNetworkInterface.PromiscuousMode.PROMISCUOUS, timeout);
 
             // Apply a filter if an IP address is set
@@ -108,14 +107,82 @@ public class PacketCaptureServiceWithIP {
     }
 
     private boolean isAnomalous(Packet packet) {
-        // Implement anomaly detection logic
-        return packet.length() > 1500; // Example anomaly detection
+        int packetLength = packet.length();
+        
+        // Check for unusually large or small packet sizes
+        if (packetLength > 1500 || packetLength < 64) {
+            return true;
+        }
+        
+        IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);
+        if (ipV4Packet != null) {
+            // Check for uncommon protocols
+            int protocolNumber = ipV4Packet.getHeader().getProtocol().value();
+            if (protocolNumber != 6 && protocolNumber != 17 && protocolNumber != 1) {
+                return true;
+            }
+    
+            // Example: Detect SYN flood by checking if the SYN flag is set without ACK
+            TcpPacket tcpPacket = packet.get(TcpPacket.class);
+            if (tcpPacket != null && tcpPacket.getHeader().getSyn() && !tcpPacket.getHeader().getAck()) {
+                return true;
+            }
+        }
+        
+        IpV6Packet ipV6Packet = packet.get(IpV6Packet.class);
+        if (ipV6Packet != null) {
+            // Check for uncommon protocols
+            int protocolNumber = ipV6Packet.getHeader().getProtocol().value();
+            if (protocolNumber != 6 && protocolNumber != 17 && protocolNumber != 1) {
+                return true;
+            }
+    
+            // Example: Detect SYN flood by checking if the SYN flag is set without ACK
+            TcpPacket tcpPacket = packet.get(TcpPacket.class);
+            if (tcpPacket != null && tcpPacket.getHeader().getSyn() && !tcpPacket.getHeader().getAck()) {
+                return true;
+            }
+        }
+        
+        // Further anomaly detection logic can be added here
+        
+        return false;
     }
 
     private Log createLogFromPacket(Packet packet) {
         Log log = new Log();
-        
+    
+        // Extract IP addresses
+        IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);
+        IpV6Packet ipV6Packet = packet.get(IpV6Packet.class);
+        if (ipV4Packet != null) {
+            log.setSourceip(ipV4Packet.getHeader().getSrcAddr().getHostAddress());
+            log.setDestinationip(ipV4Packet.getHeader().getDstAddr().getHostAddress());
+        } else {
+            if (ipV6Packet != null) {
+                log.setSourceip(ipV6Packet.getHeader().getSrcAddr().getHostAddress());
+                log.setDestinationip(ipV6Packet.getHeader().getDstAddr().getHostAddress());
+            }
+        }
+    
+        EthernetPacket ethernetPacket = packet.get(EthernetPacket.class);
+        if (ethernetPacket != null && (ipV4Packet != null || ipV6Packet != null )) {
+            log.setSourcemac(ethernetPacket.getHeader().getSrcAddr().toString());
+            log.setDestinationmac(ethernetPacket.getHeader().getDstAddr().toString());
+            log.setIpversion(ethernetPacket.getHeader().getType().toString());
+        }
+    
+        log.setProtocol(getProtocol(packet));
+    
+        // Convert packet to string and truncate if necessary
+        String details = packet.toString();
+        if (details.length() > 2000) {
+            details = details.substring(0, 2000);
+        }
+        log.setDetails(details);
+    
         log.setTimestamp(LocalDateTime.now());
+    
         return log;
     }
 
@@ -206,5 +273,19 @@ public class PacketCaptureServiceWithIP {
     public void clearCapturedPackets() {
         capturedPackets.clear();
     }
+
+    // extract protocol information from IP
+   private String getProtocol(Packet packet) {
+      IpV4Packet ipV4Packet = packet.get(IpV4Packet.class);
+      if (ipV4Packet != null) {
+          return ipV4Packet.getHeader().getProtocol().name();
+      } else {
+          IpV6Packet ipV6Packet = packet.get(IpV6Packet.class);
+          if (ipV6Packet != null) {
+              return ipV6Packet.getHeader().getNextHeader().name();
+          }
+      }
+      return "Unknown Protocol";
+   }
 }
 
