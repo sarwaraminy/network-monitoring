@@ -91,7 +91,7 @@ public class PacketCaptureService {
         capturing = false;
     }
 
-    private void processPacket(Packet packet) {
+    private synchronized void processPacket(Packet packet) {
         capturedPackets.add(packet);
         if (isAnomalous(packet)) {
             logService.saveLog(createLogFromPacket(packet));
@@ -210,7 +210,11 @@ public class PacketCaptureService {
             if (srcPort == 443 || dstPort == 443) {
                 // Extract SSL/TLS handshake data, if possible
                 // This would typically involve parsing the TLS ClientHello/ServerHello messages
-                byte[] payload = tcpPacket.getPayload().getRawData();
+                byte[] payload = null;
+                if (tcpPacket.getPayload() != null){
+                    payload = tcpPacket.getPayload().getRawData();
+                }
+                
                 if (isSuspiciousCertificate(payload)) {
                     return true;
                 }
@@ -331,6 +335,7 @@ public class PacketCaptureService {
         //String readableFormat = hexConverter.formatAsReadable(byteArray);
         //System.out.println("Readable Format: " + readableFormat);
         
+        
         packetDTO.setDataHexStream(toHexStream(packet.getRawData()));
         // Assume EthernetPad extraction is done similarly
         packetDTO.setEthernetPadHexStream(extractEthernetPadHexStream(packet));
@@ -399,12 +404,12 @@ public class PacketCaptureService {
        return padData;
    }
 
-   public List<PacketDTO> getCapturedPackets() {
+   public synchronized List<PacketDTO> getCapturedPackets() {
        return capturedPackets.stream().map(this::createPacketDTO).collect(Collectors.toList());
    }
 
    // Clear the stored data
-   public void clearCapturedPackets() {
+   public synchronized void clearCapturedPackets() {
     capturedPackets.clear();
    }
 
