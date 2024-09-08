@@ -116,7 +116,7 @@ public class PacketCaptureService {
             }
     
             TcpPacket tcpPacket = packet.get(TcpPacket.class);
-            if (tcpPacket != null && tcpPacket.getHeader().getSyn() && !tcpPacket.getHeader().getAck()) {
+            if (tcpPacket != null) {
                 return true;
             }
         }
@@ -137,17 +137,25 @@ public class PacketCaptureService {
     
     // Helper methods for additional checks
     private boolean isValidSmallPacket(Packet packet) {
-       TcpPacket tcpPacket = packet.get(TcpPacket.class);
-       if (tcpPacket != null) {
-           // ACK-only packets typically have no payload and are small
-           if (tcpPacket.getHeader().getAck() && 
-               !tcpPacket.getHeader().getSyn() && 
-               !tcpPacket.getHeader().getFin() && 
-               !tcpPacket.getHeader().getPsh()) {
-               return true;
-           }
-       }
-
+        TcpPacket tcpPacket = packet.get(TcpPacket.class);
+        if (tcpPacket != null) {
+            // Allow ACK-only packets
+            if (tcpPacket.getHeader().getAck() && 
+                !tcpPacket.getHeader().getSyn() && 
+                !tcpPacket.getHeader().getFin() && 
+                !tcpPacket.getHeader().getPsh()) {
+                return true;
+            }
+    
+            // **Allow SYN packets as valid small packets**
+            if (tcpPacket.getHeader().getSyn() && 
+                !tcpPacket.getHeader().getAck() && 
+                !tcpPacket.getHeader().getFin() && 
+                !tcpPacket.getHeader().getPsh()) {
+                return true;
+            }
+        }
+    
         UdpPacket udpPacket = packet.get(UdpPacket.class);
         if (udpPacket != null) {
             // DNS query/response packets can be small
@@ -159,7 +167,7 @@ public class PacketCaptureService {
         }
     
         return false;
-    }
+    }    
 
     
     private boolean isArpSpoofed(Packet packet) {
