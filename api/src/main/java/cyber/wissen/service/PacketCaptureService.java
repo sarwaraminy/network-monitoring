@@ -94,7 +94,9 @@ public class PacketCaptureService {
     private synchronized void processPacket(Packet packet) {
         capturedPackets.add(packet);
         if (isAnomalous(packet)) {
-            logService.saveLog(createLogFromPacket(packet));
+            if (createLogFromPacket(packet).getSourceip() != null) {
+                logService.saveLog(createLogFromPacket(packet));
+            }
         }
     }
 
