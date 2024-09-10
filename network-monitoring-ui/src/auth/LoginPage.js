@@ -79,7 +79,7 @@ export const LoginPage = () => {
                       <div className="card-body p-4 p-lg-5 text-black">
                         <form>
                           <div className="d-flex align-items-center mb-3 pb-1">
-                            <span className="h1 fw-bold mb-0 login-bimg col-md-12 pb-2 ps-2"><img src='/images/logo.svg' alt=' ' /></span>
+                            <span className="h1 fw-bold mb-0 login-bimg col-md-12 pb-2 ps-2 text-light">{/*<img src='/images/logo.svg' alt=' ' />*/} Logo</span>
                           </div>
                           {errorMessage && <div className="alert alert-danger">{errorMessage}</div>}
                           <h5

@@ -46,42 +46,43 @@ const LogPage = () => {
     return (
         <>
         <div className="table-container mt-3">
-        <table className="table table-striped table-bordered table-hover">
-            <thead className="sticky-header">
-                <tr>
-                    <th>Timestamp</th>
-                    <th>Source IP</th>
-                    <th>Source MAC</th>
-                    <th>Destination IP</th>
-                    <th>Destination MAC</th>
-                    <th>IP Version</th>
-                    <th>Protocol</th>
-                    <th>Details</th>
-                </tr>
-            </thead>
-            <tbody>
-                {logs && logs.map(log => (
-                    <tr key={log.id}>
-                        <td>{log.timestamp}</td>
-                        <td>
-                            <button className='btn btn-link' onClick={() => handleIpClick(log.sourceip)}>
-                                {log.sourceip}
-                            </button>
-                        </td>
-                        <td>{log.sourcemac}</td>
-                        <td>
-                            <button className='btn btn-link' onClick={() => handleIpClick(log.destinationip)}>
-                                {log.destinationip}
-                            </button>
-                        </td>
-                        <td>{log.destinationmac}</td>
-                        <td>{log.ipversion}</td>
-                        <td>{log.protocol}</td>
-                        <td>{log.details}</td>
+            <h3>Anomaly Packets</h3>
+            <table className="table table-striped table-bordered table-hover">
+                <thead className="sticky-header">
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Source IP</th>
+                        <th>Source MAC</th>
+                        <th>Destination IP</th>
+                        <th>Destination MAC</th>
+                        <th>IP Version</th>
+                        <th>Protocol</th>
+                        <th>Details</th>
                     </tr>
-                ))}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    {logs && logs.map(log => (
+                        <tr key={log.id}>
+                            <td>{log.timestamp}</td>
+                            <td>
+                                <button className='btn btn-link' onClick={() => handleIpClick(log.sourceip)}>
+                                    {log.sourceip}
+                                </button>
+                            </td>
+                            <td>{log.sourcemac}</td>
+                            <td>
+                                <button className='btn btn-link' onClick={() => handleIpClick(log.destinationip)}>
+                                    {log.destinationip}
+                                </button>
+                            </td>
+                            <td>{log.destinationmac}</td>
+                            <td>{log.ipversion}</td>
+                            <td>{log.protocol}</td>
+                            <td>{log.details}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
         </div>
         <div className="row mt-3"><div className="col-md-12 text-center font-weight-bold">Total Number of Records: {logs.length}</div></div>
 
