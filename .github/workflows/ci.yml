@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # `biome ci` checks formatting and lint without writing anything.
+      - run: npx biome ci
+
+  test:
+    name: Typecheck and test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # libpcap lets the FFI integration tests actually run instead of skipping.
+      # Opening a live handle still needs privileges, so those cases self-skip.
+      - name: Install libpcap
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpcap0.8
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # No database needed: the suite covers decoders and detectors only.
+      - name: Test (API)
+        run: npm run test:api
+        env:
+          JWT_SECRET: ci-secret-not-used-for-anything-real
+
+      # The UI suite (Vitest + Testing Library + MSW) is written but currently
+      # hangs during collection, so it is not gating yet. Re-enable this step once
+      # that is fixed — see "Known issues" in the README.
+      # - name: Test (UI)
+      #   run: npm run test:ui
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          JWT_SECRET: ci-secret-not-used-for-anything-real
+      - name: Check the API entry point was emitted
+        run: test -f api/dist/index.js && test -f api/dist/db/migrations/V1__Initial_setup.sql
+      - name: Check the UI bundle was emitted
+        run: test -f network-monitoring-ui/build/index.html
+
+  docker:
+    name: Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: api/Dockerfile
+          push: false
+          load: true
+          tags: nmt-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build the UI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: network-monitoring-ui/Dockerfile
+          push: false
+          load: true
+          tags: nmt-ui:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke-test the API image
+        run: |
+          # No database, so /ready is expected to fail; /health proves the process
+          # boots, loads config and serves requests.
+          docker run -d --name nmt-api-ci -e JWT_SECRET=ci-secret -p 8080:8080 nmt-api:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health > /dev/null; then
+              echo "API is serving"; break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "API did not become healthy"; docker logs nmt-api-ci; exit 1
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:8080/health
+          docker rm -f nmt-api-ci

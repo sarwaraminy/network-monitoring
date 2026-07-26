@@ -1,130 +1,713 @@
-<h1>install winPcap from <a href="https://npcap.com/#download">nPcap Download</a></h1>
-<h4>Run your application as administrator to capture packet</h4>
+# Network Monitoring Tool (NMT)
 
-<div class="markdown prose w-full break-words dark:prose-invert light">
-  <h1>Network Monitoring Tool (NMT)</h1>
-  <p>The <strong>Network Monitoring Tool (NMT)</strong> is a powerful and customizable tool designed to monitor and analyze network traffic in real-time. It allows users to capture network packets, identify potential anomalies such as Man-In-The-Middle (MITM) attacks, ARP spoofing, and suspicious activity, and gather detailed insights on IP addresses, including geolocation information.</p><p>This project leverages modern technologies for both the backend and frontend:
-  </p>
-  <ul>
-    <li><strong>Frontend:</strong> ReactJS</li>
-    <li><strong>Backend:</strong> Spring Boot (Java)</li>
-    <li><strong>Database:</strong> PostgreSQL</li>
-  </ul>
+Passive network security monitoring. It captures traffic from a chosen interface (optionally
+filtered to a single host), raises security findings from what it sees, and enriches any
+address involved with reverse DNS, WHOIS and geolocation data.
 
-  <h2>Key Features</h2>
-   <ul>
-    <li>
-      <p><strong>Packet Capture:</strong></p>
-      <ul>
-        <li>Capture network traffic from a selected interface.</li>
-        <li>Optionally filter packet capture by specifying a particular IP address or interface.</li>
-      </ul>
-    </li>
-    <li>
-      <p><strong>Anomaly Detection:</strong></p>
-      <ul>
-        <li>Real-time anomaly detection using custom logic.</li>
-        <li>Detection of network threats such as MITM attacks, ARP spoofing, and packet anomalies.</li>
-      </ul>
-    </li>
-    <li>
-      <p><strong>IP Address Lookup:</strong></p>
-      <ul><li>WHOIS lookup integrated to identify the geographical information of IP addresses found in captured packets.</li></ul>
-    </li>
-    <li>
-      <p><strong>User-Friendly UI:</strong></p>
-      <ul>
-        <li>A ReactJS-based intuitive and responsive interface to control packet capture, view detailed packet information, and analyze anomalies.</li>
-        <li>Data visualization and logs for packet analysis.</li>
-      </ul>
-    </li>
-   </ul>
+## What it detects
 
-   <h2>Technology Stack</h2>
-   <h3>Frontend:</h3>
-   <ul><li><strong>ReactJS:</strong> A modern JavaScript library for building fast, interactive user interfaces.</li></ul>
-   <h3>Backend:</h3>
-   <ul><li><strong>Spring Boot:</strong> A Java-based framework to develop REST APIs, handle business logic, and process data efficiently.</li></ul>
-   <h3>Database:</h3>
-   <ul><li><strong>PostgreSQL:</strong> A reliable and powerful open-source relational database to store captured network traffic and analysis results.</li></ul>
-   
-   <h2>Installation</h2>
-   <h3>Prerequisites</h3>
-   <p>Ensure that you have the following software installed:</p>
-   <ul>
-     <li>Java 17+</li>
-     <li>Node.js &amp; npm</li>
-     <li>PostgreSQL 14+</li>
-   </ul>
-   <h3>Backend (Spring Boot)</h3>
-   <ol>
-     <li>
-       <p>Clone the repository:</p>
-        <code style="background-color: gray; color: lightcyan; font-weight: bold;">
-          git <span class="hljs-built_in">clone</span> https://github.com/sarwaraminy/network-monitoring.git <br>
-          <span>cd</span> api<br>
-          <span>mvn clean install</span>
-          <span>java -jar target/network-monitoring-0.0.1-SNAPSHOT.jar</span>
-        </code>
-     </li>
-     <li>
-      <p>Configure the PostgreSQL database in <code style="background-color: gray; color: lightcyan; font-weight: bold;">application.properties</code>:</p>
-      <code style="background-color: gray; color: lightcyan; font-weight: bold;">
-        spring.datasource.url=jdbc:postgresql://localhost:5432/nmt_db <br>
-        spring.datasource.username=your_db_username <br>
-        spring.datasource.password=your_db_password <br>
-      </code>
-     </li>
-     <li>
-      <p>Run the FlywayDB migrations to set up the database schema:</p>
-      <code style="background-color: gray; color: lightcyan; font-weight: bold;">./mvnw flyway:migrate</code>
-     </li>
-     <h3>Frontend (ReactJS)</h3>
-     <li>
-      <p>Install dependencies:</p>
-      <code style="background-color: gray; color: lightcyan; font-weight: bold;">npm install</code>
-     </li>
-     <li>
-      <p>Start React:</p>
-      <code style="background-color: gray; color: lightcyan; font-weight: bold;">npm start</code>
-     </li>
-   </ol>
-   
-   <p>The app will be available at <code>http://localhost:3000</code>.</p>
-   
-   <h2>Usage</h2>
-   <ol>
-    <li><strong>Select Network Interface</strong>: From the frontend, choose a network interface from which to capture traffic.</li>
-    <li><strong>Packet Capture</strong>: Initiate packet capture by specifying either an interface or an interface+IP combination.</li>
-    <li><strong>Analyze Packets</strong>: The system will process captured packets and provide real-time analysis for anomalies.</li>
-    <li><strong>WHOIS Lookup</strong>: Get geographical and domain information about IP addresses from the captured packets.</li>
-    <li><strong>View Results</strong>: Review network anomalies, IP details, and packet logs in a user-friendly interface.</li>
-  </ol>
-  <h2>Future Plans</h2>
-  <ul>
-    <li>Advanced data visualization for packet analysis.</li>
-    <li>Real-time notifications for detected network anomalies.</li>
-    <li>Support for multiple protocols in packet analysis.</li>
-  </ul>
-  <h2>Contributing</h2>
-  <p>Contributions are welcome! Please open an issue or submit a pull request with any improvements or new features.</p>
-  <h2>License</h2>
-  <p>This project is licensed under the MIT License. See the <code>LICENSE</code> file for more details.</p><hr>
-  <p>Feel free to adjust it as necessary, especially the repository links and specific details based on your setup!</p>
+Each detector produces an **alert**: a finding with a severity, an occurrence count and
+structured evidence — not one row per suspicious packet.
 
-  <h3>Screenshoots:</h3>
-  <h4>Login page:</h4>
-  <img alt=" " src="./screenshots/login.png" />
-  <hr>
-  <h4>Dashboard:</h4>
-  <img alt=" " src="./screenshots/Logs.png" />
-  <hr>
-  <h4>Scan packets from an specific Interface:</h4>
-  <img alt=" " src="./screenshots/scanPacket.png" />
-  <hr>
-  <h4>Scan packets from an specific Interface/IP:</h4>
-  <img alt=" " src="./screenshots/scanPacketIP.png" />
-  <hr>
-  <h4>Whois Lookup service</h4>
-  <img alt=" " src="./screenshots/whoisLookup.png" />
-</div>
+| Detector | Severity | What it looks for |
+| --- | --- | --- |
+| **ARP spoofing** | Critical / High | A settled IP address suddenly claimed by a different MAC, or one MAC claiming many addresses. Bindings are learned from live traffic, so no configuration is needed. Alternating MACs (a gratuitous ARP war) escalate to critical. |
+| **Cleartext credentials** | Critical | HTTP Basic auth, login form posts, FTP, Telnet, POP3/IMAP and SMTP AUTH crossing the network unencrypted. **Passwords are never recorded** — only the username and the secret's length. |
+| **Port scan** | High | One source probing many ports on a single host. |
+| **Host sweep** | High | One source probing the same port across many hosts. Web and DNS ports are excluded, so ordinary browsing is not flagged. |
+| **SYN flood** | High | An implausible rate of connection attempts from one source. |
+| **DNS tunnelling** | Medium | Query names shaped like encoded data rather than hostnames, which is how data is smuggled out over DNS. Requires two independent signals before alerting. |
+| **New device** | Medium | A MAC address never seen on this network. Known devices are persisted, and there is a learning period at the start of each capture. |
+
+Detection is designed for precision. The test suite includes a regression guard that replays a
+realistic browsing session — a workstation talking to Microsoft, Bing, Akamai and OpenDNS — and
+asserts that **zero** alerts are produced.
+
+**Stack**
+
+| Layer    | Technology                                                                |
+| -------- | ------------------------------------------------------------------------- |
+| Frontend | React 18 · TypeScript · Vite · MUI · Material React Table                 |
+| Backend  | Node.js · Express · TypeScript · Drizzle ORM                              |
+| Capture  | Npcap / libpcap, called directly via [koffi](https://koffi.dev/) FFI      |
+| Database | PostgreSQL                                                                |
+
+> Previously Spring Boot (Java 17) + Pcap4J + Create React App. See
+> [Migration notes](#migration-notes) for what changed.
+
+---
+
+## Prerequisites
+
+- **Node.js 20 or newer** and npm
+- **PostgreSQL 14 or newer**
+- **Npcap** — <https://npcap.com/#download> (Windows) or `libpcap` (Linux/macOS)
+
+No C++ toolchain is needed. The capture layer calls the pcap library through FFI, and koffi
+ships prebuilt binaries, so there is nothing to compile — see
+[How capture works](#how-capture-works).
+
+Depending on how Npcap was installed, capture may require elevated privileges: run the API
+**as Administrator** on Windows, or with `sudo`/`CAP_NET_RAW` on Linux. Check with
+`GET /api/packets/status`, whose `captureAvailable` field reports whether the library loaded.
+
+---
+
+## Setup
+
+### 1. Install dependencies
+
+From the repository root — this is an npm workspace, so one install covers both packages:
+
+```bash
+npm install
+```
+
+### 2. Create the database
+
+```bash
+createdb netminitoring
+```
+
+### 3. Configure the API
+
+```bash
+cp api/.env.example api/.env
+```
+
+Then edit `api/.env`. Two values matter most:
+
+```ini
+DATABASE_URL=postgres://postgres:yourpassword@localhost:5432/netminitoring
+JWT_SECRET=<paste a generated secret here>
+```
+
+Generate the secret with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
+```
+
+The server refuses to start without `JWT_SECRET`, by design — the Java version had its signing
+key hardcoded in source.
+
+### 4. Configure the frontend (optional)
+
+```bash
+cp network-monitoring-ui/.env.example network-monitoring-ui/.env
+```
+
+Leaving `VITE_API_SERVER` empty is correct for local development: Vite proxies `/api` and
+`/auth` to `http://localhost:8080`, so the browser makes same-origin requests.
+
+### 5. Run migrations
+
+Migrations run automatically on boot while `DB_AUTO_MIGRATE=true`. To run them by hand:
+
+```bash
+npm run migrate
+```
+
+Existing databases are handled: if a `flyway_schema_history` table is present, its applied
+versions are adopted so nothing is re-applied. The SQL files are the same Flyway-style
+`V<n>__<name>.sql` files as before, now in `api/src/db/migrations/`.
+
+### 6. Create a login
+
+The accounts seeded by `V2__Insert_initial_data.sql` (`admin@example.com`, `user@example.com`)
+carry bcrypt hashes **whose plaintext nobody has** — they came from the original Java migration.
+Set a password you know:
+
+```bash
+npm run user -- set-password --email admin@example.com --generate
+```
+
+Or create your own admin account:
+
+```bash
+npm run user -- create --email you@example.com --generate --role ADMIN
+```
+
+`--generate` prints a strong random password. `npm run user -- list` shows every account, and
+`npm run user` on its own lists the commands. This is also how you recover from a forgotten
+password — there is no email reset flow.
+
+### 7. Start both sides
+
+```bash
+npm run dev
+```
+
+- API — <http://localhost:8080>
+- UI — <http://localhost:5173>
+
+Or individually with `npm run dev:api` / `npm run dev:ui`.
+
+---
+
+## Running with Docker
+
+Brings up Postgres, the API and the UI together. nginx serves the UI and proxies the API, so
+everything is on one origin.
+
+```bash
+cp .env.docker.example .env      # then fill in JWT_SECRET and POSTGRES_PASSWORD
+docker compose up --build
+npm run user -- list             # see the Docker note below before running this
+```
+
+Open <http://localhost:8080>.
+
+**Live capture does not work in this configuration**, by design: the API container has its own
+network namespace, so it would only ever see its own traffic. Everything else — alerts, history,
+lookups, auth — works normally. To capture, either run the API on the host (`npm run dev:api`),
+or on a **Linux** host use the override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.capture.yml up --build
+```
+
+That grants `network_mode: host` plus `NET_RAW`/`NET_ADMIN`, which is a real privilege
+escalation — a container in the host network namespace with `NET_RAW` can read all traffic the
+host can see. It is **Linux-only**: on Docker Desktop for Windows or macOS the engine runs in
+its own VM, so host networking attaches to that VM's interfaces rather than your machine's.
+
+Two things that catch people out:
+
+- **`POSTGRES_PASSWORD` only applies on first run.** Postgres sets it when it initialises the
+  data directory; changing it later has no effect and the API will fail to authenticate. Use
+  `docker compose down -v` to start over, or change the password inside Postgres.
+- **The CLI targets whichever database `api/.env` points at.** To manage users in the container,
+  run it there: `docker compose exec api node api/dist/cli/manage-user.js list`.
+
+---
+
+## How capture works
+
+Pcap4J has no Node equivalent, and the usual replacement — the `cap` native addon — has to be
+compiled, which needs a multi-gigabyte MSVC toolchain on Windows.
+
+Instead, [`packet/libpcap.ts`](api/src/packet/libpcap.ts) calls the pcap library that Npcap
+already installed **directly over FFI**, using [koffi](https://koffi.dev/). koffi publishes
+prebuilt binaries, so `npm install` needs no compiler on any platform. Packet decoding is
+plain TypeScript in [`packet/decode.ts`](api/src/packet/decode.ts).
+
+The handle is put in non-blocking mode and drained on a timer
+(`CAPTURE_POLL_INTERVAL_MS`, default 10 ms), rather than Pcap4J's dedicated `handle.loop()`
+thread. A 10 MB kernel buffer absorbs bursts between polls.
+
+If the library cannot be loaded, the API returns `503` from the capture endpoints, the capture
+pages show a banner, and everything else keeps working.
+
+---
+
+## Tests
+
+```bash
+npm test
+```
+
+61 tests over `api/src/packet/`, covering the hand-written decoders, every detector, and the
+FFI binding. They use Node's built-in test runner, so there is no test framework to install,
+and they need no database. The FFI tests skip themselves when no pcap library is present.
+
+Two groups are worth knowing about:
+
+- **Attack simulations** build real frames — ARP poisoning, port scans, host sweeps, SYN
+  floods, cleartext logins over five protocols, DNS tunnels using base32 labels — and assert
+  they are caught.
+- **False-positive guards** replay ordinary traffic and assert silence. This is the suite that
+  matters most: the rules these detectors replaced flagged every TCP ACK and every new
+  connection, so every alert in the database was a false positive.
+
+The credential tests also assert that no password appears anywhere in a finding, including its
+base64 form.
+
+The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
+table, so the expectations are Pcap4J's own output rather than this implementation's.
+
+---
+
+## Development tooling
+
+| Command             | Purpose                                                          |
+| ------------------- | ---------------------------------------------------------------- |
+| `npm run dev`       | API and UI together                                              |
+| `npm test`          | Decoder, detector and FFI tests                                  |
+| `npm run typecheck` | `tsc` over both packages                                         |
+| `npm run lint`      | Biome — lint and format check                                    |
+| `npm run lint:fix`  | Biome with `--write`                                             |
+| `npm run ci`        | Everything CI runs: `biome ci`, typecheck, tests                 |
+| `npm run user`      | User administration (see [Create a login](#6-create-a-login))    |
+| `npm run migrate`   | Apply pending migrations                                         |
+| `npm run build`     | Compile the API and bundle the UI                                |
+
+**Biome** handles both linting and formatting in one tool, configured in `biome.json`. A
+`pre-commit` hook (husky) runs `biome check --staged --write` and re-stages what it fixes, so
+formatting never reaches a commit. `.editorconfig` and `.nvmrc` pin editor and Node behaviour.
+
+**CI** (`.github/workflows/ci.yml`) runs lint, typecheck and tests on Node 22 and 24, builds
+both packages, and builds and smoke-tests both Docker images. The test suite needs no database,
+and libpcap is installed on the runner so the FFI tests execute rather than skip. Dependabot
+watches npm, GitHub Actions and both Dockerfiles, grouping routine updates and holding back the
+major upgrades that need a human.
+
+---
+
+## Operational behaviour
+
+**Logging** is structured JSON via pino, pretty-printed in development. Every log line carries a
+`component` (`server`, `capture`, `detect`, `alerts`, `pcap`, `migrate`, `http`, `db`), and every
+HTTP request gets an `x-request-id` — generated, or taken from an inbound header — which is
+echoed in the response and attached to each line for that request. `LOG_LEVEL` controls
+verbosity; the test runner defaults to `silent`.
+
+Authorization headers, cookies and any field named `password` or `token` are redacted by the
+logger as a backstop, so a careless log call cannot leak a credential.
+
+**Security headers** come from helmet: a restrictive CSP (this process serves JSON only),
+`Referrer-Policy: no-referrer`, `nosniff`, frame denial, and HSTS once `NODE_ENV=production`.
+
+**Rate limits** are per client IP, per minute, and disabled under tests:
+
+| Endpoint group        | Default | Variable                          |
+| --------------------- | ------- | --------------------------------- |
+| `/auth/*`             | 20      | `RATE_LIMIT_AUTH_PER_MINUTE`      |
+| capture start/stop/clear | 20   | `RATE_LIMIT_CAPTURE_PER_MINUTE`   |
+| `ip-info`             | 30      | `RATE_LIMIT_LOOKUP_PER_MINUTE`    |
+| everything else under `/api` | 600 | `RATE_LIMIT_API_PER_MINUTE`   |
+
+The auth limiter counts **failed attempts only**, so signing in normally never consumes quota —
+important when several people share one NAT address. Once the limit trips, the window must expire
+before any login succeeds, including a correct one; that is deliberate, since an attacker who
+eventually guesses right should not be let through.
+
+**Probes**: `/health` reports uptime and needs nothing but the process. `/ready` runs
+`SELECT 1` and returns `503` when the database is unreachable — that is what the container
+healthcheck uses.
+
+**Shutdown** on SIGTERM/SIGINT stops captures first (which flushes buffered findings to the
+database), then closes the HTTP server, then the connection pool — in that order, because
+closing the pool first would silently lose the findings. A 10-second deadline forces exit if
+something refuses to let go.
+
+---
+
+## Production build
+
+```bash
+npm run build          # compiles the API to api/dist and the UI to network-monitoring-ui/build
+npm start              # serves the API from api/dist
+```
+
+Serve `network-monitoring-ui/build` from any static host, and point `VITE_API_SERVER` at the
+API origin at build time. Add that origin to `CORS_ORIGIN` in `api/.env`.
+
+---
+
+## API reference
+
+All `/api/*` routes require an `Authorization: Bearer <token>` header.
+
+### Auth — `/auth`
+
+| Method | Path      | Auth  | Purpose                                            |
+| ------ | --------- | ----- | -------------------------------------------------- |
+| `POST` | `/login`  | —     | Returns the user plus a `token`                    |
+| `POST` | `/signup` | —     | Creates an account (password bcrypt-hashed)        |
+| `GET`  | `/me`     | Token | Current account; used to validate a stored token   |
+| `GET`  | `/users`  | ADMIN | All accounts, without password hashes              |
+
+### Security alerts — `/api/alerts`
+
+| Method   | Path                    | Purpose                                                |
+| -------- | ----------------------- | ------------------------------------------------------ |
+| `GET`    | `/`                     | Findings, most urgent first. Filter by `severity`, `kind`, `since` (ISO or `24h`), `acknowledged` |
+| `GET`    | `/summary`              | Counts by severity and detector, for the dashboard tiles |
+| `GET`    | `/devices`              | MAC addresses seen on the network                       |
+| `POST`   | `/:id/acknowledge`      | Mark a finding as handled                               |
+| `POST`   | `/:id/unacknowledge`    | Reopen it                                               |
+| `DELETE` | `/:id`                  | Delete one finding                                      |
+| `DELETE` | `/`                     | Clear all findings (ADMIN)                              |
+| `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN) |
+
+### Legacy packet log — `/api`
+
+The per-packet anomaly log that `alerts` supersedes. Nothing writes to it any more; the
+endpoints remain so existing history stays reachable.
+
+| Method   | Path            | Purpose                                |
+| -------- | --------------- | -------------------------------------- |
+| `GET`    | `/logs`         | All historical records                 |
+| `POST`   | `/logs`         | Same as `GET` (kept for compatibility) |
+| `POST`   | `/log/add`      | Create a record                        |
+| `PUT`    | `/log/:id`      | Update a record                        |
+| `DELETE` | `/log/:id`      | Delete a record                        |
+
+### Packet capture — `/api/packets` and `/api/ip/packets`
+
+Both prefixes expose the same routes and keep independent capture handles and buffers.
+`/api/ip/packets/start` additionally requires `ipAddress`, applied as the BPF filter
+`host <ip>`.
+
+| Method | Path        | Query                                          | Purpose                        |
+| ------ | ----------- | ---------------------------------------------- | ------------------------------ |
+| `POST` | `/start`    | `interfaceName`, `snaplength`, `timeout`, `ipAddress` | Begin capturing          |
+| `POST` | `/stop`     | —                                              | Stop capturing                 |
+| `GET`  | `/`         | —                                              | Packets currently buffered     |
+| `POST` | `/clear`    | —                                              | Empty the buffer               |
+| `GET`  | `/nif`      | —                                              | Available capture interfaces   |
+| `GET`  | `/status`   | —                                              | Capture state and counters     |
+| `GET`  | `/ip-info`  | `ipAddress`                                    | Reverse DNS + WHOIS + geo      |
+
+`GET /health` is unauthenticated and reports uptime.
+
+---
+
+## Project layout
+
+```
+api/                          Node + Express + TypeScript API
+  src/
+    config/env.ts             Environment parsing and validation
+    db/                       Drizzle schema, pool, SQL migrations + runner
+    middleware/               JWT auth guard, role guard, error handling
+    packet/                   Packet decoding and detection — the Pcap4J replacement
+      libpcap.ts              Npcap/libpcap binding over koffi FFI (no compiler)
+      decode.ts               Ethernet, loopback, LLC/SNAP, 802.1Q, IPv4/IPv6, ARP, TCP, UDP
+      names.ts                EtherType / IP protocol / LLC SAP name tables
+      detect/                 One file per detector, all pure and independently testable
+        arp-spoof.ts          Learned IP-to-MAC bindings; MITM detection
+        scan.ts               Port scan, host sweep, SYN flood
+        plaintext-credentials.ts  Unencrypted logins; never records the secret
+        dns-tunneling.ts      Encoded-looking query names
+        new-device.ts         Unrecognised MAC addresses
+        index.ts              DetectionEngine — runs them all per packet
+    networkservices/          Reverse DNS, WHOIS, ip-api.com geolocation
+    routes/                   Express routers
+    services/
+      alert.service.ts        Aggregates findings into deduplicated alerts
+      device.service.ts       Persists known MAC addresses
+      packet-capture.service.ts  Capture lifecycle and the poll loop
+network-monitoring-ui/        React + TypeScript + Vite frontend
+  src/
+    api/                      Axios client and typed endpoint wrappers
+    components/               AppLayout, AlertSummaryTiles, SeverityChip, CaptureToolbar,
+                              PacketTable, IpInfoDialog, HexDump
+    hooks/                    usePacketCapture, useIpInfo
+    pages/                    AlertsPage, PacketCapture, PacketCaptureWithIP
+    theme.ts                  Shared MUI theme
+```
+
+---
+
+## Environment variables
+
+### `api/.env`
+
+| Variable               | Default                                        | Notes                                          |
+| ---------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| `PORT`                 | `8080`                                         |                                                |
+| `NODE_ENV`             | `development`                                  | `production` hides error details, enables HSTS and JSON logs |
+| `CORS_ORIGIN`          | `http://localhost:5173,http://localhost:3000`  | Comma-separated                                |
+| `LOG_LEVEL`            | `info` (`silent` in tests)                     | trace / debug / info / warn / error / fatal    |
+| `DATABASE_URL`         | built from `PG*` variables                     |                                                |
+| `DB_AUTO_MIGRATE`      | `true`                                         | Run pending migrations on boot                 |
+| `JWT_SECRET`           | *required*                                     | Server will not start without it               |
+| `JWT_EXPIRES_IN`       | `1d`                                           |                                                |
+| `CAPTURE_BUFFER_SIZE`  | `5000`                                         | Packets held in memory per capture             |
+| `CAPTURE_POLL_INTERVAL_MS` | `10`                                       | How often a running capture is drained         |
+| `REDACT_PACKET_PAYLOAD` | `false`                                       | Blanks packet payloads in API responses — see below |
+| `ARP_TRUSTED_MAPPINGS` | —                                              | `ip=mac,ip=mac` pairs treated as authoritative  |
+
+Detection thresholds, all tunable per network:
+
+| Variable                     | Default  | Notes                                                    |
+| ---------------------------- | -------- | -------------------------------------------------------- |
+| `DETECT_SCAN_WINDOW_MS`      | `60000`  | Window for scan and sweep breadth counting                |
+| `DETECT_PORT_SCAN_PORTS`     | `15`     | Distinct ports on one host before it is a port scan       |
+| `DETECT_HOST_SWEEP_HOSTS`    | `20`     | Distinct hosts on one port before it is a sweep           |
+| `DETECT_FLOOD_WINDOW_MS`     | `10000`  | Window for connection-rate counting                       |
+| `DETECT_SYN_FLOOD_ATTEMPTS`  | `300`    | Attempts in that window before it is a flood              |
+| `DETECT_DNS_SUBDOMAINS`      | `40`     | Distinct subdomains suggesting a DNS tunnel               |
+| `DETECT_DEVICE_LEARNING_MS`  | `60000`  | Grace period where devices are learned silently           |
+| `DETECT_ALERT_WINDOW_MS`     | `300000` | Repeats of a finding merge into one alert for this long   |
+
+Rate limits are listed under [Operational behaviour](#operational-behaviour). For Docker, the
+container-level variables live in `.env.docker.example`.
+
+### Privacy and payload capture
+
+Captured payloads can contain message content and personal data, which brings wiretap statutes
+and GDPR into scope for whoever runs this. Two things follow:
+
+- **Alerts never contain payloads or secrets.** Evidence is structured metadata. The credential
+  detector records the username and the password's *length*, never the password.
+- **`REDACT_PACKET_PAYLOAD=true`** additionally blanks the hex streams in the live packet view,
+  for deployments that must not expose traffic content at all. Detection is unaffected — the
+  detectors read the decoded packet, not the API response.
+
+### `network-monitoring-ui/.env`
+
+| Variable                | Default | Notes                                            |
+| ----------------------- | ------- | ------------------------------------------------ |
+| `VITE_API_SERVER`       | empty   | Empty uses the Vite dev proxy                    |
+| `VITE_POLL_INTERVAL_MS` | `1000`  | Packet list refresh interval during a capture     |
+
+---
+
+## Migration notes
+
+Ported from Spring Boot (Java 17) + Pcap4J + Create React App. These are the deliberate
+differences.
+
+### Detection was rewritten
+
+The original rules asked one question per packet: "is this packet anomalous?" A port scan is
+not a property of a packet, so the rules could only test surface attributes, and what they
+tested fired constantly on healthy traffic:
+
+| Old rule | Why it produced nothing but noise |
+| --- | --- |
+| Frame smaller than 64 bytes | Every bare TCP ACK |
+| SYN without ACK | Every new outbound connection |
+| Frame larger than 1500 bytes | Any segmentation-offloaded frame |
+| Uncommon IP protocol | Rare, but never actionable on its own |
+| ARP spoofing | Logic inverted, so it never fired correctly (below) |
+
+Measured against the real database this produced, **every stored alert was a false positive** —
+75% bare ACKs, 25% new connections, and the destinations were Microsoft, Bing, Akamai and
+OpenDNS. Nothing detected was a threat, and the ARP spoofing feature the project led with had
+never fired once.
+
+Detectors are now stateful and windowed, each emitting findings with a severity and structured
+evidence. Repeats aggregate into one alert with an occurrence count instead of one row per
+packet. See [What it detects](#what-it-detects).
+
+### Security
+
+- **The JWT no longer carries the password.** The old token included the user's plaintext
+  password as a `pass` claim, readable by anyone holding the token.
+- **The signing key comes from `JWT_SECRET`.** It was a string literal in two Java files.
+- **Tokens are actually verified.** Previously the server decoded the token to read an email
+  and looked that user up; signature and expiry were never checked on protected routes.
+- **The frontend no longer stores your password.** `UserContext` used to AES-encrypt
+  `{userid, pass}` into `sessionStorage`, and `PrivateRoute` decided you were logged in by
+  decrypting a localStorage string and comparing it to `Love<email>...<password>...`.
+  Authentication is now "the server accepted our token".
+- **`GET /auth/users` requires an ADMIN token** and no longer returns bcrypt hashes. It was
+  open to anonymous callers and serialised the whole entity.
+- **Capture endpoints require a token.** They were unauthenticated, which let any caller start
+  promiscuous capture on the host.
+- **The IP filter is validated** before being interpolated into a BPF expression.
+
+### Bugs fixed
+
+- **ARP spoof detection was inverted.** `isTrustedMapping` returned true when the MAC
+  *mismatched*, and `isArpSpoofed` then negated it — so every ARP packet from an unlisted
+  address was reported as spoofing while genuine mismatches were ignored. The trusted pairs
+  also moved from two hardcoded `10.0.0.x` entries to `ARP_TRUSTED_MAPPINGS`.
+- **A failed capture start reported success.** `PcapNativeException` was caught and printed,
+  and the endpoint still returned `200`, leaving the UI showing "capturing" with nothing ever
+  arriving. Failures now return `500`/`503` with the reason.
+- **The IP-filtered capture could throw on every ARP frame.** It saved anomaly logs without
+  checking for an IP layer, against `NOT NULL` `sourceip`/`destinationip` columns. Both
+  services now apply the same guard.
+- **Ethernet padding was computed from fixed offsets** (14 + 20 + 20) regardless of the actual
+  headers, so the column was usually empty or wrong. Padding is now the bytes past the length
+  the network layer declares.
+- **`PUT /api/log/:id` trusted the body's id**, so a mismatched body could overwrite a
+  different row. The path id wins.
+- **Loopback capture silently produced nothing.** Npcap's loopback adapter reports link type
+  `NULL`, not Ethernet, and anything non-Ethernet was skipped. `NULL`, `LOOP` and `RAW` frames
+  are now decoded, which also makes the app testable without touching a real network.
+- **`POST /start` from the UI returned 400.** Axios serialises a `null` body to the literal
+  string `null`, which `express.json()` rejects in strict mode. Only reproducible through the
+  browser — `curl` sends no body at all.
+
+### Performance
+
+- **Packets are decoded once**, at capture time, into the DTO the UI consumes. The Java
+  version kept raw `Packet` objects and re-derived every DTO on each `GET` — once per second
+  per open page.
+- **The packet buffer is bounded** (`CAPTURE_BUFFER_SIZE`, default 5000). The old
+  `ArrayList<Packet>` grew until the process ran out of memory.
+- **`ip-info` runs its three lookups in parallel** rather than in sequence, and each has a
+  timeout. `getCanonicalHostName()` and the WHOIS socket could previously block indefinitely.
+- **Alert writes are batched and deduplicated.** Findings buffer in memory and flush on a
+  timer, so a burst of traffic costs a handful of statements rather than one insert per packet.
+  A port scan that previously wrote thousands of rows now writes one, with a count.
+- **Detector state is bounded** — every sliding window and lookup table has a ceiling, so
+  hostile or very busy traffic cannot grow memory without limit.
+
+### UI
+
+- Bootstrap 5 (vendored into `public/css`) is replaced by **MUI**; both tables are
+  **Material React Table**, with column filtering, sorting, resizing, density control,
+  pagination and global search.
+- The IP-information modal existed three times as copy-pasted markup and is now one
+  `IpInfoDialog`. The two capture pages were the same 200 lines twice and now share
+  `usePacketCapture` and `CaptureToolbar`.
+- Hex streams moved out of table cells into an expandable **offset / hex / ASCII dump**. At a
+  65 KB snapshot length a single cell previously held a ~196 000 character string.
+- The capture pages read `/status` on mount, so reloading during a capture shows the real
+  state instead of resetting to idle.
+- Errors surface as alerts in the UI; the old code logged them to the console only.
+- The landing page is now **Security alerts**: severity tiles that double as filters, findings
+  ordered by urgency, and an expandable panel explaining what each one means alongside its
+  evidence. Findings can be acknowledged and reopened.
+
+### Removed
+
+- `crypto-js` — the client-side encryption it powered is gone, and it was never a security
+  boundary since the key shipped in the bundle.
+- `HexConverter`, `PacketParser` — unused dead code in the Java tree.
+- CRA's `reportWebVitals` / `setupTests` / `App.test.js` boilerplate, and the Java project's
+  only test — Spring's generated `contextLoads()`. Replaced by real decoder tests, below.
+
+### Behaviour differences
+
+Both `/start` parameters mean what they did before: `snaplength` becomes `pcap_set_snaplen` and
+`timeout` becomes `pcap_set_timeout`, the same calls Pcap4J's `openLive(snaplen, mode, timeout)`
+made underneath.
+
+IPv6 addresses render in RFC 5952 compressed form (`2001:db8::1`) rather than Java's fully
+expanded `2001:db8:0:0:0:0:0:1`.
+
+Named numbers keep Pcap4J's exact `0x0800 (IPv4)` spacing, because rows written by the old app
+share the `logs.ipversion` column with new ones. `decode.test.ts` pins this.
+
+Packet timestamps now come from pcap itself rather than `LocalDateTime.now()` at the moment the
+handler ran, so they reflect when the frame actually arrived.
+
+---
+
+## Screenshots
+
+> These predate the MUI rewrite and the alerts page — the flows are the same, the interface is
+> not. Worth recapturing before showing the project to anyone.
+
+**Login**
+
+![Login page](./screenshots/login.png)
+
+**Findings list** (previously the anomaly log)
+
+![Logs](./screenshots/Logs.png)
+
+**Capture from an interface**
+
+![Scan packets](./screenshots/scanPacket.png)
+
+**Capture filtered by IP**
+
+![Scan packets by IP](./screenshots/scanPacketIP.png)
+
+**WHOIS lookup**
+
+![WHOIS lookup](./screenshots/whoisLookup.png)
+
+---
+
+## Troubleshooting
+
+**`Missing required environment variable JWT_SECRET`** — copy `api/.env.example` to
+`api/.env` and generate a secret.
+
+**`Invalid email or password` with the seeded accounts** — the plaintext for
+`admin@example.com` and `user@example.com` was never recorded; the hashes came from the original
+Java migration. Set one with `npm run user -- set-password --email admin@example.com --generate`.
+
+**`Too many failed attempts`** — the auth rate limit tripped after 20 failed logins in a minute
+from your IP. Wait for the window to expire, or raise `RATE_LIMIT_AUTH_PER_MINUTE`. Successful
+logins do not count toward it.
+
+**`password authentication failed for user "postgres"` under Docker** — `POSTGRES_PASSWORD` only
+takes effect when the data directory is first created. If you changed it after the first run,
+either revert it or start fresh with `docker compose down -v`.
+
+**No interfaces in the dropdown / `503` from `/nif`** — the pcap library could not be loaded.
+Install Npcap (Windows) or libpcap (Linux/macOS) and restart the API. `captureLibrary` on
+`GET /api/packets/status` shows which library was found. See
+[How capture works](#how-capture-works).
+
+**`Could not open <interface>` / permission denied** — start the API as Administrator
+(Windows) or with `sudo` (Linux).
+
+**`Cannot reach the API server`** — the API is not running on port 8080, or `CORS_ORIGIN` does
+not include the UI's origin.
+
+**Capture starts but no packets appear** — check `linkType` on `/api/packets/status`.
+`ETHERNET`, `NULL`, `LOOP` and `RAW` are decoded; other link layers (802.11 radiotap, for
+instance) are not.
+
+**Capture runs but no alerts appear** — that is the expected result on a healthy network.
+Alerts mean something specific happened, and ordinary traffic produces none by design. To
+confirm the pipeline works, capture on the loopback adapter and make a request carrying an
+`Authorization: Basic` header to a local plain-HTTP service; that should raise a critical
+finding within a few seconds.
+
+**Too many or too few alerts** — every threshold is tunable; see the detection variables above.
+`DETECT_PORT_SCAN_PORTS` and `DETECT_HOST_SWEEP_HOSTS` are the two worth adjusting first.
+
+---
+
+## Known issues
+
+**The UI test suite does not run yet.** `network-monitoring-ui/src/**/*.test.tsx` is written
+(Vitest + React Testing Library + MSW, covering auth, the alerts table and the capture flow) and
+`src/charts/palette.test.ts` passes, but a full `npm run test:ui` hangs during collection —
+almost certainly the global `getBoundingClientRect` stub in `src/test/setup.ts`, which is there
+so `@mui/x-charts` can measure a container under jsdom but which also affects every element
+`user-event` inspects for pointer targeting.
+
+It is therefore **excluded from `npm test` and from CI**, so neither hangs. To pick this up:
+
+```bash
+npm run test:ui -- src/charts/palette.test.ts   # passes today
+npm run test:ui                                  # hangs
+```
+
+Likely fix: scope the stub to chart containers only, or drop it and give the charts an explicit
+`width` in tests. Re-enable the commented-out "Test (UI)" step in `.github/workflows/ci.yml`
+once green.
+
+The API suite (61 tests) is unaffected and gating in CI.
+
+---
+
+## Roadmap
+
+**Detection**
+
+- Track SYN responses, so a scan against closed ports is separated from one that found a
+  service. This is the single biggest precision win still available.
+- TLS inspection: certificate and JA3/JA4 fingerprinting, plus expired and self-signed
+  certificates on internal services.
+- Beaconing detection — regular, evenly spaced connections to one destination, the signature of
+  command-and-control.
+- Detect ARP bindings that contradict DHCP, when DHCP traffic is visible.
+
+**Product**
+
+- Notifications: email, webhook and Slack, so alerts reach someone who is not watching the page.
+- Stream over WebSocket/SSE instead of polling once a second.
+- Retention and rollup, so the alerts table stays bounded over months.
+- pcap export, so a finding can be opened in Wireshark for deeper analysis.
+- Docker Compose, so the whole stack starts with one command.
+- Traffic visualisation over time: top talkers, protocol mix, alerts per hour.
+
+**Deployment**
+
+- Document the SPAN port / network TAP setup. Running on a workstation only sees that
+  workstation's own traffic plus broadcasts, which is the most common reason the tool appears
+  to find nothing.
+
+## Contributing
+
+Issues and pull requests are welcome. Please run `npm run typecheck` and `npm run build`
+before opening one.
+
+## License
+
+MIT — see `LICENSE`.
