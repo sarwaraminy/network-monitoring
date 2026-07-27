@@ -1,22 +1,42 @@
 version: 2
 
+# Tuned for a small team, where review time is the scarce resource.
+#
+# The first version of this file limited npm to 5 open PRs but left the limit
+# unset on the other three ecosystems, where it defaults to 5 each — an effective
+# ceiling of 20. Only npm had grouping, so GitHub Actions and Docker opened one PR
+# per dependency. The result was thirteen open PRs nobody was going to read, which
+# is worse than none: a real security update gets lost in that noise.
+#
+# Everything below is grouped hard and capped low, so a routine month produces a
+# handful of PRs rather than a backlog.
+#
+# Note that *security* advisories are unaffected by any of this. Dependabot raises
+# those through security updates regardless of schedule, grouping or limit, so a
+# quiet cadence here does not delay a patch for a known vulnerability.
+
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    # One PR for the routine churn, individual PRs for anything that could break.
+      interval: monthly
+    # Two grouped PRs, plus room for one ungrouped major.
+    open-pull-requests-limit: 3
     groups:
+      # Everything that cannot reach production in a bad state: tooling, types,
+      # test libraries. Reviewable by whether CI is green.
       dev-dependencies:
         dependency-type: development
         update-types: [minor, patch]
-      production-patches:
+      # Runtime patches and minors together. Majors stay individual, because those
+      # are the ones that actually need reading.
+      production-updates:
         dependency-type: production
-        update-types: [patch]
+        update-types: [minor, patch]
     ignore:
-      # Major upgrades of these change APIs across many files; do them
-      # deliberately rather than in an automated PR.
+      # Major upgrades of these change APIs across many files. Do them
+      # deliberately — MUI 9 in particular is incompatible with the pinned
+      # Material React Table, which took a long time to diagnose.
       - dependency-name: express
         update-types: [version-update:semver-major]
       - dependency-name: react
@@ -25,20 +45,50 @@ updates:
         update-types: [version-update:semver-major]
       - dependency-name: '@mui/material'
         update-types: [version-update:semver-major]
+      - dependency-name: '@mui/icons-material'
+        update-types: [version-update:semver-major]
+      - dependency-name: material-react-table
+        update-types: [version-update:semver-major]
       - dependency-name: react-router-dom
         update-types: [version-update:semver-major]
+      - dependency-name: drizzle-orm
+        update-types: [version-update:semver-major]
 
+  # Action versions move rarely and matter little. One PR, grouped.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      github-actions:
+        patterns: ['*']
 
+  # Base images for both Dockerfiles, one PR each. Node, Postgres and nginx
+  # majors are excluded: those are a decision about what the product supports,
+  # not an upgrade to merge on a green build.
   - package-ecosystem: docker
     directory: /api
     schedule:
       interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      api-base-images:
+        patterns: ['*']
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: docker
     directory: /network-monitoring-ui
     schedule:
       interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      ui-base-images:
+        patterns: ['*']
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+      - dependency-name: nginx
+        update-types: [version-update:semver-major]
