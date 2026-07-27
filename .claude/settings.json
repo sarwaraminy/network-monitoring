@@ -52,7 +52,12 @@
       "Bash(node \"C:/Users/SAWARA~1/AppData/Local/Temp/claude/c--Users-Sawar-Amini-Downloads-react-projects-Personal-Porjects-network-monitoring/307fcb3d-79aa-4311-a784-88693436b2f6/scratchpad/dom-probe.mjs\")",
       "Bash(npx vitest *)",
       "Bash(echo \"EXIT: $?\")",
-      "Bash(rm -rf api/dist network-monitoring-ui/build network-monitoring-ui/*.tsbuildinfo)"
+      "Bash(rm -rf api/dist network-monitoring-ui/build network-monitoring-ui/*.tsbuildinfo)",
+      "Bash(gh pr *)",
+      "Bash(gh api *)",
+      "Bash(curl -s -m 8 http://localhost:8097/health)",
+      "Bash(echo \"health: $\\(curl -s -m 8 http://localhost:8097/health\\)\")",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' -m 8 http://localhost:8097/ready)"
     ]
   }
 }
