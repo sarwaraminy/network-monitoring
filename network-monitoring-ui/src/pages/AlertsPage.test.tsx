@@ -33,8 +33,11 @@ describe('AlertsPage', () => {
     // "Open only" is on by default, so the acknowledged one is filtered out.
     expect(screen.queryByText(/new device on the network/i)).not.toBeInTheDocument();
 
-    expect(screen.getByText('Critical')).toBeInTheDocument();
-    expect(screen.getByText('High')).toBeInTheDocument();
+    // Severity names appear twice on the page — once on a summary tile and once
+    // as a row chip — so scope to the table to assert about the rows.
+    const table = within(screen.getByRole('table'));
+    expect(table.getByText('Critical')).toBeInTheDocument();
+    expect(table.getByText('High')).toBeInTheDocument();
   });
 
   it('shows the occurrence count for a repeated finding', async () => {
@@ -102,9 +105,12 @@ describe('AlertsPage', () => {
     const user = userEvent.setup();
     await renderAlerts();
 
-    // Expand the critical row.
-    const expanders = screen.getAllByRole('button', { name: /expand/i });
-    await user.click(expanders[0]!);
+    // The table has an expand-all toggle in the header as well as a per-row
+    // expander. Take the row's own, or every row opens and the assertions below
+    // match several panels at once.
+    const criticalRow = screen.getByText(/cleartext http credentials/i).closest('tr');
+    expect(criticalRow).not.toBeNull();
+    await user.click(within(criticalRow as HTMLElement).getByRole('button', { name: /expand/i }));
 
     expect(await screen.findByText(/what this means/i)).toBeInTheDocument();
     expect(screen.getByText(/^Evidence$/)).toBeInTheDocument();
@@ -112,10 +118,10 @@ describe('AlertsPage', () => {
     expect(screen.getByText('alice')).toBeInTheDocument();
     expect(screen.getByText('14')).toBeInTheDocument();
 
-    // The privacy contract: nothing password-shaped is rendered.
-    expect(document.body.textContent).not.toMatch(/passwordRecorded.*true/i);
+    // The privacy contract: the fact is recorded, the secret is not.
     expect(screen.getByText(/password recorded/i)).toBeInTheDocument();
     expect(screen.getByText('no')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/passwordRecorded["']?\s*:\s*true/i);
   });
 
   it('acknowledges a finding', async () => {

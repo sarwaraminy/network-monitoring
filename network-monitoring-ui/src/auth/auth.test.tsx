@@ -1,9 +1,10 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
+import { Route } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { getToken } from '../api/client';
-import { renderApp } from '../test/render';
+import { renderApp, renderRoutes } from '../test/render';
 import { server } from '../test/server';
 import LoginPage from './LoginPage';
 import PrivateRoute from './PrivateRoute';
@@ -91,26 +92,50 @@ describe('LoginPage', () => {
   });
 });
 
+/**
+ * PrivateRoute contains a `<Navigate>`, so it has to be mounted in a real route
+ * tree with somewhere to redirect to. Rendered bare, it navigates, re-renders and
+ * navigates again forever.
+ */
+function guardedTree() {
+  return (
+    <>
+      <Route element={<PrivateRoute />}>
+        <Route path="/alerts" element={<div>protected content</div>} />
+      </Route>
+      <Route path="/login" element={<div>login screen</div>} />
+    </>
+  );
+}
+
 describe('PrivateRoute', () => {
   it('redirects to /login when there is no token', async () => {
-    renderApp(<PrivateRoute />, { route: '/alerts' });
-    // Nothing is rendered for the guarded outlet; the redirect happens instead.
-    await waitFor(() => expect(screen.queryByRole('progressbar')).not.toBeInTheDocument());
-    expect(screen.queryByText(/protected/i)).not.toBeInTheDocument();
+    renderRoutes(guardedTree(), { route: '/alerts' });
+
+    expect(await screen.findByText(/login screen/i)).toBeInTheDocument();
+    expect(screen.queryByText(/protected content/i)).not.toBeInTheDocument();
   });
 
   it('shows a spinner while the stored token is being validated', () => {
-    renderApp(<PrivateRoute />, { route: '/alerts', authenticated: true });
+    renderRoutes(guardedTree(), { route: '/alerts', authenticated: true });
     // Without this the guard would bounce to /login on every reload.
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.queryByText(/login screen/i)).not.toBeInTheDocument();
   });
 
-  it('drops a token the server rejects', async () => {
+  it('renders the guarded page once the token checks out', async () => {
+    renderRoutes(guardedTree(), { route: '/alerts', authenticated: true });
+    expect(await screen.findByText(/protected content/i)).toBeInTheDocument();
+  });
+
+  it('drops a rejected token and redirects to /login', async () => {
     server.use(
       http.get('/auth/me', () => HttpResponse.json({ message: 'Invalid or expired token' }, { status: 401 })),
     );
 
-    renderApp(<PrivateRoute />, { route: '/alerts', authenticated: true });
+    renderRoutes(guardedTree(), { route: '/alerts', authenticated: true });
+
+    expect(await screen.findByText(/login screen/i)).toBeInTheDocument();
     await waitFor(() => expect(getToken()).toBeNull());
   });
 });

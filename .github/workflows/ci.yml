@@ -58,11 +58,9 @@ jobs:
         env:
           JWT_SECRET: ci-secret-not-used-for-anything-real
 
-      # The UI suite (Vitest + Testing Library + MSW) is written but currently
-      # hangs during collection, so it is not gating yet. Re-enable this step once
-      # that is fixed — see "Known issues" in the README.
-      # - name: Test (UI)
-      #   run: npm run test:ui
+      # Vitest + Testing Library + MSW, in jsdom. No browser and no API needed.
+      - name: Test (UI)
+        run: npm run test:ui
 
   build:
     name: Build

@@ -11,8 +11,7 @@
     "node": ">=20"
   },
   "comments": {
-    "scripts": "Commands are spelled out rather than nesting `npm run`, because npm puts every ancestor node_modules/.bin on PATH and an older npm found there would be used for the inner call.",
-    "tests": "test:ui is written but currently hangs during collection (see README Known issues); it is deliberately excluded from test and ci until fixed."
+    "scripts": "Commands are spelled out rather than nesting `npm run`, because npm puts every ancestor node_modules/.bin on PATH and an older npm found there would be used for the inner call."
   },
   "scripts": {
     "dev": "concurrently -n api,ui -c blue,magenta \"tsx watch api/src/index.ts\" \"vite network-monitoring-ui\"",
@@ -21,12 +20,12 @@
     "build": "tsc -p api/tsconfig.json && node api/scripts/copy-migrations.mjs && tsc -b network-monitoring-ui && vite build network-monitoring-ui",
     "build:api": "tsc -p api/tsconfig.json && node api/scripts/copy-migrations.mjs",
     "build:ui": "tsc -b network-monitoring-ui && vite build network-monitoring-ui",
-    "test": "npm run test:api",
+    "test": "tsx --test api/src/**/*.test.ts && vitest run --root network-monitoring-ui",
     "typecheck": "tsc -p api/tsconfig.json --noEmit && tsc -b network-monitoring-ui",
     "lint": "biome check",
     "lint:fix": "biome check --write",
     "format": "biome format --write",
-    "ci": "biome ci && npm run typecheck && npm run test:api",
+    "ci": "biome ci && tsc -p api/tsconfig.json --noEmit && tsc -b network-monitoring-ui && tsx --test api/src/**/*.test.ts && vitest run --root network-monitoring-ui",
     "prepare": "husky || true",
     "start": "node api/dist/index.js",
     "migrate": "tsx api/src/db/migrate.ts",

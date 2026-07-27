@@ -16,6 +16,8 @@ Run from this directory:
 | `npm run build`     | Typecheck, then build to `build/`                    |
 | `npm run preview`   | Serve the production build locally                   |
 | `npm run typecheck` | `tsc -b` with no emit                                |
+| `npm test`          | Vitest run (34 tests)                                |
+| `npm run test:watch` | Vitest in watch mode                                |
 
 Linting and formatting are handled repo-wide by Biome: `npm run lint` / `npm run lint:fix` from
 the repository root. There is no separate ESLint or Prettier config.
@@ -69,5 +71,12 @@ src/
 - **Pass `undefined`, not `null`, as an axios request body.** Axios serialises `null` to the
   literal string `"null"`, which `express.json()` rejects in strict mode — a 400 that only
   reproduces through the browser.
-- There are no UI tests yet. The packet decoders — the code most worth testing — are covered on
-  the API side; run `npm test` from the repository root.
+- **Tests live beside what they cover** and run in jsdom against MSW, so no server is needed:
+  `src/auth/auth.test.tsx`, `src/pages/AlertsPage.test.tsx`, `src/pages/PacketCapture.test.tsx`,
+  `src/charts/palette.test.ts`. Helpers are in `src/test/` — use `renderApp` for a plain
+  component and `renderRoutes` for anything that redirects.
+- **A component containing `<Navigate>` needs a real route tree.** Mounted bare it navigates,
+  re-renders and navigates again forever, hanging the test file with no output. That is what
+  `renderRoutes` exists for.
+- **Run Vitest unpiped.** Piping through `tail` buffers all output, so a hang prints nothing
+  and looks like an unrelated failure.

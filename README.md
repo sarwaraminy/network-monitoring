@@ -204,12 +204,18 @@ pages show a banner, and everything else keeps working.
 ## Tests
 
 ```bash
-npm test
+npm test          # both suites: 95 tests
+npm run test:api  # 61 API tests
+npm run test:ui   # 34 UI tests
 ```
 
-61 tests over `api/src/packet/`, covering the hand-written decoders, every detector, and the
-FFI binding. They use Node's built-in test runner, so there is no test framework to install,
-and they need no database. The FFI tests skip themselves when no pcap library is present.
+Neither suite needs a database, a browser or a running server.
+
+### API — 61 tests
+
+Over `api/src/packet/`, covering the hand-written decoders, every detector, and the FFI
+binding. They use Node's built-in test runner, so there is no framework to install. The FFI
+tests skip themselves when no pcap library is present.
 
 Two groups are worth knowing about:
 
@@ -225,6 +231,32 @@ base64 form.
 
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
+
+### UI — 34 tests
+
+Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
+axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —
+and only the network is substituted.
+
+- **Auth** (`src/auth/auth.test.tsx`): sign-in, bad credentials, the rate-limit message, the
+  `PrivateRoute` redirect and spinner, and an assertion that the password never reaches
+  `localStorage` or `sessionStorage`.
+- **Alerts** (`src/pages/AlertsPage.test.tsx`): the table, occurrence counts, detector
+  filtering reaching the server, acknowledging, load failures, the empty state, the IP lookup
+  dialog — and that the evidence panel shows a username and a password *length* but never the
+  password.
+- **Capture** (`src/pages/PacketCapture.test.tsx`): the interface dropdown, start/stop, the IP
+  filter, a failed start not claiming success, mid-capture page mount, and a regression test
+  that `POST /start` sends no `"null"` body.
+- **Chart palette** (`src/charts/palette.test.ts`): pins the properties the data-viz validator
+  checked — monotone lightness per mode, the 2:1 surface-end floor, 3:1 for bar hues, and that
+  each mode has its own steps rather than a flipped copy.
+
+Two things to know if you add tests here. Anything containing `<Navigate>` must be mounted with
+`renderRoutes` and a real destination route — rendered bare it navigates, re-renders and
+navigates forever, which hangs the file with no output. And run Vitest **unpiped**: sending it
+through `tail` buffers everything, so a hang shows nothing at all and looks like a different
+problem.
 
 ---
 
@@ -649,30 +681,6 @@ finding within a few seconds.
 
 **Too many or too few alerts** — every threshold is tunable; see the detection variables above.
 `DETECT_PORT_SCAN_PORTS` and `DETECT_HOST_SWEEP_HOSTS` are the two worth adjusting first.
-
----
-
-## Known issues
-
-**The UI test suite does not run yet.** `network-monitoring-ui/src/**/*.test.tsx` is written
-(Vitest + React Testing Library + MSW, covering auth, the alerts table and the capture flow) and
-`src/charts/palette.test.ts` passes, but a full `npm run test:ui` hangs during collection —
-almost certainly the global `getBoundingClientRect` stub in `src/test/setup.ts`, which is there
-so `@mui/x-charts` can measure a container under jsdom but which also affects every element
-`user-event` inspects for pointer targeting.
-
-It is therefore **excluded from `npm test` and from CI**, so neither hangs. To pick this up:
-
-```bash
-npm run test:ui -- src/charts/palette.test.ts   # passes today
-npm run test:ui                                  # hangs
-```
-
-Likely fix: scope the stub to chart containers only, or drop it and give the charts an explicit
-`width` in tests. Re-enable the commented-out "Test (UI)" step in `.github/workflows/ci.yml`
-once green.
-
-The API suite (61 tests) is unaffected and gating in CI.
 
 ---
 

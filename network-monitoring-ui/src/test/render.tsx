@@ -33,6 +33,24 @@ export interface RenderAppOptions extends Omit<RenderOptions, 'wrapper'> {
   path?: string;
 }
 
+/** The provider stack, shared by both render helpers. */
+function makeWrapper(client: QueryClient, route: string, body: (children: ReactNode) => ReactNode) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <ThemeProvider theme={theme} defaultMode="light">
+        <CssBaseline />
+        <QueryClientProvider client={client}>
+          <SnackbarProvider>
+            <AuthProvider>
+              <MemoryRouter initialEntries={[route]}>{body(children)}</MemoryRouter>
+            </AuthProvider>
+          </SnackbarProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
+    );
+  };
+}
+
 export function renderApp(ui: ReactElement, options: RenderAppOptions = {}) {
   const { route = '/', authenticated = false, path, ...rest } = options;
 
@@ -40,29 +58,46 @@ export function renderApp(ui: ReactElement, options: RenderAppOptions = {}) {
   else setToken(null);
 
   const client = makeClient();
-
-  function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <ThemeProvider theme={theme} defaultMode="light">
-        <CssBaseline />
-        <QueryClientProvider client={client}>
-          <SnackbarProvider>
-            <AuthProvider>
-              <MemoryRouter initialEntries={[route]}>
-                {path ? (
-                  <Routes>
-                    <Route path={path} element={children} />
-                  </Routes>
-                ) : (
-                  children
-                )}
-              </MemoryRouter>
-            </AuthProvider>
-          </SnackbarProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    );
-  }
+  const Wrapper = makeWrapper(client, route, (children) =>
+    path ? (
+      <Routes>
+        <Route path={path} element={children} />
+      </Routes>
+    ) : (
+      children
+    ),
+  );
 
   return { client, ...render(ui, { wrapper: Wrapper, ...rest }) };
+}
+
+/**
+ * Renders a real route tree.
+ *
+ * Needed for anything that redirects. A component containing `<Navigate>` mounted
+ * outside `<Routes>` has nowhere to navigate to, so it re-renders and navigates
+ * again — an infinite loop that hangs the whole test file with no output. That is
+ * exactly what happened to PrivateRoute; the fix is to give the redirect a real
+ * destination, as the app does.
+ *
+ *   renderRoutes(
+ *     <>
+ *       <Route element={<PrivateRoute />}>
+ *         <Route path="/alerts" element={<div>protected</div>} />
+ *       </Route>
+ *       <Route path="/login" element={<div>login screen</div>} />
+ *     </>,
+ *     { route: '/alerts' },
+ *   )
+ */
+export function renderRoutes(routes: ReactNode, options: Omit<RenderAppOptions, 'path'> = {}) {
+  const { route = '/', authenticated = false, ...rest } = options;
+
+  if (authenticated) setToken('test-token');
+  else setToken(null);
+
+  const client = makeClient();
+  const Wrapper = makeWrapper(client, route, (children) => <Routes>{children}</Routes>);
+
+  return { client, ...render(routes as ReactElement, { wrapper: Wrapper, ...rest }) };
 }
