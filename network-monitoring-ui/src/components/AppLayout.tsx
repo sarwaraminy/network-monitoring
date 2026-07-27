@@ -91,12 +91,14 @@ export default function AppLayout() {
               mr: 2,
             }}
           >
-            <ShieldMoonOutlinedIcon />
+            {/* The one piece of colour in the bar, now that it is neutral. */}
+            <ShieldMoonOutlinedIcon sx={{ color: 'primary.main' }} />
             <Typography
               variant="subtitle1"
               noWrap
               sx={{
                 fontWeight: 700,
+                letterSpacing: '-0.01em',
               }}
             >
               Network Monitoring
@@ -114,10 +116,16 @@ export default function AppLayout() {
                   color="inherit"
                   sx={{
                     px: 1.5,
-                    opacity: 0.78,
-                    borderBottom: '2px solid transparent',
-                    borderRadius: 0,
-                    '&.active': { opacity: 1, borderBottomColor: 'primary.light' },
+                    // Inactive items sit at secondary-text weight; the active one
+                    // comes forward. A pill rather than an underline, so the bar
+                    // has no hard rules running through it.
+                    color: 'text.secondary',
+                    borderRadius: 1.5,
+                    '&:hover': { bgcolor: 'action.hover', color: 'text.primary' },
+                    '&.active': {
+                      color: 'primary.main',
+                      bgcolor: 'action.selected',
+                    },
                   }}
                 >
                   {item.label}
@@ -127,8 +135,6 @@ export default function AppLayout() {
           )}
 
           <Box sx={{ flexGrow: isCompact ? 1 : 0 }} />
-
-          <ColorSchemeToggle />
 
           <Tooltip title={user?.email ?? 'Account'}>
             <IconButton onClick={(event) => setMenuAnchor(event.currentTarget)} sx={{ p: 0.5 }}>
@@ -159,6 +165,8 @@ export default function AppLayout() {
                 {user?.email} · {user?.role}
               </Typography>
             </Box>
+            <Divider />
+            <ColorSchemeToggle />
             <Divider />
             <MenuItem onClick={handleLogout}>
               <ListItemIcon>

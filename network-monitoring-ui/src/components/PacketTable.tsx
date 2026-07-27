@@ -6,6 +6,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { MaterialReactTable, type MRT_ColumnDef, useMaterialReactTable } from 'material-react-table';
 import { useMemo } from 'react';
+import { sharedTableOptions } from '../tableTheme';
 import { monoSx } from '../theme';
 import type { Packet } from '../types';
 import HexDump, { hexByteCount } from './HexDump';
@@ -119,6 +120,8 @@ export default function PacketTable({ packets, capturing, onIpClick }: PacketTab
   );
 
   const table = useMaterialReactTable({
+    // Spread first, so anything below wins over the shared defaults.
+    ...sharedTableOptions,
     columns,
     data: rows,
     enableStickyHeader: true,

@@ -14,6 +14,13 @@
 #   docker compose -f docker-compose.yml -f docker-compose.capture.yml up --build
 #
 # See the README for why this is Linux-only.
+#
+# FLOW COLLECTION, HOWEVER, WORKS FINE IN A CONTAINER and on every platform: the
+# switch or firewall does the observing and sends summaries over UDP, so there is
+# nothing to capture locally and no privileges to grant. That makes it the
+# practical way to get real network-wide detection out of a containerised deploy:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.flow.yml up --build
 
 name: network-monitoring
 

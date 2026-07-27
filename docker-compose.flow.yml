@@ -1,0 +1,33 @@
+# Override that enables NetFlow/IPFIX collection.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.flow.yml up --build
+#
+# Unlike the capture override, this works on every platform — Windows, macOS and
+# Linux alike — needs no privileges, no kernel driver and no SPAN port. A flow
+# collector is just a UDP socket, which is exactly why it is the practical way to
+# run this tool in a container.
+#
+# Point your switch, router or firewall at the host on FLOW_PORT/udp. The device
+# does the observing; this side only receives the summaries. Confirm arrival at
+# GET /api/flow/status, which breaks the counters down per exporter.
+#
+# On Docker Desktop the host's published port is reachable from the LAN, so the
+# exporter should be pointed at the machine's LAN address, not 127.0.0.1.
+#
+# Kept as a separate override rather than folded into docker-compose.yml so that
+# a plain `docker compose up` does not publish a UDP port nobody asked for.
+
+services:
+  api:
+    environment:
+      FLOW_ENABLED: 'true'
+      FLOW_PORT: ${FLOW_PORT:-2055}
+      # Inside the container this must be 0.0.0.0: the published port is
+      # forwarded to the container's own interface, not to its loopback.
+      FLOW_BIND_ADDRESS: '0.0.0.0'
+      # Allow-list of exporter addresses. Leave empty for the first run to
+      # discover them, then set it — NetFlow source addresses are spoofable, and
+      # this is the only filter the protocol permits.
+      FLOW_EXPORTERS: ${FLOW_EXPORTERS:-}
+    ports:
+      - '${FLOW_PORT:-2055}:${FLOW_PORT:-2055}/udp'

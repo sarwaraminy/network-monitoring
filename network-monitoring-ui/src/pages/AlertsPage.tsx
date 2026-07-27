@@ -26,6 +26,7 @@ import IpInfoDialog from '../components/IpInfoDialog';
 import { KIND_DESCRIPTION, KIND_LABEL, SeverityChip } from '../components/SeverityChip';
 import { useAcknowledgeAlert, useAlertSummary, useAlerts, useDeleteAlert } from '../hooks/useAlerts';
 import { useIpInfo } from '../hooks/useIpInfo';
+import { sharedTableOptions } from '../tableTheme';
 import { monoSx } from '../theme';
 import { ALERT_KINDS, type AlertKind, type Alert as AlertRecord, type Severity } from '../types';
 
@@ -203,6 +204,8 @@ export default function AlertsPage() {
   );
 
   const table = useMaterialReactTable({
+    // Spread first, so anything below wins over the shared defaults.
+    ...sharedTableOptions,
     columns,
     data: alerts,
     state: { isLoading: loading },

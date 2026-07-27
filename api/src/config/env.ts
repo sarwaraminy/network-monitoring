@@ -80,6 +80,14 @@ function arpTrustedMappings(): ReadonlyMap<string, string> {
   return map;
 }
 
+/** Parses `10.0.0.1,10.0.0.2` into the flow exporter allow-list. */
+function flowExporters(): string[] {
+  return optional('FLOW_EXPORTERS', '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '');
+}
+
 export const env = {
   nodeEnv: optional('NODE_ENV', 'development'),
   isProduction: optional('NODE_ENV', 'development') === 'production',
@@ -105,6 +113,29 @@ export const env = {
    */
   redactPacketPayload: bool('REDACT_PACKET_PAYLOAD', false),
   arpTrustedMappings: arpTrustedMappings(),
+
+  /**
+   * NetFlow/IPFIX collector. Off by default because it opens a UDP port, and a
+   * listening port nobody asked for is not something a deployment should acquire
+   * by upgrading.
+   */
+  flow: {
+    enabled: bool('FLOW_ENABLED', false),
+    /** 2055 is the de facto NetFlow port; 4739 is IANA's for IPFIX. */
+    port: int('FLOW_PORT', 2055),
+    /**
+     * Defaults to all interfaces so a first run works without knowing the
+     * container's address. Narrow this to a management interface in production:
+     * the protocol has no authentication, so reachability is the access control.
+     */
+    bindAddress: optional('FLOW_BIND_ADDRESS', '0.0.0.0'),
+    /**
+     * Addresses permitted to send flow data. Empty accepts any source, which is
+     * needed for discovery but should be filled in once the exporters are known —
+     * NetFlow source addresses are spoofable, so this is the only filter available.
+     */
+    allowedExporters: flowExporters(),
+  },
 
   /** Requests allowed per minute per client IP, by endpoint group. */
   rateLimit: {

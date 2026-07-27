@@ -1,23 +1,39 @@
 # Network Monitoring Tool (NMT)
 
-Passive network security monitoring. It captures traffic from a chosen interface (optionally
-filtered to a single host), raises security findings from what it sees, and enriches any
-address involved with reverse DNS, WHOIS and geolocation data.
+Passive network security monitoring. It observes traffic, raises security findings from what it
+sees, and enriches any address involved with reverse DNS, WHOIS and geolocation data.
+
+There are two ways to feed it, and they suit different deployments:
+
+| | **Packet capture** | **Flow collection** |
+| --- | --- | --- |
+| Needs | Npcap/libpcap driver, admin rights, and a SPAN/mirror port for anything beyond one host | A UDP port |
+| Sees | Full packets, including payload | Conversation summaries, no payload |
+| Scope | Whatever the interface is shown | Every conversation crossing the exporter |
+| Setup | Install a driver, configure a mirror port | One line of switch/firewall config |
+
+Flow collection ([below](#flow-collection-netflow--ipfix)) is the easier deployment by a wide
+margin and covers more of the network; packet capture is what you add on top when you need to
+see payload. Both feed the same detectors and the same alert table.
 
 ## What it detects
 
 Each detector produces an **alert**: a finding with a severity, an occurrence count and
 structured evidence — not one row per suspicious packet.
 
-| Detector | Severity | What it looks for |
-| --- | --- | --- |
-| **ARP spoofing** | Critical / High | A settled IP address suddenly claimed by a different MAC, or one MAC claiming many addresses. Bindings are learned from live traffic, so no configuration is needed. Alternating MACs (a gratuitous ARP war) escalate to critical. |
-| **Cleartext credentials** | Critical | HTTP Basic auth, login form posts, FTP, Telnet, POP3/IMAP and SMTP AUTH crossing the network unencrypted. **Passwords are never recorded** — only the username and the secret's length. |
-| **Port scan** | High | One source probing many ports on a single host. |
-| **Host sweep** | High | One source probing the same port across many hosts. Web and DNS ports are excluded, so ordinary browsing is not flagged. |
-| **SYN flood** | High | An implausible rate of connection attempts from one source. |
-| **DNS tunnelling** | Medium | Query names shaped like encoded data rather than hostnames, which is how data is smuggled out over DNS. Requires two independent signals before alerting. |
-| **New device** | Medium | A MAC address never seen on this network. Known devices are persisted, and there is a learning period at the start of each capture. |
+| Detector | Severity | What it looks for | Packets | Flows |
+| --- | --- | --- | --- | --- |
+| **ARP spoofing** | Critical / High | A settled IP address suddenly claimed by a different MAC, or one MAC claiming many addresses. Bindings are learned from live traffic, so no configuration is needed. Alternating MACs (a gratuitous ARP war) escalate to critical. | ✅ | ✗ layer 2 |
+| **Cleartext credentials** | Critical | HTTP Basic auth, login form posts, FTP, Telnet, POP3/IMAP and SMTP AUTH crossing the network unencrypted. **Passwords are never recorded** — only the username and the secret's length. | ✅ | ✗ payload |
+| **Port scan** | High | One source probing many ports on a single host. | ✅ | ✅ |
+| **Host sweep** | High | One source probing the same port across many hosts. Web and DNS ports are excluded, so ordinary browsing is not flagged. | ✅ | ✅ |
+| **SYN flood** | High | An implausible rate of connection attempts from one source. | ✅ | ✅ |
+| **DNS tunnelling** | Medium | Query names shaped like encoded data rather than hostnames, which is how data is smuggled out over DNS. Requires two independent signals before alerting. | ✅ | ✗ payload |
+| **New device** | Medium | A MAC address never seen on this network. Known devices are persisted, and there is a learning period at the start of each capture. | ✅ | ✗ needs MACs |
+
+The three that run on flow data are the ones that benefit most from it, because they depend on
+seeing *many* conversations rather than the contents of one — exactly what a single interface
+cannot give you.
 
 Detection is designed for precision. The test suite includes a regression guard that replays a
 realistic browsing session — a workstation talking to Microsoft, Bing, Akamai and OpenDNS — and
@@ -30,6 +46,7 @@ asserts that **zero** alerts are produced.
 | Frontend | React 18 · TypeScript · Vite · MUI · Material React Table                 |
 | Backend  | Node.js · Express · TypeScript · Drizzle ORM                              |
 | Capture  | Npcap / libpcap, called directly via [koffi](https://koffi.dev/) FFI      |
+| Flow     | NetFlow v5/v9 and IPFIX over UDP, on Node's built-in `dgram`              |
 | Database | PostgreSQL                                                                |
 
 > Previously Spring Boot (Java 17) + Pcap4J + Create React App. See
@@ -172,6 +189,17 @@ escalation — a container in the host network namespace with `NET_RAW` can read
 host can see. It is **Linux-only**: on Docker Desktop for Windows or macOS the engine runs in
 its own VM, so host networking attaches to that VM's interfaces rather than your machine's.
 
+**Flow collection, by contrast, works in a container on every platform** — no privileges, no
+driver, no mirror port, because the switch or firewall does the observing:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.flow.yml up --build
+```
+
+That publishes `2055/udp` and enables the collector. Point the exporter at the host's LAN
+address, then check `GET /api/flow/status`. This is the realistic way to get network-wide
+detection out of a containerised deployment — see [Flow collection](#flow-collection-netflow--ipfix).
+
 Two things that catch people out:
 
 - **`POSTGRES_PASSWORD` only applies on first run.** Postgres sets it when it initialises the
@@ -199,32 +227,152 @@ thread. A 10 MB kernel buffer absorbs bursts between polls.
 If the library cannot be loaded, the API returns `503` from the capture endpoints, the capture
 pages show a banner, and everything else keeps working.
 
+### The vantage-point problem
+
+Worth being clear about, because it determines where capture is useful at all: a network
+interface only sees **its own traffic plus broadcast and multicast**. On a switched network a
+workstation cannot see the laptop next to it talking to the file server. So capture from a
+normal machine gives you ARP/broadcast findings and that machine's own conversations — real,
+but a small slice.
+
+Seeing the rest needs a **SPAN/mirror port** or a network TAP, which means a managed switch and
+a config change. That is a bigger ask than the driver install, and it is the reason flow
+collection exists below.
+
+---
+
+## Flow collection (NetFlow / IPFIX)
+
+Instead of capturing packets ourselves, let the switch, router or firewall do the observing and
+send us summaries. Almost everything managed already supports this: Cisco, Juniper, Fortinet,
+Palo Alto, Meraki, UniFi, MikroTik, pfSense and OPNsense all export NetFlow or IPFIX.
+
+Our side is a UDP socket on Node's built-in `dgram` — **no native module, no driver, no
+elevated privileges, no mirror port**, and it runs unprivileged in the existing container.
+
+### Enabling it
+
+```bash
+# api/.env
+FLOW_ENABLED=true
+FLOW_PORT=2055               # 2055 is the de facto NetFlow port; 4739 is IANA's for IPFIX
+FLOW_BIND_ADDRESS=0.0.0.0
+FLOW_EXPORTERS=              # empty accepts any source; fill in once devices are known
+```
+
+Then point the device at it. On pfSense/OPNsense that is the softflowd or ipfix service; on
+Cisco, `ip flow-export destination <collector> 2055`; on UniFi and Meraki it is a field in the
+controller UI.
+
+Check it is arriving:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/flow/status
+```
+
+The per-exporter breakdown is the point of that endpoint. The two failure modes during setup —
+"configured but nothing is arriving" and "arriving, but every record is waiting on a template" —
+look identical in a single total, so they are counted separately per device.
+
+### What is supported
+
+| Format | Version word | Notes |
+| --- | --- | --- |
+| NetFlow v5 | 5 | Fixed layout, no templates. IPv4 only, and carries no MAC addresses. |
+| NetFlow v9 | 9 | Templated. Flow times are switch uptime, resolved against the header. |
+| IPFIX | 10 | Templated, with enterprise fields, variable-length fields and reduced-size encoding. |
+
+Templated formats are self-describing but not self-contained: a data record is opaque until the
+template describing it arrives, and templates are sent on their own interval. So for the first
+few minutes after start — and again after a restart — records arrive that cannot yet be decoded.
+That is normal, and `/api/flow/status` reports them as `pendingTemplates` rather than errors.
+
+sFlow is detected and rejected with a clear log line rather than being mis-parsed as NetFlow v5,
+which shares its version number. It is not supported yet, though it is the natural next
+addition: sFlow samples carry a truncated raw packet header, which the existing packet decoders
+could parse directly.
+
+### Why flow detection is a separate detector
+
+`flow/detect.ts` is deliberately not an adapter that fakes a `DecodedPacket` from a flow record.
+The two observations are not interchangeable, and conflating them destroys the signal:
+
+- a **packet's** SYN flag means "this packet opens a connection";
+- a **flow's** SYN flag means "a SYN appeared somewhere in this conversation" — true of every
+  established connection ever made.
+
+An adapter would silently turn a precise signal into a meaningless one. Instead the flow
+detector tests whether the conversation was **ever acknowledged**: flags accumulate over a flow,
+so a successful client-side conversation ends up carrying SYN *and* ACK, while a scan does not —
+the target either refuses (RST back, so the outbound flow holds only SYN) or drops silently.
+
+"SYN present, ACK absent" therefore means "this connection was never answered", which is
+genuinely unusual. That is a **better** discriminator than the packet path has, and notably
+better than the original engine's rule, which flagged any SYN-without-ACK packet — i.e. every
+new connection, which is why 100% of the alerts in the real database were false positives.
+
+When an exporter omits `tcpControlBits` (it is optional in IPFIX and several vendors skip it),
+the detector falls back to volume: a connection that established and did anything useful carries
+more than a couple of packets.
+
+Every flow-derived finding records its provenance in the evidence — which exporter reported it,
+which ingress interface, the TCP flags, and the flow's packet and byte counts. With flow data
+"how do you know?" has a specific device as its answer, and that is the first thing anyone
+triaging an alert will ask.
+
+### Security of the collector
+
+Stated plainly, because it is a property of the protocol and not something this implementation
+can fix: **NetFlow has no authentication, and UDP source addresses are spoofable.** Anything
+that can route to the collector can feed it fabricated flows.
+
+Three mitigations are built in:
+
+- `FLOW_EXPORTERS` allow-lists source addresses. Empty accepts anything, which is needed to
+  discover an exporter's address on a first run, but it should be filled in afterwards.
+- `FLOW_BIND_ADDRESS` should be a management interface, not `0.0.0.0`, on any network where
+  that distinction matters. Reachability is the real access control here.
+- The template cache and the per-exporter counters are both **bounded**, and evict rather than
+  grow. Both are filled directly from remote input, and anything unbounded on remote input is a
+  memory-exhaustion bug waiting to happen.
+
+The collector is also off by default: a listening UDP port is not something a deployment should
+acquire just by upgrading.
+
 ---
 
 ## Tests
 
 ```bash
-npm test          # both suites: 95 tests
-npm run test:api  # 61 API tests
+npm test          # both suites: 136 tests
+npm run test:api  # 102 API tests
 npm run test:ui   # 34 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 61 tests
+### API — 102 tests
 
-Over `api/src/packet/`, covering the hand-written decoders, every detector, and the FFI
-binding. They use Node's built-in test runner, so there is no framework to install. The FFI
-tests skip themselves when no pcap library is present.
+Over `api/src/packet/` and `api/src/flow/`, covering the hand-written decoders, every detector,
+the NetFlow/IPFIX parsers, and the FFI binding. They use Node's built-in test runner, so there
+is no framework to install. The FFI tests skip themselves when no pcap library is present.
 
-Two groups are worth knowing about:
+Three groups are worth knowing about:
 
 - **Attack simulations** build real frames — ARP poisoning, port scans, host sweeps, SYN
   floods, cleartext logins over five protocols, DNS tunnels using base32 labels — and assert
   they are caught.
 - **False-positive guards** replay ordinary traffic and assert silence. This is the suite that
   matters most: the rules these detectors replaced flagged every TCP ACK and every new
-  connection, so every alert in the database was a false positive.
+  connection, so every alert in the database was a false positive. The flow detector has the
+  same failure mode available to it — every TCP flow contains a SYN — so it gets its own set:
+  a browser opening 200 established connections, a host contacting 60 addresses on 443, a busy
+  DNS resolver, and a file server serving 50 clients must all produce **zero** findings.
+- **Wire-format tests** build genuine NetFlow v5, NetFlow v9 and IPFIX datagrams byte by byte
+  from the RFCs, then parse them. Fixtures shaped by the parser's own assumptions would only
+  prove the two agree, which is exactly the bug class — a misread offset — that matters here.
+  These cover template arrival after data, template redefinition, enterprise fields, variable
+  length, reduced-size encoding, NTP-format timestamps, and truncated or over-long sets.
 
 The credential tests also assert that no password appears anywhere in a finding, including its
 base64 form.
@@ -392,6 +540,17 @@ Both prefixes expose the same routes and keep independent capture handles and bu
 | `GET`  | `/status`   | —                                              | Capture state and counters     |
 | `GET`  | `/ip-info`  | `ipAddress`                                    | Reverse DNS + WHOIS + geo      |
 
+### Flow collector — `/api/flow`
+
+| Method | Path      | Purpose                                                     |
+| ------ | --------- | ----------------------------------------------------------- |
+| `GET`  | `/status` | Socket state, totals, per-exporter counters, detection stats |
+
+Read-only by design. The collector's lifetime is the process's — it is infrastructure, driven by
+whether exporters are configured to send to it, not something a user starts and stops like a
+capture. A start/stop endpoint would invite a UI button that silently switches off security
+telemetry.
+
 `GET /health` is unauthenticated and reports uptime.
 
 ---
@@ -415,6 +574,15 @@ api/                          Node + Express + TypeScript API
         dns-tunneling.ts      Encoded-looking query names
         new-device.ts         Unrecognised MAC addresses
         index.ts              DetectionEngine — runs them all per packet
+    flow/                     NetFlow/IPFIX collection — no driver, no mirror port
+      collector.ts            UDP socket, per-exporter counters, allow-list
+      parse.ts                Version dispatch; tells sFlow from NetFlow v5
+      netflow-v5.ts           Fixed 48-byte records, no templates
+      netflow-v9.ts           NetFlow v9 + IPFIX; one walker, dialect-parameterised
+      templates.ts            Bounded template cache, keyed by exporter and domain
+      fields.ts               The IPFIX information elements we read
+      types.ts                Normalised FlowRecord; the unanswered-connection test
+      detect.ts               Scan, sweep and flood from flows
     networkservices/          Reverse DNS, WHOIS, ip-api.com geolocation
     routes/                   Express routers
     services/
@@ -451,8 +619,12 @@ network-monitoring-ui/        React + TypeScript + Vite frontend
 | `CAPTURE_POLL_INTERVAL_MS` | `10`                                       | How often a running capture is drained         |
 | `REDACT_PACKET_PAYLOAD` | `false`                                       | Blanks packet payloads in API responses — see below |
 | `ARP_TRUSTED_MAPPINGS` | —                                              | `ip=mac,ip=mac` pairs treated as authoritative  |
+| `FLOW_ENABLED`         | `false`                                        | Receive NetFlow/IPFIX. Off by default — it opens a UDP port |
+| `FLOW_PORT`            | `2055`                                         | 4739 is IANA's for IPFIX                       |
+| `FLOW_BIND_ADDRESS`    | `0.0.0.0`                                      | Narrow to a management interface in production  |
+| `FLOW_EXPORTERS`       | — (any source)                                 | Comma-separated allow-list of exporter addresses |
 
-Detection thresholds, all tunable per network:
+Detection thresholds, shared by the packet and flow detectors and all tunable per network:
 
 | Variable                     | Default  | Notes                                                    |
 | ---------------------------- | -------- | -------------------------------------------------------- |
@@ -695,6 +867,23 @@ finding within a few seconds.
 - Beaconing detection — regular, evenly spaced connections to one destination, the signature of
   command-and-control.
 - Detect ARP bindings that contradict DHCP, when DHCP traffic is visible.
+- Flow-native detectors that packet capture cannot do as well: beaconing, data-exfiltration
+  volume, and new-peer detection across the whole segment.
+
+**Driver-free telemetry** — extending what the flow collector started, so more detectors work
+without a capture driver or a mirror port:
+
+- sFlow. Its samples carry a truncated raw packet header, so the existing packet decoders could
+  parse them directly.
+- SNMP polling of the router's ARP table (`ipNetToMediaPhysAddress`), which would restore
+  **ARP spoofing** detection — the headline feature — with no capture at all.
+- SNMP polling of the switch MAC-forwarding table, or DHCP lease logs, restoring **new device**
+  detection.
+- DNS server query logs (Windows DNS, Pi-hole, AdGuard, pfSense), restoring **DNS tunnelling**.
+- Syslog ingestion from firewalls, which most SMB deployments already have configured.
+
+That would leave cleartext-credential detection as the only feature genuinely requiring packet
+capture, since nothing else sees payload.
 
 **Product**
 

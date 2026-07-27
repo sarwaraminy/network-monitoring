@@ -61,7 +61,10 @@
       "PowerShell(npm run typecheck)",
       "PowerShell(git checkout -- package-lock.json)",
       "PowerShell(npx vitest run --root network-monitoring-ui 2>&1)",
-      "PowerShell(npx biome format --write api/src/services/alert.service.ts network-monitoring-ui/src/pages/DashboardPage.tsx network-monitoring-ui/src/test/fixtures.ts network-monitoring-ui/src/test/setup.ts network-monitoring-ui/src/types/index.ts 2>&1)"
+      "PowerShell(npx biome format --write api/src/services/alert.service.ts network-monitoring-ui/src/pages/DashboardPage.tsx network-monitoring-ui/src/test/fixtures.ts network-monitoring-ui/src/test/setup.ts network-monitoring-ui/src/types/index.ts 2>&1)",
+      "PowerShell($env:JWT_SECRET = 'local-test-secret-not-for-production-abcdef123456'; npm run test:api 2>&1 | Select-Object -Last 60)",
+      "PowerShell($env:JWT_SECRET = 'local-test-secret-not-for-production-abcdef123456'; npm run test:api 2>&1 | Select-Object -Last 30)",
+      "PowerShell(npx vitest run --root network-monitoring-ui 2>&1 | Select-String -Pattern 'Test Files|Tests ' | Select-Object -Last 2; $env:JWT_SECRET='b'; npm run build 2>&1 | Select-String -Pattern 'built in|error' | Select-Object -Last 2; npx biome ci 2>&1 | Select-String -Pattern 'Checked|Found' | Select-Object -Last 2)"
     ]
   }
 }

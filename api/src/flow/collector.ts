@@ -1,0 +1,344 @@
+import { createSocket, type Socket } from 'node:dgram';
+import { env } from '../config/env.js';
+import { componentLogger } from '../logger.js';
+import { AlertSink } from '../services/alert.service.js';
+import { FlowDetectionEngine } from './detect.js';
+import { FLOW_VERSION, looksLikeSflow, parseFlowDatagram } from './parse.js';
+import { TemplateCache } from './templates.js';
+import type { FlowProtocol, FlowRecord } from './types.js';
+
+const log = componentLogger('flow');
+
+/**
+ * NetFlow/IPFIX collector.
+ *
+ * This is the deployment story for the whole product. Packet capture needs a
+ * kernel driver, administrator rights and a SPAN port; a flow collector needs a
+ * UDP socket. Node's `dgram` is built in, so there is no native module, nothing to
+ * compile, and it runs unprivileged in the existing container. Setup on the
+ * customer side is one line of switch or firewall configuration pointed at this
+ * port.
+ *
+ * Exposure, stated plainly: this socket accepts unauthenticated UDP, and UDP
+ * source addresses are trivially spoofable. Nothing in the format carries
+ * authentication — that is a property of NetFlow, not of this implementation — so
+ * a reachable collector can be fed fabricated flows by anyone who can route to
+ * it. Two consequences are built in below: the allow-list of exporters
+ * (FLOW_EXPORTERS) and a default bind that should be a management interface, not
+ * 0.0.0.0, on any network where that matters.
+ */
+
+/**
+ * Per-exporter counters. Surfacing these is not cosmetic: "am I actually
+ * receiving anything?" is the first question during setup, and without per-device
+ * numbers a half-working estate looks identical to a working one.
+ */
+export interface ExporterStats {
+  exporter: string;
+  version: number;
+  protocolVersion: FlowProtocol | null;
+  datagrams: number;
+  records: number;
+  /** Records awaiting a template that has not been sent yet. */
+  pendingTemplates: number;
+  malformed: number;
+  lastSeen: string;
+}
+
+export interface FlowCollectorStatus {
+  enabled: boolean;
+  listening: boolean;
+  address: string | null;
+  port: number | null;
+  datagrams: number;
+  records: number;
+  malformed: number;
+  ignored: number;
+  templatesCached: number;
+  detection: ReturnType<FlowDetectionEngine['stats']>;
+  exporters: ExporterStats[];
+  startedAt: string | null;
+}
+
+/** Cap on distinct exporters tracked, so counters cannot grow on remote input. */
+const MAX_TRACKED_EXPORTERS = 512;
+
+/**
+ * Receive buffer. Flow bursts arrive faster than a single-threaded event loop
+ * drains them, and the kernel default (a few hundred KB) drops datagrams silently
+ * under load — which looks like "detection missed it" rather than "the socket
+ * overflowed".
+ */
+const RECEIVE_BUFFER_BYTES = 4 * 1024 * 1024;
+
+export class FlowCollector {
+  private socket: Socket | null = null;
+  private readonly templates = new TemplateCache();
+  private readonly engine = new FlowDetectionEngine();
+  private sink: AlertSink | null = null;
+  private startedAt: Date | null = null;
+
+  private datagrams = 0;
+  private records = 0;
+  private malformed = 0;
+  private ignored = 0;
+  private readonly exporters = new Map<string, ExporterStats>();
+  private warnedAboutSflow = false;
+
+  /** Starts listening. Resolves once bound, rejects if the port is unusable. */
+  async start(): Promise<void> {
+    if (this.socket) return;
+
+    const { port, bindAddress } = env.flow;
+    // reuseAddr so a restart does not fail while the old socket lingers.
+    const socket = createSocket({ type: 'udp4', reuseAddr: true });
+
+    socket.on('message', (datagram, remote) => {
+      this.handleDatagram(datagram, remote.address);
+    });
+
+    socket.on('error', (error) => {
+      log.error({ err: error }, 'Flow socket error; closing');
+      this.stop().catch(() => {
+        /* already tearing down */
+      });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      socket.once('error', reject);
+      socket.bind(port, bindAddress, () => {
+        socket.removeListener('error', reject);
+        resolve();
+      });
+    });
+
+    try {
+      socket.setRecvBufferSize(RECEIVE_BUFFER_BYTES);
+    } catch (error) {
+      // Not fatal: the OS may cap it below what we asked for (net.core.rmem_max).
+      log.warn({ err: error }, 'Could not enlarge the flow receive buffer');
+    }
+
+    // The collector alone should not hold the process open.
+    socket.unref();
+
+    this.socket = socket;
+    this.sink = new AlertSink();
+    this.startedAt = new Date();
+
+    const address = socket.address();
+    log.info(
+      {
+        address: address.address,
+        port: address.port,
+        allowedExporters: env.flow.allowedExporters.length > 0 ? env.flow.allowedExporters : 'any',
+        receiveBufferBytes: safeRecvBufferSize(socket),
+      },
+      `Flow collector listening on ${address.address}:${address.port} (NetFlow v5/v9, IPFIX)`,
+    );
+  }
+
+  async stop(): Promise<void> {
+    const socket = this.socket;
+    this.socket = null;
+
+    if (socket) {
+      await new Promise<void>((resolve) => socket.close(() => resolve()));
+      log.info({ datagrams: this.datagrams, records: this.records }, 'Flow collector stopped');
+    }
+
+    this.startedAt = null;
+
+    // Flush before dropping the sink, or the last window of findings is lost.
+    const sink = this.sink;
+    this.sink = null;
+    if (sink) {
+      try {
+        await sink.close();
+      } catch (error) {
+        log.error({ err: error }, 'Could not flush flow alerts');
+      }
+    }
+  }
+
+  /**
+   * Handles one datagram. Never throws: an exception escaping a `message` handler
+   * would reach the process-level uncaughtException handler and kill the API over
+   * a single malformed packet from the network.
+   */
+  private handleDatagram(datagram: Buffer, exporter: string): void {
+    try {
+      this.datagrams += 1;
+
+      if (!this.isAllowed(exporter)) {
+        this.ignored += 1;
+        return;
+      }
+
+      if (looksLikeSflow(datagram)) {
+        this.ignored += 1;
+        if (!this.warnedAboutSflow) {
+          this.warnedAboutSflow = true;
+          log.warn(
+            { exporter },
+            'Received sFlow, which is not supported; configure the device for NetFlow or IPFIX',
+          );
+        }
+        return;
+      }
+
+      const observedAt = new Date();
+      const result = parseFlowDatagram(datagram, exporter, observedAt, this.templates);
+
+      // From the version word, not from the records: a template-only message is
+      // perfectly valid IPFIX and carries no records to read it off.
+      const stats = this.statsFor(exporter, result.version, protocolForVersion(result.version));
+      stats.datagrams += 1;
+      stats.records += result.records.length;
+      stats.pendingTemplates += result.pendingTemplates;
+      stats.malformed += result.malformed;
+      stats.lastSeen = observedAt.toISOString();
+
+      this.records += result.records.length;
+      this.malformed += result.malformed;
+
+      if (result.unsupported) {
+        this.ignored += 1;
+        log.warn({ exporter, version: result.unsupported }, 'Unsupported flow version');
+        return;
+      }
+
+      for (const record of result.records) {
+        this.inspect(record);
+      }
+    } catch (error) {
+      this.malformed += 1;
+      log.error({ err: error, exporter, bytes: datagram.length }, 'Failed to handle a flow datagram');
+    }
+  }
+
+  private inspect(record: FlowRecord): void {
+    const findings = this.engine.inspect(record);
+    if (findings.length > 0) this.sink?.record(findings);
+  }
+
+  /**
+   * An empty allow-list accepts any source, which is the right default for a first
+   * run — otherwise nothing arrives and there is no way to discover the exporter's
+   * address. Setting FLOW_EXPORTERS once the devices are known is the hardening
+   * step, and it is the only defence the format permits.
+   */
+  private isAllowed(exporter: string): boolean {
+    const allowed = env.flow.allowedExporters;
+    return allowed.length === 0 || allowed.includes(exporter);
+  }
+
+  private statsFor(exporter: string, version: number, protocolVersion: FlowProtocol | null): ExporterStats {
+    const existing = this.exporters.get(exporter);
+    if (existing) {
+      // Only overwrite the version with one we actually recognise. A single
+      // stray datagram would otherwise leave a working IPFIX exporter displaying
+      // "version 65535", which reads as a broken device during setup.
+      if (protocolVersion) {
+        existing.version = version;
+        existing.protocolVersion = protocolVersion;
+      } else if (existing.protocolVersion === null) {
+        existing.version = version;
+      }
+      return existing;
+    }
+
+    if (this.exporters.size >= MAX_TRACKED_EXPORTERS) {
+      // Reuse the oldest slot rather than growing. Losing per-device counters for
+      // an implausible number of exporters is better than unbounded memory.
+      const oldest = this.exporters.keys().next();
+      if (!oldest.done) this.exporters.delete(oldest.value);
+    }
+
+    const created: ExporterStats = {
+      exporter,
+      version,
+      protocolVersion,
+      datagrams: 0,
+      records: 0,
+      pendingTemplates: 0,
+      malformed: 0,
+      lastSeen: new Date().toISOString(),
+    };
+    this.exporters.set(exporter, created);
+    return created;
+  }
+
+  getStatus(): FlowCollectorStatus {
+    const address = this.socket?.address();
+    return {
+      enabled: env.flow.enabled,
+      listening: this.socket !== null,
+      address: address?.address ?? null,
+      port: address?.port ?? null,
+      datagrams: this.datagrams,
+      records: this.records,
+      malformed: this.malformed,
+      ignored: this.ignored,
+      templatesCached: this.templates.size,
+      detection: this.engine.stats(),
+      // Busiest first: on a real network one exporter dominates and that is the
+      // one worth looking at.
+      exporters: [...this.exporters.values()].sort((a, b) => b.records - a.records),
+      startedAt: this.startedAt?.toISOString() ?? null,
+    };
+  }
+
+  /** Flushes buffered findings without stopping. Used by the shutdown path. */
+  async flush(): Promise<void> {
+    await this.sink?.flush();
+  }
+}
+
+/** Null for a version we do not implement, which keeps it out of the status. */
+function protocolForVersion(version: number): FlowProtocol | null {
+  switch (version) {
+    case FLOW_VERSION.NETFLOW_V5:
+      return 'netflow5';
+    case FLOW_VERSION.NETFLOW_V9:
+      return 'netflow9';
+    case FLOW_VERSION.IPFIX:
+      return 'ipfix';
+    default:
+      return null;
+  }
+}
+
+function safeRecvBufferSize(socket: Socket): number | null {
+  try {
+    return socket.getRecvBufferSize();
+  } catch {
+    return null;
+  }
+}
+
+/** One collector per process, since it owns a fixed UDP port. */
+let collector: FlowCollector | null = null;
+
+export function flowCollector(): FlowCollector {
+  collector ??= new FlowCollector();
+  return collector;
+}
+
+/** Starts the collector when configured. Never rejects: the API must still boot. */
+export async function startFlowCollector(): Promise<void> {
+  if (!env.flow.enabled) {
+    log.info('Flow collector disabled (set FLOW_ENABLED=true to receive NetFlow/IPFIX)');
+    return;
+  }
+  try {
+    await flowCollector().start();
+  } catch (error) {
+    // A busy port or a bad bind address should not stop the HTTP API from serving.
+    log.error({ err: error, port: env.flow.port }, 'Could not start the flow collector');
+  }
+}
+
+export async function stopFlowCollector(): Promise<void> {
+  if (collector) await collector.stop();
+}

@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { closeDb } from './db/index.js';
 import { runMigrations } from './db/migrate.js';
+import { startFlowCollector, stopFlowCollector } from './flow/collector.js';
 import { componentLogger, logger } from './logger.js';
 import { libraryVersion } from './packet/libpcap.js';
 import { stopAllCaptures } from './services/packet-capture.registry.js';
@@ -28,6 +29,10 @@ async function main(): Promise<void> {
     );
   });
 
+  // After listen(), so a flow port that is already in use cannot stop the API
+  // from serving. startFlowCollector logs and returns rather than rejecting.
+  await startFlowCollector();
+
   let shuttingDown = false;
 
   const shutdown = async (signal: string): Promise<void> => {
@@ -44,9 +49,11 @@ async function main(): Promise<void> {
     deadline.unref();
 
     try {
-      // Order matters: stopping a capture flushes buffered findings, and that
-      // write needs the pool. Closing the database first would lose them.
+      // Order matters: stopping a capture or the flow collector flushes buffered
+      // findings, and that write needs the pool. Closing the database first would
+      // lose them.
       await stopAllCaptures();
+      await stopFlowCollector();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await closeDb();
       log.info('Shutdown complete');

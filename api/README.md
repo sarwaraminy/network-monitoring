@@ -73,8 +73,19 @@ src/
       detect.test.ts    Attack simulations and false-positive guards
     decode.test.ts      Decoder tests; no database, no Npcap needed
     libpcap.test.ts     FFI integration tests; skip when no pcap library
+  flow/                 NetFlow/IPFIX collection — no FFI, no driver, no privileges
+    collector.ts        dgram socket, exporter allow-list, per-exporter counters
+    parse.ts            Version dispatch; discriminates sFlow from NetFlow v5
+    netflow-v5.ts       Fixed 24-byte header + 48-byte records
+    netflow-v9.ts       NetFlow v9 and IPFIX share one walker, parameterised by dialect
+    templates.ts        Bounded cache keyed by exporter + observation domain + id
+    fields.ts           IPFIX information elements; unknown fields skipped by length
+    types.ts            FlowRecord and isUnansweredTcp — the scan discriminator
+    detect.ts           FlowScanDetector: port scan, host sweep, connection flood
+    test-datagrams.ts   Wire-format builders, written from the RFCs
+    flow.test.ts        Parser, detector and template-cache tests
   networkservices/      Reverse DNS, WHOIS (TCP 43), ip-api.com geolocation
-  routes/               auth, logs, packets (one factory, mounted twice)
+  routes/               auth, logs, packets (one factory, mounted twice), flow
   services/
     alert.service.ts    Aggregates findings into deduplicated alerts; batched writes
     device.service.ts   Persists known MAC addresses across restarts
@@ -113,8 +124,25 @@ src/
   protocol, including the base64 form.
 - **Every new detector needs a false-positive test.** The rules these replaced flagged 100% of
   ordinary traffic; the `quiet on normal traffic` suite exists to stop that recurring.
+- **A flow is not a packet.** `flow/detect.ts` is a separate detector rather than an adapter that
+  synthesises a `DecodedPacket`, because a flow's SYN flag means "a SYN appeared somewhere in
+  this conversation" — true of every established connection — not "this packet opens one". Do not
+  add that adapter; it silently converts a precise signal into a meaningless one. The flow test
+  is `isUnansweredTcp` in `flow/types.ts`.
+- **The flow socket is fed by unauthenticated, spoofable UDP.** Nothing derived from a datagram
+  may grow without a bound — the template cache and per-exporter counters both evict. The
+  `message` handler must never throw, or a single malformed datagram reaches
+  `uncaughtException` and kills the API.
+- **Unknown flow fields are skipped by length, never by guessing.** Templates are vendor-defined,
+  so a decoder that insists on understanding every information element fails on real hardware.
+- **Flow parser tests build their input from the RFCs**, byte by byte, in `test-datagrams.ts`.
+  Fixtures shaped by the parser's own assumptions would only prove parser and fixture agree,
+  which misses the bug that matters: a misread offset.
 - **Log through `componentLogger`, not `console`.** Biome fails the build on `console.log`
   outside tests and CLI entry points. Pass structured fields — `log.warn({ mac, err }, 'msg')` —
   rather than interpolating into the message, so the output is queryable.
-- **Shutdown order is load-bearing.** `stopAllCaptures()` flushes buffered findings and needs the
-  connection pool, so it must complete before `closeDb()`. See `index.ts`.
+- **Shutdown order is load-bearing.** `stopAllCaptures()` and `stopFlowCollector()` both flush
+  buffered findings and need the connection pool, so both must complete before `closeDb()`. See
+  `index.ts`.
+- **The flow collector starts after `listen()`** and swallows its own startup failure. A UDP port
+  already in use must not stop the HTTP API from serving.
