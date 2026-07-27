@@ -217,8 +217,10 @@ jobs:
 
       - name: Smoke-test the UI image
         run: |
-          # nginx serves the bundle and proxies /api and /auth. The API is not
-          # running here, so only the static side is asserted.
+          # Deliberately started with no API reachable. nginx resolves the proxy
+          # upstream lazily, so it must still serve the bundle; an `upstream`
+          # block would make it refuse to start at all, which is what this
+          # asserts against.
           docker run -d --name nmt-ui-ci -p 8081:80 nmt-ui:ci
           "$RUNNER_TEMP/wait-for.sh" http://localhost:8081/ nmt-ui-ci
 
@@ -228,5 +230,22 @@ jobs:
           echo "--- SPA fallback for a client-side route ---"
           code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/alerts)
           test "$code" = "200" || { echo "::error::expected 200 for /alerts, got $code"; exit 1; }
+
+          echo "--- static assets are served ---"
+          asset=$(curl -fsS http://localhost:8081/ | grep -oE '/assets/[A-Za-z0-9._-]+\.js' | head -1)
+          test -n "$asset" || { echo "::error::no hashed asset referenced by index.html"; exit 1; }
+          curl -fsS -o /dev/null "http://localhost:8081$asset" \
+            || { echo "::error::asset $asset was not served"; exit 1; }
+          echo "  $asset ok"
+
+          echo "--- a proxied path degrades rather than killing nginx ---"
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/health)
+          case "$code" in
+            502|503|504) echo "  /health returned $code, as expected with no API" ;;
+            *) echo "::error::expected a gateway error from /health with no API, got $code"; exit 1 ;;
+          esac
+          # And nginx is still up afterwards.
+          curl -fsS -o /dev/null http://localhost:8081/ \
+            || { echo "::error::nginx stopped serving after a failed proxy attempt"; exit 1; }
 
           docker rm -f nmt-ui-ci
