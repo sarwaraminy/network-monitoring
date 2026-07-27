@@ -57,7 +57,11 @@
       "Bash(gh api *)",
       "Bash(curl -s -m 8 http://localhost:8097/health)",
       "Bash(echo \"health: $\\(curl -s -m 8 http://localhost:8097/health\\)\")",
-      "Bash(curl -s -o /dev/null -w '%{http_code}' -m 8 http://localhost:8097/ready)"
+      "Bash(curl -s -o /dev/null -w '%{http_code}' -m 8 http://localhost:8097/ready)",
+      "PowerShell(npm run typecheck)",
+      "PowerShell(git checkout -- package-lock.json)",
+      "PowerShell(npx vitest run --root network-monitoring-ui 2>&1)",
+      "PowerShell(npx biome format --write api/src/services/alert.service.ts network-monitoring-ui/src/pages/DashboardPage.tsx network-monitoring-ui/src/test/fixtures.ts network-monitoring-ui/src/test/setup.ts network-monitoring-ui/src/types/index.ts 2>&1)"
     ]
   }
 }
