@@ -88,6 +88,36 @@ function flowExporters(): string[] {
     .filter((entry) => entry !== '');
 }
 
+const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
+type SeverityName = (typeof SEVERITIES)[number];
+
+/** Rejects a typo rather than silently notifying about everything or nothing. */
+function severity(name: string, fallback: SeverityName): SeverityName {
+  const raw = optional(name, fallback).toLowerCase();
+  if (!(SEVERITIES as readonly string[]).includes(raw)) {
+    throw new TypeError(`${name} must be one of ${SEVERITIES.join(', ')}, got "${raw}".`);
+  }
+  return raw as SeverityName;
+}
+
+const WEBHOOK_FORMATS = ['auto', 'slack', 'teams', 'discord', 'generic'] as const;
+type WebhookFormatName = (typeof WEBHOOK_FORMATS)[number];
+
+function webhookFormat(): WebhookFormatName {
+  const raw = optional('NOTIFY_WEBHOOK_FORMAT', 'auto').toLowerCase();
+  if (!(WEBHOOK_FORMATS as readonly string[]).includes(raw)) {
+    throw new TypeError(`NOTIFY_WEBHOOK_FORMAT must be one of ${WEBHOOK_FORMATS.join(', ')}, got "${raw}".`);
+  }
+  return raw as WebhookFormatName;
+}
+
+function recipients(): string[] {
+  return optional('NOTIFY_EMAIL_TO', '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '');
+}
+
 export const env = {
   nodeEnv: optional('NODE_ENV', 'development'),
   isProduction: optional('NODE_ENV', 'development') === 'production',
@@ -102,6 +132,19 @@ export const env = {
 
   jwtSecret: required('JWT_SECRET'),
   jwtExpiresIn: optional('JWT_EXPIRES_IN', '1d'),
+
+  /**
+   * Allow anyone to register an account.
+   *
+   * False by default, and it should stay false for any real deployment. Account
+   * creation is otherwise restricted to an authenticated administrator, plus a
+   * single unauthenticated request to create the very first account on an empty
+   * installation — see routes/auth.routes.ts.
+   *
+   * Even when this is true, a self-registered account is always a USER. A public
+   * form that can mint administrators is exactly the hole this setting replaced.
+   */
+  allowOpenSignup: bool('ALLOW_OPEN_SIGNUP', false),
 
   captureBufferSize: int('CAPTURE_BUFFER_SIZE', 5000),
   /** How often a running capture is drained. The pcap handle is non-blocking. */
@@ -135,6 +178,52 @@ export const env = {
      * NetFlow source addresses are spoofable, so this is the only filter available.
      */
     allowedExporters: flowExporters(),
+  },
+
+  /**
+   * Alert delivery. Off by default: a deployment should not start emailing people
+   * because it was upgraded.
+   */
+  notify: {
+    enabled: bool('NOTIFY_ENABLED', false),
+    /**
+     * Notify at this severity and above. `high` by default — critical and high
+     * only. Medium and below belong on the dashboard; putting them in an inbox is
+     * how the channel gets muted, and then the critical one is missed too.
+     */
+    minSeverity: severity('NOTIFY_MIN_SEVERITY', 'high'),
+    /** Findings are batched for this long, so one burst is one message. */
+    digestMs: int('NOTIFY_DIGEST_SECONDS', 60) * 1000,
+    /** The same finding will not notify again inside this period. */
+    throttleMs: int('NOTIFY_THROTTLE_SECONDS', 900) * 1000,
+    /** Hard ceiling on messages per hour, whatever detection does. */
+    maxPerHour: int('NOTIFY_MAX_PER_HOUR', 12),
+    /**
+     * Include structured evidence in the message body.
+     *
+     * Evidence never contains passwords or payloads — the detectors guarantee that
+     * and the tests assert it. It does contain internal IP addresses, MAC
+     * addresses and usernames, and sending those to a third-party chat service
+     * moves them outside the network being protected. Hence a separate switch.
+     */
+    includeEvidence: bool('NOTIFY_INCLUDE_EVIDENCE', true),
+    /** Linked from messages, e.g. https://nmt.example.com/alerts */
+    dashboardUrl: optional('NOTIFY_DASHBOARD_URL', '') || null,
+
+    /** Slack, Teams, Discord or any endpoint accepting JSON. */
+    webhookUrl: optional('NOTIFY_WEBHOOK_URL', ''),
+    webhookFormat: webhookFormat(),
+
+    email: {
+      host: optional('SMTP_HOST', ''),
+      port: int('SMTP_PORT', 587),
+      /** True only for implicit TLS on port 465; 587 uses STARTTLS with this false. */
+      secure: bool('SMTP_SECURE', false),
+      user: optional('SMTP_USER', ''),
+      password: optional('SMTP_PASSWORD', ''),
+      from: optional('NOTIFY_EMAIL_FROM', ''),
+      to: recipients(),
+    },
   },
 
   /** Requests allowed per minute per client IP, by endpoint group. */

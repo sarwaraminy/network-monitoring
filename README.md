@@ -241,6 +241,62 @@ collection exists below.
 
 ---
 
+## Notifications
+
+Detection is only half of it. Nobody watches a dashboard at 2am, so findings are
+delivered to a webhook, to email, or both.
+
+```bash
+# api/.env
+NOTIFY_ENABLED=true
+NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/...   # or Teams, Discord, anything
+NOTIFY_DASHBOARD_URL=https://nmt.example.com/alerts
+```
+
+Then prove it works before you rely on it:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/notify/test
+```
+
+That endpoint exists because notification config fails silently by nature: a wrong webhook URL
+or SMTP password produces no error anyone sees until the night an alert does not arrive. It
+bypasses every gate below, including `NOTIFY_ENABLED`, so you can check delivery before
+committing to it.
+
+### What stops it becoming spam
+
+The sending is the easy part. Three independent limits apply before anything leaves the
+process, because volume is what gets an alert channel muted — and then the one that mattered is
+missed too:
+
+| Limit | Default | What it does |
+| --- | --- | --- |
+| `NOTIFY_MIN_SEVERITY` | `high` | Critical and high only. Medium and below stay on the dashboard. |
+| `NOTIFY_THROTTLE_SECONDS` | 900 | The same finding will not notify again for 15 minutes, however often it recurs. |
+| `NOTIFY_MAX_PER_HOUR` | 12 | Hard ceiling. If detection misbehaves — which it has done here before — the blast radius is bounded. |
+
+On top of those, findings are batched into a **digest** (`NOTIFY_DIGEST_SECONDS`, default 60).
+A port scan produces dozens of findings; this makes it one message that leads with the most
+urgent and says how many it truncated.
+
+### Sending is disclosure
+
+`NOTIFY_INCLUDE_EVIDENCE` is a separate switch from notifications for a reason. Evidence never
+contains passwords or packet payloads — the detectors guarantee that and the tests assert it,
+including the base64 form. It *does* contain internal IP addresses, MAC addresses and
+usernames, and pushing those to a third-party chat service moves them outside the network you
+are protecting. Turn it off and the titles still say what happened.
+
+The webhook URL is likewise treated as a secret: `GET /api/notify/status` reports the detected
+format and whether it is configured, never the URL, because for Slack and Teams that URL *is*
+the credential.
+
+Notification never affects detection. A dead webhook or a wrong SMTP password cannot stop
+alerts being stored or capture running — every failure path here ends in a log line.
+
+---
+
 ## Flow collection (NetFlow / IPFIX)
 
 Instead of capturing packets ourselves, let the switch, router or firewall do the observing and
@@ -344,14 +400,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 136 tests
-npm run test:api  # 102 API tests
-npm run test:ui   # 34 UI tests
+npm test          # both suites: 188 tests
+npm run test:api  # 149 API tests
+npm run test:ui   # 39 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 102 tests
+### API — 149 tests
 
 Over `api/src/packet/` and `api/src/flow/`, covering the hand-written decoders, every detector,
 the NetFlow/IPFIX parsers, and the FFI binding. They use Node's built-in test runner, so there
@@ -380,7 +436,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 34 tests
+### UI — 39 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —
@@ -551,6 +607,16 @@ whether exporters are configured to send to it, not something a user starts and 
 capture. A start/stop endpoint would invite a UI button that silently switches off security
 telemetry.
 
+### Notifications — `/api/notify`
+
+| Method | Path      | Purpose                                                          |
+| ------ | --------- | ---------------------------------------------------------------- |
+| `GET`  | `/status` | Channels configured, gates in force, what has been sent this hour |
+| `POST` | `/test`   | Send a test message to every channel (**ADMIN only**)             |
+
+`/test` is admin-only because it makes the server send outbound messages to a third party on
+demand. `/status` never returns the webhook URL — for Slack and Teams that URL is the credential.
+
 `GET /health` is unauthenticated and reports uptime.
 
 ---
@@ -699,6 +765,25 @@ packet. See [What it detects](#what-it-detects).
   `{userid, pass}` into `sessionStorage`, and `PrivateRoute` decided you were logged in by
   decrypting a localStorage string and comparing it to `Love<email>...<password>...`.
   Authentication is now "the server accepted our token".
+- **`POST /auth/signup` no longer hands out administrator accounts to anonymous callers.**
+  This was the most serious hole found in the port. The endpoint required no authentication
+  *and* honoured a `role` of `ADMIN` taken straight from the request body, so a single
+  unauthenticated request gave an attacker full control of a security monitoring tool —
+  verified against a running server, which returned `201` with `"role":"ADMIN"`. The UI made it
+  worse by advertising the path: `/sign-up` sat outside the auth guard and offered a Role
+  dropdown containing Administrator.
+
+  Account creation now permits exactly two callers: an authenticated **ADMIN**, whose role is
+  read from the verified token and never from the body; and a single unauthenticated request on
+  an installation with an **empty users table**, because a fresh deployment has nobody who
+  could authorise the first account. That account is forced to ADMIN, and the window shuts the
+  moment it exists. `ALLOW_OPEN_SIGNUP` (default off) re-enables public registration for anyone
+  who wants it, and even then a self-registered account is always a USER.
+
+  The decision lives in one pure function, `services/signup-policy.ts`, pinned by a regression
+  suite that asserts a non-admin can never obtain ADMIN across every combination of inputs.
+  Adding a user is now an action in the account menu, where an administrator will be, rather
+  than a "register here" link on the login screen.
 - **`GET /auth/users` requires an ADMIN token** and no longer returns bcrypt hashes. It was
   open to anonymous callers and serialised the whole entity.
 - **Capture endpoints require a token.** They were unauthenticated, which let any caller start
@@ -887,7 +972,6 @@ capture, since nothing else sees payload.
 
 **Product**
 
-- Notifications: email, webhook and Slack, so alerts reach someone who is not watching the page.
 - Stream over WebSocket/SSE instead of polling once a second.
 - Retention and rollup, so the alerts table stays bounded over months.
 - pcap export, so a finding can be opened in Wireshark for deeper analysis.

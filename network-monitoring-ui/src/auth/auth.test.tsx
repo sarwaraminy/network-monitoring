@@ -8,6 +8,7 @@ import { renderApp, renderRoutes } from '../test/render';
 import { server } from '../test/server';
 import LoginPage from './LoginPage';
 import PrivateRoute from './PrivateRoute';
+import SignUpPage from './SignUpPage';
 
 /**
  * Authentication.
@@ -137,5 +138,71 @@ describe('PrivateRoute', () => {
 
     expect(await screen.findByText(/login screen/i)).toBeInTheDocument();
     await waitFor(() => expect(getToken()).toBeNull());
+  });
+});
+
+/**
+ * Account creation.
+ *
+ * Guards a verified privilege-escalation hole. This page used to render an open
+ * registration form — including a Role dropdown offering Administrator — against
+ * an endpoint that required no authentication and honoured that role. Loading it
+ * was enough to take over the installation.
+ *
+ * The API is the real enforcement point and has its own regression suite in
+ * `api/src/services/signup-policy.test.ts`. What is checked here is that the UI
+ * stops advertising a capability the server will refuse, and never offers the role
+ * field to someone whose choice would be ignored.
+ */
+describe('SignUpPage', () => {
+  const signupMode = (mode: 'first-admin' | 'open' | 'admin-only') =>
+    server.use(
+      http.get('/auth/signup-allowed', () => HttpResponse.json({ allowed: mode !== 'admin-only', mode })),
+    );
+
+  it('offers no form at all when accounts are admin-only', async () => {
+    signupMode('admin-only');
+    renderApp(<SignUpPage />);
+
+    expect(await screen.findByText(/account creation is restricted/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^password/i)).not.toBeInTheDocument();
+    // And it says how to proceed rather than leaving a dead end.
+    expect(screen.getByText(/npm run user -- create/i)).toBeInTheDocument();
+  });
+
+  it('presents first-time setup on an empty installation', async () => {
+    signupMode('first-admin');
+    renderApp(<SignUpPage />);
+
+    expect(await screen.findByText(/create the first administrator/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /create administrator/i })).toBeInTheDocument();
+  });
+
+  it('hides the role field from an unauthenticated visitor', async () => {
+    // The heart of the fix: the field existed, defaulted to a dropdown containing
+    // Administrator, and the server honoured it.
+    signupMode('first-admin');
+    renderApp(<SignUpPage />);
+
+    await screen.findByText(/create the first administrator/i);
+    expect(screen.queryByLabelText(/role/i)).not.toBeInTheDocument();
+  });
+
+  it('hides the role field under open registration too', async () => {
+    // The server forces USER here, so offering the choice would misrepresent it.
+    signupMode('open');
+    renderApp(<SignUpPage />);
+
+    await screen.findByRole('button', { name: /sign up/i });
+    expect(screen.queryByLabelText(/role/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the role field to a signed-in administrator, whose choice is honoured', async () => {
+    signupMode('admin-only');
+    renderApp(<SignUpPage />, { authenticated: true });
+
+    // Waits for AuthProvider to resolve /auth/me as the ADMIN fixture.
+    expect(await screen.findByLabelText(/role/i)).toBeInTheDocument();
+    expect(screen.getByText(/you are an administrator/i)).toBeInTheDocument();
   });
 });

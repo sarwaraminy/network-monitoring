@@ -12,6 +12,7 @@ import { alertsRouter } from './routes/alerts.routes.js';
 import { authRouter } from './routes/auth.routes.js';
 import { flowRouter } from './routes/flow.routes.js';
 import { logsRouter } from './routes/logs.routes.js';
+import { notifyRouter } from './routes/notify.routes.js';
 import { createPacketRouter } from './routes/packets.routes.js';
 import { filteredIpCapture, interfaceCapture } from './services/packet-capture.registry.js';
 
@@ -104,6 +105,7 @@ export function createApp(): Express {
   app.use('/api', apiLimiter);
   app.use('/api/alerts', alertsRouter);
   app.use('/api/flow', flowRouter);
+  app.use('/api/notify', notifyRouter);
   app.use('/api/packets', createPacketRouter(interfaceCapture, { requireIpFilter: false }));
   app.use('/api/ip/packets', createPacketRouter(filteredIpCapture, { requireIpFilter: true }));
   // Legacy: the per-packet anomaly log that `alerts` supersedes. Kept so existing

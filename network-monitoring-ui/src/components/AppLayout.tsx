@@ -1,6 +1,7 @@
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
+import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
 import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
 import ShieldMoonOutlinedIcon from '@mui/icons-material/ShieldMoonOutlined';
 import SpaceDashboardOutlinedIcon from '@mui/icons-material/SpaceDashboardOutlined';
@@ -165,6 +166,28 @@ export default function AppLayout() {
                 {user?.email} · {user?.role}
               </Typography>
             </Box>
+            {/*
+              Creating an account is an administrator's action, so it belongs here
+              rather than as a "register here" link on the login page. The server
+              enforces this independently — the menu item only stops showing a
+              control to someone it would refuse.
+            */}
+            {user?.role === 'ADMIN' && (
+              <>
+                <Divider />
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    navigate('/sign-up');
+                  }}
+                >
+                  <ListItemIcon>
+                    <PersonAddAlt1Icon fontSize="small" />
+                  </ListItemIcon>
+                  Add user
+                </MenuItem>
+              </>
+            )}
             <Divider />
             <ColorSchemeToggle />
             <Divider />

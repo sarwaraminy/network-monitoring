@@ -32,6 +32,12 @@ export const handlers = [
 
   http.post('/auth/signup', () => HttpResponse.json(ADMIN_USER, { status: 201 })),
 
+  /**
+   * Defaults to the secure state, matching a real installation that already has
+   * users. Tests that need first-time setup or open registration override it.
+   */
+  http.get('/auth/signup-allowed', () => HttpResponse.json({ allowed: false, mode: 'admin-only' })),
+
   http.get('/api/alerts', ({ request }) => {
     const url = new URL(request.url);
     let rows = [...ALERTS];

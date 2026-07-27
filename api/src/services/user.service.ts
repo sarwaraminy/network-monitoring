@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { eq, sql } from 'drizzle-orm';
+import { count, eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { type NewUserRow, type UserRow, users } from '../db/schema.js';
 import type { PublicUser } from '../types/dto.js';
@@ -37,6 +37,18 @@ export async function getUserById(id: number): Promise<UserRow | null> {
 
 export async function getAllUsers(): Promise<UserRow[]> {
   return db.select().from(users).orderBy(users.id);
+}
+
+/**
+ * Whether any account exists at all.
+ *
+ * Used by the one narrow case where account creation is allowed without a token:
+ * a brand-new installation has nobody who could authorise it. Counting rather
+ * than listing so the check stays cheap and never loads password hashes.
+ */
+export async function hasAnyUser(): Promise<boolean> {
+  const [row] = await db.select({ total: count() }).from(users).limit(1);
+  return (row?.total ?? 0) > 0;
 }
 
 export async function saveUser(input: Omit<NewUserRow, 'password'> & { password: string }): Promise<UserRow> {

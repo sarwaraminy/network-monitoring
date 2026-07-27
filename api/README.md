@@ -84,8 +84,15 @@ src/
     detect.ts           FlowScanDetector: port scan, host sweep, connection flood
     test-datagrams.ts   Wire-format builders, written from the RFCs
     flow.test.ts        Parser, detector and template-cache tests
+  notify/               Alert delivery — the difference between a tool and a product
+    types.ts            NotifiableFinding, Notification, the channel interface
+    notifier.ts         Severity gate, per-finding throttle, hourly ceiling, digest
+    format.ts           Text, HTML, Slack blocks, Teams card, Discord embeds, generic
+    webhook.ts          Webhook channel; infers the payload shape from the URL
+    email.ts            SMTP channel over nodemailer, pooled
+    notify.test.ts      Gating, throttling, batching, and the no-secrets guarantee
   networkservices/      Reverse DNS, WHOIS (TCP 43), ip-api.com geolocation
-  routes/               auth, logs, packets (one factory, mounted twice), flow
+  routes/               auth, logs, packets (one factory, mounted twice), flow, notify
   services/
     alert.service.ts    Aggregates findings into deduplicated alerts; batched writes
     device.service.ts   Persists known MAC addresses across restarts
@@ -121,7 +128,15 @@ src/
   and return findings with a stable `dedupKey` so repeats aggregate.
 - **Never put a secret in `evidence`.** It is persisted and rendered. Record that a credential
   was present and its length; never the credential. `detect.test.ts` asserts this for every
-  protocol, including the base64 form.
+  protocol, including the base64 form — and `notify.test.ts` asserts it again at the point where
+  evidence leaves the machine, in all six message formats.
+- **Notification must never affect detection.** A dead webhook or a wrong SMTP password cannot
+  be allowed to stop alerts being stored or capture running. `AlertSink` wraps the notifier call
+  and swallows it, channels return a result instead of throwing, and `deliver()` uses
+  `allSettled` so one bad channel does not take the others down.
+- **Volume is the enemy in `notify/`.** Every new notification path needs a gate. An alert
+  channel that sends too much gets muted, and a muted channel is worse than none — it looks
+  like coverage while providing none.
 - **Every new detector needs a false-positive test.** The rules these replaced flagged 100% of
   ordinary traffic; the `quiet on normal traffic` suite exists to stop that recurring.
 - **A flow is not a packet.** `flow/detect.ts` is a separate detector rather than an adapter that

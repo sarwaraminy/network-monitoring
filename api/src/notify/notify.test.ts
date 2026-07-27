@@ -1,0 +1,502 @@
+import assert from 'node:assert/strict';
+import { before, describe, it } from 'node:test';
+import type { Finding, Severity } from '../packet/detect/types.js';
+import type { DeliveryResult, Notification, NotificationChannel } from './types.js';
+
+/**
+ * Notification tests.
+ *
+ * The sending is the trivial part. What is worth testing is everything that decides
+ * *not* to send: the severity gate, the per-finding throttle, the hourly ceiling and
+ * the digest batching. Those are what stop the channel being muted, and a bug in any
+ * of them is silent — you find out when someone says they got four hundred emails,
+ * or when they got none.
+ *
+ * Also asserted: that a password never reaches a message. The detectors guarantee
+ * evidence is secret-free and their own suite proves it, but notifications send that
+ * evidence off the machine, so the guarantee is re-checked at the boundary.
+ */
+
+let notify: typeof import('./notifier.js');
+let format: typeof import('./format.js');
+let webhook: typeof import('./webhook.js');
+
+before(async () => {
+  process.env.JWT_SECRET ??= 'test-secret-not-used-for-signing';
+  // Config is read at construction, so pin it before importing.
+  process.env.NOTIFY_ENABLED = 'true';
+  process.env.NOTIFY_MIN_SEVERITY = 'high';
+  process.env.NOTIFY_DIGEST_SECONDS = '60';
+  process.env.NOTIFY_THROTTLE_SECONDS = '900';
+  process.env.NOTIFY_MAX_PER_HOUR = '3';
+  process.env.NOTIFY_INCLUDE_EVIDENCE = 'true';
+  process.env.NOTIFY_DASHBOARD_URL = 'https://nmt.example.test/alerts';
+
+  notify = await import('./notifier.js');
+  format = await import('./format.js');
+  webhook = await import('./webhook.js');
+});
+
+const AT = new Date('2026-07-27T10:00:00Z');
+
+function finding(overrides: Partial<Finding> = {}): Finding {
+  return {
+    kind: 'port_scan',
+    severity: 'high',
+    title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
+    description: 'A single source attempted connections to many ports.',
+    dedupKey: 'port_scan|10.0.0.66|10.0.0.89',
+    sourceIp: '10.0.0.66',
+    targetIp: '10.0.0.89',
+    protocol: 'TCP',
+    evidence: { scanner: '10.0.0.66', distinctPortsProbed: 22 },
+    timestamp: AT,
+    ...overrides,
+  };
+}
+
+/** Records what it was asked to send, without any network. */
+class RecordingChannel implements NotificationChannel {
+  readonly name = 'recording';
+  readonly sent: Notification[] = [];
+  constructor(private readonly ok = true) {}
+  isConfigured(): boolean {
+    return true;
+  }
+  async send(notification: Notification): Promise<DeliveryResult> {
+    this.sent.push(notification);
+    return { channel: this.name, ok: this.ok, detail: 'recorded' };
+  }
+}
+
+class ThrowingChannel implements NotificationChannel {
+  readonly name = 'throwing';
+  isConfigured(): boolean {
+    return true;
+  }
+  async send(): Promise<DeliveryResult> {
+    throw new Error('channel exploded');
+  }
+}
+
+describe('severity gating', () => {
+  it('queues a finding at the threshold', () => {
+    const notifier = new notify.Notifier([new RecordingChannel()]);
+    assert.equal(notifier.consider(finding({ severity: 'high' }), 1, AT, AT), 'queued');
+  });
+
+  it('queues a finding above the threshold', () => {
+    const notifier = new notify.Notifier([new RecordingChannel()]);
+    assert.equal(notifier.consider(finding({ severity: 'critical' }), 1, AT, AT), 'queued');
+  });
+
+  it('drops anything below it, which is what keeps the channel usable', () => {
+    const notifier = new notify.Notifier([new RecordingChannel()]);
+    for (const severity of ['medium', 'low', 'info'] as Severity[]) {
+      assert.equal(
+        notifier.consider(finding({ severity, dedupKey: `k-${severity}` }), 1, AT, AT),
+        'below-threshold',
+      );
+    }
+  });
+
+  it('reports disabled when no channel is configured', () => {
+    const notifier = new notify.Notifier([]);
+    assert.equal(notifier.active, false);
+    assert.equal(notifier.consider(finding(), 1, AT, AT), 'disabled');
+  });
+});
+
+describe('throttling', () => {
+  it('will not re-notify the same finding inside the window', () => {
+    const notifier = new notify.Notifier([new RecordingChannel()]);
+    const now = AT.getTime();
+
+    assert.equal(notifier.consider(finding(), 1, AT, AT, now), 'queued');
+    assert.equal(notifier.consider(finding(), 2, AT, AT, now + 1000), 'throttled');
+    assert.equal(notifier.consider(finding(), 3, AT, AT, now + 899_000), 'throttled');
+  });
+
+  it('notifies again once the window has passed', () => {
+    const notifier = new notify.Notifier([new RecordingChannel()]);
+    const now = AT.getTime();
+
+    assert.equal(notifier.consider(finding(), 1, AT, AT, now), 'queued');
+    assert.equal(notifier.consider(finding(), 1, AT, AT, now + 901_000), 'queued');
+  });
+
+  it('throttles per finding, not globally', () => {
+    // A port scan and a credential leak are different events; one must not
+    // suppress the other.
+    const notifier = new notify.Notifier([new RecordingChannel()]);
+    const now = AT.getTime();
+
+    assert.equal(notifier.consider(finding({ dedupKey: 'a' }), 1, AT, AT, now), 'queued');
+    assert.equal(notifier.consider(finding({ dedupKey: 'b' }), 1, AT, AT, now + 1), 'queued');
+  });
+});
+
+describe('hourly ceiling', () => {
+  /**
+   * A notifier whose clock the test drives. The ceiling counts *sends*, and a send
+   * happens on flush, so the fake clock has to be shared by both — which is the
+   * bug this originally caught: `consider` took an instant while `dispatch` read
+   * the real clock, so the two limits measured different hours.
+   */
+  function clockedNotifier(channel: NotificationChannel) {
+    let current = AT.getTime();
+    const notifier = new notify.Notifier([channel], () => current);
+    return { notifier, advance: (ms: number) => (current += ms) };
+  }
+
+  it('stops sending once the limit is reached', async () => {
+    // NOTIFY_MAX_PER_HOUR is 3 in this suite.
+    const channel = new RecordingChannel();
+    const { notifier, advance } = clockedNotifier(channel);
+
+    for (let index = 0; index < 3; index += 1) {
+      assert.equal(notifier.consider(finding({ dedupKey: `k${index}` }), 1, AT, AT), 'queued');
+      await notifier.flush();
+      advance(1000);
+    }
+
+    assert.equal(channel.sent.length, 3);
+    assert.equal(notifier.consider(finding({ dedupKey: 'k-over' }), 1, AT, AT), 'rate-limited');
+  });
+
+  it('allows sending again once the hour rolls over', async () => {
+    const channel = new RecordingChannel();
+    const { notifier, advance } = clockedNotifier(channel);
+
+    for (let index = 0; index < 3; index += 1) {
+      notifier.consider(finding({ dedupKey: `k${index}` }), 1, AT, AT);
+      await notifier.flush();
+    }
+    assert.equal(notifier.consider(finding({ dedupKey: 'x' }), 1, AT, AT), 'rate-limited');
+
+    // Rolling hour, not a fixed bucket.
+    advance(3_600_001);
+    assert.equal(notifier.consider(finding({ dedupKey: 'y' }), 1, AT, AT), 'queued');
+  });
+});
+
+describe('digest batching', () => {
+  it('sends one message for a burst rather than one per finding', async () => {
+    const channel = new RecordingChannel();
+    const notifier = new notify.Notifier([channel]);
+    const now = AT.getTime();
+
+    for (let index = 0; index < 5; index += 1) {
+      notifier.consider(finding({ dedupKey: `burst-${index}` }), 1, AT, AT, now + index);
+    }
+    await notifier.flush();
+
+    assert.equal(channel.sent.length, 1, 'a burst must collapse into one message');
+    assert.equal(channel.sent[0]?.findings.length, 5);
+  });
+
+  it('leads with the most urgent finding, so truncation keeps what matters', async () => {
+    const channel = new RecordingChannel();
+    const notifier = new notify.Notifier([channel]);
+    const now = AT.getTime();
+
+    notifier.consider(finding({ dedupKey: 'h', severity: 'high', title: 'high one' }), 1, AT, AT, now);
+    notifier.consider(
+      finding({ dedupKey: 'c', severity: 'critical', title: 'critical one' }),
+      1,
+      AT,
+      AT,
+      now + 1,
+    );
+    await notifier.flush();
+
+    const sent = channel.sent[0];
+    assert.equal(sent?.severity, 'critical');
+    assert.equal(sent?.findings[0]?.title, 'critical one');
+  });
+
+  it('counts what it truncated instead of dropping it silently', async () => {
+    const channel = new RecordingChannel();
+    const notifier = new notify.Notifier([channel]);
+    const now = AT.getTime();
+
+    for (let index = 0; index < 12; index += 1) {
+      notifier.consider(finding({ dedupKey: `many-${index}` }), 1, AT, AT, now + index);
+    }
+    await notifier.flush();
+
+    const sent = channel.sent[0];
+    assert.equal(sent?.findings.length, format.MAX_LISTED_FINDINGS);
+    assert.equal(sent?.omittedCount, 12 - format.MAX_LISTED_FINDINGS);
+  });
+
+  it('sends nothing when nothing was queued', async () => {
+    const channel = new RecordingChannel();
+    const notifier = new notify.Notifier([channel]);
+    await notifier.flush();
+    assert.equal(channel.sent.length, 0);
+  });
+});
+
+describe('resilience', () => {
+  it('a channel that throws does not stop the others', async () => {
+    const good = new RecordingChannel();
+    const notifier = new notify.Notifier([new ThrowingChannel(), good]);
+
+    notifier.consider(finding(), 1, AT, AT);
+    await notifier.flush();
+
+    assert.equal(good.sent.length, 1, 'the working channel must still receive it');
+  });
+
+  it('a failing channel does not throw out of flush', async () => {
+    const notifier = new notify.Notifier([new RecordingChannel(false)]);
+    notifier.consider(finding(), 1, AT, AT);
+    await assert.doesNotReject(() => notifier.flush());
+  });
+});
+
+describe('evidence policy', () => {
+  it('includes evidence when configured to', async () => {
+    const channel = new RecordingChannel();
+    const notifier = new notify.Notifier([channel]);
+    notifier.consider(finding(), 1, AT, AT);
+    await notifier.flush();
+
+    assert.deepEqual(channel.sent[0]?.findings[0]?.evidence, {
+      scanner: '10.0.0.66',
+      distinctPortsProbed: 22,
+    });
+  });
+
+  it('never puts a password in a message, in any format', () => {
+    // Detectors are built never to place a secret in evidence, and their own suite
+    // asserts it. This re-checks at the boundary where data leaves the machine.
+    const secret = 'sup3rs3cret-passw0rd';
+    const notification: Notification = {
+      severity: 'critical',
+      findings: [
+        {
+          kind: 'plaintext_credentials',
+          severity: 'critical',
+          title: 'Cleartext HTTP credentials for "alice" to 10.0.0.50',
+          description: 'An HTTP Basic Authorization header was captured in the clear.',
+          sourceIp: '10.0.0.89',
+          targetIp: '10.0.0.50',
+          occurrences: 3,
+          firstSeen: AT,
+          lastSeen: AT,
+          evidence: { username: 'alice', passwordLength: secret.length, passwordRecorded: false },
+        },
+      ],
+      omittedCount: 0,
+      countsBySeverity: { critical: 1 },
+      generatedAt: AT,
+      dashboardUrl: null,
+      isTest: false,
+    };
+
+    const rendered = [
+      format.renderText(notification),
+      format.renderHtml(notification),
+      JSON.stringify(format.renderSlack(notification)),
+      JSON.stringify(format.renderTeams(notification)),
+      JSON.stringify(format.renderDiscord(notification)),
+      JSON.stringify(format.renderGeneric(notification)),
+    ];
+
+    for (const output of rendered) {
+      assert.ok(!output.includes(secret), 'a password must never appear in a notification');
+      assert.ok(!output.includes(Buffer.from(`alice:${secret}`).toString('base64')), 'nor its base64 form');
+      // The username and the length are fine, and useful.
+      assert.ok(output.includes('alice'));
+    }
+  });
+});
+
+describe('message formats', () => {
+  const notification: Notification = {
+    severity: 'critical',
+    findings: [
+      {
+        kind: 'arp_spoofing',
+        severity: 'critical',
+        title: 'ARP spoofing: 10.0.0.1 claimed by a new MAC',
+        description: 'A settled address is now being claimed by a different device.',
+        sourceIp: '10.0.0.66',
+        targetIp: '10.0.0.1',
+        occurrences: 4,
+        firstSeen: AT,
+        lastSeen: AT,
+        evidence: { previousMac: 'aa:bb:cc:dd:ee:ff' },
+      },
+    ],
+    omittedCount: 2,
+    countsBySeverity: { critical: 1 },
+    generatedAt: AT,
+    dashboardUrl: 'https://nmt.example.test/alerts',
+    isTest: false,
+  };
+
+  it('summarises the count when more than one finding is involved', () => {
+    // 1 listed plus 2 omitted is 3 findings, so the subject counts rather than
+    // naming one — naming the first would misrepresent the other two.
+    const subject = format.subjectFor(notification);
+    assert.match(subject, /CRITICAL/);
+    assert.match(subject, /3 network findings/);
+  });
+
+  it('names the finding when there is only one', () => {
+    const single = { ...notification, omittedCount: 0 };
+    assert.match(format.subjectFor(single), /ARP spoofing/);
+  });
+
+  it('sets Slack `text` as well as blocks, or the push arrives empty', () => {
+    const payload = format.renderSlack(notification) as { text?: string; blocks?: unknown[] };
+    assert.ok(payload.text, 'Slack shows `text` in the notification popup');
+    assert.ok(Array.isArray(payload.blocks) && payload.blocks.length > 0);
+  });
+
+  it('renders a Teams MessageCard with the required envelope', () => {
+    const payload = format.renderTeams(notification) as Record<string, unknown>;
+    assert.equal(payload['@type'], 'MessageCard');
+    assert.equal(payload['@context'], 'https://schema.org/extensions');
+    assert.ok(payload.summary, 'Teams rejects a card with no summary');
+  });
+
+  it('keeps Discord embeds within the API limit', () => {
+    const many: Notification = {
+      ...notification,
+      findings: Array.from({ length: 20 }, () => notification.findings[0]!),
+    };
+    const payload = format.renderDiscord(many) as { embeds: unknown[] };
+    assert.ok(payload.embeds.length <= 10);
+  });
+
+  it('mentions how many were omitted rather than hiding them', () => {
+    assert.match(format.renderText(notification), /and 2 more/);
+  });
+
+  it('links the dashboard when one is configured', () => {
+    assert.ok(format.renderText(notification).includes('https://nmt.example.test/alerts'));
+  });
+
+  it('marks a test message clearly, so nobody is alarmed by it', async () => {
+    const channel = new RecordingChannel();
+    const notifier = new notify.Notifier([channel]);
+    await notifier.sendTest();
+
+    const sent = channel.sent[0];
+    assert.ok(sent);
+    assert.equal(sent.isTest, true);
+    assert.match(format.subjectFor(sent), /^\[TEST\]/);
+    assert.match(format.renderText(sent), /test notification/i);
+  });
+});
+
+describe('webhook transport', () => {
+  it('infers the payload format from the URL', () => {
+    assert.equal(webhook.detectFormat('https://hooks.slack.com/services/T000/B000/xxx'), 'slack');
+    assert.equal(webhook.detectFormat('https://acme.webhook.office.com/webhookb2/abc'), 'teams');
+    assert.equal(webhook.detectFormat('https://discord.com/api/webhooks/1/xyz'), 'discord');
+    assert.equal(webhook.detectFormat('https://internal.example.test/hooks/nmt'), 'generic');
+    // A malformed URL must not throw during construction.
+    assert.equal(webhook.detectFormat('not a url'), 'generic');
+  });
+
+  it('posts JSON and reports success', async () => {
+    // An array rather than a nullable local: TypeScript does not track assignments
+    // made inside a callback, so a `let … | null` narrows to `never` after the
+    // assertion and the property read fails to compile.
+    const posted: Array<{ url: string; body: string }> = [];
+    const channel = new webhook.WebhookChannel({
+      url: 'https://internal.example.test/hooks/nmt',
+      format: 'auto',
+      sleepImpl: async () => {},
+      fetchImpl: async (url, init) => {
+        posted.push({ url: String(url), body: String(init?.body) });
+        return new Response('ok', { status: 200 });
+      },
+    });
+
+    const result = await channel.send(await onlyNotification());
+    assert.equal(result.ok, true);
+    assert.equal(posted.length, 1);
+    assert.match(posted[0]?.body ?? '', /"severity"/);
+  });
+
+  it('does not retry a 4xx, because the same payload would be rejected again', async () => {
+    let calls = 0;
+    const channel = new webhook.WebhookChannel({
+      url: 'https://internal.example.test/hooks/nmt',
+      format: 'generic',
+      sleepImpl: async () => {},
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response('bad payload', { status: 400 });
+      },
+    });
+
+    const result = await channel.send(await onlyNotification());
+    assert.equal(result.ok, false);
+    assert.equal(calls, 1);
+  });
+
+  it('retries a 5xx and then succeeds', async () => {
+    let calls = 0;
+    const channel = new webhook.WebhookChannel({
+      url: 'https://internal.example.test/hooks/nmt',
+      format: 'generic',
+      sleepImpl: async () => {},
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 1 ? new Response('oops', { status: 503 }) : new Response('ok', { status: 200 });
+      },
+    });
+
+    const result = await channel.send(await onlyNotification());
+    assert.equal(result.ok, true);
+    assert.equal(calls, 2);
+  });
+
+  it('returns a failure rather than throwing when the network is down', async () => {
+    const channel = new webhook.WebhookChannel({
+      url: 'https://internal.example.test/hooks/nmt',
+      format: 'generic',
+      sleepImpl: async () => {},
+      fetchImpl: async () => {
+        throw new Error('ECONNREFUSED');
+      },
+    });
+
+    const result = await channel.send(await onlyNotification());
+    assert.equal(result.ok, false);
+    assert.match(result.detail, /ECONNREFUSED/);
+  });
+});
+
+/** A minimal notification, for transport tests. */
+async function onlyNotification(): Promise<Notification> {
+  return {
+    severity: 'high',
+    findings: [
+      {
+        kind: 'port_scan',
+        severity: 'high',
+        title: 'Port scan',
+        description: 'Many ports probed.',
+        sourceIp: '10.0.0.66',
+        targetIp: '10.0.0.89',
+        occurrences: 1,
+        firstSeen: AT,
+        lastSeen: AT,
+        evidence: null,
+      },
+    ],
+    omittedCount: 0,
+    countsBySeverity: { high: 1 },
+    generatedAt: AT,
+    dashboardUrl: null,
+    isTest: false,
+  };
+}
