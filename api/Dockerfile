@@ -8,7 +8,7 @@
 # (Windows/macOS) the container cannot see the host's real interfaces at all.
 
 # ---------- build ----------
-FROM node:22-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /repo
 
 # Copy only manifests first, so `npm ci` is cached until a dependency changes.
@@ -30,7 +30,7 @@ RUN npx tsc -p api/tsconfig.json \
 RUN npm prune --omit=dev --workspaces --include-workspace-root
 
 # ---------- runtime ----------
-FROM node:22-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 WORKDIR /app
 
 # libpcap is the capture library; koffi loads it at runtime over FFI. tini gives
