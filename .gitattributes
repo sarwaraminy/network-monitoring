@@ -1,0 +1,25 @@
+# Line endings.
+#
+# Biome is configured to format with LF, and `biome ci` fails on a CRLF file. On
+# Windows, `core.autocrlf=true` rewrites files to CRLF on every checkout — and
+# lint-staged stashes and restores around each commit, which counts as a checkout.
+# Without this file the pre-commit hook therefore reintroduces CRLF into working
+# files on every commit and the next `biome ci` fails, on a clean tree, for
+# reasons that look like nothing to do with the change being made.
+#
+# `text=auto eol=lf` normalises to LF in the repository *and* checks out LF
+# regardless of the contributor's autocrlf setting, so the formatter and git agree
+# on every platform.
+* text=auto eol=lf
+
+# Files that must keep CRLF to work on Windows.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary: never touch these, and do not try to diff them as text.
+*.png binary
+*.webp binary
+*.ico binary
+
+# Generated. Collapse it in reviews and let git resolve conflicts by regenerating.
+package-lock.json -diff linguist-generated=true

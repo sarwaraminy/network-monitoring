@@ -1,0 +1,124 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { requireAuth } from '../middleware/auth.js';
+import { asyncHandler, HttpError } from '../middleware/error-handler.js';
+import { captureControlLimiter, lookupLimiter } from '../middleware/rate-limit.js';
+import { getGeolocationData } from '../networkservices/ip-geolocation.service.js';
+import { getDomainName } from '../networkservices/ip-info.service.js';
+import { getWhoisData } from '../networkservices/ip-whois.service.js';
+import type { PacketCaptureService } from '../services/packet-capture.service.js';
+import type { IpInfoResponse } from '../types/dto.js';
+
+/**
+ * Replaces PacketCaptureController and PacketCaptureControllerWithIP, which were
+ * duplicates apart from the extra `ipAddress` parameter on /start.
+ *
+ * Unlike the Java controllers these routes require a token: they can start
+ * promiscuous capture on the host, which should not be open to anonymous callers.
+ */
+
+const startSchema = z.object({
+  interfaceName: z.string().trim().min(1, 'interfaceName is required'),
+  snaplength: z.coerce.number().int().positive().default(65_536),
+  timeout: z.coerce.number().int().min(0).default(10),
+  ipAddress: z.string().trim().min(1).optional(),
+});
+
+const ipAddressSchema = z.object({
+  ipAddress: z.string().trim().min(1, 'ipAddress is required').max(255),
+});
+
+export interface PacketRouterOptions {
+  /** True for the /api/ip/packets variant, where `ipAddress` becomes a BPF filter. */
+  requireIpFilter: boolean;
+}
+
+export function createPacketRouter(capture: PacketCaptureService, options: PacketRouterOptions): Router {
+  const router = Router();
+  router.use(requireAuth);
+
+  // Starting a capture is expensive (promiscuous mode, 10 MB kernel buffer) and
+  // ip-info fans out to three external services, so both are limited separately
+  // from ordinary reads.
+  router.use(['/start', '/stop', '/clear'], captureControlLimiter);
+  router.use('/ip-info', lookupLimiter);
+
+  /** POST /start?interfaceName=&snaplength=&timeout=[&ipAddress=] */
+  router.post(
+    '/start',
+    asyncHandler(async (req, res) => {
+      const parsed = startSchema.safeParse({ ...(req.body as object), ...req.query });
+      if (!parsed.success) {
+        throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+      }
+      const { interfaceName, snaplength, timeout, ipAddress } = parsed.data;
+
+      if (options.requireIpFilter && !ipAddress) {
+        throw new HttpError(400, 'ipAddress is required');
+      }
+
+      await capture.startCapture(
+        interfaceName,
+        snaplength,
+        timeout,
+        options.requireIpFilter ? ipAddress : null,
+      );
+      res.json(capture.getStatus());
+    }),
+  );
+
+  /** POST /stop */
+  router.post(
+    '/stop',
+    asyncHandler(async (_req, res) => {
+      await capture.stopCapture();
+      res.json(capture.getStatus());
+    }),
+  );
+
+  /** GET / — every packet currently in the buffer. */
+  router.get('/', (_req, res) => {
+    res.json(capture.getCapturedPackets());
+  });
+
+  /** POST /clear */
+  router.post('/clear', (_req, res) => {
+    capture.clearCapturedPackets();
+    res.status(204).send();
+  });
+
+  /** GET /nif — available capture interfaces. */
+  router.get('/nif', (_req, res) => {
+    res.json(capture.getNetworkInterfaces());
+  });
+
+  /** GET /status — capture state, which the Java API had no way to report. */
+  router.get('/status', (_req, res) => {
+    res.json(capture.getStatus());
+  });
+
+  /** GET /ip-info?ipAddress= — reverse DNS + WHOIS + geolocation. */
+  router.get(
+    '/ip-info',
+    asyncHandler(async (req, res) => {
+      const parsed = ipAddressSchema.safeParse(req.query);
+      if (!parsed.success) {
+        throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+      }
+      const { ipAddress } = parsed.data;
+
+      // The Java version ran these three lookups one after another; in parallel the
+      // response is as slow as the slowest rather than the sum.
+      const [domainName, whoisData, geoData] = await Promise.all([
+        getDomainName(ipAddress),
+        getWhoisData(ipAddress),
+        getGeolocationData(ipAddress),
+      ]);
+
+      const body: IpInfoResponse = { ipAddress, domainName, whoisData, geoData };
+      res.json(body);
+    }),
+  );
+
+  return router;
+}

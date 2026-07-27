@@ -1,0 +1,84 @@
+# Network Monitoring Tool — full stack.
+#
+#   cp .env.docker.example .env
+#   docker compose up --build
+#
+# Then open http://localhost:8080 (nginx serves the UI and proxies the API).
+#
+# LIVE PACKET CAPTURE DOES NOT WORK IN THIS CONFIGURATION, by design: the API
+# container has its own network namespace, so it would only ever see its own
+# traffic. Everything else — alerts, history, lookups, auth — works normally.
+# To capture, either run the API on the host (`npm run dev:api`), or on a Linux
+# host add the override:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.capture.yml up --build
+#
+# See the README for why this is Linux-only.
+#
+# FLOW COLLECTION, HOWEVER, WORKS FINE IN A CONTAINER and on every platform: the
+# switch or firewall does the observing and sends summaries over UDP, so there is
+# nothing to capture locally and no privileges to grant. That makes it the
+# practical way to get real network-wide detection out of a containerised deploy:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.flow.yml up --build
+
+name: network-monitoring
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-netminitoring}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      # Without this the API would start migrating before Postgres accepts connections.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-netminitoring}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-netminitoring}
+      DB_AUTO_MIGRATE: 'true'
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      # nginx proxies same-origin, so no cross-origin browser requests are made.
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      REDACT_PACKET_PAYLOAD: ${REDACT_PACKET_PAYLOAD:-false}
+      CAPTURE_BUFFER_SIZE: ${CAPTURE_BUFFER_SIZE:-5000}
+      ARP_TRUSTED_MAPPINGS: ${ARP_TRUSTED_MAPPINGS:-}
+    expose:
+      - '8080'
+
+  ui:
+    build:
+      context: .
+      dockerfile: network-monitoring-ui/Dockerfile
+      args:
+        # Empty: requests go to nginx on the same origin.
+        VITE_API_SERVER: ''
+        VITE_POLL_INTERVAL_MS: ${VITE_POLL_INTERVAL_MS:-1000}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '${HTTP_PORT:-8080}:80'
+
+volumes:
+  db-data:

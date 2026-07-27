@@ -1,0 +1,6 @@
+# Lint and format only what is staged. --no-errors-on-unmatched keeps commits that
+# touch nothing Biome handles (docs, SQL) from failing.
+npx biome check --staged --write --no-errors-on-unmatched
+
+# Re-stage anything the formatter rewrote, so the commit contains the fixed form.
+git update-index --again

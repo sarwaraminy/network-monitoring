@@ -1,0 +1,41 @@
+# Override that enables live packet capture from inside the API container.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.capture.yml up --build
+#
+# LINUX HOSTS ONLY. On Docker Desktop for Windows or macOS the engine runs inside
+# its own VM, so `network_mode: host` attaches the container to that VM's
+# interfaces, not to your machine's — you would capture the VM's virtual traffic
+# and nothing else. Run the API directly on the host instead (`npm run dev:api`).
+#
+# What this grants, and why each part is needed:
+#   network_mode: host  — puts the container in the host's network namespace, so
+#                         the real interfaces are visible.
+#   NET_RAW             — open a packet socket at all.
+#   NET_ADMIN           — put an interface into promiscuous mode.
+#   user: root          — libpcap needs the capabilities above, which are dropped
+#                         for non-root users unless file capabilities are set.
+#
+# This is a meaningful privilege escalation: a container in the host network
+# namespace with NET_RAW can read all traffic the host can see. Grant it only
+# where that is intended.
+
+services:
+  api:
+    network_mode: host
+    user: root
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      # Host networking means db is reachable on localhost, not by service name.
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@127.0.0.1:5432/${POSTGRES_DB:-netminitoring}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+
+  db:
+    # Host networking gives the API no service-name DNS, so publish the port.
+    ports:
+      - '127.0.0.1:5432:5432'
+
+  ui:
+    # nginx cannot resolve `api` either; point it at the host loopback.
+    network_mode: host

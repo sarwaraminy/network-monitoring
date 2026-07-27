@@ -1,0 +1,251 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # `biome ci` checks formatting and lint without writing anything.
+      - run: npx biome ci
+
+  test:
+    name: Typecheck and test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # libpcap lets the FFI integration tests actually run instead of skipping.
+      # Opening a live handle still needs privileges, so those cases self-skip.
+      - name: Install libpcap
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpcap0.8
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # No database needed: the suite covers decoders and detectors only.
+      - name: Test (API)
+        run: npm run test:api
+        env:
+          JWT_SECRET: ci-secret-not-used-for-anything-real
+
+      # Vitest + Testing Library + MSW, in jsdom. No browser and no API needed.
+      - name: Test (UI)
+        run: npm run test:ui
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          JWT_SECRET: ci-secret-not-used-for-anything-real
+      - name: Check the API entry point was emitted
+        run: test -f api/dist/index.js && test -f api/dist/db/migrations/V1__Initial_setup.sql
+      - name: Check the UI bundle was emitted
+        run: test -f network-monitoring-ui/build/index.html
+
+  docker:
+    name: Docker images
+    runs-on: ubuntu-latest
+
+    # Throwaway credentials for an ephemeral service container that exists only
+    # for the length of this job and is not reachable outside the runner. Not a
+    # secret, and deliberately not in GitHub Secrets: a value every contributor
+    # needs in order to reproduce the job locally is clearer in the open.
+    # The `services` block below cannot read the `env` context, so the password
+    # appears there literally as well — keep the two in step.
+    env:
+      CI_DATABASE_URL: postgres://postgres:ci-postgres-password@127.0.0.1:5432/netminitoring
+      JWT_SECRET: ci-secret-not-used-for-anything-real
+
+    # A real database, so the smoke test can prove the migrations in the image
+    # actually run rather than only that the process starts.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: netminitoring
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-postgres-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d netminitoring"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: api/Dockerfile
+          push: false
+          load: true
+          tags: nmt-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build the UI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: network-monitoring-ui/Dockerfile
+          push: false
+          load: true
+          tags: nmt-ui:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # Waits for an endpoint, printing container logs and failing if it never
+      # comes up. Used by both smoke tests below.
+      - name: Define a wait helper
+        run: |
+          cat > "$RUNNER_TEMP/wait-for.sh" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          url="$1"; container="$2"; attempts="${3:-40}"
+          for i in $(seq 1 "$attempts"); do
+            if curl -fsS "$url" > /dev/null 2>&1; then
+              echo "$url is serving"
+              exit 0
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx "$container"; then
+              echo "::error::$container exited before serving $url"
+              docker logs "$container" || true
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::$url never responded"
+          docker logs "$container" || true
+          exit 1
+          EOF
+          chmod +x "$RUNNER_TEMP/wait-for.sh"
+
+      - name: Smoke-test the API image without a database
+        run: |
+          # DB_AUTO_MIGRATE=false is required: migrations run before listen(), so
+          # with a database configured but unreachable the process exits before
+          # serving anything. This case proves the image boots and reads config.
+          docker run -d --name nmt-api-nodb \
+            -e JWT_SECRET="$JWT_SECRET" \
+            -e DB_AUTO_MIGRATE=false \
+            -p 8080:8080 nmt-api:ci
+          "$RUNNER_TEMP/wait-for.sh" http://localhost:8080/health nmt-api-nodb
+
+          echo "--- /health ---"
+          curl -fsS http://localhost:8080/health
+
+          echo "--- /ready (expected 503: no database) ---"
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/ready)
+          test "$code" = "503" || { echo "::error::expected 503 from /ready, got $code"; exit 1; }
+
+          docker rm -f nmt-api-nodb
+
+      - name: Smoke-test the API image against a real database
+        run: |
+          # --network host so the container can reach the postgres service on the
+          # runner's localhost. Proves the migrations bundled in the image apply
+          # and that /ready flips to ready.
+          docker run -d --name nmt-api-db --network host \
+            -e PORT=8080 \
+            -e JWT_SECRET="$JWT_SECRET" \
+            -e DATABASE_URL="$CI_DATABASE_URL" \
+            -e DB_AUTO_MIGRATE=true \
+            nmt-api:ci
+          "$RUNNER_TEMP/wait-for.sh" http://localhost:8080/ready nmt-api-db
+
+          echo "--- /ready ---"
+          curl -fsS http://localhost:8080/ready | tee /tmp/ready.json
+          grep -q '"database":"up"' /tmp/ready.json \
+            || { echo "::error::database did not report up"; exit 1; }
+
+          echo "--- migrations applied ---"
+          docker logs nmt-api-db 2>&1 | grep -q 'Migrations applied' \
+            || { echo "::error::migrations did not run"; docker logs nmt-api-db; exit 1; }
+
+          echo "--- schema present ---"
+          # psql via the postgres image rather than the runner's own client, so
+          # this does not depend on what the runner image happens to preinstall.
+          for table in users logs alerts known_devices schema_migrations; do
+            docker run --rm --network host postgres:17-alpine \
+              psql "$CI_DATABASE_URL" -tAc "SELECT to_regclass('$table') IS NOT NULL" \
+              | tr -d '[:space:]' | grep -qx t \
+              || { echo "::error::table $table missing"; exit 1; }
+            echo "  $table ok"
+          done
+
+          docker rm -f nmt-api-db
+
+      - name: Smoke-test the UI image
+        run: |
+          # Deliberately started with no API reachable. nginx resolves the proxy
+          # upstream lazily, so it must still serve the bundle; an `upstream`
+          # block would make it refuse to start at all, which is what this
+          # asserts against.
+          docker run -d --name nmt-ui-ci -p 8081:80 nmt-ui:ci
+          "$RUNNER_TEMP/wait-for.sh" http://localhost:8081/ nmt-ui-ci
+
+          curl -fsS http://localhost:8081/ | grep -q '<div id="root">' \
+            || { echo "::error::index.html did not contain the React root"; exit 1; }
+
+          echo "--- SPA fallback for a client-side route ---"
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/alerts)
+          test "$code" = "200" || { echo "::error::expected 200 for /alerts, got $code"; exit 1; }
+
+          echo "--- static assets are served ---"
+          asset=$(curl -fsS http://localhost:8081/ | grep -oE '/assets/[A-Za-z0-9._-]+\.js' | head -1)
+          test -n "$asset" || { echo "::error::no hashed asset referenced by index.html"; exit 1; }
+          curl -fsS -o /dev/null "http://localhost:8081$asset" \
+            || { echo "::error::asset $asset was not served"; exit 1; }
+          echo "  $asset ok"
+
+          echo "--- a proxied path degrades rather than killing nginx ---"
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/health)
+          case "$code" in
+            502|503|504) echo "  /health returned $code, as expected with no API" ;;
+            *) echo "::error::expected a gateway error from /health with no API, got $code"; exit 1 ;;
+          esac
+          # And nginx is still up afterwards.
+          curl -fsS -o /dev/null http://localhost:8081/ \
+            || { echo "::error::nginx stopped serving after a failed proxy attempt"; exit 1; }
+
+          docker rm -f nmt-ui-ci
