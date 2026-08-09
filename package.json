@@ -35,7 +35,7 @@
     "test:ui": "vitest run --root network-monitoring-ui"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.5",
+    "@biomejs/biome": "^2.5.7",
     "concurrently": "^9.1.0",
     "husky": "^9.1.7"
   }
