@@ -125,7 +125,7 @@ export default function PacketTable({ packets, capturing, onIpClick }: PacketTab
     columns,
     data: rows,
     enableStickyHeader: true,
-    enableColumnResizing: true,
+    enableColumnResizing: false,
     enableDensityToggle: true,
     columnFilterDisplayMode: 'popover',
     paginationDisplayMode: 'pages',
