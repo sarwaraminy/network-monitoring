@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
@@ -182,6 +182,21 @@ function cachePath(cacheDir: string, source: FeedSource): string {
   return join(cacheDir, `${slug}-${fingerprint}.txt`);
 }
 
+/**
+ * The pre-fingerprint filename, so an upgrade does not leave litter behind.
+ *
+ * Caches now live on a named volume that survives `--force-recreate`, and
+ * nothing else prunes the directory, so a `<slug>.txt` written by an older build
+ * would sit there indefinitely — never read, never replaced.
+ */
+function legacyCachePath(cacheDir: string, source: FeedSource): string {
+  const slug = source.name
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .slice(0, 64);
+  return join(cacheDir, `${slug}.txt`);
+}
+
 function writeCache(cacheDir: string, source: FeedSource, body: string): void {
   try {
     const path = cachePath(cacheDir, source);
@@ -191,6 +206,8 @@ function writeCache(cacheDir: string, source: FeedSource, body: string): void {
     const temporary = `${path}.tmp`;
     writeFileSync(temporary, body, 'utf8');
     renameSync(temporary, path);
+    // Only after the new cache is safely in place.
+    rmSync(legacyCachePath(cacheDir, source), { force: true });
   } catch (error) {
     log.warn({ feed: source.name, err: error }, 'Could not cache the feed');
   }

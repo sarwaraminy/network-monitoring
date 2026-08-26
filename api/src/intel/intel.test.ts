@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
 import { assess, directionOf, isPrivateAddress } from './assess.js';
-import { IndicatorSet, ipv4ToInt, normalizeDomain, parseCidr } from './match.js';
+import { canonicalIpv6, IndicatorSet, ipv4ToInt, normalizeDomain, parseCidr } from './match.js';
 import { classify, parseFeed } from './parse.js';
 
 /**
@@ -136,9 +136,40 @@ describe('indicator matching', () => {
       assert.equal(set.size, 0);
     });
 
-    it('rejects IPv6 loopback and link-local', () => {
-      const set = setWith(['::1', 'ipv6'], ['fe80::1', 'ipv6'], ['fd00::1', 'ipv6']);
+    it('rejects IPv6 loopback, link-local, unique-local, multicast and unspecified', () => {
+      const set = setWith(
+        ['::1', 'ipv6'],
+        // The same address written the long way. Prefix matching on the raw
+        // string caught the first spelling and missed this one.
+        ['0:0:0:0:0:0:0:1', 'ipv6'],
+        ['fe80::1', 'ipv6'],
+        ['febf::1', 'ipv6'],
+        ['fd00::1', 'ipv6'],
+        ['ff02::1', 'ipv6'],
+        // Names no host at all, and a feed line of `::` is a parse accident.
+        ['::', 'ipv6'],
+      );
       assert.equal(set.size, 0);
+    });
+
+    it('refuses a v6 literal with a stray colon rather than rewriting it', () => {
+      // This is the failure the module's own rule exists to prevent: filtering
+      // empty groups unconditionally turned `:1:2:3:4:5:6:7:8` into the valid
+      // but entirely different `1:2:3:4:5:6:7:8`, so one malformed feed line
+      // became a confident indicator for an address it never named. Same class
+      // as `999.999.999.999` being accepted as a domain.
+      for (const malformed of [':1:2:3:4:5:6:7:8', '1:2:3:4:5:6:7:8:', '1:::2', ':', ':::']) {
+        assert.equal(canonicalIpv6(malformed), null, `${malformed} should not canonicalise`);
+      }
+
+      const set = setWith([':1:2:3:4:5:6:7:8', 'ipv6'], ['1:2:3:4:5:6:7:8:', 'ipv6']);
+      assert.equal(set.size, 0);
+    });
+
+    it('still canonicalises the well-formed spellings to one string', () => {
+      assert.equal(canonicalIpv6('2001:0db8:0000:0000:0000:0000:0000:0001'), '2001:db8:0:0:0:0:0:1');
+      assert.equal(canonicalIpv6('2001:db8::1'), '2001:db8:0:0:0:0:0:1');
+      assert.equal(canonicalIpv6('::ffff:1.2.3.4'), null, 'an embedded v4 tail is refused, not folded');
     });
 
     it('still accepts ordinary public addresses', () => {
@@ -229,6 +260,17 @@ describe('direction grading', () => {
     for (const remote of ['8.8.8.8', '203.0.113.1', '172.32.0.1']) {
       assert.equal(isPrivateAddress(remote), false, `${remote} should be remote`);
     }
+  });
+
+  it('recognises IPv6 loopback in either spelling', () => {
+    // The v4 branch delegates to the loader's own predicate; the v6 branch used
+    // to prefix-match a raw string, so these two spellings of one address
+    // disagreed and a loopback conversation graded as remote.
+    assert.equal(isPrivateAddress('::1'), true);
+    assert.equal(isPrivateAddress('0:0:0:0:0:0:0:1'), true);
+    assert.equal(isPrivateAddress('fe80::1'), true);
+    assert.equal(isPrivateAddress('fd00::1'), true);
+    assert.equal(isPrivateAddress('2001:db8::1'), false);
   });
 
   it('classifies the four directions', () => {

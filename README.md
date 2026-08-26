@@ -258,7 +258,30 @@ INTEL_ENABLED=true
 INTEL_FEEDS=feodo=https://feodotracker.abuse.ch/downloads/ipblocklist.txt,internal=/etc/nmt/indicators.txt
 ```
 
-Then check what loaded:
+Then open **Threat Intel** in the navigation bar to see what loaded.
+
+### The page is a table of feeds, not a count of indicators
+
+"1,204 indicators loaded" is the least useful thing this feature can report. A feed silently
+serving an empty file, or quietly falling back to a months-old cached copy, looks identical to
+a healthy one from a total — and a detector that stopped matching is worse than one never
+enabled, because it looks like coverage.
+
+So every feed shows where its contents actually came from:
+
+| Badge | Meaning |
+| --- | --- |
+| **Live** | Downloaded on the last refresh. Current. |
+| **Cached** | The download failed and the saved copy was used. Detection works, but these indicators are as old as the last successful fetch. |
+| **Local file** | Read from disk. Freshness is whatever your own process makes it. |
+| **Failed** | Nothing loaded. These indicators are not being matched at all. |
+
+Failed and cached feeds are also called out in a banner above the table, because a single bad
+row is easy to miss among healthy-looking numbers. A feed reporting **zero** indicators is
+highlighted for the same reason. Administrators get a **Reload feeds** button; it reports what
+actually happened, including when a reload was refused and the previous indicators were kept.
+
+The same data is available over the API:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/intel/status
@@ -468,17 +491,19 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 260 tests
-npm run test:api  # 221 API tests
-npm run test:ui   # 39 UI tests
+npm test          # both suites: 295 tests
+npm run test:api  # 246 API tests
+npm run test:ui   # 49 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 221 tests
+### API — 246 tests
 
-Over `api/src/packet/` and `api/src/flow/`, covering the hand-written decoders, every detector,
-the NetFlow/IPFIX parsers, and the FFI binding. They use Node's built-in test runner, so there
+Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
+`api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
+parsers, indicator matching and feed loading, the notification gate, request validation, and
+the FFI binding. They use Node's built-in test runner, so there
 is no framework to install. The FFI tests skip themselves when no pcap library is present.
 
 Three groups are worth knowing about:
@@ -497,6 +522,11 @@ Three groups are worth knowing about:
   prove the two agree, which is exactly the bug class — a misread offset — that matters here.
   These cover template arrival after data, template redefinition, enterprise fields, variable
   length, reduced-size encoding, NTP-format timestamps, and truncated or over-long sets.
+- **Indicator refusals** are the threat-intelligence equivalent of the false-positive guards.
+  A feed line that is *nearly* an indicator must be refused rather than guessed at, because a
+  wrong indicator produces a confident false alarm: `999.999.999.999` must not be accepted as
+  a domain, `1.2.3.0/` must not parse as `/0` and match the whole internet, and a stray colon
+  in an IPv6 literal must not be quietly rewritten into a different, valid address.
 
 The credential tests also assert that no password appears anywhere in a finding, including its
 base64 form.
@@ -504,7 +534,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 39 tests
+### UI — 49 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —

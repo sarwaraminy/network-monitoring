@@ -1,4 +1,4 @@
-import type { Alert, AlertDashboard, CaptureStatus, NetworkInterface, Packet } from '../types';
+import type { Alert, AlertDashboard, CaptureStatus, IntelStatus, NetworkInterface, Packet } from '../types';
 
 /** Shapes here mirror what the API actually returns; see api/src/types/dto.ts. */
 
@@ -84,6 +84,33 @@ export const DASHBOARD: AlertDashboard = {
   topSources: [
     { sourceIp: '10.0.0.66', count: 2, occurrences: 5 },
     { sourceIp: '10.0.0.89', count: 1, occurrences: 3 },
+  ],
+};
+
+/**
+ * One healthy feed, one that fell back to its cache, one that failed outright.
+ *
+ * Deliberately not three healthy rows: the page exists to make a degraded feed
+ * visible, so the default fixture has to contain degradation.
+ */
+export const INTEL_STATUS: IntelStatus = {
+  enabled: true,
+  loadedAt: '2026-08-26T11:55:00.000Z',
+  refreshSeconds: 21600,
+  stats: {
+    total: 1204,
+    ipv4: 900,
+    ipv6: 4,
+    cidr: 120,
+    domain: 180,
+    rejected: 7,
+    bySource: { feodo: 900, drop: 120, internal: 184 },
+  },
+  sources: [
+    { name: 'feodo', indicators: 900, skipped: 12, from: 'network' },
+    { name: 'drop', indicators: 120, skipped: 40, from: 'cache' },
+    { name: 'internal', indicators: 184, skipped: 3, from: 'file' },
+    { name: 'urlhaus', indicators: 0, skipped: 0, from: 'failed', error: 'HTTP 503' },
   ],
 };
 

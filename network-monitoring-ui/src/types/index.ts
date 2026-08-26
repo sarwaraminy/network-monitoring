@@ -98,6 +98,42 @@ export interface AlertDashboard extends AlertSummary {
   topSources: Array<{ sourceIp: string; count: number; occurrences: number }>;
 }
 
+/** Where a feed's contents actually came from on the last load. */
+export type IntelFeedOrigin = 'network' | 'cache' | 'file' | 'failed';
+
+export interface IntelFeedStatus {
+  name: string;
+  indicators: number;
+  /** Lines that were not indicators: comments, headers, junk. */
+  skipped: number;
+  from: IntelFeedOrigin;
+  error?: string;
+}
+
+export interface IntelStatus {
+  enabled: boolean;
+  loadedAt: string | null;
+  refreshSeconds: number;
+  stats: {
+    total: number;
+    ipv4: number;
+    ipv6: number;
+    cidr: number;
+    domain: number;
+    /** Entries refused on the way in — private ranges, malformed lines. */
+    rejected: number;
+    bySource: Record<string, number>;
+  };
+  sources: IntelFeedStatus[];
+}
+
+export interface IntelReloadResult {
+  status: 'loaded';
+  loadedAt: string;
+  indicators: number;
+  sources: IntelFeedStatus[];
+}
+
 export interface KnownDevice {
   macAddress: string;
   firstIp: string | null;

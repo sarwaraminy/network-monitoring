@@ -1,6 +1,6 @@
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
-import { ADMIN_USER, ALERTS, DASHBOARD, IDLE_STATUS, INTERFACES, PACKET } from './fixtures';
+import { ADMIN_USER, ALERTS, DASHBOARD, IDLE_STATUS, INTEL_STATUS, INTERFACES, PACKET } from './fixtures';
 
 /**
  * Default handlers: the happy path. Individual tests override with
@@ -37,6 +37,17 @@ export const handlers = [
    * users. Tests that need first-time setup or open registration override it.
    */
   http.get('/auth/signup-allowed', () => HttpResponse.json({ allowed: false, mode: 'admin-only' })),
+
+  http.get('/api/intel/status', () => HttpResponse.json(INTEL_STATUS)),
+
+  http.post('/api/intel/reload', () =>
+    HttpResponse.json({
+      status: 'loaded',
+      loadedAt: '2026-08-26T12:00:00.000Z',
+      indicators: 1204,
+      sources: INTEL_STATUS.sources,
+    }),
+  ),
 
   http.get('/api/alerts', ({ request }) => {
     const url = new URL(request.url);

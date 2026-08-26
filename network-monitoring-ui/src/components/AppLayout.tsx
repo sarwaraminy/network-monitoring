@@ -1,4 +1,5 @@
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
+import GppMaybeOutlinedIcon from '@mui/icons-material/GppMaybeOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
@@ -40,6 +41,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: <SpaceDashboardOutlinedIcon /> },
   { label: 'Security Alerts', to: '/alerts', icon: <WarningAmberOutlinedIcon /> },
+  { label: 'Threat Intel', to: '/threat-intel', icon: <GppMaybeOutlinedIcon /> },
   { label: 'Capture by Interface', to: '/capture-packets', icon: <SettingsEthernetIcon /> },
   { label: 'Capture by IP', to: '/capture-packets-ip', icon: <FilterAltOutlinedIcon /> },
 ];

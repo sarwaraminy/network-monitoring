@@ -77,6 +77,14 @@ interface Range {
  * would light up every alert on the network at once and destroy trust in the
  * detector permanently. Refusing them costs nothing: an indicator for 10.0.0.0/8
  * is never actionable intelligence.
+ *
+ * It has a second caller with a *different* question. assess.ts asks "is this
+ * address on my network?", and reuses this deliberately so the two definitions
+ * of local cannot drift apart again. They are not the same set: multicast,
+ * broadcast and 0/8 are non-routable without being local, so a conversation with
+ * 224.0.0.251 grades `internal` rather than `outbound`. That costs nothing in
+ * practice — such an address can never be a loaded indicator, so no assessment
+ * is ever produced for it — but the name describes the first job, not the second.
  */
 export function isNonRoutableV4(ip: number): boolean {
   const a = (ip >>> 24) & 0xff;
@@ -87,6 +95,28 @@ export function isNonRoutableV4(ip: number): boolean {
   if (a === 169 && b === 254) return true;
   if (a === 100 && b >= 64 && b <= 127) return true;
   if (a >= 224) return true;
+  return false;
+}
+
+/**
+ * The v6 counterpart, with the same two jobs and the same caveat.
+ *
+ * It takes a *canonical* string, which is the whole point. The predicate this
+ * replaces ran `startsWith` on whatever the feed or the capture happened to
+ * spell, so `::1` was recognised as loopback and its equally valid expansion
+ * `0:0:0:0:0:0:0:1` was not — the v6 half of an asymmetry whose v4 half was
+ * already closed, with the canonicaliser sitting in the same module.
+ */
+export function isNonRoutableV6(canonical: string): boolean {
+  // The unspecified address. A feed line of `::` names no host at all.
+  if (canonical === '0:0:0:0:0:0:0:0') return true;
+  if (canonical === '0:0:0:0:0:0:0:1') return true;
+
+  const first = Number.parseInt(canonical.split(':')[0] ?? '', 16);
+  if (Number.isNaN(first)) return false;
+  if ((first & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7  unique local
+  if ((first & 0xff00) === 0xff00) return true; // ff00::/8  multicast
   return false;
 }
 
@@ -127,8 +157,22 @@ export function canonicalIpv6(address: string): string | null {
   const halves = value.split('::');
   if (halves.length > 2) return null;
 
-  const head = (halves[0] ?? '').split(':').filter((group) => group !== '');
-  const tail = halves.length === 2 ? (halves[1] ?? '').split(':').filter((group) => group !== '') : [];
+  // An empty group is legal only as the elision itself. Filtering empties
+  // unconditionally — as this did — silently rewrote a stray colon into a
+  // different, perfectly valid address: `:1:2:3:4:5:6:7:8` came back as
+  // `1:2:3:4:5:6:7:8`, so one malformed feed line became a confident indicator
+  // for an address the line never named. The same class of bug as the
+  // `999.999.999.999` case normalizeDomain catches below, and the same rule
+  // parse.ts states: a line that is nearly an indicator is not guessed at.
+  const splitHalf = (half: string): string[] | null => {
+    if (half === '') return [];
+    const groups = half.split(':');
+    return groups.some((group) => group === '') ? null : groups;
+  };
+
+  const head = splitHalf(halves[0] ?? '');
+  const tail = halves.length === 2 ? splitHalf(halves[1] ?? '') : [];
+  if (head === null || tail === null) return null;
 
   let groups: string[];
   if (halves.length === 2) {
@@ -213,8 +257,7 @@ export class IndicatorSet {
       case 'ipv6': {
         const value = canonicalIpv6(indicator.value);
         if (value === null) break;
-        // Loopback and link-local, the v6 equivalents of the check above.
-        if (value === '0:0:0:0:0:0:0:1' || value.startsWith('fe80:') || /^f[cd]/.test(value)) break;
+        if (isNonRoutableV6(value)) break;
         this.ipv6.set(value, meta);
         this.count(indicator.source);
         return true;

@@ -1,5 +1,5 @@
 import type { Severity } from '../packet/detect/types.js';
-import { type IndicatorMatch, ipv4ToInt, isNonRoutableV4 } from './match.js';
+import { canonicalIpv6, type IndicatorMatch, ipv4ToInt, isNonRoutableV4, isNonRoutableV6 } from './match.js';
 
 /**
  * Turning a match into a finding.
@@ -32,9 +32,12 @@ export type Direction = 'outbound' | 'inbound' | 'internal' | 'unknown';
  */
 export function isPrivateAddress(address: string | null | undefined): boolean {
   if (!address) return false;
+  // Canonicalised first, so the two spellings of loopback agree. Raw prefix
+  // matching said yes to `::1` and no to `0:0:0:0:0:0:0:1`, which is the same
+  // address — the v6 half of the asymmetry the v4 branch below already fixed.
   if (address.includes(':')) {
-    const lower = address.toLowerCase();
-    return lower === '::1' || lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd');
+    const canonical = canonicalIpv6(address);
+    return canonical !== null && isNonRoutableV6(canonical);
   }
 
   // Delegates to the same predicate the loader uses to refuse indicators. Two
