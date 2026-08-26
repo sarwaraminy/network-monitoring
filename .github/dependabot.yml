@@ -11,9 +11,13 @@ version: 2
 # Everything below is grouped hard and capped low, so a routine month produces a
 # handful of PRs rather than a backlog.
 #
-# Note that *security* advisories are unaffected by any of this. Dependabot raises
-# those through security updates regardless of schedule, grouping or limit, so a
-# quiet cadence here does not delay a patch for a known vulnerability.
+# Schedule, grouping and open-pull-requests-limit do not hold back a security
+# update — Dependabot raises those separately from version updates, so a quiet
+# cadence here does not delay a patch for a known vulnerability.
+#
+# `ignore` is different, and the distinction matters. An ignore rule suppresses
+# the security update too, so a package with an open advisory must never appear in
+# the list below. Check `npm audit` before adding one.
 
 updates:
   - package-ecosystem: npm
@@ -51,8 +55,17 @@ updates:
         update-types: [version-update:semver-major]
       - dependency-name: react-router-dom
         update-types: [version-update:semver-major]
-      - dependency-name: drizzle-orm
-        update-types: [version-update:semver-major]
+      # drizzle-orm is deliberately NOT ignored, despite a major upgrade being
+      # disruptive. It carries an open high-severity advisory (SQL injection via
+      # improperly escaped identifiers, GHSA) whose only fix is a semver major, and
+      # an ignore rule here would suppress that security PR as well.
+      #
+      # Reviewed against this codebase and not exploitable as written: there is no
+      # sql.identifier() call anywhere, every pgTable() name is a string literal,
+      # and the single sql.raw() inlines a ternary over two hardcoded strings. No
+      # user input can reach an identifier position. Upgrade deliberately rather
+      # than urgently — but keep seeing the PR.
+      #
       # zod is the request-validation layer for every route — a security boundary
       # with no test coverage of its own yet. A v4 bump changes `.email()`,
       # `z.coerce.*` semantics and `.default()` inference, and CI would go green
