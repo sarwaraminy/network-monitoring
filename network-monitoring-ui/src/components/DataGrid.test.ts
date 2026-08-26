@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeContainerProps, numericColumn } from './DataGrid';
+import { mergeContainerProps, mergeRowProps, numericColumn } from './DataGrid';
 
 /**
  * Both of these exist because of a failure mode that is invisible at a glance:
@@ -99,5 +99,35 @@ describe('numericColumn', () => {
     const own = () => 'mine';
     const column = numericColumn({ accessorKey: 'count', header: 'Count', Cell: own });
     expect(column.Cell).toBe(own);
+  });
+});
+
+describe('mergeRowProps', () => {
+  const HEIGHT = { height: 48 };
+
+  it('uses ours when the caller sets no row props', () => {
+    expect(mergeRowProps(HEIGHT, undefined)).toEqual({ sx: HEIGHT });
+  });
+
+  it('keeps the caller`s row styling and adds ours underneath', () => {
+    // The bug this exists for: the height was declared above the options spread,
+    // so the two tables that style their rows threw it away wholesale.
+    const merged = mergeRowProps(HEIGHT, { sx: { borderLeft: '4px solid', opacity: 0.6 } });
+
+    expect(merged).toEqual({ sx: { height: 48, borderLeft: '4px solid', opacity: 0.6 } });
+  });
+
+  it('lets the caller win on a key we both set', () => {
+    expect(mergeRowProps(HEIGHT, { sx: { height: 72 } })).toEqual({ sx: { height: 72 } });
+  });
+
+  it('keeps the caller`s non-sx props', () => {
+    const merged = mergeRowProps(HEIGHT, { hover: false, sx: { opacity: 0.6 } });
+    expect(merged).toMatchObject({ hover: false, sx: { height: 48, opacity: 0.6 } });
+  });
+
+  it('does not try to merge into an array sx', () => {
+    const arraySx = [{ opacity: 0.6 }];
+    expect(mergeRowProps(HEIGHT, { sx: arraySx })).toEqual({ sx: arraySx });
   });
 });

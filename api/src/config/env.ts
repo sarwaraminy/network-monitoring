@@ -153,8 +153,22 @@ export const env = {
    * Blanks packet payloads in API responses. For deployments where captured
    * traffic may contain personal data or message content — which brings wiretap
    * statutes and GDPR into scope — this keeps payloads off the wire entirely.
+   *
+   * On by default. Off was the wrong default for a tool whose API hands back the
+   * whole frame hex-encoded: it made every reader of /api/packets a wiretap, and
+   * a deployment that wants raw frames should have to say so.
    */
-  redactPacketPayload: bool('REDACT_PACKET_PAYLOAD', false),
+  redactPacketPayload: bool('REDACT_PACKET_PAYLOAD', true),
+
+  /**
+   * Whether something in front of this API sets `X-Forwarded-For`.
+   *
+   * Off by default, and that matters: express-rate-limit keys on `req.ip`, which
+   * with this on is read from that header. Enabled where nothing sets it — an
+   * API reached directly, which the README's host-install path produces — a
+   * caller can send a fresh value per request and never trip the auth limiter.
+   */
+  trustProxy: bool('TRUST_PROXY', false),
   arpTrustedMappings: arpTrustedMappings(),
 
   /**

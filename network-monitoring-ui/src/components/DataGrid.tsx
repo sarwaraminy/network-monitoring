@@ -1,4 +1,5 @@
 import Box from '@mui/material/Box';
+import type { SxProps, Theme } from '@mui/material/styles';
 import { useColorScheme } from '@mui/material/styles';
 import Typography from '@mui/material/Typography';
 import {
@@ -37,8 +38,10 @@ import { GRID_METRICS, SURFACE } from '../theme';
  * Merge the caller's container props over ours, key by key.
  *
  * The naive `{ ...ours, ...theirs }` drops our `sx` entirely the moment a caller
- * sets one — which is how the measured height would go missing on exactly the
- * tables that customise anything. Two forms deliberately fall through unmerged:
+ * sets one, so anything this wrapper puts on the container would go missing on
+ * exactly the tables that customise it. (The measured height no longer travels
+ * this way — it moved to the wrapper — but the flex rules that let the container
+ * fill the bounded paper still do.) Two forms deliberately fall through:
  * a function (`({ table }) => props` — nothing to merge with statically) and an
  * array or callback `sx`. Both are rare, and in both the caller replaces ours.
  *
@@ -102,6 +105,34 @@ export function numericColumn<T extends MRT_RowData>(column: MRT_ColumnDef<T>): 
         return typeof value === 'number' ? value.toLocaleString() : ((value as ReactNode) ?? '');
       }),
   };
+}
+
+/**
+ * Merge the caller's row props over ours, including the `sx`.
+ *
+ * Same failure as `mergeContainerProps`, for a different option, and it had
+ * already bitten: the row height was declared above the `...tableOptions` spread,
+ * so the two tables that style their rows — alerts and intelligence feeds — threw
+ * it away wholesale and ran at MRT's default. Only the packet table, the one that
+ * does not style rows, ever got it. The two it missed are the two anyone spends
+ * time in.
+ *
+ * The caller's props win on every key, so a per-row `borderLeft` or `opacity`
+ * still applies; ours only supply what they did not mention.
+ */
+export function mergeRowProps<P extends { sx?: SxProps<Theme> }>(
+  ownSx: Record<string, unknown>,
+  callerProps: P | undefined,
+): P {
+  if (!callerProps) return { sx: ownSx } as P;
+
+  const callerSx = callerProps.sx;
+  const mergeable = callerSx && typeof callerSx === 'object' && !Array.isArray(callerSx);
+
+  return {
+    ...callerProps,
+    sx: mergeable ? { ...ownSx, ...(callerSx as Record<string, unknown>) } : (callerSx ?? ownSx),
+  } as P;
 }
 
 /**
@@ -191,7 +222,8 @@ function DataGridBase({
    * for the scheme that is actually showing.
    */
   const { mode, systemMode } = useColorScheme();
-  const scheme = (mode === 'system' ? systemMode : mode) === 'dark' ? 'dark' : 'light';
+  const resolved = mode === 'system' ? systemMode : mode;
+  const scheme = resolved === 'dark' ? 'dark' : 'light';
 
   const { ref, maxHeight } = useViewportFitHeight<HTMLDivElement>({
     enabled: !disableFitHeight,
@@ -232,12 +264,28 @@ function DataGridBase({
     // The grid surface IS the canvas in both schemes, which is what makes a
     // table read as punched through the card back to the page.
     mrtTheme: { baseBackgroundColor: SURFACE[scheme].gridOnCard },
-    // 48px rows, 40px dense — the standardised read-grid rhythm. Stated here
-    // rather than left to MRT's density scale so every table in the app agrees.
-    muiTableBodyRowProps: {
-      sx: { height: GRID_METRICS.rowHeight },
-    },
     ...tableOptions,
+
+    /*
+     * 48px rows, 40px dense — the standardised read-grid rhythm, applied under
+     * whatever the caller sets rather than declared above the spread where a
+     * caller's own row props would replace it.
+     *
+     * Read from the live density rather than pinned, because `enableDensityToggle`
+     * is on: a fixed height held every row at 48px through every density, leaving
+     * the toggle able to change padding and nothing else.
+     */
+    muiTableBodyRowProps: (props) => {
+      const caller =
+        typeof tableOptions?.muiTableBodyRowProps === 'function'
+          ? tableOptions.muiTableBodyRowProps(props)
+          : tableOptions?.muiTableBodyRowProps;
+
+      const dense = props.table.getState().density === 'compact';
+      const height = dense ? GRID_METRICS.denseRowHeight : GRID_METRICS.rowHeight;
+
+      return mergeRowProps({ height }, caller);
+    },
 
     // Resolved explicitly rather than by declaring the default above the spread
     // and letting a caller's key overwrite it — same outcome, the caller still

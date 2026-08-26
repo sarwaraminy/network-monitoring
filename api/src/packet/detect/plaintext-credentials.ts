@@ -77,7 +77,10 @@ export class PlaintextCredentialDetector implements Detector {
     const findings: Finding[] = [];
 
     // Authorization: Basic <base64(user:pass)>
-    const basic = /^authorization:[ \t]*basic[ \t]+([A-Za-z0-9+/=]+)/im.exec(text);
+    // `A-Z` only: the `i` flag is on for the header name, so the class already
+    // matches lowercase. Spelling `A-Za-z` as well claimed a case sensitivity
+    // the flag had already removed, and made one class look like two.
+    const basic = /^authorization:[ \t]*basic[ \t]+([A-Z0-9+/=]+)/im.exec(text);
     if (basic?.[1]) {
       const decoded = safeBase64(basic[1]);
       const separator = decoded.indexOf(':');
@@ -231,7 +234,7 @@ export class PlaintextCredentialDetector implements Detector {
   }
 
   private inspectSmtp(text: string, context: Context): Finding[] {
-    const authPlain = /^AUTH[ \t]+PLAIN[ \t]+([A-Za-z0-9+/=]+)/im.exec(text);
+    const authPlain = /^AUTH[ \t]+PLAIN[ \t]+([A-Z0-9+/=]+)/im.exec(text);
     const authLogin = /^AUTH[ \t]+LOGIN/im.test(text);
     if (!authPlain && !authLogin) return [];
 
@@ -305,7 +308,7 @@ interface Context {
 function startsWith(buffer: Buffer, prefix: string): boolean {
   if (buffer.length < prefix.length) return false;
   for (let i = 0; i < prefix.length; i += 1) {
-    if (buffer[i] !== prefix.charCodeAt(i)) return false;
+    if (buffer[i] !== prefix.codePointAt(i)) return false;
   }
   return true;
 }
@@ -330,17 +333,35 @@ function sanitize(value: string): string {
   return out;
 }
 
+/**
+ * The request line, with its query string removed.
+ *
+ * SECURITY: this reaches `alerts.evidence`, the UI evidence panel and — because
+ * NOTIFY_INCLUDE_EVIDENCE is on by default — a third-party chat webhook. A form
+ * login sent as GET puts the password in the query string, so storing the line
+ * verbatim recorded the secret in all three places and broke this module's one
+ * promise: username and length, never the value.
+ *
+ * The suite missed it because the credential test posts a body. `?` and `&` are
+ * field separators for the form regex above, so the GET case was always in
+ * scope for detection — just not for redaction.
+ */
 function firstLine(text: string): string {
-  return sanitize(text.split(/\r?\n/, 1)[0] ?? '').slice(0, 200);
+  const line = sanitize(text.split(/\r?\n/, 1)[0] ?? '');
+  const query = line.indexOf('?');
+  // Keep the method and path; drop everything from `?` to the HTTP version.
+  const redacted =
+    query === -1 ? line : `${line.slice(0, query)}?<redacted>${line.slice(line.indexOf(' ', query))}`;
+  return redacted.slice(0, 200);
 }
 
 function firstHeader(text: string, header: string): string | null {
-  const match = new RegExp(`^${header}:[ \\t]*(.+)$`, 'im').exec(text);
+  const match = new RegExp(String.raw`^${header}:[ \t]*(.+)$`, 'im').exec(text);
   return match?.[1] ? sanitize(match[1].trim()) : null;
 }
 
 /** Best-effort username alongside a password field, for context in the alert. */
 function extractFormUsername(text: string): string | null {
   const match = /(?:^|[&?\s])(?:username|user|email|login|uid)=([^&\s"']{1,128})/i.exec(text);
-  return match?.[1] ? sanitize(decodeURIComponent(match[1].replace(/\+/g, ' '))) : null;
+  return match?.[1] ? sanitize(decodeURIComponent(match[1].replaceAll('+', ' '))) : null;
 }

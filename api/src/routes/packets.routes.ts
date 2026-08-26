@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { captureControlLimiter, lookupLimiter } from '../middleware/rate-limit.js';
 import { getGeolocationData } from '../networkservices/ip-geolocation.service.js';
@@ -29,7 +29,20 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
   // Starting a capture is expensive (promiscuous mode, 10 MB kernel buffer) and
   // ip-info fans out to three external services, so both are limited separately
   // from ordinary reads.
-  router.use(['/start', '/stop', '/clear'], captureControlLimiter);
+  /*
+   * SECURITY: starting a capture is an administrator's action.
+   *
+   * `requireAuth` alone left any authenticated USER able to put an interface
+   * into promiscuous mode and then read `dataHexStream` — the entire raw frame,
+   * hex-encoded — for every packet in the ring. That is a self-service network
+   * tap, and under the documented capture deployment the process holds NET_RAW
+   * and NET_ADMIN in the host network namespace.
+   *
+   * The earlier fix here stopped at "not anonymous" and never reached least
+   * privilege; the comment above still said capture "should not be open to
+   * anonymous callers", which was true and insufficient.
+   */
+  router.use(['/start', '/stop', '/clear'], requireRole('ADMIN'), captureControlLimiter);
   router.use('/ip-info', lookupLimiter);
 
   /** POST /start?interfaceName=&snaplength=&timeout=[&ipAddress=] */

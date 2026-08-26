@@ -88,17 +88,6 @@ export const NAV = {
 } as const;
 
 /**
- * Table header fill.
- *
- * Kept as a token because the tables still reference it, but it now resolves to
- * the card header tint so a grid head and a card head are the same surface.
- */
-export const HEAD_SURFACE = {
-  light: SURFACE.light.cardHeader,
-  dark: SURFACE.dark.cardHeader,
-} as const;
-
-/**
  * Shape and card metrics, in px.
  *
  * These sit deliberately off the 8px spacing grid: the source spec gives 13px

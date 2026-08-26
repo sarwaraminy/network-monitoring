@@ -491,14 +491,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 309 tests
-npm run test:api  # 246 API tests
-npm run test:ui   # 63 UI tests
+npm test          # both suites: 315 tests
+npm run test:api  # 247 API tests
+npm run test:ui   # 68 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 246 tests
+### API — 247 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
@@ -534,7 +534,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 63 tests
+### UI — 68 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —

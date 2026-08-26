@@ -1,8 +1,8 @@
 {
   // Use the TypeScript this repo installs, not the one VS Code ships with, so
   // the editor and `npm run typecheck` are never answering different questions.
-  "typescript.tsdk": "node_modules/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true
+  "js/ts.tsdk.path": "node_modules/typescript/lib",
+  "js/ts.tsdk.promptToUseWorkspaceVersion": true
 
   // ---------------------------------------------------------------------------
   // If the editor reports errors in DataGrid.tsx that `npm run typecheck` does
@@ -11,11 +11,11 @@
   // second copy of material-react-table. Check the casing of the paths in the
   // Problems panel. If some read
   //
-  //     c:/users/sawar amini/downloads/.../network-monitoring
+  //     c:/users/<you>/.../<repo>
   //
   // and others read
   //
-  //     c:/Users/Sawar Amini/Downloads/.../network-monitoring
+  //     C:/Users/<You>/.../<repo>
   //
   // then the language server has the workspace open under one casing while
   // module resolution returns the real casing from disk, so it loads

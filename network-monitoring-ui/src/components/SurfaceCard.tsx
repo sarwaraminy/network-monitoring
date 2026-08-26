@@ -18,7 +18,7 @@ import { CARD_METRICS, RADIUS, SURFACE } from '../theme';
  * Anatomy:
  *
  *   ┌─────────────────────────────────────────┐  1px divider, theme radius
- *   │ Title                        [actions]  │  HEAD_SURFACE tint
+ *   │ Title                        [actions]  │  cardHeader tint
  *   │ subtitle                                │
  *   ├─────────────────────────────────────────┤
  *   │ body                                    │  background.paper
@@ -26,16 +26,15 @@ import { CARD_METRICS, RADIUS, SURFACE } from '../theme';
  *
  * Rules baked in here so callers cannot drift:
  *
- *  - The header strip is tinted with the same token as the table heads, not with
- *    `background.paper`. A header pixel-identical to its own body reads as one
- *    undifferentiated block, and the tint is already this app's vocabulary for
- *    "chrome, not data".
- *  - A table nested in a card must NOT bring its own surface. Two stacked
- *    hairlines and two stacked fills read as a rendering fault, which is exactly
- *    what wrapping an MRT table — it paints its own outlined `Paper` — in a card
- *    body would produce. `bodyVariant="grid"` strips the child's chrome so the
- *    card's own hairline is the only one, and drops the body padding so the
- *    table meets the border. Never wrap a table in the default variant.
+ *  - The header strip is tinted with `cardHeader`, one step off the card's own
+ *    surface. A header pixel-identical to its own body reads as one
+ *    undifferentiated block. (Table heads sit on `gridOnCard` instead — a
+ *    different token on purpose, since a grid head belongs to the grid.)
+ *  - A table nested in a card gets the nested-grid surface, never the card's own.
+ *    `bodyVariant="grid"` replaces whatever chrome the child brought — MRT paints
+ *    its own outlined `Paper` — with `gridOnCard` and its own hairline, so the
+ *    grid reads as punched through the card back to the page rather than as a
+ *    second card inside the first. Never wrap a table in the default variant.
  *  - `children` is optional. A header-only card is the page title band: this app
  *    puts page titles on the page rather than in the app bar, so the title needs
  *    a surface like everything else.
@@ -67,9 +66,11 @@ export interface SurfaceCardProps {
   children?: ReactNode;
   /**
    * Body treatment:
-   *  - `default` — padded `background.paper`, for prose, forms and controls.
-   *  - `grid`    — unpadded, with the nested table's own surface stripped so it
-   *                does not double up on this card's.
+   *  - `default` — the card's own surface, for prose, forms and controls.
+   *  - `grid`    — the nested table is re-surfaced onto `gridOnCard` with its own
+   *                hairline, so it does not double up on this card's.
+   *
+   * Both are padded identically; only the nested-`Paper` treatment differs.
    */
   bodyVariant?: 'default' | 'grid';
   /** Render without the card's own surface, border and radius — for a card already inside chrome. */
@@ -185,7 +186,7 @@ export default function SurfaceCard({
               display: 'flex',
               flexDirection: 'column',
               minHeight: 0,
-              ...(bodyVariant === 'default' && { padding: `${CARD_METRICS.bodyPadding}px` }),
+              padding: `${CARD_METRICS.bodyPadding}px`,
               ...(bodyVariant === 'grid' && {
                 /*
                  * Both depths, deliberately. DataGrid wraps its table in a Box so
@@ -198,7 +199,6 @@ export default function SurfaceCard({
                  * Not a bare descendant selector: a detail panel may legitimately
                  * render a Paper of its own, and that one should keep its surface.
                  */
-                padding: `${CARD_METRICS.bodyPadding}px`,
                 '& > .MuiPaper-root, & > * > .MuiPaper-root': {
                   boxShadow: 'none',
                   backgroundImage: 'none',
