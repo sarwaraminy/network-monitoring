@@ -118,7 +118,7 @@ describe('deployment defaults match the code', () => {
 
   it('docker-compose.yml does not contradict a boolean default', () => {
     const compose = parseComposeDefaults(read('docker-compose.yml'));
-    assert.ok(compose.size > 0, 'parsed no ${VAR:-default} entries from docker-compose.yml');
+    assert.ok(compose.size > 0, 'parsed no interpolated defaults from docker-compose.yml');
 
     for (const [name, value] of compose) {
       const expected = code.get(name);
