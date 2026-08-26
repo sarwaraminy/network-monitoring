@@ -54,6 +54,10 @@ export const SURFACE = {
  * `activeTabInk` is a separate token from the brand azure on purpose. Base azure
  * measures 3.28:1 on the lifted pale tab and 3.94:1 on the dark navy, both under
  * the 4.5:1 floor for 14px text; these two values clear it.
+ *
+ * There is no underline token. The source system uses one as dark mode's
+ * substitute for the lift; both schemes lift here, so a rule under the tab would
+ * be a second marker under a surface that already says "current page".
  */
 export const HEADER = {
   light: {
@@ -62,15 +66,18 @@ export const HEADER = {
     tabInk: '#FFFFFF',
     activeTabInk: '#1A6EA8',
     activeTabBg: '#F9FAFB',
-    activeTabUnderline: '#0093D4',
   },
   dark: {
     barBg: '#0E1B2E',
     navBg: '#122F52',
     tabInk: '#FFFFFF',
     activeTabInk: '#33A9DD',
-    activeTabBg: 'transparent',
-    activeTabUnderline: '#0093D4',
+    // The page canvas, which is the same idea as light's `#F9FAFB`: the active
+    // tab is a notch of the page showing through the bar. Dark had carried only
+    // an underline, on the reasoning that a pale slab on dark chrome is the
+    // brightest thing on screen — true of a PALE slab, but the canvas is darker
+    // than the bar, so it recesses rather than glares.
+    activeTabBg: SURFACE.dark.canvas,
   },
 } as const;
 

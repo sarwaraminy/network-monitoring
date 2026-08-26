@@ -164,19 +164,15 @@ export default function AppLayout() {
                     borderRadius: 0,
                     borderTopLeftRadius: 6,
                     borderTopRightRadius: 6,
-                    // Reserved on every tab, and only ever painted in dark mode
-                    // (below). It stays declared in light so switching schemes
-                    // does not shift the labels by its width.
-                    borderBottom: '3px solid transparent',
                     // An inactive tab lightens the sweep under it; the active
                     // one is already on its own surface and keeps it.
                     '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' },
 
-                    // `lifted` — the light scheme's active tab rises out of the
-                    // sweep onto a pale surface, and that is the whole signal. No
-                    // underline: the tab now runs to the bar's bottom edge, so a
-                    // rule there would be a second marker drawn under a surface
-                    // that already reads as the current page.
+                    // The active tab rises out of the sweep onto its own surface,
+                    // and that is the whole signal in both schemes. No underline:
+                    // the tab runs to the bar's bottom edge, so a rule there is a
+                    // second marker drawn under a surface that already reads as
+                    // the current page.
                     //
                     // The ink is a darkened azure rather than the brand azure —
                     // base azure on this pale tab measures 3.28:1, under the
@@ -187,16 +183,17 @@ export default function AppLayout() {
                       '&:hover': { bgcolor: HEADER.light.activeTabBg },
                     },
 
-                    // `underlined` — dark drops the lifted surface, because a
-                    // pale slab on the darkest chrome on screen is the brightest
-                    // thing on the page. The rule is the state here, which is why
-                    // the border above is reserved rather than removed.
+                    // Dark lifts too, onto the page canvas. Both schemes now
+                    // carry the state as a surface and neither underlines, so the
+                    // reserved bottom border is gone with them — nothing paints
+                    // it, and an always-transparent 3px rule was only costing the
+                    // tab height.
                     ...theme.applyStyles('dark', {
                       color: HEADER.dark.tabInk,
                       '&.active': {
-                        bgcolor: 'rgba(255, 255, 255, 0.06)',
+                        bgcolor: HEADER.dark.activeTabBg,
                         color: HEADER.dark.activeTabInk,
-                        borderBottomColor: HEADER.dark.activeTabUnderline,
+                        '&:hover': { bgcolor: HEADER.dark.activeTabBg },
                       },
                     }),
                   })}

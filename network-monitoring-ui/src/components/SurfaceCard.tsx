@@ -181,7 +181,7 @@ export default function SurfaceCard({
       {children && (
         <Box
           sx={[
-            {
+            (theme) => ({
               display: 'flex',
               flexDirection: 'column',
               minHeight: 0,
@@ -208,9 +208,18 @@ export default function SurfaceCard({
                   backgroundColor: SURFACE.light.gridOnCard,
                   border: `${CARD_METRICS.borderWidth}px solid ${SURFACE.light.gridOnCardOutline}`,
                   borderRadius: `${RADIUS.sm}px`,
+                  // Without this the rule above painted the table white in dark
+                  // mode. It out-ranks the paper's own background — that is the
+                  // whole reason it is written as a descendant selector — so
+                  // stating only the light value here overrode a correct dark one
+                  // rather than falling through to it.
+                  ...theme.applyStyles('dark', {
+                    backgroundColor: SURFACE.dark.gridOnCard,
+                    borderColor: SURFACE.dark.gridOnCardOutline,
+                  }),
                 },
               }),
-            },
+            }),
             ...(Array.isArray(bodySx) ? bodySx : [bodySx]),
           ]}
         >

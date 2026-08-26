@@ -1,4 +1,5 @@
 import Box from '@mui/material/Box';
+import { useColorScheme } from '@mui/material/styles';
 import Typography from '@mui/material/Typography';
 import {
   MaterialReactTable,
@@ -10,7 +11,7 @@ import {
 import type { ReactNode } from 'react';
 import useViewportFitHeight from '../hooks/useViewportFitHeight';
 import { sharedTableOptions } from '../tableTheme';
-import { GRID_METRICS } from '../theme';
+import { GRID_METRICS, SURFACE } from '../theme';
 
 /**
  * The one table wrapper.
@@ -175,6 +176,23 @@ function DataGridBase({
   fallbackMaxHeight = '55vh',
   tableOptions,
 }: Readonly<DataGridProps<MRT_RowData>>) {
+  /*
+   * Which scheme is live, resolved here rather than read off `palette.mode`.
+   *
+   * MRT derives its own base colour as
+   * `palette.mode === 'dark' ? lighten(background.default) : background.default`.
+   * Under this app's `cssVariables` theme `palette.mode` is STATIC — switching
+   * schemes swaps CSS custom properties, it does not hand MRT a different theme
+   * object — so MRT read the light value and painted every body row #FFFFFF in
+   * dark mode, while the paper and header around them switched correctly.
+   *
+   * It cannot be handed a CSS variable either: MRT runs `lighten()` over this to
+   * derive its menu colour, and that throws on `var(...)`. So it gets a real hex
+   * for the scheme that is actually showing.
+   */
+  const { mode, systemMode } = useColorScheme();
+  const scheme = (mode === 'system' ? systemMode : mode) === 'dark' ? 'dark' : 'light';
+
   const { ref, maxHeight } = useViewportFitHeight<HTMLDivElement>({
     enabled: !disableFitHeight,
     // Re-measure when the row count changes: an empty table and a full one put
@@ -211,6 +229,9 @@ function DataGridBase({
     // MRT's selection banner is a surface with no counterpart anywhere else in
     // this app, and it pushes the table down as it appears.
     positionToolbarAlertBanner: 'none',
+    // The grid surface IS the canvas in both schemes, which is what makes a
+    // table read as punched through the card back to the page.
+    mrtTheme: { baseBackgroundColor: SURFACE[scheme].gridOnCard },
     // 48px rows, 40px dense — the standardised read-grid rhythm. Stated here
     // rather than left to MRT's density scale so every table in the app agrees.
     muiTableBodyRowProps: {
