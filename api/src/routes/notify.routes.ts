@@ -68,9 +68,19 @@ notifyRouter.get('/status', (_req, res) => {
      * endpoint exists to answer — "is it pointed at the right collector?" — cannot
      * be answered without them.
      */
+    /*
+     * `exporting` is separate from the top-level `active` on purpose.
+     *
+     * `active` is `NOTIFY_ENABLED && some channel configured`, and syslog ignores
+     * that flag by design. So with NOTIFY_ENABLED off and SYSLOG_HOST set, this
+     * endpoint answered `active: false` while every finding was going to the
+     * collector — an operator reading that concludes nothing is leaving the host,
+     * and for the one channel that ignores the master switch, that is wrong.
+     */
     syslog: env.notify.syslog.host
       ? {
           configured: true,
+          exporting: notifier().exporting,
           target: `${env.notify.syslog.host}:${env.notify.syslog.port}`,
           protocol: env.notify.syslog.protocol,
           format: env.notify.syslog.format,
@@ -79,6 +89,7 @@ notifyRouter.get('/status', (_req, res) => {
         }
       : {
           configured: false,
+          exporting: false,
           target: null,
           protocol: env.notify.syslog.protocol,
           format: env.notify.syslog.format,

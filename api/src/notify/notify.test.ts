@@ -544,7 +544,9 @@ describe('export channels are never gated', () => {
 
     assert.equal(notifier.consider(finding({ severity: 'medium' }), 1, AT, AT), 'below-threshold');
 
-    await new Promise((resolve) => setImmediate(resolve));
+    // `flush()` drains the export queue as well as the digest — exports are
+    // coalesced on a short timer so they share a socket, not sent one per call.
+    await notifier.flush();
     assert.equal(exporter.received.length, 1);
     assert.equal(exporter.received[0]?.findings[0]?.severity, 'medium');
   });
@@ -557,24 +559,54 @@ describe('export channels are never gated', () => {
     assert.equal(notifier.consider(finding(), 1, AT, AT, now), 'queued');
     assert.equal(notifier.consider(finding(), 2, AT, AT, now + 1000), 'throttled');
 
-    await new Promise((resolve) => setImmediate(resolve));
+    await notifier.flush();
     // Two considered, two exported — the throttle applies to the inbox only.
-    assert.equal(exporter.received.length, 2);
-    assert.equal(exporter.received[1]?.findings[0]?.occurrences, 2);
+    const exported = exporter.received.flatMap((batch) => batch.findings);
+    assert.equal(exported.length, 2);
+    assert.equal(exported[1]?.occurrences, 2);
   });
 
-  it('exports one finding per call rather than a digest', async () => {
-    // A digest is the right shape for a person and the wrong one for a machine:
-    // the SIEM needs each event with its own timestamp.
+  it('does not also deliver the digest to an export channel', async () => {
+    /*
+     * Found by the coalescing change, and it predates it: an export channel is
+     * in `this.channels`, so the digest dispatch was sending it every finding a
+     * SECOND time — once ungated as its own event, once inside the summary.
+     * Every SIEM rule counting occurrences would have doubled.
+     */
+    const exporter = new RecordingExporter();
+    const notifier = new notify.Notifier([exporter]);
+
+    // `high` clears the threshold, so this one is queued for the digest too.
+    assert.equal(notifier.consider(finding({ severity: 'high' }), 1, AT, AT), 'queued');
+    await notifier.flush();
+
+    const delivered = exporter.received.flatMap((batch) => batch.findings);
+    assert.equal(delivered.length, 1, 'the finding reached the exporter twice');
+  });
+
+  it('coalesces findings into one send without summarising them', async () => {
+    /*
+     * The distinction that matters, and it is not the digest.
+     *
+     * Nothing is summarised, dropped or deduplicated: both findings are carried
+     * whole, each becoming its own syslog line with its own timestamp. What the
+     * coalescing window decides is only how many share a socket — because one
+     * send per finding meant one TCP connection, or one fresh dgram socket, per
+     * finding, with nothing bounding how many were in flight during a burst.
+     */
     const exporter = new RecordingExporter();
     const notifier = new notify.Notifier([exporter]);
 
     notifier.consider(finding({ dedupKey: 'a' }), 1, AT, AT);
-    notifier.consider(finding({ dedupKey: 'b' }), 1, AT, AT);
+    notifier.consider(finding({ dedupKey: 'b', kind: 'host_sweep' }), 1, AT, AT);
 
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(exporter.received.length, 2);
-    assert.equal(exporter.received[0]?.findings.length, 1);
-    assert.equal(exporter.received[1]?.findings.length, 1);
+    await notifier.flush();
+
+    assert.equal(exporter.received.length, 1, 'expected one send, not one per finding');
+    assert.equal(exporter.received[0]?.findings.length, 2);
+    assert.deepEqual(
+      exporter.received[0]?.findings.map((entry) => entry.kind),
+      ['port_scan', 'host_sweep'],
+    );
   });
 });

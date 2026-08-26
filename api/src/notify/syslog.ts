@@ -28,6 +28,13 @@ const log = componentLogger('notify-syslog');
  *
  * So `deliversEveryFinding` is true and the notifier hands findings here before
  * the gate. Volume is the SIEM's problem, which is what it is for.
+ *
+ * NOT BUILT, and worth knowing before you deploy this across a boundary you do
+ * not control: there is no TLS transport. Both options put findings on the wire
+ * in cleartext, and a finding carries internal addresses, usernames and queried
+ * domains. RFC 5425 syslog-over-TLS on 6514 is what a SIEM onboarding guide
+ * expects from a security product. Until it exists, keep the collector on a
+ * trusted segment or tunnel it.
  */
 
 export const SYSLOG_FORMATS = ['cef', 'json'] as const;
@@ -42,9 +49,33 @@ const TCP_TIMEOUT_MS = 5_000;
 /**
  * RFC 5426 puts the practical UDP ceiling here. Beyond it a datagram fragments,
  * and a fragmented syslog datagram is routinely dropped by collectors rather
- * than reassembled — a silent truncation is better than a silent disappearance.
+ * than reassembled — a visible truncation is better than a silent disappearance.
  */
 const UDP_SAFE_BYTES = 1024;
+
+const TRUNCATION_MARKER = ' [truncated]';
+
+/**
+ * Cut a line to a BYTE budget without splitting a character.
+ *
+ * This used to be `line.slice(0, cap - 15)`, which measures the budget in bytes
+ * and then cuts in UTF-16 code units. For anything multi-byte the result stayed
+ * over the limit — a rendered finding with a CJK description came out at 2.4x
+ * the cap, carrying the `[truncated]` marker that said it had been handled. The
+ * guard failed silently in exactly the way it exists to prevent, and non-ASCII
+ * is reachable: a threat-feed note is arbitrary text from a third-party file.
+ *
+ * `TextDecoder` without `fatal` drops a partial trailing sequence rather than
+ * emitting a replacement character, so the cut lands on a character boundary.
+ */
+export function truncateToBytes(line: string, maxBytes: number): string {
+  const buffer = Buffer.from(line, 'utf8');
+  if (buffer.byteLength <= maxBytes) return line;
+
+  const budget = maxBytes - Buffer.byteLength(TRUNCATION_MARKER, 'utf8');
+  const kept = new TextDecoder('utf-8').decode(buffer.subarray(0, Math.max(0, budget)));
+  return kept + TRUNCATION_MARKER;
+}
 
 export interface SyslogChannelOptions {
   host: string;
@@ -96,10 +127,7 @@ export class SyslogChannel implements NotificationChannel {
 
       // UDP only. Truncating a TCP line would corrupt a stream the receiver
       // frames by newline, and TCP has no datagram limit to respect.
-      if (this.options.protocol === 'udp' && Buffer.byteLength(line) > UDP_SAFE_BYTES) {
-        return `${line.slice(0, UDP_SAFE_BYTES - 15)} [truncated]`;
-      }
-      return line;
+      return this.options.protocol === 'udp' ? truncateToBytes(line, UDP_SAFE_BYTES) : line;
     });
   }
 
@@ -175,25 +203,41 @@ export class SyslogChannel implements NotificationChannel {
    * Not a held-open connection, deliberately. A long-lived socket to a collector
    * that restarts leaves this process writing into a black hole until the OS
    * notices, and findings vanish with no error anywhere. A connection per batch
-   * costs a handshake and tells us immediately when the collector is gone.
+   * costs a handshake and tells us immediately when the collector is gone — and
+   * a batch really is a batch, because the notifier coalesces findings before
+   * calling this.
    */
   private sendTcp(lines: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
       const socket: Socket = connect({ host: this.options.host, port: this.options.port });
+      let failure: Error | undefined;
       let settled = false;
 
-      const finish = (error?: Error) => {
+      const settle = () => {
         if (settled) return;
         settled = true;
-        socket.destroy();
-        if (error) reject(error);
+        if (failure) reject(failure);
         else resolve();
       };
 
-      socket.setTimeout(TCP_TIMEOUT_MS, () => finish(new Error('syslog TCP timed out')));
-      socket.on('error', finish);
+      const fail = (error: Error) => {
+        failure ??= error;
+        socket.destroy();
+      };
+
+      socket.setTimeout(TCP_TIMEOUT_MS, () => fail(new Error('syslog TCP timed out')));
+      socket.on('error', fail);
+      // `end()`, not `destroy()`. The write callback fires when the data reaches
+      // the kernel, not when the peer has it, and an abortive close sends an RST
+      // where a collector expects a FIN — some treat that as a failed record
+      // rather than a completed one. TCP is the option this module points at for
+      // anyone who needs delivery, so it closes properly.
+      socket.on('close', settle);
       socket.on('connect', () => {
-        socket.write(`${lines.join('\n')}\n`, (error) => finish(error ?? undefined));
+        socket.write(`${lines.join('\n')}\n`, (error) => {
+          if (error) fail(error);
+          else socket.end();
+        });
       });
     });
   }

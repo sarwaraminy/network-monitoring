@@ -56,11 +56,22 @@ export const SYSLOG_SEVERITY: Record<Severity, number> = {
  * receiver mis-splits the event. A finding title such as
  * `Port scan: 10.0.0.5 probed 22 ports` is safe, but titles are prose and one
  * pipe would silently shift every later field by one.
+ *
+ * Newlines go for the same reason they go from the extension: a syslog record is
+ * one line, so a newline in a title splits one event into two on the wire, and
+ * the second arrives at the SIEM as a record shaped by whatever produced the
+ * text. Not reachable today — every title is a template around a normalised
+ * address or domain — but this module exists because escaping is where these
+ * integrations break, and structural beats depending on every future detector
+ * keeping its titles clean.
  */
 export function escapeHeader(value: string): string {
   // The backslash pair stays a plain literal: a String.raw template may not END
   // in a backslash, because it escapes the closing backtick.
-  return value.replaceAll('\\', '\\\\').replaceAll('|', String.raw`\|`);
+  return value
+    .replaceAll('\\', '\\\\')
+    .replaceAll('|', String.raw`\|`)
+    .replaceAll(/[\r\n]/g, ' ');
 }
 
 /**
@@ -79,6 +90,9 @@ export function escapeExtension(value: string): string {
     .replaceAll('\r', ' ');
 }
 
+/** The CEF limit for a custom string value. */
+const CEF_STRING_MAX = 1023;
+
 /** CEF wants milliseconds since the epoch, or a specific date format. Epoch is unambiguous. */
 const asEpoch = (date: Date) => String(date.getTime());
 
@@ -93,10 +107,10 @@ const asEpoch = (date: Date) => String(date.getTime());
  */
 function stringifyEvidence(raw: unknown): string {
   if (raw === null || raw === undefined) return '';
-  if (typeof raw === 'object') return (JSON.stringify(raw) ?? '').slice(0, 1023);
-  if (typeof raw === 'string') return raw.slice(0, 1023);
+  if (typeof raw === 'object') return JSON.stringify(raw) ?? '';
+  if (typeof raw === 'string') return raw;
   if (typeof raw === 'number' || typeof raw === 'boolean' || typeof raw === 'bigint') {
-    return String(raw).slice(0, 1023);
+    return String(raw);
   }
   // A symbol or a function has no CEF representation worth sending, and neither
   // belongs in evidence. Narrowed explicitly rather than left to String(unknown),
@@ -126,8 +140,10 @@ function evidenceExtensions(evidence: Record<string, unknown> | null): string[] 
 
   for (const [index, key] of keys.entries()) {
     const slot = index + 1;
-    const value = stringifyEvidence(evidence[key]);
-    parts.push(`cs${slot}Label=${escapeExtension(key)}`, `cs${slot}=${escapeExtension(value)}`);
+    // Truncated AFTER escaping. Cutting first let a value dense in `=` or `\`
+    // exceed the 1023-character limit once the escapes were added.
+    const value = escapeExtension(stringifyEvidence(evidence[key])).slice(0, CEF_STRING_MAX);
+    parts.push(`cs${slot}Label=${escapeExtension(key)}`, `cs${slot}=${value}`);
   }
 
   return parts;

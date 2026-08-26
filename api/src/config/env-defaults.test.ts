@@ -55,9 +55,14 @@ function parseComposeDefaults(text: string): Map<string, string> {
 }
 
 /** `bool('NAME', true)` / `int('NAME', 42)` / `optional('NAME', 'x')` from env.ts. */
+/**
+ * `optional` is included deliberately. Leaving it out is why the first version
+ * of this check could not have caught `INTEL_CACHE_DIR`: it is an `optional()`
+ * setting, so it never entered the map and nothing could be asserted about it.
+ */
 function parseCodeDefaults(text: string): Map<string, string> {
   const values = new Map<string, string>();
-  const pattern = /\b(?:bool|int)\(\s*'([A-Z0-9_]+)'\s*,\s*([^),]+)\)/g;
+  const pattern = /\b(?:bool|int|optional)\(\s*'([A-Z0-9_]+)'\s*,\s*([^),]*)\)/g;
 
   for (const match of text.matchAll(pattern)) {
     if (match[1]) values.set(match[1], (match[2] ?? '').trim());
@@ -72,6 +77,28 @@ function parseCodeDefaults(text: string): Map<string, string> {
  * Only where the difference is the POINT of the example — never where it merely
  * happens to differ, which is the bug this file exists to catch.
  */
+/**
+ * Settings that must APPEAR in the Compose environment list.
+ *
+ * This is the direction the first version of the check missed. Both of its loops
+ * iterated the example/Compose side and looked names up in the code map, so a
+ * setting present in env.ts and simply absent from Compose was never examined —
+ * and absence was the failure mode for two of the three cases this file cites.
+ * `ALLOW_OPEN_SIGNUP` was never added to the api service's env list;
+ * `INTEL_CACHE_DIR` was documented in the example and missing here.
+ *
+ * Hand-kept rather than derived: "security-relevant" is a judgement, and the
+ * point is that adding one is a conscious act.
+ */
+const MUST_BE_IN_COMPOSE = [
+  'ALLOW_OPEN_SIGNUP',
+  'REDACT_PACKET_PAYLOAD',
+  'TRUST_PROXY',
+  'DB_AUTO_MIGRATE',
+  'NOTIFY_INCLUDE_EVIDENCE',
+  'INTEL_CACHE_DIR',
+];
+
 const ALLOWED_TO_DIFFER = new Set([
   // Compose runs migrations on boot by design; a host install may not want to.
   'DB_AUTO_MIGRATE',
@@ -115,6 +142,23 @@ describe('deployment defaults match the code', () => {
       }
     });
   }
+
+  it('passes every security-relevant setting through to Compose', () => {
+    // Absence, not contradiction. A setting missing from the Compose env list
+    // silently takes whatever the image was built with, and a Docker operator
+    // has no way to see or change it.
+    const compose = read('docker-compose.yml');
+
+    for (const name of MUST_BE_IN_COMPOSE) {
+      // Anchored to the env-list indentation, not a bare substring: a mention in
+      // a comment must not satisfy this.
+      assert.match(
+        compose,
+        new RegExp(`^\\s{6}${name}:`, 'm'),
+        `${name} is read by env.ts but absent from the docker-compose.yml environment list.`,
+      );
+    }
+  });
 
   it('docker-compose.yml does not contradict a boolean default', () => {
     const compose = parseComposeDefaults(read('docker-compose.yml'));

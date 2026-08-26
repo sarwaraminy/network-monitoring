@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
@@ -19,8 +20,35 @@ import { WebhookChannel } from './webhook.js';
 
 const log = componentLogger('notify');
 
-/** Written into every exported event, so a SIEM rule can pin the producer. */
-const PRODUCT_VERSION = '1.0.0';
+/**
+ * How long findings wait to share a socket. Not a digest — see `enqueueExport`.
+ */
+const EXPORT_COALESCE_MS = 1000;
+
+/** Send immediately once this many are waiting, so a burst does not sit in a timer. */
+const MAX_EXPORT_BATCH = 200;
+
+/** A backstop, not a policy. Reaching it means the SIEM feed is incomplete. */
+const MAX_EXPORT_QUEUE = 10_000;
+
+/**
+ * Written into every exported event, so a SIEM rule can pin the producer.
+ *
+ * Read from package.json rather than restated. A hardcoded copy and a release
+ * bump drift apart silently, and every exported event then reports a version the
+ * product is not — in the one field the CEF header exists for rules to key on.
+ */
+const PRODUCT_VERSION: string = (() => {
+  try {
+    const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+      version?: string;
+    };
+    return manifest.version ?? '0.0.0';
+  } catch {
+    // Never fatal: an export carrying an unknown version beats no export at all.
+    return '0.0.0';
+  }
+})();
 
 /**
  * Decides what gets sent, and stops it becoming spam.
@@ -63,6 +91,9 @@ export class Notifier {
   private omitted = 0;
   private digestTimer: NodeJS.Timeout | null = null;
   private sending = false;
+  private readonly exportQueue: NotifiableFinding[] = [];
+  private exportTimer: ReturnType<typeof setTimeout> | null = null;
+
   /** The dispatch currently in progress, so `flush()` can wait for it. */
   private inFlight: Promise<void> = Promise.resolve();
   /**
@@ -113,7 +144,7 @@ export class Notifier {
      * `void` because a collector must never be able to slow detection down, and
      * the channel already swallows its own failures into a DeliveryResult.
      */
-    void this.exportFinding(finding, occurrences, firstSeen, lastSeen, now);
+    this.enqueueExport(finding, occurrences, firstSeen, lastSeen);
 
     if (!this.active) return 'disabled';
 
@@ -155,32 +186,83 @@ export class Notifier {
    * interface as the human ones — the difference is when they are called, not
    * what they receive.
    */
-  private async exportFinding(
-    finding: Finding,
-    occurrences: number,
-    firstSeen: Date,
-    lastSeen: Date,
-    now: number,
-  ): Promise<void> {
-    const exporters = this.channels.filter(
-      (channel) => channel.deliversEveryFinding === true && channel.isConfigured(),
-    );
-    if (exporters.length === 0) return;
+  /** Channels that take the complete stream, ungated. */
+  private get exporters(): NotificationChannel[] {
+    return this.channels.filter((channel) => channel.deliversEveryFinding === true && channel.isConfigured());
+  }
 
-    const notifiable = toNotifiable(
-      finding,
-      occurrences,
-      firstSeen,
-      lastSeen,
-      env.notify.syslog.includeEvidence,
+  /** True when something is exporting regardless of NOTIFY_ENABLED. */
+  get exporting(): boolean {
+    return this.exporters.length > 0;
+  }
+
+  /**
+   * Queues a finding for export, and schedules a flush.
+   *
+   * NOT one send per finding, which is what this used to do. `sendTcp`'s own
+   * docblock promised "one connection per batch" while every batch held exactly
+   * one event — so it was a connection per finding, and a fresh dgram socket per
+   * finding on UDP, with nothing bounding how many were in flight. A scan burst
+   * across many pairings opened sockets as fast as findings were raised, and TCP
+   * connections linger in TIME_WAIT after closing. Volume is the SIEM's problem;
+   * file descriptors and ephemeral ports are this process's.
+   *
+   * The coalescing window is short on purpose. This is not the digest — nothing
+   * is summarised, dropped or deduplicated, and every finding still leaves as its
+   * own syslog line with its own timestamp. It only decides how many share a
+   * socket.
+   */
+  private enqueueExport(finding: Finding, occurrences: number, firstSeen: Date, lastSeen: Date): void {
+    if (this.exporters.length === 0) return;
+
+    if (this.exportQueue.length >= MAX_EXPORT_QUEUE) {
+      // Loud, because dropping breaks the one guarantee this path makes. Reaching
+      // here means the collector cannot keep up, which is itself worth knowing.
+      log.error(
+        { queued: this.exportQueue.length, kind: finding.kind },
+        'Export queue is full; dropping a finding. The SIEM feed is no longer complete.',
+      );
+      return;
+    }
+
+    this.exportQueue.push(
+      toNotifiable(finding, occurrences, firstSeen, lastSeen, env.notify.syslog.includeEvidence),
     );
+
+    if (this.exportQueue.length >= MAX_EXPORT_BATCH) {
+      void this.flushExports();
+      return;
+    }
+
+    this.exportTimer ??= setTimeout(() => {
+      this.exportTimer = null;
+      void this.flushExports();
+    }, EXPORT_COALESCE_MS).unref?.() as never;
+  }
+
+  /** Sends everything queued as one batch, to every export channel. */
+  private async flushExports(): Promise<void> {
+    if (this.exportTimer) {
+      clearTimeout(this.exportTimer);
+      this.exportTimer = null;
+    }
+
+    const batch = this.exportQueue.splice(0, this.exportQueue.length);
+    const exporters = this.exporters;
+    if (batch.length === 0 || exporters.length === 0) return;
+
+    const counts: Partial<Record<Severity, number>> = {};
+    for (const finding of batch) {
+      counts[finding.severity] = (counts[finding.severity] ?? 0) + 1;
+    }
 
     const notification: Notification = {
-      severity: finding.severity,
-      findings: [notifiable],
+      // The most urgent in the batch, matching how the digest reports itself.
+      severity: SEVERITY_ORDER.find((level) => counts[level] !== undefined) ?? 'info',
+      findings: batch,
       omittedCount: 0,
-      countsBySeverity: { [finding.severity]: 1 },
-      generatedAt: new Date(now),
+      countsBySeverity: counts,
+      generatedAt: new Date(this.now()),
       dashboardUrl: env.notify.dashboardUrl,
       isTest: false,
     };
@@ -241,6 +323,11 @@ export class Notifier {
       clearTimeout(this.digestTimer);
       this.digestTimer = null;
     }
+
+    // Exports drain too. The coalescing timer is unref'd, so on shutdown anything
+    // still waiting for it would be killed with the process — findings the SIEM
+    // was promised and never receives.
+    await this.flushExports();
 
     await this.inFlight;
     await this.dispatch();
@@ -303,7 +390,20 @@ export class Notifier {
    * process handler in index.ts, look like a server fault.
    */
   private async deliver(notification: Notification): Promise<DeliveryResult[]> {
-    const configured = this.channels.filter((channel) => channel.isConfigured());
+    /*
+     * Export channels are excluded here, and that is not an optimisation.
+     *
+     * They already received every one of these findings ungated, at the top of
+     * `consider()`. Sending them the digest as well would deliver each finding to
+     * the SIEM twice — once as its own event and once inside a summary — and
+     * every correlation rule counting occurrences would double.
+     *
+     * `sendTest()` deliberately does not go through here, so a test message still
+     * reaches syslog: proving the collector is reachable is the whole point of it.
+     */
+    const configured = this.channels.filter(
+      (channel) => channel.isConfigured() && channel.deliversEveryFinding !== true,
+    );
     const settled = await Promise.allSettled(configured.map((channel) => channel.send(notification)));
 
     return settled.map((outcome, index) =>
