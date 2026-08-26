@@ -78,26 +78,40 @@ function parseCodeDefaults(text: string): Map<string, string> {
  * happens to differ, which is the bug this file exists to catch.
  */
 /**
- * Settings that must APPEAR in the Compose environment list.
+ * Settings that deliberately do NOT reach the Compose environment list.
  *
- * This is the direction the first version of the check missed. Both of its loops
- * iterated the example/Compose side and looked names up in the code map, so a
- * setting present in env.ts and simply absent from Compose was never examined —
- * and absence was the failure mode for two of the three cases this file cites.
- * `ALLOW_OPEN_SIGNUP` was never added to the api service's env list;
- * `INTEL_CACHE_DIR` was documented in the example and missing here.
+ * INVERTED, and that is the whole point. The previous version kept a hand-written
+ * list of names that must be present, and defended it as "a conscious act" —
+ * sound in principle, and it failed immediately: the syslog feature shipped in
+ * the very commit that added the list, with none of its eight settings in either
+ * the list or Compose, so the flagship feature of two commits could not be
+ * switched on under the primary documented deployment at all. Fourth instance of
+ * this class after ALLOW_OPEN_SIGNUP, INTEL_CACHE_DIR and REDACT_PACKET_PAYLOAD.
  *
- * Hand-kept rather than derived: "security-relevant" is a judgement, and the
- * point is that adding one is a conscious act.
+ * A default of "must be present" cannot be forgotten. Adding a setting to env.ts
+ * now fails this test until it is either passed through to Compose or explicitly
+ * excused here, and excusing it is the act that has to be conscious.
  */
-const MUST_BE_IN_COMPOSE = [
-  'ALLOW_OPEN_SIGNUP',
-  'REDACT_PACKET_PAYLOAD',
-  'TRUST_PROXY',
-  'DB_AUTO_MIGRATE',
-  'NOTIFY_INCLUDE_EVIDENCE',
-  'INTEL_CACHE_DIR',
-];
+const NOT_IN_COMPOSE = new Set([
+  // Set by the Compose file itself or by the container, not by an operator.
+  'PORT',
+  'NODE_ENV',
+  'DATABASE_URL',
+  'HOST',
+  // Secrets belong in the .env file Compose reads, never in a committed default.
+  'JWT_SECRET',
+  // Host-install concerns with no meaning inside the container network.
+  'CORS_ORIGINS',
+  // The discrete PG* variables are the host-install alternative to DATABASE_URL,
+  // which Compose sets instead. Passing both invites them to disagree.
+  'PGHOST',
+  'PGPORT',
+  'PGDATABASE',
+  'PGUSER',
+  'PGPASSWORD',
+  // Read straight from a file path, not configured per deployment.
+  'ARP_TRUSTED_MAPPINGS',
+]);
 
 const ALLOWED_TO_DIFFER = new Set([
   // Compose runs migrations on boot by design; a host install may not want to.
@@ -143,21 +157,34 @@ describe('deployment defaults match the code', () => {
     });
   }
 
-  it('passes every security-relevant setting through to Compose', () => {
-    // Absence, not contradiction. A setting missing from the Compose env list
-    // silently takes whatever the image was built with, and a Docker operator
-    // has no way to see or change it.
+  it('passes every setting env.ts reads through to Compose', () => {
+    /*
+     * Absence, not contradiction — the failure mode that shipped three of the
+     * four cases this file exists for. A setting missing from the environment
+     * list silently takes whatever the image was built with, and a Docker
+     * operator has no way to see or change it.
+     *
+     * Iterating the CODE side is what makes this catch a new feature. The
+     * previous version iterated the example/Compose side and looked names up in
+     * the code map, so a setting present in env.ts and simply absent from Compose
+     * was invisible to it.
+     */
     const compose = read('docker-compose.yml');
+    const missing: string[] = [];
 
-    for (const name of MUST_BE_IN_COMPOSE) {
-      // Anchored to the env-list indentation, not a bare substring: a mention in
-      // a comment must not satisfy this.
-      assert.match(
-        compose,
-        new RegExp(`^\\s{6}${name}:`, 'm'),
-        `${name} is read by env.ts but absent from the docker-compose.yml environment list.`,
-      );
+    for (const name of code.keys()) {
+      if (NOT_IN_COMPOSE.has(name)) continue;
+      // Anchored to the env-list indentation: a mention in a comment must not
+      // satisfy this.
+      if (!new RegExp(`^\\s{6}${name}:`, 'm').test(compose)) missing.push(name);
     }
+
+    assert.deepEqual(
+      missing,
+      [],
+      `read by env.ts but absent from the docker-compose.yml environment list: ${missing.join(', ')}. ` +
+        'Add them there, or add them to NOT_IN_COMPOSE with a reason.',
+    );
   });
 
   it('docker-compose.yml does not contradict a boolean default', () => {

@@ -65,16 +65,20 @@ const TRUNCATION_MARKER = ' [truncated]';
  * guard failed silently in exactly the way it exists to prevent, and non-ASCII
  * is reachable: a threat-feed note is arbitrary text from a third-party file.
  *
- * `TextDecoder` without `fatal` drops a partial trailing sequence rather than
- * emitting a replacement character, so the cut lands on a character boundary.
+ * The cut walks back off a partial sequence before decoding. An earlier version
+ * claimed `TextDecoder` "drops" one — it does the opposite and substitutes
+ * U+FFFD, which re-encodes to three bytes and put the result back over budget on
+ * two of every three alignments. Continuation bytes are `0b10xxxxxx`, so walking
+ * back to the first byte that is not one lands on a character start.
  */
 export function truncateToBytes(line: string, maxBytes: number): string {
   const buffer = Buffer.from(line, 'utf8');
   if (buffer.byteLength <= maxBytes) return line;
 
-  const budget = maxBytes - Buffer.byteLength(TRUNCATION_MARKER, 'utf8');
-  const kept = new TextDecoder('utf-8').decode(buffer.subarray(0, Math.max(0, budget)));
-  return kept + TRUNCATION_MARKER;
+  let end = Math.max(0, maxBytes - Buffer.byteLength(TRUNCATION_MARKER, 'utf8'));
+  while (end > 0 && ((buffer[end] ?? 0) & 0xc0) === 0x80) end -= 1;
+
+  return buffer.subarray(0, end).toString('utf8') + TRUNCATION_MARKER;
 }
 
 export interface SyslogChannelOptions {

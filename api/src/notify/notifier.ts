@@ -34,13 +34,17 @@ const MAX_EXPORT_QUEUE = 10_000;
 /**
  * Written into every exported event, so a SIEM rule can pin the producer.
  *
- * Read from package.json rather than restated. A hardcoded copy and a release
- * bump drift apart silently, and every exported event then reports a version the
- * product is not — in the one field the CEF header exists for rules to key on.
+ * Read from the ROOT package.json rather than restated, and rather than the api
+ * workspace's. A hardcoded copy drifts from a release bump silently — but so do
+ * two independent workspace manifests, and it is the product's version a SIEM
+ * rule keys on, not `network-monitoring-api`'s.
+ *
+ * `../../../` resolves to the repo root from `api/src/notify/` and from
+ * `api/dist/notify/` alike, so source and build agree.
  */
 const PRODUCT_VERSION: string = (() => {
   try {
-    const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+    const manifest = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')) as {
       version?: string;
     };
     return manifest.version ?? '0.0.0';
@@ -93,6 +97,10 @@ export class Notifier {
   private sending = false;
   private readonly exportQueue: NotifiableFinding[] = [];
   private exportTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The export send in progress, so `flush()` can wait for it. See `flushExports`. */
+  private exportInFlight: Promise<void> = Promise.resolve();
+  /** Findings discarded because the queue was full, since the last successful send. */
+  private exportDropped = 0;
 
   /** The dispatch currently in progress, so `flush()` can wait for it. */
   private inFlight: Promise<void> = Promise.resolve();
@@ -216,12 +224,23 @@ export class Notifier {
     if (this.exporters.length === 0) return;
 
     if (this.exportQueue.length >= MAX_EXPORT_QUEUE) {
-      // Loud, because dropping breaks the one guarantee this path makes. Reaching
-      // here means the collector cannot keep up, which is itself worth knowing.
-      log.error(
-        { queued: this.exportQueue.length, kind: finding.kind },
-        'Export queue is full; dropping a finding. The SIEM feed is no longer complete.',
-      );
+      this.exportDropped += 1;
+
+      /*
+       * Loud on the way in, then rate-limited.
+       *
+       * Dropping breaks the one guarantee this path makes, so it has to be
+       * visible. But this state means the collector is unreachable WHILE findings
+       * keep arriving — the moment volume is highest — and a line per dropped
+       * finding turns a delivery failure into a log flood, which is the second
+       * failure. The transition is logged, then a running count.
+       */
+      if (this.exportDropped === 1 || this.exportDropped % 1000 === 0) {
+        log.error(
+          { dropped: this.exportDropped, queued: this.exportQueue.length, kind: finding.kind },
+          'Export queue is full; dropping findings. The SIEM feed is no longer complete.',
+        );
+      }
       return;
     }
 
@@ -240,8 +259,25 @@ export class Notifier {
     }, EXPORT_COALESCE_MS).unref?.() as never;
   }
 
-  /** Sends everything queued as one batch, to every export channel. */
-  private async flushExports(): Promise<void> {
+  /**
+   * Sends everything queued as one batch, to every export channel.
+   *
+   * Single-flight, and tracked. Without the chain, `flush()` could splice an
+   * already-empty queue and return while the previous send was still on the
+   * socket — losing exactly the findings the shutdown drain exists to save. That
+   * is the same defect as the digest's, whose `inFlight` promise sits twenty
+   * lines above and was not extended here.
+   *
+   * Chaining also bounds concurrency: a 200-finding batch can no longer start a
+   * second send while the first is still going.
+   */
+  private flushExports(): Promise<void> {
+    // `catch` so one failed send does not poison the chain for every later one.
+    this.exportInFlight = this.exportInFlight.catch(() => {}).then(() => this.sendExportBatch());
+    return this.exportInFlight;
+  }
+
+  private async sendExportBatch(): Promise<void> {
     if (this.exportTimer) {
       clearTimeout(this.exportTimer);
       this.exportTimer = null;
@@ -250,6 +286,14 @@ export class Notifier {
     const batch = this.exportQueue.splice(0, this.exportQueue.length);
     const exporters = this.exporters;
     if (batch.length === 0 || exporters.length === 0) return;
+
+    if (this.exportDropped > 0) {
+      log.warn(
+        { dropped: this.exportDropped },
+        'Export queue recovered; findings were lost while it was full.',
+      );
+      this.exportDropped = 0;
+    }
 
     const counts: Partial<Record<Severity, number>> = {};
     for (const finding of batch) {
@@ -327,6 +371,11 @@ export class Notifier {
     // Exports drain too. The coalescing timer is unref'd, so on shutdown anything
     // still waiting for it would be killed with the process — findings the SIEM
     // was promised and never receives.
+    //
+    // Twice, deliberately: the first await covers a send already on the socket
+    // and the batch queued behind it, the second covers anything that arrived
+    // while the first was running.
+    await this.flushExports();
     await this.flushExports();
 
     await this.inFlight;
