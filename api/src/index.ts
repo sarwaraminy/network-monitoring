@@ -3,6 +3,7 @@ import { env } from './config/env.js';
 import { closeDb } from './db/index.js';
 import { runMigrations } from './db/migrate.js';
 import { startFlowCollector, stopFlowCollector } from './flow/collector.js';
+import { startIntel, stopIntel } from './intel/registry.js';
 import { componentLogger, logger } from './logger.js';
 import { libraryVersion } from './packet/libpcap.js';
 import { stopAllCaptures } from './services/packet-capture.registry.js';
@@ -33,6 +34,10 @@ async function main(): Promise<void> {
   // from serving. startFlowCollector logs and returns rather than rejecting.
   await startFlowCollector();
 
+  // Also after listen(): loading feeds can take seconds and may reach the
+  // network, and neither should delay the API becoming available.
+  await startIntel();
+
   let shuttingDown = false;
 
   const shutdown = async (signal: string): Promise<void> => {
@@ -54,6 +59,7 @@ async function main(): Promise<void> {
       // lose them.
       await stopAllCaptures();
       await stopFlowCollector();
+      stopIntel();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await closeDb();
       log.info('Shutdown complete');

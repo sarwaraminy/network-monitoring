@@ -158,6 +158,32 @@ export const env = {
   arpTrustedMappings: arpTrustedMappings(),
 
   /**
+   * Threat intelligence.
+   *
+   * Off by default, and no feeds are shipped. Which intelligence to trust is the
+   * operator's call, and a security tool should not start making outbound
+   * requests to a third-party list nobody chose.
+   */
+  intel: {
+    enabled: bool('INTEL_ENABLED', false),
+    /**
+     * `name=location` pairs, comma-separated. A location is a URL or a file path.
+     * Local files are first-class: the networks this tool is aimed at frequently
+     * have no outbound internet from the monitoring host.
+     */
+    feeds: optional('INTEL_FEEDS', ''),
+    /** How often feeds are re-read. Stale intelligence is close to useless. */
+    refreshMs: int('INTEL_REFRESH_HOURS', 6) * 3_600_000,
+    /** Downloaded copies live here so a restart without connectivity still loads. */
+    cacheDir: (() => {
+      const configured = optional('INTEL_CACHE_DIR', '');
+      return configured !== '' ? configured : resolve(API_ROOT, '.cache/intel');
+    })(),
+    /** Ceiling on indicators held in memory, so one bad feed cannot exhaust it. */
+    maxIndicators: int('INTEL_MAX_INDICATORS', 500_000),
+  },
+
+  /**
    * NetFlow/IPFIX collector. Off by default because it opens a UDP port, and a
    * listening port nobody asked for is not something a deployment should acquire
    * by upgrading.

@@ -1,4 +1,6 @@
 import { env } from '../config/env.js';
+import { assess, directionOf } from '../intel/assess.js';
+import { intel } from '../intel/registry.js';
 import { componentLogger } from '../logger.js';
 import { BoundedMap, type Finding, SlidingWindow } from '../packet/detect/types.js';
 import { describeTcpFlags, type FlowRecord, isUnansweredTcp } from './types.js';
@@ -31,6 +33,9 @@ const CLIENT_TRAFFIC_PORTS = new Set([53, 80, 123, 443, 853, 993, 995, 8080, 844
 const REPORT_COOLDOWN_MS = 15_000;
 
 const MAX_TRACKED_KEYS = 8192;
+
+/** Gap between repeat indicator findings for one pairing. */
+const INTEL_COOLDOWN_MS = 60_000;
 
 export interface FlowDetectionStats {
   flowsInspected: number;
@@ -236,11 +241,13 @@ const SWEEP_INTERVAL_MS = 10_000;
  */
 export class FlowDetectionEngine {
   private readonly scan = new FlowScanDetector();
+  /** Same pairing will not re-alert inside this window; repeats aggregate instead. */
+  private readonly intelReported = new BoundedMap<string, number>(MAX_TRACKED_KEYS);
   private lastSweep = 0;
 
   inspect(flow: FlowRecord): Finding[] {
     try {
-      const findings = this.scan.inspect(flow);
+      const findings = [...this.intelFindings(flow), ...this.scan.inspect(flow)];
       const now = flow.observedAt.getTime();
       if (now - this.lastSweep >= SWEEP_INTERVAL_MS) {
         this.lastSweep = now;
@@ -255,12 +262,83 @@ export class FlowDetectionEngine {
     }
   }
 
+  /**
+   * Indicator matching over flow records.
+   *
+   * Flow data is the ideal carrier for this: it covers every conversation
+   * crossing the exporter rather than one host's own traffic, and matching an
+   * address needs no payload at all. A hit here is the highest-confidence finding
+   * this tool produces from flow alone.
+   */
+  private intelFindings(flow: FlowRecord): Finding[] {
+    const set = intel().indicators;
+    if (set.size === 0) return [];
+
+    for (const [observed, peer] of [
+      [flow.dstIp, flow.srcIp],
+      [flow.srcIp, flow.dstIp],
+    ] as const) {
+      const match = set.matchIp(observed);
+      if (!match) continue;
+
+      const direction = directionOf(flow.srcIp, flow.dstIp);
+      const graded = assess(match, {
+        localIp: peer,
+        remoteIp: observed,
+        direction,
+        via: `${flow.protocolVersion} from ${flow.exporter}`,
+      });
+
+      const now = flow.observedAt.getTime();
+      if (!this.shouldReportIntel(graded.dedupKey, now)) return [];
+
+      return [
+        {
+          kind: 'threat_intel',
+          severity: graded.severity,
+          title: graded.title,
+          description: graded.description,
+          dedupKey: graded.dedupKey,
+          sourceIp: flow.srcIp,
+          sourceMac: flow.srcMac,
+          targetIp: flow.dstIp,
+          targetMac: flow.dstMac,
+          protocol: flow.protocolName,
+          evidence: {
+            indicator: match.indicator,
+            indicatorType: match.type,
+            matchedAddress: match.observed,
+            feed: match.source,
+            ...(match.note ? { feedNote: match.note } : {}),
+            direction,
+            observedVia: flow.protocolVersion,
+            exporter: flow.exporter,
+            destinationPort: flow.dstPort,
+            flowPackets: flow.packets,
+            flowBytes: flow.bytes,
+          },
+          timestamp: flow.end,
+        },
+      ];
+    }
+
+    return [];
+  }
+
+  private shouldReportIntel(key: string, now: number): boolean {
+    const last = this.intelReported.get(key);
+    if (last !== undefined && now - last < INTEL_COOLDOWN_MS) return false;
+    this.intelReported.set(key, now);
+    return true;
+  }
+
   stats(): FlowDetectionStats {
     return this.scan.stats();
   }
 
   reset(): void {
     this.scan.reset();
+    this.intelReported.reset();
     this.lastSweep = 0;
   }
 }

@@ -1,0 +1,135 @@
+import type { Severity } from '../packet/detect/types.js';
+import type { IndicatorMatch } from './match.js';
+
+/**
+ * Turning a match into a finding.
+ *
+ * Shared by the packet detector and the flow detector so the two cannot drift
+ * apart on the question that matters most here: **which way was the connection
+ * going**.
+ *
+ * An inbound connection from a listed address is background noise on any
+ * internet-facing network — the whole internet scans constantly, and half the
+ * addresses on a blocklist are scanners. Alerting critically on it would bury
+ * the operator on day one.
+ *
+ * An *outbound* connection to a listed C2 address is the opposite. Something
+ * inside the network chose to talk to it, which means either a compromised host
+ * or a user who has run something they should not have. That is the finding
+ * worth waking someone for, and separating the two is what keeps this detector
+ * credible.
+ */
+
+export type Direction = 'outbound' | 'inbound' | 'internal' | 'unknown';
+
+/**
+ * Which side of the conversation is local.
+ *
+ * Uses RFC1918 and friends rather than a configured home network. It is a
+ * heuristic, and it is wrong on a network that routes public addresses
+ * internally — but it is right on essentially every network this tool targets,
+ * and getting it wrong only mislabels the direction, never suppresses the alert.
+ */
+export function isPrivateAddress(address: string | null | undefined): boolean {
+  if (!address) return false;
+  if (address.includes(':')) {
+    const lower = address.toLowerCase();
+    return lower === '::1' || lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd');
+  }
+
+  const octets = address.split('.').map(Number);
+  const [a, b] = octets;
+  if (octets.length !== 4 || a === undefined || b === undefined) return false;
+  if (a === 10 || a === 127) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 169 && b === 254) return true;
+  return false;
+}
+
+export function directionOf(sourceIp: string | null, targetIp: string | null): Direction {
+  const sourceLocal = isPrivateAddress(sourceIp);
+  const targetLocal = isPrivateAddress(targetIp);
+
+  if (sourceLocal && !targetLocal) return 'outbound';
+  if (!sourceLocal && targetLocal) return 'inbound';
+  if (sourceLocal && targetLocal) return 'internal';
+  return 'unknown';
+}
+
+export interface Assessment {
+  severity: Severity;
+  title: string;
+  description: string;
+  /** Stable across repeats of the same pairing, so occurrences aggregate. */
+  dedupKey: string;
+}
+
+/**
+ * Grades a match.
+ *
+ * A DNS lookup of a listed domain is treated as seriously as a connection: the
+ * lookup is what a beacon does first, and it often happens even when the
+ * connection itself is blocked downstream — so it is frequently the only
+ * evidence available.
+ */
+export function assess(
+  match: IndicatorMatch,
+  context: { localIp: string | null; remoteIp: string | null; direction: Direction; via: string },
+): Assessment {
+  const { localIp, remoteIp, direction, via } = context;
+  const attribution = match.note ? `${match.source}: ${match.note}` : match.source;
+
+  if (match.type === 'domain') {
+    return {
+      severity: 'critical',
+      title: `Known-malicious domain queried: ${match.observed}`,
+      description:
+        `${localIp ?? 'A host on the network'} looked up ${match.observed}, which matches the indicator ` +
+        `${match.indicator} from ${attribution}. A lookup is usually the first thing an implant does, and ` +
+        'it happens even when the connection that follows is blocked — so this is often the only trace ' +
+        'left. Treat the querying host as suspect until you can account for what asked.',
+      dedupKey: `threat_intel|domain|${match.indicator}|${localIp ?? 'unknown'}`,
+    };
+  }
+
+  if (direction === 'outbound') {
+    return {
+      severity: 'critical',
+      title: `Outbound connection to known-malicious address ${match.observed}`,
+      description:
+        `${localIp ?? 'A host on the network'} connected out to ${match.observed}, which matches ` +
+        `${match.indicator} from ${attribution}, seen via ${via}. Something inside the network chose to ` +
+        'contact this address, which points at a compromised host or software nobody sanctioned. This is ' +
+        'materially more serious than being scanned from a listed address, and worth investigating now.',
+      dedupKey: `threat_intel|outbound|${match.indicator}|${localIp ?? 'unknown'}`,
+    };
+  }
+
+  if (direction === 'inbound') {
+    return {
+      // Deliberately not critical. The internet scans everything constantly and
+      // a large share of any blocklist is scanners; grading this critical would
+      // bury the operator and teach them to ignore the detector.
+      severity: 'medium',
+      title: `Inbound traffic from known-malicious address ${match.observed}`,
+      description:
+        `${match.observed} contacted ${localIp ?? 'a host on the network'} and matches ${match.indicator} ` +
+        `from ${attribution}, seen via ${via}. Unsolicited inbound traffic from listed addresses is constant ` +
+        'on any internet-facing network and is usually background scanning. It matters if the host answered ' +
+        'or if it repeats against one target, so check what was exposed rather than treating this alone as ' +
+        'a compromise.',
+      dedupKey: `threat_intel|inbound|${match.indicator}|${localIp ?? 'unknown'}`,
+    };
+  }
+
+  return {
+    severity: 'high',
+    title: `Traffic involving known-malicious address ${match.observed}`,
+    description:
+      `Traffic between ${localIp ?? 'unknown'} and ${remoteIp ?? 'unknown'} involves ${match.observed}, ` +
+      `matching ${match.indicator} from ${attribution}, seen via ${via}. The direction could not be ` +
+      'determined from the addresses, so establish which side initiated before drawing a conclusion.',
+    dedupKey: `threat_intel|${match.indicator}|${localIp ?? 'unknown'}|${remoteIp ?? 'unknown'}`,
+  };
+}

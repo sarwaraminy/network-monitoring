@@ -11,6 +11,7 @@ import { apiLimiter, authLimiter } from './middleware/rate-limit.js';
 import { alertsRouter } from './routes/alerts.routes.js';
 import { authRouter } from './routes/auth.routes.js';
 import { flowRouter } from './routes/flow.routes.js';
+import { intelRouter } from './routes/intel.routes.js';
 import { logsRouter } from './routes/logs.routes.js';
 import { notifyRouter } from './routes/notify.routes.js';
 import { createPacketRouter } from './routes/packets.routes.js';
@@ -105,6 +106,7 @@ export function createApp(): Express {
   app.use('/api', apiLimiter);
   app.use('/api/alerts', alertsRouter);
   app.use('/api/flow', flowRouter);
+  app.use('/api/intel', intelRouter);
   app.use('/api/notify', notifyRouter);
   app.use('/api/packets', createPacketRouter(interfaceCapture, { requireIpFilter: false }));
   app.use('/api/ip/packets', createPacketRouter(filteredIpCapture, { requireIpFilter: true }));

@@ -19,6 +19,7 @@ export const KIND_LABEL: Record<AlertKind, string> = {
   plaintext_credentials: 'Cleartext credentials',
   dns_tunneling: 'DNS tunnelling',
   new_device: 'New device',
+  threat_intel: 'Threat intelligence',
 };
 
 /** One-line explanation of what each detector looks for. */
@@ -33,15 +34,17 @@ export const KIND_DESCRIPTION: Record<AlertKind, string> = {
   dns_tunneling:
     'DNS queries shaped like encoded data rather than name lookups, suggesting exfiltration or C2.',
   new_device: 'A MAC address not seen on this network before.',
+  threat_intel:
+    'An address or domain matching a known-malicious indicator feed — the one detector here that is not a threshold.',
 };
 
 export function SeverityChip({
   severity,
   size = 'small',
-}: {
+}: Readonly<{
   severity: Severity;
   size?: 'small' | 'medium';
-}) {
+}>) {
   const style = SEVERITY_STYLE[severity];
   return (
     <Chip

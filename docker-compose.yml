@@ -68,6 +68,12 @@ services:
       # inherit the host environment — without this line the README-documented
       # setting silently has no effect under Compose.
       ALLOW_OPEN_SIGNUP: ${ALLOW_OPEN_SIGNUP:-false}
+      # Threat intelligence. Off unless INTEL_ENABLED is set; no feeds ship by
+      # default, so nothing is fetched until you choose a source.
+      INTEL_ENABLED: ${INTEL_ENABLED:-false}
+      INTEL_FEEDS: ${INTEL_FEEDS:-}
+      INTEL_REFRESH_HOURS: ${INTEL_REFRESH_HOURS:-6}
+      INTEL_MAX_INDICATORS: ${INTEL_MAX_INDICATORS:-500000}
       # Alert delivery. Off unless NOTIFY_ENABLED is set in .env; see the README
       # for the severity gate, throttle and hourly ceiling that bound the volume.
       NOTIFY_ENABLED: ${NOTIFY_ENABLED:-false}

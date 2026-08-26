@@ -6,6 +6,7 @@ import { DnsTunnelingDetector } from './dns-tunneling.js';
 import { NewDeviceDetector } from './new-device.js';
 import { PlaintextCredentialDetector } from './plaintext-credentials.js';
 import { ScanDetector } from './scan.js';
+import { ThreatIntelDetector } from './threat-intel.js';
 import type { Detector, Finding } from './types.js';
 
 const log = componentLogger('detect');
@@ -15,6 +16,7 @@ export { DnsTunnelingDetector } from './dns-tunneling.js';
 export { NewDeviceDetector } from './new-device.js';
 export { PlaintextCredentialDetector } from './plaintext-credentials.js';
 export { ScanDetector } from './scan.js';
+export { ThreatIntelDetector } from './threat-intel.js';
 export * from './types.js';
 
 /** State expiry runs at most this often, not on every packet. */
@@ -49,6 +51,10 @@ export class DetectionEngine {
       new ScanDetector(),
       new PlaintextCredentialDetector(),
       new DnsTunnelingDetector(),
+      // First among equals in confidence: everything above is a threshold, this
+      // is membership of a list of things already known to be malicious. Costs a
+      // single boolean per packet when no feeds are configured.
+      new ThreatIntelDetector(),
       this.newDevice,
     ];
   }

@@ -30,6 +30,7 @@ structured evidence — not one row per suspicious packet.
 | **SYN flood** | High | An implausible rate of connection attempts from one source. | ✅ | ✅ |
 | **DNS tunnelling** | Medium | Query names shaped like encoded data rather than hostnames, which is how data is smuggled out over DNS. Requires two independent signals before alerting. | ✅ | ✗ payload |
 | **New device** | Medium | A MAC address never seen on this network. Known devices are persisted, and there is a learning period at the start of each capture. | ✅ | ✗ needs MACs |
+| **Threat intelligence** | Critical / Medium | An address or domain matching a loaded indicator feed. The only detector here that is not a threshold — see [below](#threat-intelligence). | ✅ | ✅ |
 
 The three that run on flow data are the ones that benefit most from it, because they depend on
 seeing *many* conversations rather than the contents of one — exactly what a single interface
@@ -241,6 +242,73 @@ collection exists below.
 
 ---
 
+## Threat intelligence
+
+Every other detector answers *"does this traffic look unusual?"* — a threshold, a rate, a
+breadth. Useful, but a judgement: reasonable networks disagree about where the line sits.
+
+This one answers a different question: *"is this address or domain on a list of things already
+known to be malicious?"* That is not a judgement. If a host opens a connection to a current C2
+address, something is wrong, regardless of how the thresholds are tuned. It is the first
+detector here that produces findings a security person would call high-confidence.
+
+```bash
+# api/.env
+INTEL_ENABLED=true
+INTEL_FEEDS=feodo=https://feodotracker.abuse.ch/downloads/ipblocklist.txt,internal=/etc/nmt/indicators.txt
+```
+
+Then check what loaded:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/intel/status
+```
+
+**No feeds ship by default.** Which intelligence to trust is your decision, and a security tool
+should not start making outbound requests to a third-party list nobody chose. Check each feed's
+licence before relying on it commercially.
+
+### Local files are first-class
+
+A URL or a filesystem path both work. That is deliberate: the networks this tool targets —
+a segregated manufacturing VLAN, a defence subcontractor's CUI enclave — frequently have no
+outbound internet from the monitoring host at all. Downloaded feeds are also cached to disk, so
+a restart without connectivity starts from the last known-good copy rather than from nothing.
+
+### Direction is graded, and that is the whole trick
+
+| Observation | Severity | Why |
+| --- | --- | --- |
+| **Outbound** to a listed address | Critical | Something inside chose to contact it — a compromised host, or software nobody sanctioned |
+| **DNS lookup** of a listed domain | Critical | The lookup is what a beacon does first, and it happens even when the connection is blocked downstream — often the only trace left |
+| **Inbound** from a listed address | Medium | The internet scans everything constantly and much of any blocklist is scanners. Grading this critical would bury you on day one |
+
+Repeats of the same pairing share a dedup key, so a beacon calling home every thirty seconds is
+one alert with a rising occurrence count rather than thousands of rows.
+
+### What it refuses to believe
+
+A detector whose value is that a hit *means something* must not fire wrongly — it claims
+certainty, and the operator has no way to argue with it. So indicators are validated on the way
+in, and the test suite leans harder on what must **not** match than on what must:
+
+- **Private and reserved addresses are refused**, whatever a feed says. Blocklists do
+  occasionally contain RFC1918 or loopback entries; accepting one would alert on every host at
+  once and destroy trust permanently.
+- **A malformed `1.2.3.0/` is refused.** `Number('')` is 0, so a naive parse turns that into
+  `/0` — an indicator matching the entire internet. This was a real bug the tests caught.
+- **An invalid `999.999.999.999` is refused**, rather than falling through to being accepted as
+  a domain because it happens to contain dots.
+- **Partial suffixes do not match.** `notbad.example` is not a match for `bad.example`, though
+  `c2.bad.example` is — listing a domain covers what it delegates.
+
+Feeds also go stale: an address hosting C2 last month may be an innocent VPS today. The feed
+name travels with every finding, and `/api/intel/status` reports when each was last loaded and
+whether it came from the network, the cache, or a file — so a feed silently serving an empty
+file for a month is visible rather than looking like healthy coverage.
+
+---
+
 ## Notifications
 
 Detection is only half of it. Nobody watches a dashboard at 2am, so findings are
@@ -400,14 +468,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 188 tests
-npm run test:api  # 149 API tests
+npm test          # both suites: 260 tests
+npm run test:api  # 221 API tests
 npm run test:ui   # 39 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 149 tests
+### API — 221 tests
 
 Over `api/src/packet/` and `api/src/flow/`, covering the hand-written decoders, every detector,
 the NetFlow/IPFIX parsers, and the FFI binding. They use Node's built-in test runner, so there
@@ -606,6 +674,13 @@ Read-only by design. The collector's lifetime is the process's — it is infrast
 whether exporters are configured to send to it, not something a user starts and stops like a
 capture. A start/stop endpoint would invite a UI button that silently switches off security
 telemetry.
+
+### Threat intelligence — `/api/intel`
+
+| Method | Path      | Purpose                                                        |
+| ------ | --------- | -------------------------------------------------------------- |
+| `GET`  | `/status` | What is loaded, per feed, and whether it came from network/cache/file |
+| `POST` | `/reload` | Re-read every feed now (**ADMIN only**)                         |
 
 ### Notifications — `/api/notify`
 

@@ -129,7 +129,7 @@ export class DnsTunnelingDetector implements Detector {
  * Reads the QNAME of the first question in a DNS message. Compression pointers
  * cannot appear in a question's name, so a plain label walk is sufficient.
  */
-function readFirstQuestion(payload: Buffer): string | null {
+export function readFirstQuestion(payload: Buffer): string | null {
   const questionCount = payload.readUInt16BE(4);
   if (questionCount === 0) return null;
 
@@ -173,7 +173,7 @@ function describeIfEncoded(label: string): EncodedLabel | null {
   // Hyphens and underscores are word separators; encoders do not emit them.
   if (!/^[a-z0-9]+$/.test(label)) return null;
 
-  const digits = (label.match(/[0-9]/g) ?? []).length / label.length;
+  const digits = (label.match(/\d/g) ?? []).length / label.length;
   const vowels = (label.match(/[aeiou]/g) ?? []).length / label.length;
   const entropy = shannonEntropy(label);
 
