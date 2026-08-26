@@ -1,40 +1,15 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { createLog, deleteLog, getAllLogs, getLogById, updateLog } from '../services/log.service.js';
+import { logSchema, parseId, parseOrThrow } from './validation.js';
 
 /** Replaces cyber.wissen.controller.LogController. Mounted at /api. */
 export const logsRouter = Router();
 
 logsRouter.use(requireAuth);
 
-const idSchema = z.coerce.number().int().positive();
-
-const logSchema = z.object({
-  timestamp: z.coerce.date().optional(),
-  sourceip: z.string().trim().min(1, 'sourceip is required').max(200),
-  sourcemac: z.string().trim().max(2000).nullish(),
-  destinationip: z.string().trim().min(1, 'destinationip is required').max(200),
-  destinationmac: z.string().trim().max(2000).nullish(),
-  protocol: z.string().trim().min(1, 'protocol is required').max(100),
-  ipversion: z.string().trim().max(100).nullish(),
-  details: z.string().min(1, 'details is required'),
-});
-
-function parseId(raw: string | undefined): number {
-  const parsed = idSchema.safeParse(raw);
-  if (!parsed.success) throw new HttpError(400, 'id must be a positive integer');
-  return parsed.data;
-}
-
-function parseBody(body: unknown) {
-  const parsed = logSchema.safeParse(body);
-  if (!parsed.success) {
-    throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
-  }
-  return parsed.data;
-}
+const parseBody = (body: unknown) => parseOrThrow(logSchema, body);
 
 const listLogs = asyncHandler(async (_req, res) => {
   res.json(await getAllLogs());

@@ -1,5 +1,4 @@
 import { type Request, Router } from 'express';
-import { z } from 'zod';
 import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
@@ -16,26 +15,12 @@ import {
   toPublicUser,
 } from '../services/user.service.js';
 import type { LoginResponseBody } from '../types/dto.js';
+import { loginSchema, signupSchema } from './validation.js';
 
 /** Replaces cyber.wissen.controller.UserController. Mounted at /auth. */
 export const authRouter = Router();
 
 const log = componentLogger('auth');
-
-const loginSchema = z.object({
-  email: z.string().trim().min(1, 'email is required').max(200),
-  password: z.string().min(1, 'password is required'),
-});
-
-const signupSchema = z.object({
-  username: z.string().trim().max(200).optional(),
-  email: z.string().trim().email('a valid email is required').max(200),
-  password: z.string().min(8, 'password must be at least 8 characters').max(200),
-  firstname: z.string().trim().min(1, 'firstname is required').max(50),
-  lastname: z.string().trim().max(50).optional().default(''),
-  role: z.enum(['USER', 'ADMIN']).default('USER'),
-  langCode: z.string().trim().min(1).max(10).default('en'),
-});
 
 /**
  * Guard for account creation.

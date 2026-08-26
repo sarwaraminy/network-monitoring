@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { captureControlLimiter, lookupLimiter } from '../middleware/rate-limit.js';
@@ -8,6 +7,7 @@ import { getDomainName } from '../networkservices/ip-info.service.js';
 import { getWhoisData } from '../networkservices/ip-whois.service.js';
 import type { PacketCaptureService } from '../services/packet-capture.service.js';
 import type { IpInfoResponse } from '../types/dto.js';
+import { captureStartSchema, ipAddressSchema } from './validation.js';
 
 /**
  * Replaces PacketCaptureController and PacketCaptureControllerWithIP, which were
@@ -16,17 +16,6 @@ import type { IpInfoResponse } from '../types/dto.js';
  * Unlike the Java controllers these routes require a token: they can start
  * promiscuous capture on the host, which should not be open to anonymous callers.
  */
-
-const startSchema = z.object({
-  interfaceName: z.string().trim().min(1, 'interfaceName is required'),
-  snaplength: z.coerce.number().int().positive().default(65_536),
-  timeout: z.coerce.number().int().min(0).default(10),
-  ipAddress: z.string().trim().min(1).optional(),
-});
-
-const ipAddressSchema = z.object({
-  ipAddress: z.string().trim().min(1, 'ipAddress is required').max(255),
-});
 
 export interface PacketRouterOptions {
   /** True for the /api/ip/packets variant, where `ipAddress` becomes a BPF filter. */
@@ -47,7 +36,7 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
   router.post(
     '/start',
     asyncHandler(async (req, res) => {
-      const parsed = startSchema.safeParse({ ...(req.body as object), ...req.query });
+      const parsed = captureStartSchema.safeParse({ ...(req.body as object), ...req.query });
       if (!parsed.success) {
         throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
       }
