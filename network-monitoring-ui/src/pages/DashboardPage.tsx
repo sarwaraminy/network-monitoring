@@ -18,7 +18,6 @@ import { describeError } from '../api/client';
 import { fetchCaptureStatus } from '../api/packets.api';
 import { queryKeys } from '../api/queryClient';
 import MagnitudeBarChart from '../charts/MagnitudeBarChart';
-import { chartPalette } from '../charts/palette';
 import SeverityTrendChart from '../charts/SeverityTrendChart';
 import { useChartPalette } from '../charts/useChartPalette';
 import { KIND_LABEL } from '../components/SeverityChip';
@@ -97,6 +96,9 @@ export default function DashboardPage() {
             <Button
               size="small"
               startIcon={<RefreshIcon />}
+              // `void` earns its place here, unlike the capture controls: refetch
+              // really does return a promise, and this deliberately does not
+              // await it — the button reflects `isFetching`, not the result.
               onClick={() => void dashboard.refetch()}
               disabled={dashboard.isFetching}
             >
@@ -236,13 +238,13 @@ function ChartCard({
   children,
   loading,
   action,
-}: {
+}: Readonly<{
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   loading?: boolean;
   action?: React.ReactNode;
-}) {
+}>) {
   return (
     <SurfaceCard title={title} subtitle={subtitle} headerActions={action} sx={{ height: '100%' }}>
       {loading ? <Skeleton variant="rounded" height={260} /> : children}
@@ -255,4 +257,4 @@ function capitalise(value: string): string {
 }
 
 // Re-exported so tests can assert against the same palette the charts use.
-export { chartPalette };
+export { chartPalette } from '../charts/palette';

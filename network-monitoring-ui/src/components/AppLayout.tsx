@@ -29,6 +29,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { type ReactElement, useState } from 'react';
 import { NavLink, Outlet, Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { CARD_METRICS, HEADER, NAV } from '../theme';
 import ColorSchemeToggle from './ColorSchemeToggle';
 
 interface NavItem {
@@ -70,13 +71,21 @@ export default function AppLayout() {
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <AppBar position="sticky">
-        <Toolbar sx={{ gap: 1 }}>
+        <Toolbar
+          // Stretched, not centred. A centred row gives its children content
+          // height and leaves the slack above and below, so the nav Stack could
+          // never bottom-align its tabs to the bar's edge — which is what left
+          // the active tab floating as a pill in the middle of the sweep.
+          // Everything that should stay centred says so for itself below.
+          sx={{ gap: 1, alignItems: 'stretch' }}
+        >
           {isCompact && (
             <IconButton
               edge="start"
               color="inherit"
               onClick={() => setDrawerOpen(true)}
               aria-label="Open navigation"
+              sx={{ alignSelf: 'center' }}
             >
               <MenuIcon />
             </IconButton>
@@ -89,13 +98,14 @@ export default function AppLayout() {
             spacing={1}
             sx={{
               alignItems: 'center',
+              alignSelf: 'center',
               color: 'inherit',
               textDecoration: 'none',
               mr: 2,
             }}
           >
             {/* The one piece of colour in the bar, now that it is neutral. */}
-            <ShieldMoonOutlinedIcon sx={{ color: 'primary.main' }} />
+            <ShieldMoonOutlinedIcon sx={{ color: 'inherit' }} />
             <Typography
               variant="subtitle1"
               noWrap
@@ -109,7 +119,26 @@ export default function AppLayout() {
           </Stack>
 
           {!isCompact && (
-            <Stack direction="row" spacing={0.5} sx={{ flexGrow: 1 }}>
+            <Stack
+              direction="row"
+              spacing={0.5}
+              /*
+               * `stretch`, and the inset lives HERE rather than on the tabs.
+               *
+               * `flex-end` only moves a content-height box to the bottom of
+               * whatever the Stack happens to be, so the tab stayed a pill
+               * floating in the sweep. `stretch` makes the tabs fill the strip
+               * outright, so their bottom edge is the bar's bottom edge.
+               *
+               * The top inset is then this margin on the strip, not a margin on
+               * each Button — a margin there had no visible effect, and the strip
+               * is the right place for it anyway: one value insets all the tabs
+               * together, so they cannot drift off a shared baseline. Raise it
+               * for a shallower tab; the bottom stays pinned and the bar's height
+               * never changes, because nothing is being padded down to the edge.
+               */
+              sx={{ flexGrow: 1, alignItems: 'stretch', marginTop: '6px' }}
+            >
               {NAV_ITEMS.map((item) => (
                 <Button
                   key={item.to}
@@ -118,33 +147,56 @@ export default function AppLayout() {
                   startIcon={item.icon}
                   color="inherit"
                   sx={(theme) => ({
-                    px: 1.5,
-                    color: 'text.secondary',
-                    // Square-bottomed, because the active state in one scheme is
-                    // a rule sitting on that edge.
-                    borderTopLeftRadius: theme.shape.borderRadius,
-                    borderTopRightRadius: theme.shape.borderRadius,
-                    borderBottomLeftRadius: 0,
-                    borderBottomRightRadius: 0,
-                    // Drawn on every item, transparent unless active, so the
-                    // labels stay on one baseline rather than the active one
-                    // being nudged up 2px as the selection moves.
-                    borderBottom: '2px solid transparent',
-                    '&:hover': { bgcolor: 'action.hover', color: 'text.primary' },
+                    // The source spec's own values: a compact tab with a small
+                    // top margin, sitting on the bottom edge of the strip. The
+                    // inset is at the top only, which is what makes the active
+                    // one read as rising out of the bar rather than floating in
+                    // the middle of it.
+                    paddingInline: '14px',
+                    paddingBlock: 0,
+                    // No margin here — the strip above carries the inset.
+                    minHeight: 'unset',
+                    minWidth: 'unset',
+                    // White on the sweep in both schemes, until it is the current
+                    // page. Inactive tabs are not dimmed — on a saturated bar a
+                    // dimmed label reads as disabled rather than as unselected.
+                    color: HEADER.light.tabInk,
+                    borderRadius: 0,
+                    borderTopLeftRadius: 6,
+                    borderTopRightRadius: 6,
+                    // Reserved on every tab, and only ever painted in dark mode
+                    // (below). It stays declared in light so switching schemes
+                    // does not shift the labels by its width.
+                    borderBottom: '3px solid transparent',
+                    // An inactive tab lightens the sweep under it; the active
+                    // one is already on its own surface and keeps it.
+                    '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' },
 
-                    // `lifted` — see navTreatment. The current page rises out of
-                    // the bar on a tinted surface.
-                    '&.active': { color: 'primary.main', bgcolor: 'action.selected' },
+                    // `lifted` — the light scheme's active tab rises out of the
+                    // sweep onto a pale surface, and that is the whole signal. No
+                    // underline: the tab now runs to the bar's bottom edge, so a
+                    // rule there would be a second marker drawn under a surface
+                    // that already reads as the current page.
+                    //
+                    // The ink is a darkened azure rather than the brand azure —
+                    // base azure on this pale tab measures 3.28:1, under the
+                    // 4.5:1 floor for 14px text.
+                    '&.active': {
+                      bgcolor: HEADER.light.activeTabBg,
+                      color: HEADER.light.activeTabInk,
+                      '&:hover': { bgcolor: HEADER.light.activeTabBg },
+                    },
 
-                    // `underlined`. Against the near-black dark bar a tinted slab
-                    // is the brightest thing on screen, which is the wrong place
-                    // for the eye on a page about alerts — so the state moves to
-                    // a rule and the surface goes away.
+                    // `underlined` — dark drops the lifted surface, because a
+                    // pale slab on the darkest chrome on screen is the brightest
+                    // thing on the page. The rule is the state here, which is why
+                    // the border above is reserved rather than removed.
                     ...theme.applyStyles('dark', {
+                      color: HEADER.dark.tabInk,
                       '&.active': {
-                        color: 'primary.main',
-                        bgcolor: 'transparent',
-                        borderBottomColor: theme.vars?.palette.primary.main,
+                        bgcolor: 'rgba(255, 255, 255, 0.06)',
+                        color: HEADER.dark.activeTabInk,
+                        borderBottomColor: HEADER.dark.activeTabUnderline,
                       },
                     }),
                   })}
@@ -158,7 +210,10 @@ export default function AppLayout() {
           <Box sx={{ flexGrow: isCompact ? 1 : 0 }} />
 
           <Tooltip title={user?.email ?? 'Account'}>
-            <IconButton onClick={(event) => setMenuAnchor(event.currentTarget)} sx={{ p: 0.5 }}>
+            <IconButton
+              onClick={(event) => setMenuAnchor(event.currentTarget)}
+              sx={{ p: 0.5, alignSelf: 'center' }}
+            >
               <Avatar sx={{ width: 34, height: 34, bgcolor: 'primary.main', fontSize: '0.85rem' }}>
                 {initials || '?'}
               </Avatar>
@@ -227,21 +282,34 @@ export default function AppLayout() {
               key={item.to}
               component={NavLink}
               to={item.to}
-              sx={{
+              sx={(theme) => ({
                 // The drawer's equivalent of the bar's underline: a rule on the
                 // panel edge. Present and transparent on every row, for the same
                 // reason — otherwise every label shifts 2px as the selection
                 // moves down the list.
                 borderLeft: '2px solid transparent',
-                color: 'text.secondary',
+                borderRadius: 0,
+                color: NAV.light.itemInk,
+                '& .MuiListItemText-primary': { fontSize: 13 },
+                // Only the active row is tinted. Colouring every row removes the
+                // contrast that makes "you are here" readable at a glance.
                 '&.active': {
-                  borderLeftColor: 'primary.main',
-                  bgcolor: 'action.selected',
-                  color: 'primary.main',
-                  '& .MuiListItemIcon-root': { color: 'primary.main' },
-                  '& .MuiListItemText-primary': { fontWeight: 600 },
+                  borderLeftColor: NAV.light.activeRule,
+                  bgcolor: NAV.light.activeBg,
+                  color: NAV.light.activeInk,
+                  '& .MuiListItemIcon-root': { color: NAV.light.activeInk },
+                  '& .MuiListItemText-primary': { fontSize: 13, fontWeight: 600 },
                 },
-              }}
+                ...theme.applyStyles('dark', {
+                  color: NAV.dark.itemInk,
+                  '&.active': {
+                    borderLeftColor: NAV.dark.activeRule,
+                    bgcolor: NAV.dark.activeBg,
+                    color: NAV.dark.activeInk,
+                    '& .MuiListItemIcon-root': { color: NAV.dark.activeInk },
+                  },
+                }),
+              })}
             >
               <ListItemIcon>{item.icon}</ListItemIcon>
               <ListItemText primary={item.label} />
@@ -263,11 +331,12 @@ export default function AppLayout() {
       <Container
         maxWidth={false}
         sx={{
-          py: 3,
+          paddingBlock: `${CARD_METRICS.pagePaddingBlock}px`,
+          paddingInline: `${CARD_METRICS.pagePaddingInline}px`,
           flexGrow: 1,
           display: 'flex',
           flexDirection: 'column',
-          gap: 2,
+          gap: `${CARD_METRICS.gap}px`,
           minHeight: 0,
         }}
       >

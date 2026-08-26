@@ -1,10 +1,31 @@
 {
-  // Use the TypeScript this repo installs, not the one VS Code ships with.
-  //
-  // Without this the editor and `npm run typecheck` run different compilers, so
-  // the two disagree — DataGrid.tsx reported errors in the editor that `tsc`
-  // did not, which is the worst kind of disagreement because neither side is
-  // obviously wrong and CI only sees one of them.
+  // Use the TypeScript this repo installs, not the one VS Code ships with, so
+  // the editor and `npm run typecheck` are never answering different questions.
   "typescript.tsdk": "node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true
+
+  // ---------------------------------------------------------------------------
+  // If the editor reports errors in DataGrid.tsx that `npm run typecheck` does
+  // not — a wall of "Two different types with this name exist, but they are
+  // unrelated" naming the SAME file twice — it is not the code, and there is no
+  // second copy of material-react-table. Check the casing of the paths in the
+  // Problems panel. If some read
+  //
+  //     c:/users/sawar amini/downloads/.../network-monitoring
+  //
+  // and others read
+  //
+  //     c:/Users/Sawar Amini/Downloads/.../network-monitoring
+  //
+  // then the language server has the workspace open under one casing while
+  // module resolution returns the real casing from disk, so it loads
+  // material-react-table's declarations twice into two unrelated symbol tables.
+  // Every generic in there then compares against itself and loses.
+  //
+  // The fix is to reopen the folder with its real casing — File > Open Folder
+  // and navigate to it rather than typing or pasting a lowercased path — then
+  // Developer: Restart Extension Host. Nothing in the source needs changing;
+  // this was chased with casts first and they did not help, because there was
+  // never anything wrong for them to fix.
+  // ---------------------------------------------------------------------------
 }

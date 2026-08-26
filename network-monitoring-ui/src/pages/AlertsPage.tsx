@@ -114,92 +114,13 @@ export default function AlertsPage() {
 
   const columns = useMemo<MRT_ColumnDef<AlertRecord>[]>(
     () => [
-      {
-        accessorKey: 'severity',
-        header: 'Severity',
-        size: 115,
-        Cell: ({ cell }) => <SeverityChip severity={cell.getValue<Severity>()} />,
-      },
-      {
-        accessorKey: 'kind',
-        header: 'Detector',
-        size: 165,
-        Cell: ({ cell }) => {
-          const value = cell.getValue<AlertKind>();
-          return (
-            <Tooltip title={KIND_DESCRIPTION[value] ?? ''}>
-              <span>{KIND_LABEL[value] ?? value}</span>
-            </Tooltip>
-          );
-        },
-      },
-      {
-        accessorKey: 'title',
-        header: 'Finding',
-        size: 420,
-        Cell: ({ row, cell }) => (
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{
-              alignItems: 'center',
-              minWidth: 0,
-            }}
-          >
-            <Typography
-              variant="body2"
-              noWrap
-              sx={{
-                fontWeight: 550,
-              }}
-            >
-              {cell.getValue<string>()}
-            </Typography>
-            {row.original.occurrences > 1 && (
-              <Chip size="small" variant="outlined" label={`×${row.original.occurrences.toLocaleString()}`} />
-            )}
-          </Stack>
-        ),
-      },
-      {
-        accessorKey: 'sourceIp',
-        header: 'Source',
-        size: 155,
-        Cell: ({ row, cell }) => {
-          const ip = cell.getValue<string | null>();
-          if (ip) return <IpLink value={ip} onClick={showIp} />;
-          // ARP and device findings identify the actor by MAC, not IP.
-          return <Box sx={monoSx}>{row.original.sourceMac ?? '—'}</Box>;
-        },
-      },
-      {
-        accessorKey: 'targetIp',
-        header: 'Target',
-        size: 155,
-        Cell: ({ cell }) => {
-          const ip = cell.getValue<string | null>();
-          return ip ? <IpLink value={ip} onClick={showIp} /> : <Box sx={{ color: 'text.disabled' }}>—</Box>;
-        },
-      },
-      {
-        accessorKey: 'lastSeen',
-        header: 'Last seen',
-        size: 175,
-        Cell: ({ cell }) => <Box sx={monoSx}>{new Date(cell.getValue<string>()).toLocaleString()}</Box>,
-      },
-      {
-        accessorKey: 'acknowledgedAt',
-        header: 'Status',
-        size: 130,
-        Cell: ({ row, cell }) =>
-          cell.getValue<string | null>() ? (
-            <Tooltip title={`Acknowledged by ${row.original.acknowledgedBy ?? 'unknown'}`}>
-              <Chip size="small" color="success" variant="outlined" label="Acknowledged" />
-            </Tooltip>
-          ) : (
-            <Chip size="small" color="warning" label="Open" />
-          ),
-      },
+      { accessorKey: 'severity', header: 'Severity', size: 115, Cell: SeverityCell },
+      { accessorKey: 'kind', header: 'Detector', size: 165, Cell: DetectorCell },
+      { accessorKey: 'title', header: 'Finding', size: 420, Cell: FindingCell },
+      { accessorKey: 'sourceIp', header: 'Source', size: 155, Cell: sourceCell(showIp) },
+      { accessorKey: 'targetIp', header: 'Target', size: 155, Cell: targetCell(showIp) },
+      { accessorKey: 'lastSeen', header: 'Last seen', size: 175, Cell: LastSeenCell },
+      { accessorKey: 'acknowledgedAt', header: 'Status', size: 130, Cell: StatusCell },
     ],
     [showIp],
   );
@@ -212,12 +133,7 @@ export default function AlertsPage() {
       sx: {
         // A left edge in the severity colour, so urgency reads at a glance.
         borderLeft: '4px solid',
-        borderLeftColor:
-          row.original.severity === 'critical'
-            ? 'error.main'
-            : row.original.severity === 'high'
-              ? 'warning.main'
-              : 'transparent',
+        borderLeftColor: severityEdge(row.original.severity),
         opacity: row.original.acknowledgedAt ? 0.6 : 1,
       },
     }),
@@ -356,8 +272,78 @@ export default function AlertsPage() {
   );
 }
 
+/*
+ * Cell renderers, at module scope.
+ *
+ * MRT's `Cell` is a render prop rather than a component, but it is analysed as
+ * one, and defining seven of them inside the page rebuilt seven function
+ * identities on every render for no benefit. None of these close over anything
+ * except the two that need `showIp`, and those now say so by taking it as an
+ * argument instead of reaching outward.
+ */
+
+const SeverityCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ cell }) => (
+  <SeverityChip severity={cell.getValue<Severity>()} />
+);
+
+const DetectorCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ cell }) => {
+  const value = cell.getValue<AlertKind>();
+  return (
+    <Tooltip title={KIND_DESCRIPTION[value] ?? ''}>
+      <span>{KIND_LABEL[value] ?? value}</span>
+    </Tooltip>
+  );
+};
+
+const FindingCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ row, cell }) => (
+  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+    <Typography variant="body2" noWrap sx={{ fontWeight: 550 }}>
+      {cell.getValue<string>()}
+    </Typography>
+    {row.original.occurrences > 1 && (
+      <Chip size="small" variant="outlined" label={`×${row.original.occurrences.toLocaleString()}`} />
+    )}
+  </Stack>
+);
+
+const sourceCell =
+  (showIp: (ipAddress: string) => void): MRT_ColumnDef<AlertRecord>['Cell'] =>
+  ({ row, cell }) => {
+    const ip = cell.getValue<string | null>();
+    if (ip) return <IpLink value={ip} onClick={showIp} />;
+    // ARP and device findings identify the actor by MAC, not IP.
+    return <Box sx={monoSx}>{row.original.sourceMac ?? '—'}</Box>;
+  };
+
+const targetCell =
+  (showIp: (ipAddress: string) => void): MRT_ColumnDef<AlertRecord>['Cell'] =>
+  ({ cell }) => {
+    const ip = cell.getValue<string | null>();
+    return ip ? <IpLink value={ip} onClick={showIp} /> : <Box sx={{ color: 'text.disabled' }}>—</Box>;
+  };
+
+const LastSeenCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ cell }) => (
+  <Box sx={monoSx}>{new Date(cell.getValue<string>()).toLocaleString()}</Box>
+);
+
+const StatusCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ row, cell }) =>
+  cell.getValue<string | null>() ? (
+    <Tooltip title={`Acknowledged by ${row.original.acknowledgedBy ?? 'unknown'}`}>
+      <Chip size="small" color="success" variant="outlined" label="Acknowledged" />
+    </Tooltip>
+  ) : (
+    <Chip size="small" color="warning" label="Open" />
+  );
+
+/** The row's left edge. Only the two severities worth interrupting for get one. */
+function severityEdge(severity: Severity): string {
+  if (severity === 'critical') return 'error.main';
+  if (severity === 'high') return 'warning.main';
+  return 'transparent';
+}
+
 /** Expanded row: what happened, why it matters, and the supporting detail. */
-function EvidencePanel({ alert }: { alert: AlertRecord }) {
+function EvidencePanel({ alert }: Readonly<{ alert: AlertRecord }>) {
   const entries = Object.entries(alert.evidence ?? {});
 
   return (
@@ -440,7 +426,7 @@ function EvidencePanel({ alert }: { alert: AlertRecord }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value }: Readonly<{ label: string; value: string }>) {
   return (
     <Box>
       <Typography
@@ -470,14 +456,24 @@ function formatValue(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'yes' : 'no';
   if (Array.isArray(value)) {
     if (value.length === 0) return '—';
-    const shown = value.slice(0, 24).join(', ');
+    // Each element formatted rather than `join`ed. `join` calls String() on every
+    // element, so one object in an evidence array renders as "[object Object]"
+    // and the analyst is told nothing about what was actually found.
+    const shown = value.slice(0, 24).map(formatValue).join(', ');
     return value.length > 24 ? `${shown}, … (${value.length} total)` : shown;
   }
   if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') {
+    return String(value);
+  }
+  // All that is left is a symbol or a function. Neither belongs in evidence, and
+  // neither has a string form worth showing — printing a function's source would
+  // be worse than saying nothing. Narrowed explicitly rather than left to
+  // `String(unknown)`, which cannot be read as safe at a glance.
+  return '—';
 }
 
-function IpLink({ value, onClick }: { value: string; onClick: (ipAddress: string) => void }) {
+function IpLink({ value, onClick }: Readonly<{ value: string; onClick: (ipAddress: string) => void }>) {
   return (
     <Link
       component="button"

@@ -12,21 +12,15 @@ export default function PacketCaptureWithIP() {
 
   return (
     <>
-      <SurfaceCard
+      <CaptureToolbar
         title="Capture filtered by IP address"
-        titleComponent="h1"
-        titleVariant="h5"
         subtitle="The same capture, narrowed to traffic involving one host"
+        capture={capture}
+        showIpFilter
       />
 
-      <CaptureToolbar capture={capture} showIpFilter />
-
       <SurfaceCard title="Packets" subtitle="Newest first, decoded from the wire" bodyVariant="grid">
-        <PacketTable
-          packets={capture.packets}
-          capturing={capture.capturing}
-          onIpClick={(ipAddress) => void ipInfo.show(ipAddress)}
-        />
+        <PacketTable packets={capture.packets} capturing={capture.capturing} onIpClick={ipInfo.show} />
       </SurfaceCard>
 
       <IpInfoDialog

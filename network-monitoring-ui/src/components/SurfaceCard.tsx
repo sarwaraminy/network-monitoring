@@ -3,7 +3,7 @@ import Paper from '@mui/material/Paper';
 import type { SxProps, Theme } from '@mui/material/styles';
 import Typography from '@mui/material/Typography';
 import type { ElementType, ReactNode } from 'react';
-import { CARD_METRICS, HEAD_SURFACE } from '../theme';
+import { CARD_METRICS, RADIUS, SURFACE } from '../theme';
 
 /**
  * The one container every panel in the app sits in.
@@ -125,20 +125,22 @@ export default function SurfaceCard({
             flexWrap: 'wrap',
             gap: 1.5,
             flexShrink: 0,
-            py: CARD_METRICS.headerPaddingBlock,
-            px: CARD_METRICS.headerPaddingInline,
+            padding: `${CARD_METRICS.headerPaddingBlock}px ${CARD_METRICS.headerPaddingInline}px`,
             ...(embedded
-              ? { px: 0 }
+              ? { paddingInline: 0 }
               : {
-                  backgroundColor: HEAD_SURFACE.light,
-                  ...theme.applyStyles('dark', { backgroundColor: HEAD_SURFACE.dark }),
-                  borderBottom: '1px solid',
-                  borderColor: 'divider',
+                  backgroundColor: SURFACE.light.cardHeader,
+                  borderBottomColor: SURFACE.light.cardBorder,
+                  ...theme.applyStyles('dark', {
+                    backgroundColor: SURFACE.dark.cardHeader,
+                    borderBottomColor: SURFACE.dark.cardBorder,
+                  }),
+                  borderBottom: `${CARD_METRICS.borderWidth}px solid`,
                   // Follow the card's rounded top so the tinted strip does not
                   // square off the corners. Inset by the hairline so the fill
                   // sits inside the border rather than under it.
-                  borderTopLeftRadius: 'calc(var(--mui-shape-borderRadius) - 1px)',
-                  borderTopRightRadius: 'calc(var(--mui-shape-borderRadius) - 1px)',
+                  borderTopLeftRadius: RADIUS.card - CARD_METRICS.borderWidth,
+                  borderTopRightRadius: RADIUS.card - CARD_METRICS.borderWidth,
                 }),
           })}
         >
@@ -147,7 +149,17 @@ export default function SurfaceCard({
               <Typography
                 component={titleComponent}
                 variant={titleVariant}
-                sx={{ fontWeight: 650, lineHeight: 1.3 }}
+                sx={(theme) => ({
+                  // A panel header is 13px/700 in the card-header ink; the page
+                  // title band keeps `h5`'s own size and only takes the ink.
+                  color: SURFACE.light.cardHeaderInk,
+                  ...theme.applyStyles('dark', { color: SURFACE.dark.cardHeaderInk }),
+                  ...(titleVariant === 'subtitle1' && {
+                    fontSize: CARD_METRICS.headerFontSize,
+                    fontWeight: CARD_METRICS.headerFontWeight,
+                  }),
+                  lineHeight: 1.4,
+                })}
               >
                 {title}
               </Typography>
@@ -173,7 +185,7 @@ export default function SurfaceCard({
               display: 'flex',
               flexDirection: 'column',
               minHeight: 0,
-              ...(bodyVariant === 'default' && { p: CARD_METRICS.bodyPadding }),
+              ...(bodyVariant === 'default' && { padding: `${CARD_METRICS.bodyPadding}px` }),
               ...(bodyVariant === 'grid' && {
                 /*
                  * Both depths, deliberately. DataGrid wraps its table in a Box so
@@ -186,12 +198,16 @@ export default function SurfaceCard({
                  * Not a bare descendant selector: a detail panel may legitimately
                  * render a Paper of its own, and that one should keep its surface.
                  */
+                padding: `${CARD_METRICS.bodyPadding}px`,
                 '& > .MuiPaper-root, & > * > .MuiPaper-root': {
-                  border: 'none',
-                  borderRadius: 0,
                   boxShadow: 'none',
-                  backgroundColor: 'transparent',
                   backgroundImage: 'none',
+                  // The nested-grid pair, not the card tint. Stacking the two
+                  // reads as a rendering fault; recessing the grid to the canvas
+                  // colour makes it read as punched through the card to the page.
+                  backgroundColor: SURFACE.light.gridOnCard,
+                  border: `${CARD_METRICS.borderWidth}px solid ${SURFACE.light.gridOnCardOutline}`,
+                  borderRadius: `${RADIUS.sm}px`,
                 },
               }),
             },

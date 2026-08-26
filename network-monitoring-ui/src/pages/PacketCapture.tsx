@@ -12,21 +12,14 @@ export default function PacketCapture() {
 
   return (
     <>
-      <SurfaceCard
+      <CaptureToolbar
         title="Capture from a local interface"
-        titleComponent="h1"
-        titleVariant="h5"
         subtitle="Live packets from one adapter, decoded frame by frame"
+        capture={capture}
       />
 
-      <CaptureToolbar capture={capture} />
-
       <SurfaceCard title="Packets" subtitle="Newest first, decoded from the wire" bodyVariant="grid">
-        <PacketTable
-          packets={capture.packets}
-          capturing={capture.capturing}
-          onIpClick={(ipAddress) => void ipInfo.show(ipAddress)}
-        />
+        <PacketTable packets={capture.packets} capturing={capture.capturing} onIpClick={ipInfo.show} />
       </SurfaceCard>
 
       <IpInfoDialog

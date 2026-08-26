@@ -23,7 +23,7 @@ interface Props {
  * A 2px gap in the surface colour separates the segments, which is what makes
  * neighbouring steps read as distinct without drawing a border around them.
  */
-export default function SeverityTrendChart({ trend, bucket, height = 260 }: Props) {
+export default function SeverityTrendChart({ trend, bucket, height = 260 }: Readonly<Props>) {
   const palette = useChartPalette();
 
   const labels = useMemo(
@@ -83,7 +83,7 @@ export default function SeverityTrendChart({ trend, bucket, height = 260 }: Prop
   );
 }
 
-function EmptyPlot({ height, message }: { height: number; message: string }) {
+function EmptyPlot({ height, message }: Readonly<{ height: number; message: string }>) {
   return (
     <Box sx={{ height, display: 'grid', placeItems: 'center' }}>
       <Typography variant="body2" sx={{ color: 'text.secondary' }}>

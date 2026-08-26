@@ -24,7 +24,7 @@ interface PacketTableProps {
  * `packet.destinationIpAddress ? ... : null` guard. The two hex streams live in
  * the expandable detail panel rather than inline cells.
  */
-export default function PacketTable({ packets, capturing, onIpClick }: PacketTableProps) {
+export default function PacketTable({ packets, capturing, onIpClick }: Readonly<PacketTableProps>) {
   const rows = useMemo(() => packets.filter((packet) => Boolean(packet.destinationIpAddress)), [packets]);
 
   const columns = useMemo<MRT_ColumnDef<Packet>[]>(
@@ -34,58 +34,56 @@ export default function PacketTable({ packets, capturing, onIpClick }: PacketTab
         id: 'sourceIpAddress',
         header: 'Source IP',
         size: 165,
-        Cell: ({ cell }) => <IpLink value={cell.getValue<string>()} onClick={onIpClick} />,
+        Cell: ipCell(onIpClick),
       },
       {
         accessorFn: (row) => row.ethernetHeader.sourceAddress,
         id: 'sourceMac',
         header: 'Source MAC',
         size: 160,
-        Cell: ({ cell }) => <Box sx={monoSx}>{cell.getValue<string>()}</Box>,
+        Cell: MonoCell,
       },
       {
         accessorFn: (row) => row.destinationIpAddress ?? '',
         id: 'destinationIpAddress',
         header: 'Destination IP',
         size: 165,
-        Cell: ({ cell }) => <IpLink value={cell.getValue<string>()} onClick={onIpClick} />,
+        Cell: ipCell(onIpClick),
       },
       {
         accessorFn: (row) => row.ethernetHeader.destinationAddress,
         id: 'destinationMac',
         header: 'Destination MAC',
         size: 160,
-        Cell: ({ cell }) => <Box sx={monoSx}>{cell.getValue<string>()}</Box>,
+        Cell: MonoCell,
       },
       {
         accessorFn: (row) => row.ethernetHeader.type,
         id: 'type',
         header: 'EtherType',
         size: 175,
-        Cell: ({ cell }) => (
-          <Chip size="small" variant="outlined" label={cell.getValue<string>()} sx={monoSx} />
-        ),
+        Cell: EtherTypeCell,
       },
       {
         accessorFn: (row) => row.llcHeader?.dsap ?? '',
         id: 'llcDsap',
         header: 'LLC DSAP',
         size: 140,
-        Cell: ({ cell }) => <Box sx={monoSx}>{cell.getValue<string>() || '—'}</Box>,
+        Cell: MonoOrDashCell,
       },
       {
         accessorFn: (row) => row.llcHeader?.ssap ?? '',
         id: 'llcSsap',
         header: 'LLC SSAP',
         size: 140,
-        Cell: ({ cell }) => <Box sx={monoSx}>{cell.getValue<string>() || '—'}</Box>,
+        Cell: MonoOrDashCell,
       },
       {
         accessorFn: (row) => row.llcHeader?.control ?? '',
         id: 'llcControl',
         header: 'LLC Control',
         size: 140,
-        Cell: ({ cell }) => <Box sx={monoSx}>{cell.getValue<string>() || '—'}</Box>,
+        Cell: MonoOrDashCell,
       },
       {
         accessorFn: (row) => hexByteCount(row.dataHexStream),
@@ -93,11 +91,7 @@ export default function PacketTable({ packets, capturing, onIpClick }: PacketTab
         header: 'Frame',
         size: 100,
         filterVariant: 'range',
-        Cell: ({ cell }) => (
-          <Typography variant="body2" sx={monoSx}>
-            {cell.getValue<number>()} B
-          </Typography>
-        ),
+        Cell: FrameBytesCell,
       },
       {
         accessorFn: (row) => hexByteCount(row.ethernetPadHexStream),
@@ -105,15 +99,7 @@ export default function PacketTable({ packets, capturing, onIpClick }: PacketTab
         header: 'Pad',
         size: 90,
         filterVariant: 'range',
-        Cell: ({ cell }) => (
-          <Typography
-            variant="body2"
-            sx={monoSx}
-            color={cell.getValue<number>() > 0 ? 'text.primary' : 'text.disabled'}
-          >
-            {cell.getValue<number>()} B
-          </Typography>
-        ),
+        Cell: PadBytesCell,
       },
     ],
     [onIpClick],
@@ -183,7 +169,44 @@ export default function PacketTable({ packets, capturing, onIpClick }: PacketTab
   return <DataGrid columns={columns} data={rows} tableOptions={tableOptions} />;
 }
 
-function IpLink({ value, onClick }: { value: string; onClick: (ipAddress: string) => void }) {
+/*
+ * Cell renderers, at module scope — same reasoning as AlertsPage. Only the two
+ * IP columns need anything from the component, and they take it as an argument.
+ */
+
+const MonoCell: MRT_ColumnDef<Packet>['Cell'] = ({ cell }) => (
+  <Box sx={monoSx}>{cell.getValue<string>()}</Box>
+);
+
+const MonoOrDashCell: MRT_ColumnDef<Packet>['Cell'] = ({ cell }) => (
+  <Box sx={monoSx}>{cell.getValue<string>() || '—'}</Box>
+);
+
+const EtherTypeCell: MRT_ColumnDef<Packet>['Cell'] = ({ cell }) => (
+  <Chip size="small" variant="outlined" label={cell.getValue<string>()} sx={monoSx} />
+);
+
+const FrameBytesCell: MRT_ColumnDef<Packet>['Cell'] = ({ cell }) => (
+  <Typography variant="body2" sx={monoSx}>
+    {cell.getValue<number>()} B
+  </Typography>
+);
+
+const PadBytesCell: MRT_ColumnDef<Packet>['Cell'] = ({ cell }) => (
+  <Typography
+    variant="body2"
+    sx={monoSx}
+    color={cell.getValue<number>() > 0 ? 'text.primary' : 'text.disabled'}
+  >
+    {cell.getValue<number>()} B
+  </Typography>
+);
+
+const ipCell =
+  (onIpClick: (ipAddress: string) => void): MRT_ColumnDef<Packet>['Cell'] =>
+  ({ cell }) => <IpLink value={cell.getValue<string>()} onClick={onIpClick} />;
+
+function IpLink({ value, onClick }: Readonly<{ value: string; onClick: (ipAddress: string) => void }>) {
   if (!value) return <Box sx={{ color: 'text.disabled' }}>—</Box>;
   return (
     <Link

@@ -4,7 +4,12 @@ import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 const MIN_HEIGHT = 180;
 
 const px = (value: string) => Number.parseFloat(value || '0') || 0;
-const scrolls = (style: CSSStyleDeclaration) => /auto|scroll|overlay/.test(style.overflowY);
+/**
+ * Anything that bounds what is visible, not just what scrolls. `hidden` and
+ * `clip` cut the table off exactly as firmly as `auto` does, and walking past
+ * one measures to a boundary further out than the one that will actually clip.
+ */
+const bounds = (style: CSSStyleDeclaration) => /auto|scroll|overlay|hidden|clip/.test(style.overflowY);
 
 /**
  * Walk outwards from `element`, accumulating the chrome that sits BELOW it —
@@ -19,7 +24,13 @@ function resolveBoundary(element: HTMLElement) {
 
   while (node && node !== document.body && node !== document.documentElement) {
     const style = getComputedStyle(node);
-    if (scrolls(style)) return { boundary: node, chrome };
+    if (bounds(style)) {
+      // Its own bottom padding and border count too. `bottom` below comes from
+      // getBoundingClientRect, which is the BORDER-box edge, while the content
+      // stops short of it by exactly these two — so without them the table
+      // overruns its boundary by that much.
+      return { boundary: node, chrome: chrome + px(style.paddingBottom) + px(style.borderBottomWidth) };
+    }
     chrome += px(style.paddingBottom) + px(style.borderBottomWidth) + Math.max(0, px(style.marginBottom));
     node = node.parentElement;
   }
@@ -77,7 +88,15 @@ export function useViewportFitHeight<T extends HTMLElement>(
     minTop?: number;
     /** When false, no measurement happens and `maxHeight` stays undefined. */
     enabled?: boolean;
-    /** Extra values that should force a re-measure — a row count, a loading flag. */
+    /**
+     * Extra values that should force a re-measure — a row count, a loading flag.
+     *
+     * Hashed into one string rather than spread into the effect's dependency
+     * array. React requires that array to keep a constant size between renders;
+     * spreading a caller-supplied list invites a conditional `deps` that changes
+     * length, which React reports only as a dev-mode warning while quietly
+     * skipping the re-measure.
+     */
     deps?: readonly unknown[];
   } = {},
 ): { ref: RefObject<T | null>; maxHeight: number | undefined } {
@@ -94,13 +113,25 @@ export function useViewportFitHeight<T extends HTMLElement>(
     const { boundary, chrome } = resolveBoundary(element);
     const bottom = boundary ? boundary.getBoundingClientRect().bottom : window.innerHeight;
 
-    // Clamping the top guards a measurement taken mid-scroll, where the element
-    // can report a negative or tiny offset and the table would size itself far
+    // Floor the top offset. A measurement taken mid-scroll can report the
+    // element at or near the viewport top, and sizing to that gives a table far
     // taller than the space it actually has.
-    const available = bottom - Math.max(top, Math.min(minTop, top)) - chrome - gap;
+    //
+    // This was `Math.max(top, Math.min(minTop, top))`, which reduces to `top`
+    // for every input — the inner `min` returns `top` when `top <= minTop`, and
+    // the outer `max` returns `top` when it does not. The option had no effect
+    // at all, on the one line whose comment claimed it was the guard.
+    const available = bottom - Math.max(top, minTop) - chrome - gap;
     setMaxHeight(Math.max(MIN_HEIGHT, Math.round(available)));
   }, [gap, minTop]);
 
+  // One primitive, so the dependency array below is always the same length.
+  const depsKey = JSON.stringify(deps);
+
+  // `depsKey` is never read in the body. Being in the array IS its job: it is the
+  // caller's opt-in re-measure trigger, hashed to one primitive so the array
+  // keeps a constant length.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     if (!enabled) {
       setMaxHeight(undefined);
@@ -124,7 +155,7 @@ export function useViewportFitHeight<T extends HTMLElement>(
       observer.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [enabled, measure, ...deps]);
+  }, [enabled, measure, depsKey]);
 
   return { ref, maxHeight };
 }

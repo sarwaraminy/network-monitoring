@@ -67,6 +67,25 @@ const ORIGIN: Record<
   },
 };
 
+/** The one-line summary under the feed count: the worst state, named. */
+function feedHealthCaption(failed: number, stale: number): string {
+  if (failed > 0) return `${failed} failing`;
+  if (stale > 0) return `${stale} on a cached copy`;
+  return 'all loaded';
+}
+
+/**
+ * The row's left edge, in the colour of whatever is wrong with the feed.
+ *
+ * A feed reporting zero indicators counts as degraded even when it "succeeded" —
+ * that silent case is the one this page exists to make visible.
+ */
+function feedEdge(feed: IntelFeedStatus): string {
+  if (feed.from === 'failed') return 'error.main';
+  if (feed.from === 'cache' || feed.indicators === 0) return 'warning.main';
+  return 'transparent';
+}
+
 /** Worst first — the order the Source column sorts in. */
 const ORIGIN_ORDER: IntelFeedOrigin[] = ['failed', 'cache', 'file', 'network'];
 
@@ -191,13 +210,7 @@ export default function ThreatIntelPage() {
           <StatTile
             label="Feeds"
             value={data?.sources.length ?? 0}
-            caption={
-              failedFeeds.length > 0
-                ? `${failedFeeds.length} failing`
-                : staleFeeds.length > 0
-                  ? `${staleFeeds.length} on a cached copy`
-                  : 'all loaded'
-            }
+            caption={feedHealthCaption(failedFeeds.length, staleFeeds.length)}
             icon={<CloudDoneOutlinedIcon />}
             accent={failedFeeds.length > 0 ? palette.severity.critical : undefined}
             loading={loading}
@@ -250,6 +263,57 @@ export default function ThreatIntelPage() {
   );
 }
 
+/* Cell renderers, at module scope — same reasoning as AlertsPage. */
+
+const FeedNameCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ row, cell }) => (
+  <>
+    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+      {cell.getValue<string>()}
+    </Typography>
+    {row.original.error && (
+      <Typography variant="caption" sx={{ color: 'error.main', display: 'block' }}>
+        {row.original.error}
+      </Typography>
+    )}
+  </>
+);
+
+const OriginCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => {
+  const origin = ORIGIN[cell.getValue<IntelFeedOrigin>()];
+  return (
+    <Tooltip title={origin.hint}>
+      <Chip size="small" variant="outlined" color={origin.color} label={origin.label} />
+    </Tooltip>
+  );
+};
+
+const IndicatorCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => {
+  const value = cell.getValue<number>();
+  return (
+    <Typography
+      variant="body2"
+      sx={{
+        // `numericColumn` already sets the tabular figures on the cell; setting
+        // them again here is the per-cell drift its own docblock warns about.
+        // Zero indicators from a feed that "succeeded" is the silent failure
+        // this page exists to make visible.
+        color: value === 0 ? 'warning.main' : 'text.primary',
+        fontWeight: value === 0 ? 600 : 400,
+      }}
+    >
+      {value.toLocaleString()}
+    </Typography>
+  );
+};
+
+const SkippedCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => (
+  <Tooltip title="Lines that were not usable indicators: comments, blanks, and anything malformed or non-routable.">
+    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+      {cell.getValue<number>().toLocaleString()}
+    </Typography>
+  </Tooltip>
+);
+
 /**
  * The feed list, as a Material React Table like every other table in the app.
  *
@@ -266,18 +330,7 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
         accessorKey: 'name',
         header: 'Feed',
         size: 220,
-        Cell: ({ row, cell }) => (
-          <>
-            <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {cell.getValue<string>()}
-            </Typography>
-            {row.original.error && (
-              <Typography variant="caption" sx={{ color: 'error.main', display: 'block' }}>
-                {row.original.error}
-              </Typography>
-            )}
-          </>
-        ),
+        Cell: FeedNameCell,
       },
       {
         accessorKey: 'from',
@@ -295,48 +348,19 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
         // Worst first, rather than alphabetically — which would straddle "file"
         // between "cache" and "failed" and bury the row worth acting on.
         sortingFn: (a, b) => ORIGIN_ORDER.indexOf(a.original.from) - ORIGIN_ORDER.indexOf(b.original.from),
-        Cell: ({ cell }) => {
-          const origin = ORIGIN[cell.getValue<IntelFeedOrigin>()];
-          return (
-            <Tooltip title={origin.hint}>
-              <Chip size="small" variant="outlined" color={origin.color} label={origin.label} />
-            </Tooltip>
-          );
-        },
+        Cell: OriginCell,
       },
       numericColumn({
         accessorKey: 'indicators',
         header: 'Indicators',
         size: 130,
-        Cell: ({ cell }) => {
-          const value = cell.getValue<number>();
-          return (
-            <Typography
-              variant="body2"
-              sx={{
-                fontVariantNumeric: 'tabular-nums',
-                // Zero indicators from a feed that "succeeded" is the silent
-                // failure this page exists to make visible.
-                color: value === 0 ? 'warning.main' : 'text.primary',
-                fontWeight: value === 0 ? 600 : 400,
-              }}
-            >
-              {value.toLocaleString()}
-            </Typography>
-          );
-        },
+        Cell: IndicatorCountCell,
       }),
       numericColumn({
         accessorKey: 'skipped',
         header: 'Skipped',
         size: 120,
-        Cell: ({ cell }) => (
-          <Tooltip title="Lines that were not usable indicators: comments, blanks, and anything malformed or non-routable.">
-            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-              {cell.getValue<number>().toLocaleString()}
-            </Typography>
-          </Tooltip>
-        ),
+        Cell: SkippedCountCell,
       }),
     ],
     [],
@@ -368,12 +392,7 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
               // of whatever is wrong with this feed — so a degraded row is
               // findable without reading the Source column.
               borderLeft: '4px solid',
-              borderLeftColor:
-                row.original.from === 'failed'
-                  ? 'error.main'
-                  : row.original.from === 'cache' || row.original.indicators === 0
-                    ? 'warning.main'
-                    : 'transparent',
+              borderLeftColor: feedEdge(row.original),
             },
           }),
         }}

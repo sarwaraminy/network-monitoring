@@ -1,5 +1,5 @@
 import type { Theme } from '@mui/material/styles';
-import { HEAD_SURFACE } from './theme';
+import { SURFACE } from './theme';
 
 /**
  * Shared Material React Table appearance.
@@ -26,7 +26,8 @@ export const sharedTableOptions = {
       // background on the wrapper, and in dark mode MUI layers an elevation
       // gradient on top of it, so without pinning both the table ends up a
       // different shade from every Card beside it.
-      backgroundColor: theme.vars?.palette.background.paper,
+      backgroundColor: SURFACE.light.gridOnCard,
+      ...theme.applyStyles('dark', { backgroundColor: SURFACE.dark.gridOnCard }),
       backgroundImage: 'none',
       // Clips the sticky header and the toolbars to the rounded corners; without
       // it the header's tinted background squares off the top of the card.
@@ -51,9 +52,13 @@ export const sharedTableOptions = {
         backgroundColor: 'transparent',
       },
       // Same specificity as the reset above, declared after it, so it wins.
+      // The grid head sits on the grid's own surface, not a tinted band. This
+      // rule exists only to out-rank MRT's inline background, which is emitted
+      // as a single emotion class and beats the theme's `styleOverrides`; the
+      // colour it restores is the same one theme.ts sets on `MuiTableCell.head`.
       '& .MuiTableCell-head.MuiTableCell-head': {
-        backgroundColor: HEAD_SURFACE.light,
-        ...theme.applyStyles('dark', { backgroundColor: HEAD_SURFACE.dark }),
+        backgroundColor: SURFACE.light.gridOnCard,
+        ...theme.applyStyles('dark', { backgroundColor: SURFACE.dark.gridOnCard }),
       },
       // Zeroing the backgrounds also removes MRT's row hover, so put it back.
       '& .MuiTableBody-root .MuiTableRow-root:hover .MuiTableCell-root.MuiTableCell-root': {
