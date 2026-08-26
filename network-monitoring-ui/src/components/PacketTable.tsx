@@ -4,11 +4,11 @@ import Chip from '@mui/material/Chip';
 import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { MaterialReactTable, type MRT_ColumnDef, useMaterialReactTable } from 'material-react-table';
+import type { MRT_ColumnDef, MRT_TableOptions } from 'material-react-table';
 import { useMemo } from 'react';
-import { sharedTableOptions } from '../tableTheme';
 import { monoSx } from '../theme';
 import type { Packet } from '../types';
+import DataGrid from './DataGrid';
 import HexDump, { hexByteCount } from './HexDump';
 
 interface PacketTableProps {
@@ -119,22 +119,7 @@ export default function PacketTable({ packets, capturing, onIpClick }: PacketTab
     [onIpClick],
   );
 
-  const table = useMaterialReactTable({
-    // Spread first, so anything below wins over the shared defaults.
-    ...sharedTableOptions,
-    columns,
-    data: rows,
-    enableStickyHeader: true,
-    enableColumnResizing: false,
-    enableDensityToggle: true,
-    columnFilterDisplayMode: 'popover',
-    paginationDisplayMode: 'pages',
-    initialState: {
-      density: 'compact',
-      pagination: { pageIndex: 0, pageSize: 25 },
-      showGlobalFilter: true,
-    },
-    muiTableContainerProps: { sx: { maxHeight: '58vh' } },
+  const tableOptions = {
     muiSearchTextFieldProps: { placeholder: 'Search packets', sx: { minWidth: 240 } },
     renderDetailPanel: ({ row }) => (
       <Stack spacing={2} sx={{ px: 1, py: 1.5, maxWidth: 900 }}>
@@ -193,9 +178,9 @@ export default function PacketTable({ packets, capturing, onIpClick }: PacketTab
         </Typography>
       </Box>
     ),
-  });
+  } satisfies Partial<MRT_TableOptions<Packet>>;
 
-  return <MaterialReactTable table={table} />;
+  return <DataGrid columns={columns} data={rows} tableOptions={tableOptions} />;
 }
 
 function IpLink({ value, onClick }: { value: string; onClick: (ipAddress: string) => void }) {

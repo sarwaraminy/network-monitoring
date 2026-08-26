@@ -4,17 +4,12 @@ import RadarIcon from '@mui/icons-material/Radar';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import Grid from '@mui/material/Grid';
 import MenuItem from '@mui/material/MenuItem';
 import Skeleton from '@mui/material/Skeleton';
-import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -28,6 +23,7 @@ import SeverityTrendChart from '../charts/SeverityTrendChart';
 import { useChartPalette } from '../charts/useChartPalette';
 import { KIND_LABEL } from '../components/SeverityChip';
 import StatTile from '../components/StatTile';
+import SurfaceCard from '../components/SurfaceCard';
 import { useKnownDevices } from '../hooks/useAlerts';
 import type { AlertKind } from '../types';
 
@@ -77,42 +73,44 @@ export default function DashboardPage() {
 
   return (
     <>
-      <Stack direction="row" spacing={2} sx={{ mb: 2, alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
-        <Typography variant="h5" component="h1" sx={{ flexGrow: 1 }}>
-          Dashboard
-        </Typography>
-        {/* Filters sit in one row above the charts. */}
-        <TextField
-          select
-          size="small"
-          label="Period"
-          value={days}
-          onChange={(event) => setDays(Number(event.target.value))}
-          sx={{ minWidth: 160 }}
-        >
-          {PERIODS.map((period) => (
-            <MenuItem key={period.value} value={period.value}>
-              {period.label}
-            </MenuItem>
-          ))}
-        </TextField>
-        <Button
-          size="small"
-          startIcon={<RefreshIcon />}
-          onClick={() => void dashboard.refetch()}
-          disabled={dashboard.isFetching}
-        >
-          Refresh
-        </Button>
-      </Stack>
+      <SurfaceCard
+        title="Dashboard"
+        titleComponent="h1"
+        titleVariant="h5"
+        subtitle="What the detectors have found, and which hosts keep appearing"
+        headerActions={
+          <>
+            <TextField
+              select
+              size="small"
+              label="Period"
+              value={days}
+              onChange={(event) => setDays(Number(event.target.value))}
+              sx={{ minWidth: 160 }}
+            >
+              {PERIODS.map((period) => (
+                <MenuItem key={period.value} value={period.value}>
+                  {period.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <Button
+              size="small"
+              startIcon={<RefreshIcon />}
+              onClick={() => void dashboard.refetch()}
+              disabled={dashboard.isFetching}
+            >
+              Refresh
+            </Button>
+          </>
+        }
+      />
 
       {dashboard.error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {describeError(dashboard.error, 'Could not load the dashboard')}
-        </Alert>
+        <Alert severity="error">{describeError(dashboard.error, 'Could not load the dashboard')}</Alert>
       )}
 
-      <Grid container spacing={1.5} sx={{ mb: 2 }}>
+      <Grid container spacing={1.5}>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
             label="Open findings"
@@ -225,6 +223,13 @@ export default function DashboardPage() {
   );
 }
 
+/**
+ * A chart panel: SurfaceCard, plus the skeleton every chart here wants.
+ *
+ * Kept as a wrapper rather than inlined at each call site so the four charts
+ * cannot drift apart on placeholder height, which is what decides whether the
+ * grid jumps as the data lands.
+ */
 function ChartCard({
   title,
   subtitle,
@@ -239,24 +244,9 @@ function ChartCard({
   action?: React.ReactNode;
 }) {
   return (
-    <Card variant="outlined" sx={{ height: '100%' }}>
-      <CardContent>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 1 }}>
-          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 650 }}>
-              {title}
-            </Typography>
-            {subtitle && (
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                {subtitle}
-              </Typography>
-            )}
-          </Box>
-          {action}
-        </Stack>
-        {loading ? <Skeleton variant="rounded" height={260} /> : children}
-      </CardContent>
-    </Card>
+    <SurfaceCard title={title} subtitle={subtitle} headerActions={action} sx={{ height: '100%' }}>
+      {loading ? <Skeleton variant="rounded" height={260} /> : children}
+    </SurfaceCard>
   );
 }
 

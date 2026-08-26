@@ -491,9 +491,9 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 295 tests
+npm test          # both suites: 298 tests
 npm run test:api  # 246 API tests
-npm run test:ui   # 49 UI tests
+npm run test:ui   # 52 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
@@ -534,7 +534,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 49 tests
+### UI — 52 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —

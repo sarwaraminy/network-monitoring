@@ -18,15 +18,16 @@ import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import { MaterialReactTable, type MRT_ColumnDef, useMaterialReactTable } from 'material-react-table';
+import type { MRT_ColumnDef, MRT_TableOptions } from 'material-react-table';
 import { useCallback, useMemo, useState } from 'react';
 import { describeError } from '../api/client';
 import AlertSummaryTiles from '../components/AlertSummaryTiles';
+import DataGrid from '../components/DataGrid';
 import IpInfoDialog from '../components/IpInfoDialog';
 import { KIND_DESCRIPTION, KIND_LABEL, SeverityChip } from '../components/SeverityChip';
+import SurfaceCard from '../components/SurfaceCard';
 import { useAcknowledgeAlert, useAlertSummary, useAlerts, useDeleteAlert } from '../hooks/useAlerts';
 import { useIpInfo } from '../hooks/useIpInfo';
-import { sharedTableOptions } from '../tableTheme';
 import { monoSx } from '../theme';
 import { ALERT_KINDS, type AlertKind, type Alert as AlertRecord, type Severity } from '../types';
 
@@ -203,24 +204,9 @@ export default function AlertsPage() {
     [showIp],
   );
 
-  const table = useMaterialReactTable({
-    // Spread first, so anything below wins over the shared defaults.
-    ...sharedTableOptions,
-    columns,
-    data: alerts,
-    state: { isLoading: loading },
-    enableStickyHeader: true,
-    enableColumnResizing: true,
+  const tableOptions = {
     enableRowActions: true,
-    positionActionsColumn: 'last',
-    columnFilterDisplayMode: 'popover',
-    paginationDisplayMode: 'pages',
-    initialState: {
-      density: 'comfortable',
-      pagination: { pageIndex: 0, pageSize: 25 },
-      showGlobalFilter: true,
-    },
-    muiTableContainerProps: { sx: { maxHeight: '56vh' } },
+    positionActionsColumn: 'last' as const,
     muiSearchTextFieldProps: { placeholder: 'Search findings', sx: { minWidth: 240 } },
     muiTableBodyRowProps: ({ row }) => ({
       sx: {
@@ -329,39 +315,35 @@ export default function AlertsPage() {
         </Typography>
       </Box>
     ),
-  });
+  } satisfies Partial<MRT_TableOptions<AlertRecord>>;
 
   return (
     <>
-      <Stack
-        direction="row"
-        spacing={1.5}
-        sx={{
-          alignItems: 'baseline',
-          mb: 2,
-        }}
-      >
-        <Typography variant="h5" component="h1">
-          Security alerts
-        </Typography>
-        {summary && summary.unacknowledged > 0 && (
-          <Typography
-            variant="body2"
-            sx={{
-              color: 'text.secondary',
-            }}
-          >
-            {summary.unacknowledged.toLocaleString()} open
-          </Typography>
-        )}
-      </Stack>
+      <SurfaceCard
+        title="Security alerts"
+        titleComponent="h1"
+        titleVariant="h5"
+        subtitle="Every finding the detectors raised, newest first"
+        headerActions={
+          summary && summary.unacknowledged > 0 ? (
+            <Chip
+              size="small"
+              color="warning"
+              variant="outlined"
+              label={`${summary.unacknowledged.toLocaleString()} unacknowledged`}
+            />
+          ) : null
+        }
+      />
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+        <Alert severity="error" onClose={() => setError('')}>
           {error}
         </Alert>
       )}
       <AlertSummaryTiles summary={summary} selected={severity} onSelect={setSeverity} />
-      <MaterialReactTable table={table} />
+      <SurfaceCard bodyVariant="grid" fill>
+        <DataGrid columns={columns} data={alerts} isLoading={loading} tableOptions={tableOptions} />
+      </SurfaceCard>
       <IpInfoDialog
         open={ipInfo.open}
         ipAddress={ipInfo.ipAddress}

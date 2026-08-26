@@ -7,12 +7,12 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Grid from '@mui/material/Grid';
 import MenuItem from '@mui/material/MenuItem';
-import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { Link as RouterLink } from 'react-router-dom';
 import type { UsePacketCapture } from '../hooks/usePacketCapture';
+import SurfaceCard from './SurfaceCard';
 
 interface CaptureToolbarProps {
   capture: UsePacketCapture;
@@ -47,7 +47,7 @@ export default function CaptureToolbar({ capture, showIpFilter = false }: Captur
   const captureUnavailable = status?.captureAvailable === false;
 
   return (
-    <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+    <SurfaceCard title="Capture" subtitle="Choose what to listen to, then start">
       {captureUnavailable && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           Live capture is unavailable on the server: the packet capture library could not be loaded. Install
@@ -212,6 +212,6 @@ export default function CaptureToolbar({ capture, showIpFilter = false }: Captur
           </Typography>
         )}
       </Stack>
-    </Paper>
+    </SurfaceCard>
   );
 }

@@ -11,6 +11,21 @@ const MONO_STACK = '"JetBrains Mono", "Cascadia Mono", "SF Mono", Consolas, "Lib
 export const HEAD_SURFACE = { light: '#f7f9fc', dark: '#16213a' } as const;
 
 /**
+ * SurfaceCard metrics, in theme spacing units except where noted.
+ *
+ * Here rather than inside the component so a page needing to line something up
+ * with a card — a skeleton standing in for a body, say — reads the same numbers
+ * instead of guessing at them.
+ */
+export const CARD_METRICS = {
+  headerPaddingBlock: 1.25,
+  headerPaddingInline: 2,
+  bodyPadding: 2,
+  /** px. Minimum height of a `fill` card, so a short one still has presence. */
+  fillMinHeight: 340,
+} as const;
+
+/**
  * Shared MUI theme, with light and dark colour schemes.
  *
  * `cssVariables` emits CSS custom properties and a `data-mui-color-scheme`

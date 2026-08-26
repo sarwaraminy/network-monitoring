@@ -32,7 +32,7 @@ export default function AlertSummaryTiles({ summary, selected, onSelect }: Alert
   ];
 
   return (
-    <Grid container spacing={1.5} sx={{ mb: 2 }}>
+    <Grid container spacing={1.5}>
       {tiles.map((tile) => {
         const active = selected === tile.key;
         const muted = tile.value === 0 && !active;

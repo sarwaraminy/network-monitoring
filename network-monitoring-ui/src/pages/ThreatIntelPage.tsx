@@ -9,8 +9,6 @@ import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import Grid from '@mui/material/Grid';
 import Skeleton from '@mui/material/Skeleton';
@@ -18,13 +16,15 @@ import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MaterialReactTable, type MRT_ColumnDef, useMaterialReactTable } from 'material-react-table';
+import type { MRT_ColumnDef } from 'material-react-table';
 import { useMemo, useState } from 'react';
 import { describeError } from '../api/client';
 import { fetchIntelStatus, reloadIntel } from '../api/intel.api';
 import { useChartPalette } from '../charts/useChartPalette';
+import DataGrid, { numericColumn } from '../components/DataGrid';
+import StatTile from '../components/StatTile';
+import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
-import { sharedTableOptions } from '../tableTheme';
 import type { IntelFeedOrigin, IntelFeedStatus } from '../types';
 
 /**
@@ -86,9 +86,14 @@ export default function ThreatIntelPage() {
   const reload = useMutation({
     mutationFn: reloadIntel,
     onSuccess: (result) => {
+      // `sources` is every CONFIGURED source with its result, failures included,
+      // so counting it claims a feed loaded that did not. The banner below would
+      // then say a feed could not be loaded while this said all of them did —
+      // undercutting the one thing this page is for.
+      const loaded = result.sources.filter((feed) => feed.from !== 'failed').length;
       setMessage({
         severity: 'success',
-        text: `Reloaded ${result.indicators.toLocaleString()} indicators from ${result.sources.length} feed(s).`,
+        text: `Reloaded ${result.indicators.toLocaleString()} indicators from ${loaded} feed(s).`,
       });
       void queryClient.invalidateQueries({ queryKey: ['intel', 'status'] });
     },
@@ -107,37 +112,34 @@ export default function ThreatIntelPage() {
 
   return (
     <>
-      <Stack direction="row" spacing={2} sx={{ mb: 2, alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
-        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-          <Typography variant="h5" component="h1">
-            Threat intelligence
-          </Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Addresses and domains matched against indicator feeds — the one detector here that is not a
-            threshold
-          </Typography>
-        </Box>
-        {isAdmin && (
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={() => reload.mutate()}
-            disabled={reload.isPending || !data?.enabled}
-          >
-            {reload.isPending ? 'Reloading…' : 'Reload feeds'}
-          </Button>
-        )}
-      </Stack>
+      <SurfaceCard
+        title="Threat intelligence"
+        titleComponent="h1"
+        titleVariant="h5"
+        subtitle="Addresses and domains matched against indicator feeds — the one detector here that is not a threshold"
+        headerActions={
+          isAdmin ? (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={() => reload.mutate()}
+              disabled={reload.isPending || !data?.enabled}
+            >
+              {reload.isPending ? 'Reloading…' : 'Reload feeds'}
+            </Button>
+          ) : null
+        }
+      />
 
       {status.error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error">
           {describeError(status.error, 'Could not read threat-intelligence status')}
         </Alert>
       )}
 
       {message && (
-        <Alert severity={message.severity} sx={{ mb: 2 }} onClose={() => setMessage(null)}>
+        <Alert severity={message.severity} onClose={() => setMessage(null)}>
           {message.text}
         </Alert>
       )}
@@ -145,7 +147,7 @@ export default function ThreatIntelPage() {
       {!loading && data && !data.enabled && <DisabledNotice />}
 
       {!loading && data?.enabled && data.sources.length === 0 && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
+        <Alert severity="warning">
           Threat intelligence is enabled but no feeds are configured, so nothing is being matched. Set
           <Box component="code" sx={{ mx: 0.75 }}>
             INTEL_FEEDS
@@ -160,23 +162,23 @@ export default function ThreatIntelPage() {
         healthy-looking numbers.
       */}
       {failedFeeds.length > 0 && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error">
           {failedFeeds.length} feed{failedFeeds.length === 1 ? '' : 's'} could not be loaded at all:{' '}
           {failedFeeds.map((feed) => feed.name).join(', ')}. Those indicators are not being matched.
         </Alert>
       )}
 
       {failedFeeds.length === 0 && staleFeeds.length > 0 && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
+        <Alert severity="warning">
           {staleFeeds.length} feed{staleFeeds.length === 1 ? '' : 's'} fell back to a cached copy:{' '}
           {staleFeeds.map((feed) => feed.name).join(', ')}. Detection still works, but these indicators are
           only as fresh as the last successful download.
         </Alert>
       )}
 
-      <Grid container spacing={1.5} sx={{ mb: 2 }}>
+      <Grid container spacing={1.5}>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard
+          <StatTile
             label="Indicators loaded"
             value={data?.stats.total ?? 0}
             caption={data?.enabled ? 'matched on every packet and flow' : 'threat intelligence is off'}
@@ -186,7 +188,7 @@ export default function ThreatIntelPage() {
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard
+          <StatTile
             label="Feeds"
             value={data?.sources.length ?? 0}
             caption={
@@ -202,7 +204,7 @@ export default function ThreatIntelPage() {
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard
+          <StatTile
             label="Last loaded"
             value={data?.loadedAt ? relativeTime(data.loadedAt) : 'never'}
             caption={
@@ -213,7 +215,7 @@ export default function ThreatIntelPage() {
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard
+          <StatTile
             label="Refused on load"
             value={data?.stats.rejected ?? 0}
             caption="private ranges and malformed entries"
@@ -229,28 +231,19 @@ export default function ThreatIntelPage() {
         </Grid>
 
         <Grid size={{ xs: 12, lg: 4 }}>
-          <Card variant="outlined" sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography variant="subtitle1" sx={{ fontWeight: 650 }}>
-                What is loaded
-              </Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                By indicator type
-              </Typography>
+          <SurfaceCard title="What is loaded" subtitle="By indicator type" sx={{ height: '100%' }}>
+            <Stack spacing={1}>
+              <TypeRow label="IPv4 addresses" value={data?.stats.ipv4 ?? 0} loading={loading} />
+              <TypeRow label="IPv4 ranges (CIDR)" value={data?.stats.cidr ?? 0} loading={loading} />
+              <TypeRow label="IPv6 addresses" value={data?.stats.ipv6 ?? 0} loading={loading} />
+              <TypeRow label="Domains" value={data?.stats.domain ?? 0} loading={loading} />
+            </Stack>
 
-              <Stack spacing={1} sx={{ mt: 2 }}>
-                <TypeRow label="IPv4 addresses" value={data?.stats.ipv4 ?? 0} loading={loading} />
-                <TypeRow label="IPv4 ranges (CIDR)" value={data?.stats.cidr ?? 0} loading={loading} />
-                <TypeRow label="IPv6 addresses" value={data?.stats.ipv6 ?? 0} loading={loading} />
-                <TypeRow label="Domains" value={data?.stats.domain ?? 0} loading={loading} />
-              </Stack>
-
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 2.5 }}>
-                A domain indicator also covers its subdomains. Private and reserved addresses are refused on
-                load, whatever a feed says — one wrongly listed would alert on every host at once.
-              </Typography>
-            </CardContent>
-          </Card>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 2.5 }}>
+              A domain indicator also covers its subdomains. Private and reserved addresses are refused on
+              load, whatever a feed says — one wrongly listed would alert on every host at once.
+            </Typography>
+          </SurfaceCard>
         </Grid>
       </Grid>
     </>
@@ -291,6 +284,14 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
         header: 'Source',
         size: 140,
         filterVariant: 'select',
+        // Without these MRT builds the dropdown from the faceted raw values —
+        // `network`, `cache`, `file`, `failed` — while the cells render Live,
+        // Cached, Local file, Failed. Filtering for a failed feed would mean
+        // knowing the wire value, and "Live" would not be findable at all.
+        filterSelectOptions: ORIGIN_ORDER.map((origin) => ({
+          value: origin,
+          label: ORIGIN[origin].label,
+        })),
         // Worst first, rather than alphabetically — which would straddle "file"
         // between "cache" and "failed" and bury the row worth acting on.
         sortingFn: (a, b) => ORIGIN_ORDER.indexOf(a.original.from) - ORIGIN_ORDER.indexOf(b.original.from),
@@ -303,12 +304,10 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
           );
         },
       },
-      {
+      numericColumn({
         accessorKey: 'indicators',
         header: 'Indicators',
         size: 130,
-        muiTableHeadCellProps: { align: 'right' },
-        muiTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => {
           const value = cell.getValue<number>();
           return (
@@ -326,72 +325,61 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
             </Typography>
           );
         },
-      },
-      {
+      }),
+      numericColumn({
         accessorKey: 'skipped',
         header: 'Skipped',
         size: 120,
-        muiTableHeadCellProps: { align: 'right' },
-        muiTableBodyCellProps: { align: 'right' },
         Cell: ({ cell }) => (
           <Tooltip title="Lines that were not usable indicators: comments, blanks, and anything malformed or non-routable.">
-            <Typography variant="body2" sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
               {cell.getValue<number>().toLocaleString()}
             </Typography>
           </Tooltip>
         ),
-      },
+      }),
     ],
     [],
   );
 
-  const table = useMaterialReactTable({
-    // Spread first, so anything below wins over the shared defaults.
-    ...sharedTableOptions,
-    columns,
-    data: feeds,
-    state: { isLoading: loading },
-    enablePagination: false,
-    enableBottomToolbar: false,
-    enableDensityToggle: false,
-    enableFullScreenToggle: false,
-    enableHiding: false,
-    columnFilterDisplayMode: 'popover',
-    initialState: { density: 'comfortable', sorting: [{ id: 'from', desc: false }] },
-    muiTableContainerProps: { sx: { maxHeight: '52vh' } },
-    muiSearchTextFieldProps: { placeholder: 'Search feeds', sx: { minWidth: 180 } },
-    muiTableBodyRowProps: ({ row }) => ({
-      sx: {
-        // The left edge the alerts table uses for severity, in the colour of
-        // whatever is wrong with this feed — so a degraded row is findable
-        // without reading the Source column.
-        borderLeft: '4px solid',
-        borderLeftColor:
-          row.original.from === 'failed'
-            ? 'error.main'
-            : row.original.from === 'cache' || row.original.indicators === 0
-              ? 'warning.main'
-              : 'transparent',
-      },
-    }),
-    renderTopToolbarCustomActions: () => (
-      <Box sx={{ pl: 0.5, py: 0.5 }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 650, lineHeight: 1.2 }}>
-          Feeds
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          Where each source came from on the last load
-        </Typography>
-      </Box>
-    ),
-    renderEmptyRowsFallback: () => (
-      <Typography variant="body2" sx={{ color: 'text.secondary', py: 4, textAlign: 'center' }}>
-        No feeds configured.
-      </Typography>
-    ),
-  });
-
-  return <MaterialReactTable table={table} />;
+  return (
+    <SurfaceCard
+      title="Feeds"
+      subtitle="Where each source came from on the last load"
+      bodyVariant="grid"
+      sx={{ height: '100%' }}
+    >
+      <DataGrid
+        columns={columns}
+        data={feeds}
+        isLoading={loading}
+        emptyMessage="No feeds configured."
+        tableOptions={{
+          enablePagination: false,
+          enableBottomToolbar: false,
+          enableDensityToggle: false,
+          enableFullScreenToggle: false,
+          enableHiding: false,
+          initialState: { density: 'comfortable', sorting: [{ id: 'from', desc: false }] },
+          muiSearchTextFieldProps: { placeholder: 'Search feeds', sx: { minWidth: 180 } },
+          muiTableBodyRowProps: ({ row }) => ({
+            sx: {
+              // The left edge the alerts table uses for severity, in the colour
+              // of whatever is wrong with this feed — so a degraded row is
+              // findable without reading the Source column.
+              borderLeft: '4px solid',
+              borderLeftColor:
+                row.original.from === 'failed'
+                  ? 'error.main'
+                  : row.original.from === 'cache' || row.original.indicators === 0
+                    ? 'warning.main'
+                    : 'transparent',
+            },
+          }),
+        }}
+      />
+    </SurfaceCard>
+  );
 }
 
 function TypeRow({ label, value, loading }: Readonly<{ label: string; value: number; loading: boolean }>) {
@@ -412,115 +400,53 @@ function TypeRow({ label, value, loading }: Readonly<{ label: string; value: num
 }
 
 /** Local copy of the stat tile, so the accent bar reads against this palette. */
-function StatCard({
-  label,
-  value,
-  caption,
-  icon,
-  accent,
-  loading,
-}: Readonly<{
-  label: string;
-  value: number | string;
-  caption?: string;
-  icon?: React.ReactNode;
-  accent?: string;
-  loading?: boolean;
-}>) {
-  return (
-    <Card variant="outlined" sx={{ height: '100%' }}>
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', p: 2 }}>
-        <Box
-          sx={{
-            width: 6,
-            alignSelf: 'stretch',
-            minHeight: 44,
-            borderRadius: 3,
-            bgcolor: accent ?? 'divider',
-            flexShrink: 0,
-          }}
-        />
-        <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-            {label}
-          </Typography>
-          {loading ? (
-            <Skeleton width={72} height={34} />
-          ) : (
-            <Typography variant="h5" component="p" sx={{ lineHeight: 1.15 }}>
-              {typeof value === 'number' ? value.toLocaleString() : value}
-            </Typography>
-          )}
-          {caption && (
-            <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>
-              {caption}
-            </Typography>
-          )}
-        </Box>
-        {icon && <Box sx={{ color: 'text.disabled', display: 'flex' }}>{icon}</Box>}
-      </Stack>
-    </Card>
-  );
-}
-
-/**
- * Shown when the feature is off, with what to do about it.
- *
- * A blank page saying "0 indicators" would be indistinguishable from a broken
- * one. Off by default is deliberate — no feeds ship, because which intelligence
- * to trust is the operator's decision — so the empty state has to explain itself.
- */
 function DisabledNotice() {
   return (
-    <Card variant="outlined" sx={{ mb: 2 }}>
-      <CardContent>
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
-          <ErrorOutlineIcon sx={{ color: 'text.disabled', mt: 0.25 }} />
-          <Box>
-            <Typography variant="subtitle1" sx={{ fontWeight: 650 }}>
-              Threat intelligence is off
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
-              Nothing is being matched against known-malicious addresses or domains. It is off by default
-              because no feeds are shipped — which intelligence to trust is your decision, and a security tool
-              should not start making outbound requests to a list nobody chose.
-            </Typography>
+    <SurfaceCard>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+        <ErrorOutlineIcon sx={{ color: 'text.disabled', mt: 0.25 }} />
+        <Box>
+          <Typography variant="subtitle1" sx={{ fontWeight: 650 }}>
+            Threat intelligence is off
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
+            Nothing is being matched against known-malicious addresses or domains. It is off by default
+            because no feeds are shipped — which intelligence to trust is your decision, and a security tool
+            should not start making outbound requests to a list nobody chose.
+          </Typography>
 
-            <Typography variant="body2" sx={{ mt: 2, fontWeight: 600 }}>
-              To enable it, add to <Box component="code">api/.env</Box>:
-            </Typography>
-            <Box
-              component="pre"
-              sx={{
-                mt: 1,
-                p: 1.5,
-                borderRadius: 1,
-                bgcolor: 'action.hover',
-                fontSize: '0.78rem',
-                overflowX: 'auto',
-              }}
-            >
-              {
-                'INTEL_ENABLED=true\nINTEL_FEEDS=feodo=https://feodotracker.abuse.ch/downloads/ipblocklist.txt'
-              }
-            </Box>
-
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1.5 }}>
-              <FolderOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                A local file path works too, and is the right choice where this host has no outbound internet.
-              </Typography>
-            </Stack>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 0.5 }}>
-              <DnsOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                Check each feed's licence before relying on it commercially.
-              </Typography>
-            </Stack>
+          <Typography variant="body2" sx={{ mt: 2, fontWeight: 600 }}>
+            To enable it, add to <Box component="code">api/.env</Box>:
+          </Typography>
+          <Box
+            component="pre"
+            sx={{
+              mt: 1,
+              p: 1.5,
+              borderRadius: 1,
+              bgcolor: 'action.hover',
+              fontSize: '0.78rem',
+              overflowX: 'auto',
+            }}
+          >
+            {'INTEL_ENABLED=true\nINTEL_FEEDS=feodo=https://feodotracker.abuse.ch/downloads/ipblocklist.txt'}
           </Box>
-        </Stack>
-      </CardContent>
-    </Card>
+
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1.5 }}>
+            <FolderOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              A local file path works too, and is the right choice where this host has no outbound internet.
+            </Typography>
+          </Stack>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 0.5 }}>
+            <DnsOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              Check each feed's licence before relying on it commercially.
+            </Typography>
+          </Stack>
+        </Box>
+      </Stack>
+    </SurfaceCard>
   );
 }
 

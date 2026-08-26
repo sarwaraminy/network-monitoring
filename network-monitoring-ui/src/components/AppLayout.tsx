@@ -117,19 +117,37 @@ export default function AppLayout() {
                   to={item.to}
                   startIcon={item.icon}
                   color="inherit"
-                  sx={{
+                  sx={(theme) => ({
                     px: 1.5,
-                    // Inactive items sit at secondary-text weight; the active one
-                    // comes forward. A pill rather than an underline, so the bar
-                    // has no hard rules running through it.
                     color: 'text.secondary',
-                    borderRadius: 1.5,
+                    // Square-bottomed, because the active state in one scheme is
+                    // a rule sitting on that edge.
+                    borderTopLeftRadius: theme.shape.borderRadius,
+                    borderTopRightRadius: theme.shape.borderRadius,
+                    borderBottomLeftRadius: 0,
+                    borderBottomRightRadius: 0,
+                    // Drawn on every item, transparent unless active, so the
+                    // labels stay on one baseline rather than the active one
+                    // being nudged up 2px as the selection moves.
+                    borderBottom: '2px solid transparent',
                     '&:hover': { bgcolor: 'action.hover', color: 'text.primary' },
-                    '&.active': {
-                      color: 'primary.main',
-                      bgcolor: 'action.selected',
-                    },
-                  }}
+
+                    // `lifted` — see navTreatment. The current page rises out of
+                    // the bar on a tinted surface.
+                    '&.active': { color: 'primary.main', bgcolor: 'action.selected' },
+
+                    // `underlined`. Against the near-black dark bar a tinted slab
+                    // is the brightest thing on screen, which is the wrong place
+                    // for the eye on a page about alerts — so the state moves to
+                    // a rule and the surface goes away.
+                    ...theme.applyStyles('dark', {
+                      '&.active': {
+                        color: 'primary.main',
+                        bgcolor: 'transparent',
+                        borderBottomColor: theme.vars?.palette.primary.main,
+                      },
+                    }),
+                  })}
                 >
                   {item.label}
                 </Button>
@@ -205,14 +223,54 @@ export default function AppLayout() {
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <Box sx={{ width: 268, pt: 1 }} onClick={() => setDrawerOpen(false)}>
           {NAV_ITEMS.map((item) => (
-            <ListItemButton key={item.to} component={NavLink} to={item.to}>
+            <ListItemButton
+              key={item.to}
+              component={NavLink}
+              to={item.to}
+              sx={{
+                // The drawer's equivalent of the bar's underline: a rule on the
+                // panel edge. Present and transparent on every row, for the same
+                // reason — otherwise every label shifts 2px as the selection
+                // moves down the list.
+                borderLeft: '2px solid transparent',
+                color: 'text.secondary',
+                '&.active': {
+                  borderLeftColor: 'primary.main',
+                  bgcolor: 'action.selected',
+                  color: 'primary.main',
+                  '& .MuiListItemIcon-root': { color: 'primary.main' },
+                  '& .MuiListItemText-primary': { fontWeight: 600 },
+                },
+              }}
+            >
               <ListItemIcon>{item.icon}</ListItemIcon>
               <ListItemText primary={item.label} />
             </ListItemButton>
           ))}
         </Box>
       </Drawer>
-      <Container maxWidth={false} sx={{ py: 3, flexGrow: 1 }}>
+      {/*
+        The page canvas. A flex column with one gap between its children, rather
+        than every page spacing itself with `mb` — which is how the pages ended
+        up with a title band 16px above its content on one page and 12px on
+        another, and how a page's last card gained a trailing margin the page
+        below it did not.
+
+        `minHeight: 0` and a stretched column are what let a SurfaceCard marked
+        `fill` consume the leftover height, so a short page's last card reaches
+        the bottom instead of leaving the page background showing beneath it.
+      */}
+      <Container
+        maxWidth={false}
+        sx={{
+          py: 3,
+          flexGrow: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2,
+          minHeight: 0,
+        }}
+      >
         <Outlet />
       </Container>
     </Box>
