@@ -59,6 +59,32 @@ notifyRouter.get('/status', (_req, res) => {
         env.notify.email.to.length > 0,
       recipients: env.notify.email.to.length,
     },
+    /*
+     * Reported in full, unlike the webhook URL.
+     *
+     * A webhook URL is a bearer credential for Slack and Teams, so it is withheld
+     * from a response any authenticated user can read. A syslog target is a host
+     * and a port on your own network and carries no secret, and the question this
+     * endpoint exists to answer — "is it pointed at the right collector?" — cannot
+     * be answered without them.
+     */
+    syslog: env.notify.syslog.host
+      ? {
+          configured: true,
+          target: `${env.notify.syslog.host}:${env.notify.syslog.port}`,
+          protocol: env.notify.syslog.protocol,
+          format: env.notify.syslog.format,
+          rfc: env.notify.syslog.rfc,
+          includeEvidence: env.notify.syslog.includeEvidence,
+        }
+      : {
+          configured: false,
+          target: null,
+          protocol: env.notify.syslog.protocol,
+          format: env.notify.syslog.format,
+          rfc: env.notify.syslog.rfc,
+          includeEvidence: env.notify.syslog.includeEvidence,
+        },
   });
 });
 
@@ -75,7 +101,7 @@ notifyRouter.post(
     if (notifier().configuredChannels.length === 0) {
       res.status(400).json({
         message:
-          'No delivery channel is configured. Set NOTIFY_WEBHOOK_URL, or SMTP_HOST with NOTIFY_EMAIL_TO.',
+          'No delivery channel is configured. Set NOTIFY_WEBHOOK_URL, SYSLOG_HOST, or SMTP_HOST with NOTIFY_EMAIL_TO.',
       });
       return;
     }

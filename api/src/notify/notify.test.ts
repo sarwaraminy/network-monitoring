@@ -39,6 +39,27 @@ before(async () => {
 
 const AT = new Date('2026-07-27T10:00:00Z');
 
+/**
+ * An export channel: wants every finding, ungated.
+ *
+ * Records what it was handed so the tests below can assert on the one property
+ * that distinguishes this class of channel from a chat webhook.
+ */
+class RecordingExporter implements NotificationChannel {
+  readonly name = 'recording-exporter';
+  readonly deliversEveryFinding = true;
+  readonly received: Notification[] = [];
+
+  isConfigured(): boolean {
+    return true;
+  }
+
+  async send(notification: Notification): Promise<DeliveryResult> {
+    this.received.push(notification);
+    return { channel: this.name, ok: true, detail: 'recorded' };
+  }
+}
+
 function finding(overrides: Partial<Finding> = {}): Finding {
   return {
     kind: 'port_scan',
@@ -500,3 +521,60 @@ async function onlyNotification(): Promise<Notification> {
     isTest: false,
   };
 }
+
+describe('export channels are never gated', () => {
+  /*
+   * The rule that makes syslog a separate class of channel.
+   *
+   * A SIEM correlates and deduplicates itself, on the assumption that it holds
+   * the complete event stream. Applying the human gates to it — the severity
+   * threshold, the per-finding throttle, the hourly ceiling — makes every rule
+   * that counts events over a window silently under-report, and turns suppressed
+   * events into what look like quiet periods.
+   *
+   * Not covered here: NOTIFY_ENABLED=false. `active` is derived from the env,
+   * which this file pins once in `before()`, so the disabled path needs its own
+   * module fixture. The export call sits above that check in `consider()`.
+   */
+
+  it('exports a finding below the notification threshold', async () => {
+    // NOTIFY_MIN_SEVERITY is `high`, so this one never reaches a chat channel.
+    const exporter = new RecordingExporter();
+    const notifier = new notify.Notifier([exporter]);
+
+    assert.equal(notifier.consider(finding({ severity: 'medium' }), 1, AT, AT), 'below-threshold');
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(exporter.received.length, 1);
+    assert.equal(exporter.received[0]?.findings[0]?.severity, 'medium');
+  });
+
+  it('exports a repeat that the throttle would suppress', async () => {
+    const exporter = new RecordingExporter();
+    const notifier = new notify.Notifier([exporter]);
+    const now = Date.now();
+
+    assert.equal(notifier.consider(finding(), 1, AT, AT, now), 'queued');
+    assert.equal(notifier.consider(finding(), 2, AT, AT, now + 1000), 'throttled');
+
+    await new Promise((resolve) => setImmediate(resolve));
+    // Two considered, two exported — the throttle applies to the inbox only.
+    assert.equal(exporter.received.length, 2);
+    assert.equal(exporter.received[1]?.findings[0]?.occurrences, 2);
+  });
+
+  it('exports one finding per call rather than a digest', async () => {
+    // A digest is the right shape for a person and the wrong one for a machine:
+    // the SIEM needs each event with its own timestamp.
+    const exporter = new RecordingExporter();
+    const notifier = new notify.Notifier([exporter]);
+
+    notifier.consider(finding({ dedupKey: 'a' }), 1, AT, AT);
+    notifier.consider(finding({ dedupKey: 'b' }), 1, AT, AT);
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(exporter.received.length, 2);
+    assert.equal(exporter.received[0]?.findings.length, 1);
+    assert.equal(exporter.received[1]?.findings.length, 1);
+  });
+});

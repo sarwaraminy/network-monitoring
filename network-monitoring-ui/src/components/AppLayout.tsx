@@ -3,6 +3,7 @@ import GppMaybeOutlinedIcon from '@mui/icons-material/GppMaybeOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
+import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
 import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
 import ShieldMoonOutlinedIcon from '@mui/icons-material/ShieldMoonOutlined';
 import SpaceDashboardOutlinedIcon from '@mui/icons-material/SpaceDashboardOutlined';
@@ -43,6 +44,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: <SpaceDashboardOutlinedIcon /> },
   { label: 'Security Alerts', to: '/alerts', icon: <WarningAmberOutlinedIcon /> },
   { label: 'Threat Intel', to: '/threat-intel', icon: <GppMaybeOutlinedIcon /> },
+  { label: 'Delivery', to: '/delivery', icon: <SendOutlinedIcon /> },
   { label: 'Capture by Interface', to: '/capture-packets', icon: <SettingsEthernetIcon /> },
   { label: 'Capture by IP', to: '/capture-packets-ip', icon: <FilterAltOutlinedIcon /> },
 ];

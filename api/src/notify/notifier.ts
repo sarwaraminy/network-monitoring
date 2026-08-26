@@ -1,9 +1,11 @@
+import { hostname } from 'node:os';
 import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
 import type { Finding, Severity } from '../packet/detect/types.js';
 import { BoundedMap } from '../packet/detect/types.js';
 import { EmailChannel } from './email.js';
 import { MAX_LISTED_FINDINGS } from './format.js';
+import { SyslogChannel } from './syslog.js';
 import {
   type DeliveryResult,
   meetsThreshold,
@@ -16,6 +18,9 @@ import {
 import { WebhookChannel } from './webhook.js';
 
 const log = componentLogger('notify');
+
+/** Written into every exported event, so a SIEM rule can pin the producer. */
+const PRODUCT_VERSION = '1.0.0';
 
 /**
  * Decides what gets sent, and stops it becoming spam.
@@ -95,6 +100,21 @@ export class Notifier {
     at?: number,
   ): 'queued' | 'below-threshold' | 'throttled' | 'rate-limited' | 'disabled' {
     const now = at ?? this.now();
+
+    /*
+     * Export channels are fed first, and unconditionally.
+     *
+     * Everything below this — the enabled flag, the severity threshold, the
+     * throttle, the hourly ceiling, the digest — exists to protect a human
+     * inbox. A SIEM needs the opposite: the complete stream, because it does its
+     * own correlation and any gap silently under-reports every rule counting
+     * events over a window. See notify/syslog.ts.
+     *
+     * `void` because a collector must never be able to slow detection down, and
+     * the channel already swallows its own failures into a DeliveryResult.
+     */
+    void this.exportFinding(finding, occurrences, firstSeen, lastSeen, now);
+
     if (!this.active) return 'disabled';
 
     if (!meetsThreshold(finding.severity, env.notify.minSeverity)) return 'below-threshold';
@@ -126,6 +146,55 @@ export class Notifier {
 
     this.scheduleDigest();
     return 'queued';
+  }
+
+  /**
+   * Hands one finding to every channel that wants the whole stream.
+   *
+   * Wrapped in a single-finding Notification so export channels share the same
+   * interface as the human ones — the difference is when they are called, not
+   * what they receive.
+   */
+  private async exportFinding(
+    finding: Finding,
+    occurrences: number,
+    firstSeen: Date,
+    lastSeen: Date,
+    now: number,
+  ): Promise<void> {
+    const exporters = this.channels.filter(
+      (channel) => channel.deliversEveryFinding === true && channel.isConfigured(),
+    );
+    if (exporters.length === 0) return;
+
+    const notifiable = toNotifiable(
+      finding,
+      occurrences,
+      firstSeen,
+      lastSeen,
+      env.notify.syslog.includeEvidence,
+    );
+
+    const notification: Notification = {
+      severity: finding.severity,
+      findings: [notifiable],
+      omittedCount: 0,
+      countsBySeverity: { [finding.severity]: 1 },
+      generatedAt: new Date(now),
+      dashboardUrl: env.notify.dashboardUrl,
+      isTest: false,
+    };
+
+    const settled = await Promise.allSettled(exporters.map((channel) => channel.send(notification)));
+
+    for (const [index, outcome] of settled.entries()) {
+      const name = exporters[index]?.name ?? 'unknown';
+      if (outcome.status === 'rejected') {
+        log.error({ channel: name }, `export channel threw: ${outcome.reason}`);
+      } else if (!outcome.value.ok) {
+        log.error({ channel: name }, outcome.value.detail);
+      }
+    }
   }
 
   /** Sends a deliberate test message, bypassing every gate. */
@@ -304,6 +373,22 @@ function buildChannelsFromEnv(): NotificationChannel[] {
 
   if (env.notify.webhookUrl !== '') {
     channels.push(new WebhookChannel({ url: env.notify.webhookUrl, format: env.notify.webhookFormat }));
+  }
+
+  if (env.notify.syslog.host !== '') {
+    channels.push(
+      new SyslogChannel({
+        host: env.notify.syslog.host,
+        port: env.notify.syslog.port,
+        protocol: env.notify.syslog.protocol,
+        format: env.notify.syslog.format,
+        rfc: env.notify.syslog.rfc,
+        facility: env.notify.syslog.facility,
+        appName: env.notify.syslog.appName,
+        hostname: hostname(),
+        productVersion: PRODUCT_VERSION,
+      }),
+    );
   }
 
   if (env.notify.email.host !== '' && env.notify.email.to.length > 0) {

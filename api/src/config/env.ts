@@ -111,6 +111,39 @@ function webhookFormat(): WebhookFormatName {
   return raw as WebhookFormatName;
 }
 
+const SYSLOG_FORMATS = ['cef', 'json'] as const;
+type SyslogFormatName = (typeof SYSLOG_FORMATS)[number];
+
+function syslogFormat(): SyslogFormatName {
+  const raw = optional('SYSLOG_FORMAT', 'cef').toLowerCase();
+  if (!(SYSLOG_FORMATS as readonly string[]).includes(raw)) {
+    throw new TypeError(`SYSLOG_FORMAT must be one of ${SYSLOG_FORMATS.join(', ')}, got "${raw}".`);
+  }
+  return raw as SyslogFormatName;
+}
+
+const SYSLOG_PROTOCOLS = ['udp', 'tcp'] as const;
+type SyslogProtocolName = (typeof SYSLOG_PROTOCOLS)[number];
+
+function syslogProtocol(): SyslogProtocolName {
+  const raw = optional('SYSLOG_PROTOCOL', 'udp').toLowerCase();
+  if (!(SYSLOG_PROTOCOLS as readonly string[]).includes(raw)) {
+    throw new TypeError(`SYSLOG_PROTOCOL must be one of ${SYSLOG_PROTOCOLS.join(', ')}, got "${raw}".`);
+  }
+  return raw as SyslogProtocolName;
+}
+
+const SYSLOG_RFCS = ['5424', '3164'] as const;
+type SyslogRfcName = (typeof SYSLOG_RFCS)[number];
+
+function syslogRfc(): SyslogRfcName {
+  const raw = optional('SYSLOG_RFC', '5424');
+  if (!(SYSLOG_RFCS as readonly string[]).includes(raw)) {
+    throw new TypeError(`SYSLOG_RFC must be one of ${SYSLOG_RFCS.join(', ')}, got "${raw}".`);
+  }
+  return raw as SyslogRfcName;
+}
+
 function recipients(): string[] {
   return optional('NOTIFY_EMAIL_TO', '')
     .split(',')
@@ -260,6 +293,37 @@ export const env = {
     /** Slack, Teams, Discord or any endpoint accepting JSON. */
     webhookUrl: optional('NOTIFY_WEBHOOK_URL', ''),
     webhookFormat: webhookFormat(),
+
+    /**
+     * Syslog / CEF export to a SIEM.
+     *
+     * Deliberately outside the gates above. `minSeverity`, the digest and the
+     * throttle all exist because a person mutes a noisy channel; a SIEM does its
+     * own correlation and needs the complete stream, so it receives every
+     * finding. See notify/syslog.ts for why a digested SIEM feed is a broken one.
+     *
+     * It is also independent of NOTIFY_ENABLED: shipping events to a collector
+     * you already own is a different decision from putting them in someone's
+     * inbox, and plenty of deployments will want exactly one of the two.
+     */
+    syslog: {
+      host: optional('SYSLOG_HOST', ''),
+      port: int('SYSLOG_PORT', 514),
+      protocol: syslogProtocol(),
+      format: syslogFormat(),
+      rfc: syslogRfc(),
+      /** 16-23 are the "local use" facilities; 16 (local0) is the usual choice for an app. */
+      facility: int('SYSLOG_FACILITY', 16),
+      appName: optional('SYSLOG_APP_NAME', 'nmt'),
+      /**
+       * Included by default, unlike the chat channels.
+       *
+       * The disclosure argument that gates evidence for Slack does not apply to a
+       * collector inside the same network, and evidence is most of what makes an
+       * event useful to a correlation rule.
+       */
+      includeEvidence: bool('SYSLOG_INCLUDE_EVIDENCE', true),
+    },
 
     email: {
       host: optional('SMTP_HOST', ''),

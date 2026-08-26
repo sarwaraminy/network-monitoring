@@ -32,3 +32,18 @@ export function toPacketDTO(packet: DecodedPacket, options: PacketDtoOptions = {
     payloadRedacted: redact,
   };
 }
+
+/**
+ * A copy of a stored packet with its frame bytes removed.
+ *
+ * Applied per request rather than at capture time, because the two questions are
+ * different: `REDACT_PACKET_PAYLOAD` asks whether this deployment retains frame
+ * bytes at all, and this asks whether THIS caller may see the ones it retained.
+ *
+ * Gating capture control on ADMIN was not enough on its own — a USER could still
+ * read a capture an administrator had started, and the global flag offered no
+ * way to give admins frames without giving them to everyone.
+ */
+export function withoutPayload(packet: PacketDTO): PacketDTO {
+  return { ...packet, dataHexStream: '', ethernetPadHexStream: '', payloadRedacted: true };
+}

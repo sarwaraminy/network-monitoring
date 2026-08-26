@@ -119,6 +119,12 @@ export function numericColumn<T extends MRT_RowData>(column: MRT_ColumnDef<T>): 
  *
  * The caller's props win on every key, so a per-row `borderLeft` or `opacity`
  * still applies; ours only supply what they did not mention.
+ *
+ * One fall-through, and it is the more surprising of the two this file has: an
+ * array or callback `sx` cannot be merged into, so the caller replaces ours
+ * outright and the row height goes with it. That loses a shared design-system
+ * metric rather than a per-table layout rule, which is why it is stated here.
+ * Both call sites pass an object.
  */
 export function mergeRowProps<P extends { sx?: SxProps<Theme> }>(
   ownSx: Record<string, unknown>,

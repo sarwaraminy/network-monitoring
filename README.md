@@ -132,15 +132,17 @@ versions are adopted so nothing is re-applied. The SQL files are the same Flyway
 
 ### 6. Create a login
 
-The accounts seeded by `V2__Insert_initial_data.sql` (`admin@example.com`, `user@example.com`)
-carry bcrypt hashes **whose plaintext nobody has** — they came from the original Java migration.
-Set a password you know:
+There are no seeded accounts. `V2__Insert_initial_data.sql` used to create
+`admin@example.com` and `user@example.com`, both carrying a bcrypt hash committed to this
+repository — a published hash is a published credential, so `V5__Remove_seeded_accounts.sql`
+deletes any row still holding it.
 
-```bash
-npm run user -- set-password --email admin@example.com --generate
-```
+That makes the first-account bootstrap reachable, which on a fresh database means:
 
-Or create your own admin account:
+> **The first unauthenticated request to `POST /auth/signup` becomes ADMIN**, and the window
+> shuts the moment that account exists. Create it before the port is reachable by anyone else.
+
+Do that through the sign-up page, or from the command line:
 
 ```bash
 npm run user -- create --email you@example.com --generate --role ADMIN
@@ -491,14 +493,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 315 tests
-npm run test:api  # 247 API tests
-npm run test:ui   # 68 UI tests
+npm test          # both suites: 350 tests
+npm run test:api  # 274 API tests
+npm run test:ui   # 76 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 247 tests
+### API — 274 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
@@ -534,7 +536,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 68 tests
+### UI — 76 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —
@@ -788,7 +790,8 @@ network-monitoring-ui/        React + TypeScript + Vite frontend
 | `JWT_EXPIRES_IN`       | `1d`                                           |                                                |
 | `CAPTURE_BUFFER_SIZE`  | `5000`                                         | Packets held in memory per capture             |
 | `CAPTURE_POLL_INTERVAL_MS` | `10`                                       | How often a running capture is drained         |
-| `REDACT_PACKET_PAYLOAD` | `false`                                       | Blanks packet payloads in API responses — see below |
+| `REDACT_PACKET_PAYLOAD` | `true`                                        | Blanks packet payloads in API responses — see below |
+| `TRUST_PROXY`           | `false`                                       | Read the client IP from `X-Forwarded-For`. On under Compose, off for a direct host install |
 | `ARP_TRUSTED_MAPPINGS` | —                                              | `ip=mac,ip=mac` pairs treated as authoritative  |
 | `FLOW_ENABLED`         | `false`                                        | Receive NetFlow/IPFIX. Off by default — it opens a UDP port |
 | `FLOW_PORT`            | `2055`                                         | 4739 is IANA's for IPFIX                       |
@@ -1008,9 +1011,12 @@ handler ran, so they reflect when the frame actually arrived.
 **`Missing required environment variable JWT_SECRET`** — copy `api/.env.example` to
 `api/.env` and generate a secret.
 
-**`Invalid email or password` with the seeded accounts** — the plaintext for
-`admin@example.com` and `user@example.com` was never recorded; the hashes came from the original
-Java migration. Set one with `npm run user -- set-password --email admin@example.com --generate`.
+**`Invalid email or password` for `admin@example.com`** — that account no longer exists.
+`V5__Remove_seeded_accounts.sql` deletes any row still carrying the bcrypt hash this repository
+used to ship, because a published hash is a published credential. On an empty `users` table the
+first unauthenticated `POST /auth/signup` becomes ADMIN; on a populated one, an existing
+administrator creates accounts from the account menu, or run
+`npm run user -- set-password --email you@example.com --generate`.
 
 **`Too many failed attempts`** — the auth rate limit tripped after 20 failed logins in a minute
 from your IP. Wait for the window to expire, or raise `RATE_LIMIT_AUTH_PER_MINUTE`. Successful

@@ -356,6 +356,30 @@ describe('plaintext credentials', () => {
     assert.match(String(form.evidence.requestLine), /\/login/);
   });
 
+  it('redacts cleanly when the request line is truncated mid-query', () => {
+    /*
+     * The case a capture ring actually produces. With no space after the query
+     * string there is no HTTP version to keep, and `indexOf(' ', query)` returns
+     * -1 — `slice(-1)` then appended the LAST character instead of nothing, so
+     * the evidence read `GET /login?<redacted>t`. Never a leak, but wrong in
+     * exactly the branch truncation makes common.
+     */
+    const findings = run(detector(), [
+      buildTcp({
+        srcIp: '10.0.0.89',
+        dstIp: '10.0.0.50',
+        dstPort: 80,
+        flags: { ack: true, psh: true },
+        payload: 'GET /login?username=carol&password=Tr0ub4dor',
+      }),
+    ]);
+
+    const form = findings.find((f) => f.evidence.fieldName === 'password');
+    assert.ok(form, 'expected a form-password finding');
+    assert.ok(!JSON.stringify(form).includes('Tr0ub4dor'), 'password leaked into the finding');
+    assert.equal(form.evidence.requestLine, 'GET /login?<redacted>');
+  });
+
   it('detects SMTP AUTH PLAIN and decodes only the username', () => {
     const secret = Buffer.from(' dave mailpass').toString('base64');
     const findings = run(detector(), [

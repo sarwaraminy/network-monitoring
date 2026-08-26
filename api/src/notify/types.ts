@@ -54,6 +54,15 @@ export interface Notification {
 /** A delivery mechanism. Implementations must not throw. */
 export interface NotificationChannel {
   readonly name: string;
+  /**
+   * True for a channel that must receive every finding, ungated.
+   *
+   * The severity threshold, throttle, hourly ceiling and digest all exist to
+   * protect a human inbox. A machine consumer — a SIEM — needs the complete
+   * stream instead: it correlates and deduplicates itself, and a gap makes every
+   * rule that counts events over a window under-report. See notify/syslog.ts.
+   */
+  readonly deliversEveryFinding?: boolean;
   /** True when configured well enough to attempt a send. */
   isConfigured(): boolean;
   /** Resolves to a short description of what happened, for logging. */

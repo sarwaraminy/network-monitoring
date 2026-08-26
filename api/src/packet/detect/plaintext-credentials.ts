@@ -308,7 +308,13 @@ interface Context {
 function startsWith(buffer: Buffer, prefix: string): boolean {
   if (buffer.length < prefix.length) return false;
   for (let i = 0; i < prefix.length; i += 1) {
-    if (buffer[i] !== prefix.codePointAt(i)) return false;
+    // `charCodeAt`, not `codePointAt`. This compares against `buffer[i]`, a byte
+    // in 0-255, and a UTF-16 code unit is the right unit for that. `codePointAt`
+    // returns a full code point above 0xFFFF for a surrogate pair and is typed
+    // `number | undefined` — identical for the ASCII prefixes passed here, but it
+    // would make this look like it handles astral characters when the comparison
+    // it performs cannot.
+    if (buffer[i] !== prefix.charCodeAt(i)) return false;
   }
   return true;
 }
@@ -349,10 +355,18 @@ function sanitize(value: string): string {
 function firstLine(text: string): string {
   const line = sanitize(text.split(/\r?\n/, 1)[0] ?? '');
   const query = line.indexOf('?');
+  if (query === -1) return line.slice(0, 200);
+
   // Keep the method and path; drop everything from `?` to the HTTP version.
-  const redacted =
-    query === -1 ? line : `${line.slice(0, query)}?<redacted>${line.slice(line.indexOf(' ', query))}`;
-  return redacted.slice(0, 200);
+  //
+  // `tail` guards the case a capture ring actually produces: a truncated request
+  // line with no space after the query string. `indexOf` returns -1 there, and
+  // `slice(-1)` appends the LAST character rather than nothing — evidence read
+  // `GET /login?<redacted>t`. Not a leak either way, but wrong in the branch
+  // truncation makes common.
+  const versionAt = line.indexOf(' ', query);
+  const tail = versionAt === -1 ? '' : line.slice(versionAt);
+  return `${line.slice(0, query)}?<redacted>${tail}`.slice(0, 200);
 }
 
 function firstHeader(text: string, header: string): string | null {

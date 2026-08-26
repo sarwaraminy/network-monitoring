@@ -5,6 +5,7 @@ import { captureControlLimiter, lookupLimiter } from '../middleware/rate-limit.j
 import { getGeolocationData } from '../networkservices/ip-geolocation.service.js';
 import { getDomainName } from '../networkservices/ip-info.service.js';
 import { getWhoisData } from '../networkservices/ip-whois.service.js';
+import { withoutPayload } from '../packet/mapping.js';
 import type { PacketCaptureService } from '../services/packet-capture.service.js';
 import type { IpInfoResponse } from '../types/dto.js';
 import { captureStartSchema, ipAddressSchema } from './validation.js';
@@ -78,9 +79,22 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
     }),
   );
 
-  /** GET / — every packet currently in the buffer. */
-  router.get('/', (_req, res) => {
-    res.json(capture.getCapturedPackets());
+  /**
+   * GET / — every packet currently in the buffer.
+   *
+   * Frame bytes are for administrators. Gating `/start` was only half the fix:
+   * a USER could not begin a capture but could still read one an admin had
+   * begun, and `REDACT_PACKET_PAYLOAD` is a single global flag with no setting
+   * that gives frames to admins without giving them to everyone.
+   *
+   * A USER still gets the page — addresses, protocol, frame length, the decoded
+   * headers — which is what makes the capture view useful. What they do not get
+   * is the wire.
+   */
+  router.get('/', (req, res) => {
+    const packets = capture.getCapturedPackets();
+    const isAdmin = req.user?.role.toLowerCase() === 'admin';
+    res.json(isAdmin ? packets : packets.map(withoutPayload));
   });
 
   /** POST /clear */

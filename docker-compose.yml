@@ -60,7 +60,13 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
       # nginx proxies same-origin, so no cross-origin browser requests are made.
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
-      REDACT_PACKET_PAYLOAD: ${REDACT_PACKET_PAYLOAD:-false}
+      REDACT_PACKET_PAYLOAD: ${REDACT_PACKET_PAYLOAD:-true}
+      # nginx is unconditionally in front of the api here — it is `expose`-only,
+      # so every request arrives through the ui service, which sets
+      # X-Forwarded-For. Without this the rate limiter keys every client to the
+      # nginx container address and they all share one bucket: 20 bad logins
+      # from anyone locks everybody out. A direct host install must leave it off.
+      TRUST_PROXY: ${TRUST_PROXY:-true}
       CAPTURE_BUFFER_SIZE: ${CAPTURE_BUFFER_SIZE:-5000}
       ARP_TRUSTED_MAPPINGS: ${ARP_TRUSTED_MAPPINGS:-}
       # Public registration. Off by default; a self-registered account is always

@@ -215,3 +215,55 @@ export interface StartCaptureParams {
   timeout: number;
   ipAddress?: string;
 }
+
+/**
+ * Alert delivery.
+ *
+ * Two classes of channel, and the distinction is the point of the page built on
+ * this: webhook and email are read by a person, so they are gated by severity,
+ * throttled and digested. Syslog feeds a SIEM, which correlates and deduplicates
+ * itself and needs the complete stream, so it receives every finding ungated.
+ */
+export interface NotifyChannelWebhook {
+  configured: boolean;
+  /** Never the URL — it is a bearer credential for Slack and Teams. */
+  format: string | null;
+}
+
+export interface NotifyChannelEmail {
+  configured: boolean;
+  recipients: number;
+}
+
+export interface NotifyChannelSyslog {
+  configured: boolean;
+  /** `host:port`. Safe to show: a syslog target carries no credential. */
+  target: string | null;
+  protocol: 'udp' | 'tcp';
+  format: 'cef' | 'json';
+  rfc: '5424' | '3164';
+  includeEvidence: boolean;
+}
+
+export interface NotifyStatus {
+  enabled: boolean;
+  /** True only when at least one channel could actually deliver. */
+  active: boolean;
+  channels: string[];
+  minSeverity: string;
+  digestSeconds: number;
+  throttleSeconds: number;
+  maxPerHour: number;
+  includeEvidence: boolean;
+  queued: number;
+  sentLastHour: number;
+  throttledKeys: number;
+  webhook: NotifyChannelWebhook;
+  email: NotifyChannelEmail;
+  syslog: NotifyChannelSyslog;
+}
+
+export interface NotifyTestResult {
+  delivered: number;
+  results: { channel: string; ok: boolean; detail: string }[];
+}
