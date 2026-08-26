@@ -53,7 +53,7 @@ const LANGUAGES = [
  * appears only for a signed-in administrator, whose choice the server honours.
  */
 export default function SignUpPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
 
   const signupMode = useQuery({
@@ -98,8 +98,10 @@ export default function SignUpPage() {
 
     try {
       await signup(form);
-      // The account exists but has no session yet, so send them to sign in.
-      navigate('/login', { replace: true });
+      // An administrator adding a colleague still holds a valid session, so
+      // sending them to the sign-in form would be nonsense. Only a self-created
+      // account has nowhere to go but /login.
+      navigate(isAdmin ? '/dashboard' : '/login', { replace: true });
     } catch (error) {
       setErrorMessage(describeError(error, 'Could not create the account'));
     } finally {
@@ -123,7 +125,10 @@ export default function SignUpPage() {
     </Box>
   );
 
-  if (signupMode.isPending) {
+  // authLoading matters as much as the query: on a reload, `user` is undefined
+  // until /auth/me resolves, so an administrator would see the "restricted"
+  // dead-end for a beat before the page corrected itself.
+  if (signupMode.isPending || authLoading) {
     return shell(
       <CardContent sx={{ display: 'grid', placeItems: 'center', py: 6 }}>
         <CircularProgress size={28} />

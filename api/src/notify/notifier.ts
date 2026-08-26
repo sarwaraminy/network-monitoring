@@ -58,6 +58,8 @@ export class Notifier {
   private omitted = 0;
   private digestTimer: NodeJS.Timeout | null = null;
   private sending = false;
+  /** The dispatch currently in progress, so `flush()` can wait for it. */
+  private inFlight: Promise<void> = Promise.resolve();
   /**
    * Single source of time for both the throttle and the hourly ceiling.
    *
@@ -156,13 +158,29 @@ export class Notifier {
     return await this.deliver(notification);
   }
 
-  /** Sends anything queued and clears the timer. Called on shutdown. */
+  /**
+   * Sends anything queued and clears the timer. Called on shutdown.
+   *
+   * Awaits an in-flight send before dispatching, then dispatches again if that
+   * send left anything behind. `dispatch()` returns immediately when `sending` is
+   * true, so without this a flush landing mid-SMTP-send would resolve having sent
+   * nothing — and on shutdown the remaining findings would be left to an unref'd
+   * timer that the process is about to kill.
+   */
   async flush(): Promise<void> {
     if (this.digestTimer) {
       clearTimeout(this.digestTimer);
       this.digestTimer = null;
     }
+
+    await this.inFlight;
     await this.dispatch();
+
+    // A send that was in progress may have queued more while it ran.
+    if (this.queue.length > 0) {
+      await this.inFlight;
+      await this.dispatch();
+    }
   }
 
   private scheduleDigest(): void {
@@ -178,6 +196,10 @@ export class Notifier {
   private async dispatch(): Promise<void> {
     if (this.sending || this.queue.length === 0) return;
     this.sending = true;
+    let settle: () => void = () => {};
+    this.inFlight = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
 
     const batch = this.queue;
     const omittedCount = this.omitted;
@@ -198,6 +220,7 @@ export class Notifier {
       }
     } finally {
       this.sending = false;
+      settle();
       // Anything that arrived mid-send needs its own window.
       if (this.queue.length > 0) this.scheduleDigest();
     }

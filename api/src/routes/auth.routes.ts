@@ -1,16 +1,25 @@
 import { type Request, Router } from 'express';
 import { env } from '../config/env.js';
+import type { UserRow } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { extractBearerToken, signAccessToken, verifyAccessToken } from '../services/jwt.service.js';
-import { decideSignup, type Role, type SignupDecision, signupMode } from '../services/signup-policy.js';
+import {
+  ADMIN_TOKEN_REQUIRED,
+  decideSignup,
+  type Role,
+  type SignupDecision,
+  signupMode,
+} from '../services/signup-policy.js';
 import {
   authenticateUser,
   EmailAlreadyExistsError,
   existsByEmail,
   getAllUsers,
+  getUserByEmail,
   hasAnyUser,
+  saveFirstUser,
   saveUser,
   toPublicUser,
 } from '../services/user.service.js';
@@ -50,7 +59,7 @@ async function authorizeSignup(req: Request, requestedRole: Role): Promise<Signu
   let authenticatedButNotAdmin = false;
 
   if (token !== null) {
-    let claims: { role: string };
+    let claims: { sub: string; role: string };
     try {
       claims = verifyAccessToken(token);
     } catch {
@@ -59,8 +68,20 @@ async function authorizeSignup(req: Request, requestedRole: Role): Promise<Signu
       // and could reach the bootstrap or open-signup branch.
       throw new HttpError(401, 'Invalid or expired token.');
     }
-    // The role comes from the verified token, never from the request body.
-    if (claims.role === 'ADMIN') actorIsAdmin = true;
+
+    // Resolved against the users table, not read off the claim. `requireAuth` and
+    // `requireRole` both re-read the row, and this endpoint cannot use them (the
+    // bootstrap path has to work unauthenticated), so it has to do the same work
+    // itself. Without this, a deleted or demoted administrator's unexpired token
+    // — a day, by default — could still mint a fresh permanent ADMIN, and the
+    // documented way to revoke access (`npm run user -- delete`) would not revoke
+    // this one route.
+    const actor = await getUserByEmail(claims.sub);
+    if (!actor) throw new HttpError(401, 'Account no longer exists.');
+
+    // Case-insensitive, matching requireRole, so the two cannot disagree about
+    // what counts as an administrator.
+    if (actor.role.toUpperCase() === 'ADMIN') actorIsAdmin = true;
     else authenticatedButNotAdmin = true;
   }
 
@@ -137,22 +158,35 @@ authRouter.post(
       throw new HttpError(409, 'Email is already in use.');
     }
 
+    const values = {
+      email: input.email,
+      password: input.password,
+      // From the policy, never from the body.
+      role: decision.role,
+      langCode: input.langCode,
+      firstname: input.firstname,
+      lastname: input.lastname,
+    };
+
     try {
-      const user = await saveUser({
-        email: input.email,
-        password: input.password,
-        // From the policy, never from the body.
-        role: decision.role,
-        langCode: input.langCode,
-        firstname: input.firstname,
-        lastname: input.lastname,
-      });
+      let user: UserRow;
 
       if (decision.reason === 'bootstrap') {
+        // Atomic: the emptiness test is part of the INSERT, so concurrent
+        // anonymous requests on a fresh install cannot all win. `hasAnyUser()`
+        // above authorises the request, and a plain check-then-insert would let
+        // two callers pass the check and both become ADMIN.
+        const created = await saveFirstUser(values);
+        if (!created) {
+          throw new HttpError(401, ADMIN_TOKEN_REQUIRED);
+        }
+        user = created;
         log.warn(
           { email: input.email },
           'First account created without authentication (empty users table). That window is now closed.',
         );
+      } else {
+        user = await saveUser(values);
       }
 
       res.status(201).json(toPublicUser(user));

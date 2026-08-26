@@ -51,6 +51,43 @@ export async function hasAnyUser(): Promise<boolean> {
   return (row?.total ?? 0) > 0;
 }
 
+/**
+ * Creates the first account, atomically, only if the table is genuinely empty.
+ *
+ * The bootstrap path in auth.routes.ts checks `hasAnyUser()` and then inserts,
+ * which is a read-then-write race: two concurrent anonymous requests on a fresh
+ * install both see an empty table and both become ADMIN. The check is what
+ * authorises the request, so losing that race is a privilege issue, not just a
+ * duplicate row.
+ *
+ * `INSERT … SELECT … WHERE NOT EXISTS` makes the emptiness test part of the write
+ * itself, so exactly one concurrent caller can ever succeed. Returns null for the
+ * losers, which the route turns into the same 401 an ordinary unauthenticated
+ * signup gets.
+ */
+export async function saveFirstUser(
+  input: Omit<NewUserRow, 'password'> & { password: string },
+): Promise<UserRow | null> {
+  const hashed = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
+
+  // Returns only the id: raw SQL yields the database's snake_case columns
+  // (`lang_code`, `created_at`), which do not match `UserRow`. Re-reading through
+  // the typed query keeps one mapping instead of two that can drift.
+  const inserted = await db.execute<{ id: number }>(sql`
+    INSERT INTO users (email, password, role, lang_code, firstname, lastname)
+    SELECT ${input.email ?? null}, ${hashed}, ${input.role ?? 'ADMIN'},
+           ${input.langCode ?? 'en'}, ${input.firstname ?? ''}, ${input.lastname ?? ''}
+    WHERE NOT EXISTS (SELECT 1 FROM users)
+    RETURNING id
+  `);
+
+  const rows = (inserted as unknown as { rows?: Array<{ id: number }> }).rows ?? [];
+  const id = rows[0]?.id;
+  // No row means another request created the first account first, so this caller
+  // is no longer bootstrapping and must be refused.
+  return id === undefined ? null : await getUserById(id);
+}
+
 export async function saveUser(input: Omit<NewUserRow, 'password'> & { password: string }): Promise<UserRow> {
   if (input.email && (await existsByEmail(input.email))) {
     throw new EmailAlreadyExistsError(input.email);

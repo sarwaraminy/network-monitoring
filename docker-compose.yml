@@ -63,6 +63,11 @@ services:
       REDACT_PACKET_PAYLOAD: ${REDACT_PACKET_PAYLOAD:-false}
       CAPTURE_BUFFER_SIZE: ${CAPTURE_BUFFER_SIZE:-5000}
       ARP_TRUSTED_MAPPINGS: ${ARP_TRUSTED_MAPPINGS:-}
+      # Public registration. Off by default; a self-registered account is always
+      # a USER regardless. Listed explicitly because the api service does not
+      # inherit the host environment — without this line the README-documented
+      # setting silently has no effect under Compose.
+      ALLOW_OPEN_SIGNUP: ${ALLOW_OPEN_SIGNUP:-false}
       # Alert delivery. Off unless NOTIFY_ENABLED is set in .env; see the README
       # for the severity gate, throttle and hourly ceiling that bound the volume.
       NOTIFY_ENABLED: ${NOTIFY_ENABLED:-false}

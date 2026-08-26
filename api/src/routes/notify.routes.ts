@@ -36,10 +36,27 @@ notifyRouter.get('/status', (_req, res) => {
     // Never the URL itself: it is a bearer secret for Slack and Teams, and this
     // response is readable by any authenticated user.
     webhook: env.notify.webhookUrl
-      ? { configured: true, format: detectFormat(env.notify.webhookUrl) }
+      ? {
+          configured: true,
+          // Honours an explicit NOTIFY_WEBHOOK_FORMAT. Reporting detectFormat()
+          // unconditionally would show the inferred shape while the channel
+          // actually posts the overridden one — the opposite of what a setup
+          // check is for.
+          format:
+            env.notify.webhookFormat === 'auto'
+              ? detectFormat(env.notify.webhookUrl)
+              : env.notify.webhookFormat,
+        }
       : { configured: false, format: null },
     email: {
-      configured: env.notify.email.host !== '' && env.notify.email.to.length > 0,
+      // Same predicate as EmailChannel.isConfigured(), `from` included. Omitting
+      // it reported `configured: true` next to `channels: []` and `active: false`
+      // whenever NOTIFY_EMAIL_FROM was unset, which is exactly the misconfigured
+      // state this endpoint exists to reveal.
+      configured:
+        env.notify.email.host.trim() !== '' &&
+        env.notify.email.from.trim() !== '' &&
+        env.notify.email.to.length > 0,
       recipients: env.notify.email.to.length,
     },
   });
