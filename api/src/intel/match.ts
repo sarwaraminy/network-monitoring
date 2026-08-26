@@ -20,6 +20,8 @@
  *    non-routable addresses are refused at load time rather than trusted.
  *  - A match is evidence, not proof. It says "this is worth looking at now",
  *    which is far more than any threshold here can say.
+ *  - IPv6 is canonicalised before comparison, but an embedded-IPv4 form such as
+ *    `::ffff:1.2.3.4` is refused rather than folded to its v4 equivalent.
  *
  * Lookups run per flow and per packet, so everything is O(1) or O(log n): a hash
  * set for exact addresses, merged sorted ranges with a binary search for CIDRs,
@@ -76,7 +78,7 @@ interface Range {
  * detector permanently. Refusing them costs nothing: an indicator for 10.0.0.0/8
  * is never actionable intelligence.
  */
-function isNonRoutableV4(ip: number): boolean {
+export function isNonRoutableV4(ip: number): boolean {
   const a = (ip >>> 24) & 0xff;
   const b = (ip >>> 16) & 0xff;
   if (a === 0 || a === 10 || a === 127) return true;
@@ -101,6 +103,50 @@ export function ipv4ToInt(address: string): number | null {
   }
   // `>>> 0` keeps it unsigned; a bare shift would make 255.255.255.255 negative.
   return value >>> 0;
+}
+
+/**
+ * Canonical IPv6, so the two spellings of one address meet.
+ *
+ * Without this, `add` and `matchIp` both did `trim().toLowerCase()` and nothing
+ * more, so a feed listing `2001:0db8:0000:0000:0000:0000:0000:0001` never
+ * matched an observed `2001:db8::1`. Silent false negatives — the failure mode
+ * this module's own docblock calls the one that matters most, and the only
+ * limitation the "honest limits" list above had failed to mention.
+ *
+ * Expands `::`, strips leading zeroes, and re-joins. Returns null for anything
+ * that is not a plausible IPv6 literal rather than guessing at it.
+ */
+export function canonicalIpv6(address: string): string | null {
+  const value = address.trim().toLowerCase();
+  if (value === '' || !value.includes(':')) return null;
+  // An embedded IPv4 tail or a zone index is beyond what these feeds carry.
+  if (value.includes('.') || value.includes('%')) return null;
+  if (!/^[0-9a-f:]+$/.test(value)) return null;
+
+  const halves = value.split('::');
+  if (halves.length > 2) return null;
+
+  const head = (halves[0] ?? '').split(':').filter((group) => group !== '');
+  const tail = halves.length === 2 ? (halves[1] ?? '').split(':').filter((group) => group !== '') : [];
+
+  let groups: string[];
+  if (halves.length === 2) {
+    const missing = 8 - head.length - tail.length;
+    if (missing < 1) return null;
+    groups = [...head, ...Array.from({ length: missing }, () => '0'), ...tail];
+  } else {
+    groups = head;
+  }
+  if (groups.length !== 8) return null;
+
+  const normalized: string[] = [];
+  for (const group of groups) {
+    if (group.length === 0 || group.length > 4) return null;
+    normalized.push(group.replace(/^0+/, '') || '0');
+  }
+
+  return normalized.join(':');
 }
 
 /** Lowercased, with a trailing dot and any port stripped. */
@@ -165,16 +211,10 @@ export class IndicatorSet {
         return true;
       }
       case 'ipv6': {
-        const value = indicator.value.trim().toLowerCase();
+        const value = canonicalIpv6(indicator.value);
+        if (value === null) break;
         // Loopback and link-local, the v6 equivalents of the check above.
-        if (
-          value === '::1' ||
-          value.startsWith('fe80:') ||
-          value.startsWith('fc') ||
-          value.startsWith('fd')
-        ) {
-          break;
-        }
+        if (value === '0:0:0:0:0:0:0:1' || value.startsWith('fe80:') || /^f[cd]/.test(value)) break;
         this.ipv6.set(value, meta);
         this.count(indicator.source);
         return true;
@@ -224,8 +264,10 @@ export class IndicatorSet {
     if (!address) return null;
 
     if (address.includes(':')) {
-      const hit = this.ipv6.get(address.trim().toLowerCase());
-      return hit ? { observed: address, indicator: address, type: 'ipv6', ...hit } : null;
+      const canonical = canonicalIpv6(address);
+      if (canonical === null) return null;
+      const hit = this.ipv6.get(canonical);
+      return hit ? { observed: address, indicator: canonical, type: 'ipv6', ...hit } : null;
     }
 
     const value = ipv4ToInt(address);

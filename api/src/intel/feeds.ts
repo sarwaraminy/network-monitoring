@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { env } from '../config/env.js';
@@ -111,16 +112,15 @@ async function readSource(
     const declared = Number(response.headers.get('content-length') ?? '0');
     if (declared > MAX_FEED_BYTES) throw new Error(`feed is ${declared} bytes, over the limit`);
 
-    const body = await response.text();
-    if (body.length > MAX_FEED_BYTES) throw new Error('feed exceeded the size limit while reading');
+    const body = await readCapped(response, MAX_FEED_BYTES);
 
-    writeCache(cacheDir, source.name, body);
+    writeCache(cacheDir, source, body);
     return { body, from: 'network' };
   } catch (error) {
     // Fall back to the last good copy. A monitoring host with no outbound
     // internet is the normal case in the networks this is aimed at, so a failed
     // fetch is expected rather than exceptional.
-    const cached = readCache(cacheDir, source.name);
+    const cached = readCache(cacheDir, source);
     if (cached !== null) {
       log.warn(
         { feed: source.name, err: error instanceof Error ? error.message : String(error) },
@@ -132,19 +132,59 @@ async function readSource(
   }
 }
 
-function cachePath(cacheDir: string, name: string): string {
+/**
+ * Reads the body while counting bytes, aborting past the cap.
+ *
+ * `await response.text()` buffers everything first, so the previous check
+ * happened only after the memory was already gone — and `content-length` is
+ * absent on a chunked response, which is exactly how a hostile or broken feed
+ * would arrive. `body.length` also counted UTF-16 code units, so the limit was
+ * not in the unit the comment claimed.
+ */
+async function readCapped(response: Response, maxBytes: number): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return await response.text();
+
+  const decoder = new TextDecoder();
+  const parts: string[] = [];
+  let total = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error(`feed exceeded ${maxBytes} bytes while reading`);
+    }
+    parts.push(decoder.decode(value, { stream: true }));
+  }
+
+  parts.push(decoder.decode());
+  return parts.join('');
+}
+
+function cachePath(cacheDir: string, source: FeedSource): string {
   // The name reaches the filesystem, so reduce it to a safe slug rather than
   // trusting configuration to contain no separators.
-  const slug = name
+  const slug = source.name
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .slice(0, 64);
-  return join(cacheDir, `${slug}.txt`);
+
+  // Keyed by location as well as name. `deriveName` returns a URL's hostname, so
+  // two unnamed feeds from one host — both abuse.ch lists, a realistic config —
+  // produced the same slug and shared one cache file. The second download
+  // clobbered the first, and a later offline start loaded the same body twice
+  // while status showed two healthy rows: coverage silently halved, in exactly
+  // the way that endpoint exists to expose.
+  const fingerprint = createHash('sha256').update(source.location).digest('hex').slice(0, 12);
+  return join(cacheDir, `${slug}-${fingerprint}.txt`);
 }
 
-function writeCache(cacheDir: string, name: string, body: string): void {
+function writeCache(cacheDir: string, source: FeedSource, body: string): void {
   try {
-    const path = cachePath(cacheDir, name);
+    const path = cachePath(cacheDir, source);
     mkdirSync(dirname(path), { recursive: true });
     // Write then rename, so an interrupted write cannot leave a truncated cache
     // that would silently load as a shorter feed next boot.
@@ -152,13 +192,13 @@ function writeCache(cacheDir: string, name: string, body: string): void {
     writeFileSync(temporary, body, 'utf8');
     renameSync(temporary, path);
   } catch (error) {
-    log.warn({ feed: name, err: error }, 'Could not cache the feed');
+    log.warn({ feed: source.name, err: error }, 'Could not cache the feed');
   }
 }
 
-function readCache(cacheDir: string, name: string): string | null {
+function readCache(cacheDir: string, source: FeedSource): string | null {
   try {
-    const path = cachePath(cacheDir, name);
+    const path = cachePath(cacheDir, source);
     return existsSync(path) ? readFileSync(path, 'utf8') : null;
   } catch {
     return null;

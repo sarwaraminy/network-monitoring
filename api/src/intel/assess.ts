@@ -1,5 +1,5 @@
 import type { Severity } from '../packet/detect/types.js';
-import type { IndicatorMatch } from './match.js';
+import { type IndicatorMatch, ipv4ToInt, isNonRoutableV4 } from './match.js';
 
 /**
  * Turning a match into a finding.
@@ -37,14 +37,14 @@ export function isPrivateAddress(address: string | null | undefined): boolean {
     return lower === '::1' || lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd');
   }
 
-  const octets = address.split('.').map(Number);
-  const [a, b] = octets;
-  if (octets.length !== 4 || a === undefined || b === undefined) return false;
-  if (a === 10 || a === 127) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true;
-  return false;
+  // Delegates to the same predicate the loader uses to refuse indicators. Two
+  // definitions of "local" in one feature drift: this one previously omitted
+  // CGNAT (100.64/10), 0/8 and multicast, so on a CGNAT-addressed network an
+  // outbound connection to a listed address graded `high` with "direction could
+  // not be determined" instead of `critical` — losing the distinction the
+  // module calls the whole trick.
+  const value = ipv4ToInt(address);
+  return value !== null && isNonRoutableV4(value);
 }
 
 export function directionOf(sourceIp: string | null, targetIp: string | null): Direction {

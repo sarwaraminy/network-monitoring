@@ -74,6 +74,12 @@ services:
       INTEL_FEEDS: ${INTEL_FEEDS:-}
       INTEL_REFRESH_HOURS: ${INTEL_REFRESH_HOURS:-6}
       INTEL_MAX_INDICATORS: ${INTEL_MAX_INDICATORS:-500000}
+      # Cached feed copies. Documented in api/.env.example but previously missing
+      # here — the same omission as ALLOW_OPEN_SIGNUP last round. Backed by a
+      # named volume below, or the README's promise that "a restart without
+      # connectivity starts from the last known-good copy" is false under
+      # Compose: every --force-recreate would start from nothing.
+      INTEL_CACHE_DIR: /var/lib/nmt/intel
       # Alert delivery. Off unless NOTIFY_ENABLED is set in .env; see the README
       # for the severity gate, throttle and hourly ceiling that bound the volume.
       NOTIFY_ENABLED: ${NOTIFY_ENABLED:-false}
@@ -94,6 +100,8 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     expose:
       - '8080'
+    volumes:
+      - intel-cache:/var/lib/nmt/intel
 
   ui:
     build:
@@ -111,3 +119,4 @@ services:
 
 volumes:
   db-data:
+  intel-cache:

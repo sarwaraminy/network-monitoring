@@ -172,8 +172,15 @@ export const env = {
      * have no outbound internet from the monitoring host.
      */
     feeds: optional('INTEL_FEEDS', ''),
-    /** How often feeds are re-read. Stale intelligence is close to useless. */
-    refreshMs: int('INTEL_REFRESH_HOURS', 6) * 3_600_000,
+    /**
+     * How often feeds are re-read. Stale intelligence is close to useless.
+     *
+     * Floored at one hour. `0` is the natural way to write "never refresh", but
+     * without a floor it becomes `setInterval(…, 0)` — a continuous refetch loop
+     * that hammers whatever third-party URL is configured until they block you.
+     * `capturePollIntervalMs` above sets the same precedent.
+     */
+    refreshMs: Math.max(1, int('INTEL_REFRESH_HOURS', 6)) * 3_600_000,
     /** Downloaded copies live here so a restart without connectivity still loads. */
     cacheDir: (() => {
       const configured = optional('INTEL_CACHE_DIR', '');

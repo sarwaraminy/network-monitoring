@@ -3,6 +3,18 @@ import { componentLogger } from '../logger.js';
 import { type FeedSource, type LoadResult, loadFeeds, parseFeedConfig } from './feeds.js';
 import { IndicatorSet } from './match.js';
 
+/**
+ * What a reload actually did, so the route can answer honestly.
+ *
+ * `loaded` is the only one that describes fresh data; the rest describe a set
+ * that is still the previous one.
+ */
+export type ReloadOutcome =
+  | { status: 'loaded'; result: LoadResult }
+  | { status: 'already-running'; previous: LoadResult | null }
+  | { status: 'kept-previous'; previous: LoadResult | null; attempted: LoadResult['sources'] }
+  | { status: 'failed'; previous: LoadResult | null; error: string };
+
 const log = componentLogger('intel');
 
 /**
@@ -58,9 +70,20 @@ class IntelRegistry {
     this.timer.unref();
   }
 
-  /** Rebuilds the set from every source. Safe to call at any time. */
-  async reload(): Promise<LoadResult | null> {
-    if (this.loading) return this.lastLoad;
+  /**
+   * Rebuilds the set from every source. Safe to call at any time.
+   *
+   * The outcome is reported, not just the data. Previously this returned
+   * `lastLoad` both when a reload was already running and when every source
+   * failed but a prior set was kept — so `POST /api/intel/reload` answered 200
+   * with a stale `loadedAt` and the old per-source rows, indistinguishable from
+   * a fresh load. Keeping the old set is right; reporting it as the result of
+   * "reload now" is not.
+   */
+  async reload(): Promise<ReloadOutcome> {
+    if (this.loading) {
+      return { status: 'already-running', previous: this.lastLoad };
+    }
     this.loading = true;
 
     try {
@@ -71,16 +94,20 @@ class IntelRegistry {
         // loaded is better than silently switching detection off: stale
         // indicators still catch yesterday's C2, an empty set catches nothing.
         log.error('Indicator reload produced nothing; keeping the previously loaded set');
-        return this.lastLoad;
+        return { status: 'kept-previous', previous: this.lastLoad, attempted: result.sources };
       }
 
       this.set = result.set;
       this.lastLoad = result;
       log.info({ indicators: result.set.size, feeds: result.sources.length }, 'Indicators loaded');
-      return result;
+      return { status: 'loaded', result };
     } catch (error) {
       log.error({ err: error }, 'Indicator reload failed');
-      return this.lastLoad;
+      return {
+        status: 'failed',
+        previous: this.lastLoad,
+        error: error instanceof Error ? error.message : String(error),
+      };
     } finally {
       this.loading = false;
     }

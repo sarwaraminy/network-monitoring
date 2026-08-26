@@ -42,6 +42,8 @@ export interface FlowDetectionStats {
   /** Flows that looked like unanswered connection attempts. */
   unansweredFlows: number;
   findings: number;
+  /** Indicator matches, counted separately: they are the high-confidence ones. */
+  intelMatches: number;
 }
 
 export class FlowScanDetector {
@@ -215,6 +217,8 @@ export class FlowScanDetector {
       flowsInspected: this.flowsInspected,
       unansweredFlows: this.unansweredFlows,
       findings: this.findingCount,
+      // The scan detector raises no indicator findings; the engine adds its own.
+      intelMatches: 0,
     };
   }
 
@@ -243,6 +247,7 @@ export class FlowDetectionEngine {
   private readonly scan = new FlowScanDetector();
   /** Same pairing will not re-alert inside this window; repeats aggregate instead. */
   private readonly intelReported = new BoundedMap<string, number>(MAX_TRACKED_KEYS);
+  private intelMatches = 0;
   private lastSweep = 0;
 
   inspect(flow: FlowRecord): Finding[] {
@@ -292,6 +297,7 @@ export class FlowDetectionEngine {
       const now = flow.observedAt.getTime();
       if (!this.shouldReportIntel(graded.dedupKey, now)) return [];
 
+      this.intelMatches += 1;
       return [
         {
           kind: 'threat_intel',
@@ -333,12 +339,22 @@ export class FlowDetectionEngine {
   }
 
   stats(): FlowDetectionStats {
-    return this.scan.stats();
+    // The scan detector's own count plus indicator matches. Reporting only the
+    // scan count made `/api/flow/status` say `findings: 0` while an indicator
+    // alert had just been raised, which is exactly the kind of thing that makes
+    // a status endpoint stop being trusted.
+    const scan = this.scan.stats();
+    return {
+      ...scan,
+      findings: scan.findings + this.intelMatches,
+      intelMatches: this.intelMatches,
+    };
   }
 
   reset(): void {
     this.scan.reset();
     this.intelReported.reset();
+    this.intelMatches = 0;
     this.lastSweep = 0;
   }
 }

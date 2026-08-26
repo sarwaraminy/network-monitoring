@@ -193,10 +193,14 @@ describe('feed parsing', () => {
     assert.equal(indicators[0]?.note, 'SBL123456');
   });
 
-  it('reads CSV and skips the header', () => {
-    const feed = ['# id,host,malware', '203.0.113.9,something,TrickBot'].join('\n');
-    const { indicators } = parseFeed(feed, 'urlhaus');
+  it('reads CSV and skips an unprefixed header row', () => {
+    // The header carries no `#`, so this exercises the type check rather than the
+    // comment rule — which is what the docblock claims happens. The earlier
+    // version used a `#`-prefixed header and proved neither.
+    const feed = ['id,host,malware', '203.0.113.9,something,TrickBot'].join('\n');
+    const { indicators, skipped } = parseFeed(feed, 'urlhaus');
     assert.equal(indicators.length, 1);
+    assert.equal(skipped, 1, 'the header must be rejected by classify(), not the comment rule');
     assert.equal(indicators[0]?.value, '203.0.113.9');
   });
 
