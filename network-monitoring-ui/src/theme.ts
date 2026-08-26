@@ -21,8 +21,6 @@ export const CARD_METRICS = {
   headerPaddingBlock: 1.25,
   headerPaddingInline: 2,
   bodyPadding: 2,
-  /** px. Minimum height of a `fill` card, so a short one still has presence. */
-  fillMinHeight: 340,
 } as const;
 
 /**

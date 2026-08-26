@@ -341,7 +341,7 @@ export default function AlertsPage() {
         </Alert>
       )}
       <AlertSummaryTiles summary={summary} selected={severity} onSelect={setSeverity} />
-      <SurfaceCard bodyVariant="grid" fill>
+      <SurfaceCard bodyVariant="grid">
         <DataGrid columns={columns} data={alerts} isLoading={loading} tableOptions={tableOptions} />
       </SurfaceCard>
       <IpInfoDialog

@@ -21,7 +21,7 @@ export default function PacketCapture() {
 
       <CaptureToolbar capture={capture} />
 
-      <SurfaceCard title="Packets" subtitle="Newest first, decoded from the wire" bodyVariant="grid" fill>
+      <SurfaceCard title="Packets" subtitle="Newest first, decoded from the wire" bodyVariant="grid">
         <PacketTable
           packets={capture.packets}
           capturing={capture.capturing}

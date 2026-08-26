@@ -39,9 +39,15 @@ import { CARD_METRICS, HEAD_SURFACE } from '../theme';
  *  - `children` is optional. A header-only card is the page title band: this app
  *    puts page titles on the page rather than in the app bar, so the title needs
  *    a surface like everything else.
- *  - `fill` makes the card consume the remaining column height with its body as
- *    the flex child, so the last card on a short page reaches the bottom instead
- *    of leaving the page background showing under it.
+ *
+ * The system this is ported from also has a `fill` mode, where the last card on a
+ * page stretches to the bottom so no page background shows beneath it. That is
+ * deliberately NOT here. It works there because their grid expands with the card;
+ * ours is capped by a measured height (see useViewportFitHeight), so a stretched
+ * card and the table inside it disagree — the card grew, the table did not, and
+ * the difference showed up as a tall empty slab under the pagination bar with the
+ * card's real bottom edge somewhere off past the fold. A card that hugs its
+ * content and lets the page background show below is the honest version.
  */
 export interface SurfaceCardProps {
   /** Header title. Omit, with no `subtitle` or `headerActions`, for a card with no header strip. */
@@ -59,8 +65,6 @@ export interface SurfaceCardProps {
   /** Right-aligned slot in the header strip — filters, refresh, counts. Wraps under at narrow widths. */
   headerActions?: ReactNode;
   children?: ReactNode;
-  /** Stretch to fill the remaining height of a flex column. Use on the last card of a page. */
-  fill?: boolean;
   /**
    * Body treatment:
    *  - `default` — padded `background.paper`, for prose, forms and controls.
@@ -83,7 +87,6 @@ export default function SurfaceCard({
   subtitle,
   headerActions,
   children,
-  fill = false,
   bodyVariant = 'default',
   embedded = false,
   sx,
@@ -100,16 +103,14 @@ export default function SurfaceCard({
           display: 'flex',
           flexDirection: 'column',
           // Deliberately not `overflow: hidden`: clipping here looks harmless but
-          // swallows a `fill` card's overflow instead of letting it grow. The
+          // swallows content instead of letting the card grow to hold it. The
           // header strip carries its own top-corner radii below, which is all the
           // clipping the rounded corner actually needed.
           overflow: 'visible',
           ...(embedded && { backgroundColor: 'transparent', border: 'none', borderRadius: 0 }),
-          // Grow into the column's slack, never shrink below content — a
-          // shrinking fill card is what produces a second scrollbar.
-          ...(fill
-            ? { flex: '1 0 auto', ...(!embedded && { minHeight: CARD_METRICS.fillMinHeight }) }
-            : { flexShrink: 0 }),
+          // Size to content and hold it. Nothing here shrinks a card below what
+          // it contains, which is what produces a second scrollbar.
+          flexShrink: 0,
         },
         ...(Array.isArray(sx) ? sx : [sx]),
       ]}
@@ -172,13 +173,20 @@ export default function SurfaceCard({
               display: 'flex',
               flexDirection: 'column',
               minHeight: 0,
-              // The body absorbs a fill card's extra height.
-              ...(fill && { flex: 1 }),
               ...(bodyVariant === 'default' && { p: CARD_METRICS.bodyPadding }),
               ...(bodyVariant === 'grid' && {
-                // The nested table keeps its own layout but gives up its surface,
-                // so this card's hairline is the only one on screen.
-                '& > .MuiPaper-root': {
+                /*
+                 * Both depths, deliberately. DataGrid wraps its table in a Box so
+                 * the height can be measured from the top edge, which puts MRT's
+                 * Paper one level further down than a bare table — and a `> `
+                 * selector then silently stops matching, leaving the table on its
+                 * own surface inside this one. Two hairlines and two fills of the
+                 * same colour, which is invisible until it isn't.
+                 *
+                 * Not a bare descendant selector: a detail panel may legitimately
+                 * render a Paper of its own, and that one should keep its surface.
+                 */
+                '& > .MuiPaper-root, & > * > .MuiPaper-root': {
                   border: 'none',
                   borderRadius: 0,
                   boxShadow: 'none',

@@ -21,7 +21,7 @@ export default function PacketCaptureWithIP() {
 
       <CaptureToolbar capture={capture} showIpFilter />
 
-      <SurfaceCard title="Packets" subtitle="Newest first, decoded from the wire" bodyVariant="grid" fill>
+      <SurfaceCard title="Packets" subtitle="Newest first, decoded from the wire" bodyVariant="grid">
         <PacketTable
           packets={capture.packets}
           capturing={capture.capturing}

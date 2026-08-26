@@ -1,0 +1,10 @@
+{
+  // Use the TypeScript this repo installs, not the one VS Code ships with.
+  //
+  // Without this the editor and `npm run typecheck` run different compilers, so
+  // the two disagree — DataGrid.tsx reported errors in the editor that `tsc`
+  // did not, which is the worst kind of disagreement because neither side is
+  // obviously wrong and CI only sees one of them.
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true
+}

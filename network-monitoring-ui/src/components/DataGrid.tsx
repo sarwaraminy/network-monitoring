@@ -103,6 +103,33 @@ export function numericColumn<T extends MRT_RowData>(column: MRT_ColumnDef<T>): 
 }
 
 /**
+ * The generic boundary, and the only place this file stops checking itself.
+ *
+ * MRT's option types bottom out in a conditional on the row type — roughly
+ * `unknown extends T ? string : T extends readonly any[] & IsTuple<T> ? … : …`.
+ * While `T` is an unresolved type parameter TypeScript cannot reduce that, so
+ * comparing any option whose signature mentions `MRT_TableInstance<T>` starts a
+ * comparison it never finishes, and it gives up reporting one type as "two
+ * different types with this name" that are "unrelated" — naming the same file,
+ * twice. There is no second copy of the package; that message is what a runaway
+ * conditional looks like from outside.
+ *
+ * Worth being straight about what this is: it was reported by an editor, and it
+ * does NOT reproduce from the command line — not on TypeScript 5.6, 5.7, 5.8 or
+ * 5.9, under either `bundler` or `node10` resolution, with or without this
+ * helper. So this is not a fix for a demonstrated compiler failure; it makes the
+ * comparison structurally impossible to start, whichever compiler is asking.
+ *
+ * `DataGrid` stays generic and every call site instantiates `T` concretely, so
+ * columns and data are still fully checked there. What this gives up is the
+ * final assignability check on four members that this file builds itself — and
+ * `DEFAULT_INITIAL_STATE` below is pinned against a concrete row type so the
+ * part worth checking still is. The design system this is ported from does the
+ * same thing at the same boundary.
+ */
+const atGenericBoundary = <V,>(value: unknown): V => value as V;
+
+/**
  * The shared starting state. One density and one page size across the app, so
  * moving between the alerts table and the packet table does not change the row
  * height under you.
@@ -111,7 +138,11 @@ const DEFAULT_INITIAL_STATE = {
   density: 'comfortable',
   pagination: { pageIndex: 0, pageSize: 25 },
   showGlobalFilter: true,
-} as const;
+  // Checked against a CONCRETE row type. `atGenericBoundary` stops the compiler
+  // looking at these once `T` is involved, so without this a typo here —
+  // `denisty`, a page size of `'25'` — would reach MRT unnoticed. Verified by
+  // introducing one: it fails the build.
+} as const satisfies MRT_TableOptions<MRT_RowData>['initialState'];
 
 export interface DataGridProps<T extends MRT_RowData> {
   columns: MRT_ColumnDef<T>[];
@@ -168,14 +199,21 @@ export default function DataGrid<T extends MRT_RowData>({
     // MRT's selection banner is a surface with no counterpart anywhere else in
     // this app, and it pushes the table down as it appears.
     positionToolbarAlertBanner: 'none',
-    renderEmptyRowsFallback: () => (
-      <Box sx={{ py: 6, textAlign: 'center' }}>
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          {emptyMessage}
-        </Typography>
-      </Box>
-    ),
     ...tableOptions,
+
+    // Resolved explicitly rather than by declaring the default above the spread
+    // and letting a caller's key overwrite it — same outcome, the caller still
+    // wins, but stated rather than left to key order in a spread.
+    renderEmptyRowsFallback: atGenericBoundary<MRT_TableOptions<T>['renderEmptyRowsFallback']>(
+      tableOptions?.renderEmptyRowsFallback ??
+        (() => (
+          <Box sx={{ py: 6, textAlign: 'center' }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+              {emptyMessage}
+            </Typography>
+          </Box>
+        )),
+    ),
 
     // Not negotiable: identity, data, and the shared appearance.
     columns,
@@ -184,12 +222,17 @@ export default function DataGrid<T extends MRT_RowData>({
     // setting `initialState` at all would otherwise drop the shared density and
     // page size — the exact way the three tables drifted apart before, one
     // landing on `compact` and the others on `comfortable`.
-    initialState: { ...DEFAULT_INITIAL_STATE, ...tableOptions?.initialState },
-    state: { isLoading, ...tableOptions?.state },
+    initialState: atGenericBoundary<MRT_TableOptions<T>['initialState']>({
+      ...DEFAULT_INITIAL_STATE,
+      ...tableOptions?.initialState,
+    }),
+    state: atGenericBoundary<MRT_TableOptions<T>['state']>({ isLoading, ...tableOptions?.state }),
     ...sharedTableOptions,
     // Last, because it has to merge with whatever the caller passed rather than
     // be replaced by it.
-    muiTableContainerProps: mergeContainerProps<T>(containerSx, tableOptions?.muiTableContainerProps),
+    muiTableContainerProps: atGenericBoundary<MRT_TableOptions<T>['muiTableContainerProps']>(
+      mergeContainerProps<T>(containerSx, tableOptions?.muiTableContainerProps),
+    ),
   });
 
   // The ref marks the table's top edge, which is what the height is measured
