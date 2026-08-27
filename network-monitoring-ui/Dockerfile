@@ -26,7 +26,7 @@ ENV VITE_POLL_INTERVAL_MS=$VITE_POLL_INTERVAL_MS
 RUN npx tsc -b network-monitoring-ui && npx vite build network-monitoring-ui
 
 # ---------- runtime ----------
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.31-alpine AS runtime
 
 COPY network-monitoring-ui/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /repo/network-monitoring-ui/build /usr/share/nginx/html
