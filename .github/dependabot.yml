@@ -24,8 +24,12 @@ updates:
     directory: /
     schedule:
       interval: monthly
-    # Two grouped PRs, plus room for one ungrouped major.
-    open-pull-requests-limit: 3
+    # Two grouped PRs, one standalone drizzle-orm PR (see exclude-patterns below),
+    # plus room for one ungrouped major. Raised from 3 when drizzle-orm was pulled
+    # out of its group: leaving it at 3 would let the drizzle PR crowd out a real
+    # major, which is the same failure this file keeps having — arithmetic in a
+    # comment that no longer matches the config under it.
+    open-pull-requests-limit: 4
     groups:
       # Everything that cannot reach production in a bad state: tooling, types,
       # test libraries. Reviewable by whether CI is green.
@@ -37,6 +41,21 @@ updates:
       production-updates:
         dependency-type: production
         update-types: [minor, patch]
+        # drizzle-orm lands on its own, and the reason is a 0.x semver quirk that
+        # defeated the "majors stay individual" reasoning above without this file
+        # ever being wrong on its face.
+        #
+        # Dependabot reads 0.36 -> 0.45 as a MINOR bump, because the minor field
+        # is what changed, so it matched this group. `npm audit` disagrees and
+        # reports isSemVerMajor: true, which is the more honest reading — 0.x
+        # minors break APIs routinely and this one does. The upgrade that most
+        # needs reading (an ORM major, on the database layer, closing an open
+        # high-severity advisory) therefore arrived as the least visible line in a
+        # nine-package batch.
+        #
+        # It is the only 0.x production dependency in the tree today. Any other
+        # added later needs the same treatment, for the same reason.
+        exclude-patterns: ['drizzle-orm']
     ignore:
       # Major upgrades of these change APIs across many files. Do them
       # deliberately — MUI 9 in particular is incompatible with the pinned
