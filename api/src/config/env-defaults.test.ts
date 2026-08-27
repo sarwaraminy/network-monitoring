@@ -42,13 +42,30 @@ function parseDotenv(text: string): Map<string, string> {
   return values;
 }
 
-/** `NAME: ${NAME:-default}` from the Compose environment block. */
+/**
+ * Environment entries from the Compose file, in both forms.
+ *
+ * `NAME: ${NAME:-default}` is the overridable form. `NAME: literal` is pinned —
+ * an operator cannot change it — and it was invisible to every check here, which
+ * left `DB_AUTO_MIGRATE: 'true'` in a blind spot: hardcoded against a code
+ * default, agreeing today, and unable to be seen if it ever stopped agreeing.
+ * That is exactly the class this file exists to catch, in the one form it could
+ * not observe.
+ */
 function parseComposeDefaults(text: string): Map<string, string> {
   const values = new Map<string, string>();
-  const pattern = /^\s*([A-Z0-9_]+):\s*\$\{[A-Z0-9_]+:-([^}]*)\}/gm;
 
-  for (const match of text.matchAll(pattern)) {
+  for (const match of text.matchAll(/^\s*([A-Z0-9_]+):\s*\$\{[A-Z0-9_]+:-([^}]*)\}/gm)) {
     if (match[1]) values.set(match[1], (match[2] ?? '').trim());
+  }
+
+  // Pinned literals. Quotes stripped so `'true'` compares against a code default
+  // of `true`. Anything interpolated is already handled above.
+  for (const match of text.matchAll(/^\s{6}([A-Z0-9_]+):\s*(?!\$\{)(\S+)\s*$/gm)) {
+    const name = match[1];
+    if (name && !values.has(name)) {
+      values.set(name, (match[2] ?? '').replace(/^['"]|['"]$/g, '').trim());
+    }
   }
 
   return values;
@@ -133,12 +150,28 @@ const NOT_IN_COMPOSE = new Set([
   'ARP_TRUSTED_MAPPINGS',
 ]);
 
-/** Compose sets these itself; an operator has no reason to see them. */
-const COMPOSE_OWNS = new Set(['HTTP_PORT', 'POSTGRES_PASSWORD', 'POSTGRES_USER', 'POSTGRES_DB']);
+/**
+ * Compose entries that need not appear in `.env.docker.example`.
+ *
+ * Kept honest by the self-check below, because the first version of this list was
+ * four inert entries — all four already in the example, so it excused nothing —
+ * added by the very commit that fixed that problem for the other two lists. One
+ * of them, `POSTGRES_PASSWORD`, had its reason backwards: it is marked required
+ * with no default precisely BECAUSE the operator must supply it, so it is the
+ * setting they most need to find, not one they have no reason to see.
+ */
+const COMPOSE_OWNS = new Set([
+  // Fixed by the image, and overriding it would break the volume mount.
+  'INTEL_CACHE_DIR',
+  // Set by Compose itself. Pinned literals, so putting them in the example would
+  // offer an operator a knob that does nothing.
+  'NODE_ENV',
+  'PORT',
+  'DATABASE_URL',
+  'DB_AUTO_MIGRATE',
+]);
 
 const ALLOWED_TO_DIFFER = new Set([
-  // Compose runs migrations on boot by design; a host install may not want to.
-  'DB_AUTO_MIGRATE',
   // On behind nginx, off for a direct host install. Both are correct in place,
   // which is exactly why both have to be stated rather than defaulted.
   'TRUST_PROXY',
@@ -148,6 +181,16 @@ const ALLOWED_TO_DIFFER = new Set([
 
 describe('deployment defaults match the code', () => {
   const code = parseCodeDefaults(read('api/src/config/env.ts'));
+
+  it('excuses only Compose entries that Compose actually has', () => {
+    // The same self-check as below, for the third list. It was left out when
+    // COMPOSE_OWNS was added, which is how all four of its entries came to be
+    // inert without anything noticing.
+    const compose = parseComposeDefaults(read('docker-compose.yml'));
+    const unknown = [...COMPOSE_OWNS].filter((name) => !compose.has(name));
+
+    assert.deepEqual(unknown, [], `excused but not in the Compose environment list: ${unknown.join(', ')}`);
+  });
 
   it('excuses only settings that env.ts actually reads', () => {
     /*

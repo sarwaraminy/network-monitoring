@@ -505,14 +505,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 354 tests
-npm run test:api  # 278 API tests
+npm test          # both suites: 355 tests
+npm run test:api  # 279 API tests
 npm run test:ui   # 76 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 278 tests
+### API — 279 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
