@@ -373,6 +373,43 @@ On top of those, findings are batched into a **digest** (`NOTIFY_DIGEST_SECONDS`
 A port scan produces dozens of findings; this makes it one message that leads with the most
 urgent and says how many it truncated.
 
+### Teams, and the format that stopped working
+
+Microsoft retired Office 365 connectors in Teams. The supported replacement is a **Power
+Automate Workflows** webhook — in Teams, channel → Workflows → *"Post to a channel when a
+webhook request is received"* — whose URL lives on `*.logic.azure.com`.
+
+Those are two different payload shapes, not two URLs for one thing. A connector took a
+`MessageCard`; a Workflows webhook expects an **Adaptive Card** wrapped in an `attachments`
+array. Send the wrong one and you get a rejection or an unreadable message, from the channel
+most people configure first and test before trusting anything else.
+
+`NOTIFY_WEBHOOK_FORMAT=auto` detects both Teams hosts and renders the Adaptive Card. The
+retired MessageCard is still reachable as `teams-connector`, for an installation whose
+connector webhook is still provisioned — but it is never inferred from a URL, because pointing
+a new install at a dead format should not be something that happens by accident.
+
+One consequence worth knowing if you compare the code to the Slack renderer: an Adaptive Card
+takes one of six *named* container styles, not a colour, so `SEVERITY_COLOR` cannot express
+five severities there. The severity word is printed in every block instead, and the style is a
+coarse cue on top of it.
+
+### Which SMTP host actually works
+
+In the order that succeeds:
+
+1. **An internal relay.** Most organisations running a monitoring tool already have one, it
+   needs no credentials, and it is the right answer for an on-prem sensor. Set `SMTP_HOST`,
+   leave `SMTP_USER` and `SMTP_PASSWORD` empty, and the transport omits AUTH entirely.
+2. **An app password**, where the tenant still permits one.
+3. **Your company mailbox with an ordinary password** — this usually fails. Microsoft 365 and
+   Google disable basic SMTP AUTH by default on modern tenants, so a *correct* password is
+   rejected exactly like a wrong one. When the server returns `535` or nodemailer reports
+   `EAUTH`, the delivery result says so rather than passing the raw SMTP string through, because
+   "authentication unsuccessful" sends people to check a password that was never the problem.
+
+OAuth2 / XOAUTH2 is not implemented. If your tenant requires it, use a relay.
+
 ### Sending is disclosure
 
 `NOTIFY_INCLUDE_EVIDENCE` is a separate switch from notifications for a reason. Evidence never
@@ -605,14 +642,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 443 tests
-npm run test:api  # 352 API tests
+npm test          # both suites: 450 tests
+npm run test:api  # 359 API tests
 npm run test:ui   # 91 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 352 tests
+### API — 359 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX

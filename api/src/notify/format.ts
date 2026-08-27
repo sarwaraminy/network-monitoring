@@ -1,3 +1,4 @@
+import type { Severity } from '../packet/detect/types.js';
 import { type Notification, SEVERITY_COLOR } from './types.js';
 
 /**
@@ -186,8 +187,144 @@ export function renderSlack(notification: Notification): unknown {
   return { text: subjectFor(notification), blocks };
 }
 
-/** Microsoft Teams legacy MessageCard, which incoming webhooks still accept. */
+/**
+ * Microsoft Teams, via a Power Automate Workflows webhook.
+ *
+ * Microsoft retired Office 365 connectors in Teams. The supported replacement is a
+ * Workflows webhook, and it does not accept the MessageCard those connectors took —
+ * it expects an **Adaptive Card**, wrapped in an `attachments` array under a
+ * `type: "message"` envelope. Posting a MessageCard to one produces either a
+ * rejection or an unreadable message, from the channel most customers configure
+ * first and press "Send test" on before they trust anything else.
+ *
+ * Three things about this shape are load-bearing and easy to get subtly wrong:
+ *
+ *  - **`FactSet` facts use `title`, not `name`.** MessageCard used `name`. A card
+ *    with `name` renders with every fact blank rather than failing, so the mistake
+ *    survives a successful-looking test send.
+ *  - **Colour is a fixed vocabulary, not a hex value.** `SEVERITY_COLOR` cannot be
+ *    used here at all: a `Container` takes one of six named styles. So the severity
+ *    word is always printed in the text, and the style is a coarse cue on top of it
+ *    rather than the only signal — see `CONTAINER_STYLE`.
+ *  - **Version 1.4.** Teams supports it everywhere; 1.5 and above are only partly
+ *    supported, and an unsupported version renders as a blank card.
+ */
+
+/**
+ * Severity to one of Adaptive Cards' six container styles.
+ *
+ * Five severities, six styles, and only three of the styles read as escalating, so
+ * this deliberately collapses rather than inventing distinctions the vocabulary
+ * cannot carry. `good` is avoided entirely: green next to a security finding reads
+ * as "resolved", which is the opposite of true for a `low` one. The exact severity
+ * is in the text of every block regardless.
+ */
+const CONTAINER_STYLE: Record<Severity, string> = {
+  critical: 'attention',
+  high: 'attention',
+  medium: 'warning',
+  low: 'emphasis',
+  info: 'emphasis',
+};
+
 export function renderTeams(notification: Notification): unknown {
+  const body: unknown[] = [];
+
+  if (notification.isTest) {
+    body.push({
+      type: 'TextBlock',
+      text: 'This is a test notification from Network Monitoring. No findings are involved.',
+      wrap: true,
+      isSubtle: true,
+    });
+  }
+
+  body.push({
+    type: 'TextBlock',
+    text: summaryLine(notification),
+    wrap: true,
+    weight: 'Bolder',
+    size: 'Medium',
+  });
+
+  for (const finding of notification.findings) {
+    const facts = [
+      ...(finding.sourceIp ? [{ title: 'Source', value: finding.sourceIp }] : []),
+      ...(finding.targetIp ? [{ title: 'Target', value: finding.targetIp }] : []),
+      { title: 'Occurrences', value: String(finding.occurrences) },
+      { title: 'Last seen', value: finding.lastSeen.toISOString() },
+      ...(finding.evidence ? [{ title: 'Evidence', value: compactEvidence(finding.evidence) }] : []),
+    ];
+
+    body.push({
+      type: 'Container',
+      style: CONTAINER_STYLE[finding.severity],
+      // Keeps the tinted block visually one unit rather than three stacked ones.
+      bleed: true,
+      items: [
+        {
+          type: 'TextBlock',
+          text: `${finding.severity.toUpperCase()} — ${finding.title}`,
+          wrap: true,
+          weight: 'Bolder',
+        },
+        { type: 'TextBlock', text: finding.description, wrap: true, isSubtle: true },
+        { type: 'FactSet', facts },
+      ],
+    });
+  }
+
+  if (notification.omittedCount > 0) {
+    body.push({
+      type: 'TextBlock',
+      text: `…and ${notification.omittedCount} more. Open the dashboard for the full list.`,
+      wrap: true,
+      isSubtle: true,
+    });
+  }
+
+  return {
+    type: 'message',
+    attachments: [
+      {
+        contentType: 'application/vnd.microsoft.card.adaptive',
+        // Present and null in Microsoft's own samples. Omitting it is accepted, but
+        // matching the documented shape costs nothing and removes a variable if a
+        // tenant ever rejects the payload.
+        contentUrl: null,
+        content: {
+          $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+          type: 'AdaptiveCard',
+          version: '1.4',
+          body,
+          ...(notification.dashboardUrl
+            ? {
+                actions: [
+                  {
+                    type: 'Action.OpenUrl',
+                    title: 'Open dashboard',
+                    url: notification.dashboardUrl,
+                  },
+                ],
+              }
+            : {}),
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * The retired Office 365 connector MessageCard.
+ *
+ * Kept because an installation with a connector webhook still provisioned will go on
+ * working until Microsoft finally switches it off, and breaking that on upgrade would
+ * be a worse outcome than carrying this function. It is reachable only by setting
+ * `NOTIFY_WEBHOOK_FORMAT=teams-connector` — never inferred from a URL, so nobody
+ * arrives here by accident and no new installation is quietly pointed at a dead
+ * format.
+ */
+export function renderTeamsConnector(notification: Notification): unknown {
   return {
     '@type': 'MessageCard',
     '@context': 'https://schema.org/extensions',

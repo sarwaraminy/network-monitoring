@@ -1,6 +1,8 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+// One import, not a second copy of the list: see notify/types.ts.
+import { WEBHOOK_FORMATS, type WebhookFormat } from '../notify/types.js';
 
 // Resolve api/.env from this module rather than from process.cwd(), so the server
 // behaves the same whether it is started from api/ or from the repository root.
@@ -100,15 +102,12 @@ function severity(name: string, fallback: SeverityName): SeverityName {
   return raw as SeverityName;
 }
 
-const WEBHOOK_FORMATS = ['auto', 'slack', 'teams', 'discord', 'generic'] as const;
-type WebhookFormatName = (typeof WEBHOOK_FORMATS)[number];
-
-function webhookFormat(): WebhookFormatName {
+function webhookFormat(): WebhookFormat {
   const raw = optional('NOTIFY_WEBHOOK_FORMAT', 'auto').toLowerCase();
   if (!(WEBHOOK_FORMATS as readonly string[]).includes(raw)) {
     throw new TypeError(`NOTIFY_WEBHOOK_FORMAT must be one of ${WEBHOOK_FORMATS.join(', ')}, got "${raw}".`);
   }
-  return raw as WebhookFormatName;
+  return raw as WebhookFormat;
 }
 
 const SYSLOG_FORMATS = ['cef', 'json'] as const;
