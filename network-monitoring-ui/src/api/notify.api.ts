@@ -1,4 +1,9 @@
-import type { NotifyStatus, NotifyTestResult } from '../types';
+import type {
+  DeliverySettingsPatch,
+  DeliverySettingsResponse,
+  NotifyStatus,
+  NotifyTestResult,
+} from '../types';
 import { api } from './client';
 
 /**
@@ -19,5 +24,31 @@ export async function fetchNotifyStatus(): Promise<NotifyStatus> {
 /** Sends a test message to every configured channel. Admin only. */
 export async function sendNotifyTest(): Promise<NotifyTestResult> {
   const { data } = await api.post<NotifyTestResult>('/api/notify/test');
+  return data;
+}
+
+/**
+ * Every delivery setting, with where each came from.
+ *
+ * The provenance is not decoration: `pinnedByEnvironment` is what tells the form
+ * which controls to disable. Readable by any authenticated account, on the same
+ * reasoning as the alert list — someone who can see every finding can see how
+ * delivery is configured — and the two credentials are never included.
+ */
+export async function fetchDeliverySettings(): Promise<DeliverySettingsResponse> {
+  const { data } = await api.get<DeliverySettingsResponse>('/api/notify/settings');
+  return data;
+}
+
+/**
+ * Changes stored settings. Admin only.
+ *
+ * Send only what changed. A field omitted is left alone, which is how a secret the
+ * API never sent us stays untouched; a field sent as null is cleared back to the
+ * environment or the default. Sending a field the environment pins is refused with a
+ * 409, so the form does not offer to.
+ */
+export async function saveDeliverySettings(patch: DeliverySettingsPatch): Promise<DeliverySettingsResponse> {
+  const { data } = await api.put<DeliverySettingsResponse>('/api/notify/settings', patch);
   return data;
 }

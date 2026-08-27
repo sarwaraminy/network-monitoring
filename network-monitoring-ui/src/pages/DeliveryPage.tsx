@@ -15,6 +15,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { describeError } from '../api/client';
 import { fetchNotifyStatus, sendNotifyTest } from '../api/notify.api';
+import DeliverySettingsForm from '../components/DeliverySettingsForm';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -112,10 +113,10 @@ export default function DeliveryPage() {
 
       {!loading && data && data.channels.length === 0 && (
         <Alert severity="warning">
-          Nothing is configured, so findings are recorded and nobody is told. Set{' '}
-          <Box component="code">SYSLOG_HOST</Box> to feed a SIEM,{' '}
-          <Box component="code">NOTIFY_WEBHOOK_URL</Box> for Slack, Teams or Discord, or{' '}
-          <Box component="code">SMTP_HOST</Box> with <Box component="code">NOTIFY_EMAIL_TO</Box> for email.
+          Nothing is configured, so findings are recorded and nobody is told.
+          {isAdmin
+            ? ' Set a collector host, a webhook URL, or an SMTP host with recipients in Settings below — no file to edit and no restart.'
+            : ' An administrator can configure a webhook, email or a syslog collector on this page.'}
         </Alert>
       )}
 
@@ -126,9 +127,9 @@ export default function DeliveryPage() {
       */}
       {!loading && data && !data.enabled && data.channels.length > 0 && (
         <Alert severity="info">
-          Channels are configured but <Box component="code">NOTIFY_ENABLED</Box> is off, so no alert will be
-          sent. A test send still works — it deliberately bypasses this, since the question it answers is
-          whether delivery reaches you at all.
+          Channels are configured but delivery is switched off, so no alert will be sent.
+          {isAdmin ? ' Turn on "Deliver alerts" in Settings below.' : ''} A test send still works — it
+          deliberately bypasses this, since the question it answers is whether delivery reaches you at all.
           {data.syslog.configured && ' Syslog is unaffected: it is independent of this switch.'}
         </Alert>
       )}
@@ -245,6 +246,15 @@ export default function DeliveryPage() {
           </SurfaceCard>
         </Grid>
       </Grid>
+
+      {/*
+        Below the status, and admin-only.
+        
+        The order is deliberate: the question this page answers is "is anything
+        reaching anyone", and the answer belongs above the controls that change it.
+        Somebody arriving because an alert did not arrive should see the state first.
+      */}
+      {isAdmin && <DeliverySettingsForm />}
     </>
   );
 }

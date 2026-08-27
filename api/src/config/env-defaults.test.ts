@@ -20,6 +20,16 @@ import { fileURLToPath } from 'node:url';
  * A reviewer caught all three. This is the check that means the fourth does not
  * need one — and the reason it compares TEXT rather than importing `env` is that
  * importing it reads `process.env`, which is exactly the layer under test.
+ *
+ * One thing changed underneath this file when delivery settings became editable
+ * (#28): a delivery default can now be written in three places rather than two —
+ * env.ts, `.env.example`/Compose, and `DELIVERY_DEFAULTS` in notify/settings.ts.
+ * This file still checks the same edge it always did, `.env.example` and Compose
+ * against env.ts, and notify/settings.test.ts checks `DELIVERY_DEFAULTS` against
+ * env.ts. Two edges of a triangle, with env.ts as the shared vertex, so a value that
+ * disagrees anywhere fails one of the two. Nothing here needed to change; it needed
+ * writing down, because the obvious reading of "the settings moved to the database"
+ * is that this file no longer applies, and it does.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));

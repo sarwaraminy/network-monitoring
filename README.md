@@ -357,6 +357,36 @@ or SMTP password produces no error anyone sees until the night an alert does not
 bypasses every gate below, including `NOTIFY_ENABLED`, so you can check delivery before
 committing to it.
 
+### Configuring it without a shell
+
+Every setting below can be changed on the **Delivery** page by an administrator, and
+takes effect immediately — no file to edit, no restart. That matters because the person
+configuring this is usually an IT admin rather than the developer, and asking them to
+shell into the host to add a second recipient makes every tuning change an outage.
+
+Values resolve in three layers, per field:
+
+```
+environment variable   →   stored setting   →   code default
+```
+
+**The environment wins.** A deployment driven by Compose or config management keeps its
+configuration pinned in a file that a web form cannot contradict — otherwise the file
+says one thing, the process does another, and the next redeploy silently reverts
+whatever was changed in the UI. A pinned field is shown on the page as locked, with the
+variable's name, and the API refuses to store a change to it with a 409: a control that
+accepts an edit and changes nothing is worse than one that is visibly disabled.
+
+To manage a setting from the page, remove its variable from `api/.env` — a blank value
+counts as unset, matching how every other variable in this project behaves. On first
+boot whatever the variables currently say is copied into the database, so removing a
+line later keeps the behaviour you had rather than reverting to a default.
+
+Two values are treated as credentials and never returned by the API: the webhook URL,
+which *is* the credential for Slack and Teams, and the SMTP password. The form reports
+whether each is configured and offers to replace it; an empty box means "leave it
+alone", and clearing one is a separate, explicit action.
+
 ### What stops it becoming spam
 
 The sending is the easy part. Three independent limits apply before anything leaves the
@@ -654,9 +684,9 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 498 tests
+npm test          # both suites: 511 tests
 npm run test:api  # 407 API tests
-npm run test:ui   # 91 UI tests
+npm run test:ui   # 104 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
@@ -721,7 +751,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 91 tests
+### UI — 104 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —
@@ -737,6 +767,12 @@ and only the network is substituted.
 - **Capture** (`src/pages/PacketCapture.test.tsx`): the interface dropdown, start/stop, the IP
   filter, a failed start not claiming success, mid-capture page mount, and a regression test
   that `POST /start` sends no `"null"` body.
+- **Delivery settings** (`src/components/DeliverySettingsForm.test.tsx`): a field pinned in the
+  environment rendered disabled and naming its variable, a secret never displayed and only
+  replaceable, a save that sends *only* what changed — including a field typed and put back
+  again, which is the case that separates "only what changed" from "whatever was touched" —
+  clearing a text field to null rather than to an empty string, and the server's own refusal
+  shown verbatim rather than replaced with "could not save".
 - **Suppressions** (`src/pages/SuppressionsPage.test.tsx`): what each rule covers as one line,
   the total hidden, a rule in force that has hidden nothing, a rule the server could not parse,
   an expired rule told apart from a switched-off one, the preview reporting observations rather
@@ -926,10 +962,12 @@ telemetry.
 
 ### Notifications — `/api/notify`
 
-| Method | Path      | Purpose                                                          |
-| ------ | --------- | ---------------------------------------------------------------- |
-| `GET`  | `/status` | Channels configured, gates in force, what has been sent this hour |
-| `POST` | `/test`   | Send a test message to every channel (**ADMIN only**)             |
+| Method | Path        | Purpose                                                          |
+| ------ | ----------- | ---------------------------------------------------------------- |
+| `GET`  | `/status`   | Channels configured, gates in force, what has been sent this hour |
+| `GET`  | `/settings` | Every delivery setting, with where each came from                 |
+| `PUT`  | `/settings` | Change stored settings; in force before it answers (**ADMIN only**) |
+| `POST` | `/test`     | Send a test message to every channel (**ADMIN only**)             |
 
 `/test` is admin-only because it makes the server send outbound messages to a third party on
 demand. `/status` never returns the webhook URL — for Slack and Teams that URL is the credential.

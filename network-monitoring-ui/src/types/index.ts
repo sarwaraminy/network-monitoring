@@ -344,6 +344,44 @@ export interface NotifyStatus {
   syslog: NotifyChannelSyslog;
 }
 
+/**
+ * Where a delivery setting's current value came from.
+ *
+ * `environment` is the one that changes the UI: such a field is pinned in api/.env
+ * or a Compose file, the API refuses to store a change to it, and the form must
+ * render it uneditable. A control that accepts an edit and changes nothing is worse
+ * than one that is visibly disabled.
+ */
+export type SettingSource = 'environment' | 'database' | 'default';
+
+/**
+ * One setting as the API reports it.
+ *
+ * `value` is absent for the two credentials — the webhook URL and the SMTP password —
+ * which report `configured` instead. The API never sends those out: for Slack and
+ * Teams the URL *is* the credential, and `/api/notify/status` has never returned it.
+ */
+export interface DeliverySettingField {
+  source: SettingSource;
+  value?: unknown;
+  configured?: boolean;
+}
+
+export interface DeliverySettingsResponse {
+  settings: Record<string, DeliverySettingField>;
+  /** Fields pinned in the environment, which cannot be changed from the page. */
+  pinnedByEnvironment: string[];
+}
+
+/**
+ * A change to the stored settings.
+ *
+ * Absent and null mean different things: absent leaves the stored value alone, null
+ * clears it so the field falls back to the environment or the code default. That is
+ * what lets the form save without round-tripping a secret it was never given.
+ */
+export type DeliverySettingsPatch = Record<string, string | number | boolean | string[] | null>;
+
 export interface NotifyTestResult {
   delivered: number;
   results: { channel: string; ok: boolean; detail: string }[];
