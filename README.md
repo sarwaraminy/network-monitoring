@@ -654,14 +654,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 454 tests
-npm run test:api  # 363 API tests
+npm test          # both suites: 455 tests
+npm run test:api  # 364 API tests
 npm run test:ui   # 91 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 363 tests
+### API — 364 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX

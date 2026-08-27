@@ -324,10 +324,21 @@ export function renderTeams(notification: Notification): unknown {
  *
  * Kept because an installation with a connector webhook still provisioned will go on
  * working until Microsoft finally switches it off, and breaking that on upgrade would
- * be a worse outcome than carrying this function. It is reachable only by setting
- * `NOTIFY_WEBHOOK_FORMAT=teams-connector` — never inferred from a URL, so nobody
- * arrives here by accident and no new installation is quietly pointed at a dead
- * format.
+ * be a worse outcome than carrying this function. `detectFormat` routes every
+ * `*.webhook.office.com` URL here, because such a URL is definitionally a connector —
+ * they can no longer be created — so this is a default path, not a museum piece.
+ *
+ * Which is why it escapes its interpolated values the same way `renderTeams` does,
+ * even though nothing it currently carries needs it: its four facts are Source,
+ * Target, Occurrences and Last seen, all charset-restricted or generated here, and it
+ * has no Evidence fact, so the threat-feed note that motivated `escapeAdaptive` never
+ * reaches it. Two renderers for one product, one escaping and one not, is a gap that
+ * opens silently the moment either gains a field — and Evidence, for parity with the
+ * Adaptive Card, is the obvious next one. Cheaper to make them agree than to leave a
+ * warning for whoever adds it.
+ *
+ * `markdown: true` stays on each section: the `**bold**` in `activityTitle` is ours
+ * and intentional, and only the interpolated values are escaped.
  */
 export function renderTeamsConnector(notification: Notification): unknown {
   return {
@@ -337,11 +348,11 @@ export function renderTeamsConnector(notification: Notification): unknown {
     summary: subjectFor(notification),
     title: subjectFor(notification),
     sections: notification.findings.map((finding) => ({
-      activityTitle: `**${finding.severity.toUpperCase()}** — ${finding.title}`,
-      activitySubtitle: finding.description,
+      activityTitle: `**${finding.severity.toUpperCase()}** — ${escapeAdaptive(finding.title)}`,
+      activitySubtitle: escapeAdaptive(finding.description),
       facts: [
-        ...(finding.sourceIp ? [{ name: 'Source', value: finding.sourceIp }] : []),
-        ...(finding.targetIp ? [{ name: 'Target', value: finding.targetIp }] : []),
+        ...(finding.sourceIp ? [{ name: 'Source', value: escapeAdaptive(finding.sourceIp) }] : []),
+        ...(finding.targetIp ? [{ name: 'Target', value: escapeAdaptive(finding.targetIp) }] : []),
         { name: 'Occurrences', value: String(finding.occurrences) },
         { name: 'Last seen', value: finding.lastSeen.toISOString() },
       ],
@@ -450,11 +461,29 @@ function escapeHtml(value: string): string {
  * with the other two renderers had a consequence.
  *
  * Backslash goes first, or every escape added below gets escaped again. The rest is
- * the set that begins a construct in the subset Teams supports: emphasis, links,
- * lists and headings.
+ * deliberately narrow — emphasis, code, strikethrough and the opening bracket of a
+ * link — because escaping too much is its own bug, and a visible one.
+ *
+ * What is NOT escaped, and why:
+ *
+ *  - `-`, `#`, `>` begin a construct only at the START of a line: a list item, a
+ *    heading, a quote. Mid-string they are ordinary characters. Escaping them put a
+ *    backslash into every threat-intelligence alert this tool raises — the three
+ *    titles in intel/assess.ts all read "known-malicious address …" — so a channel
+ *    people are asked to trust filled with `known\-malicious` on the tool's own
+ *    prose. Any evidence carrying a MAC address got the same treatment.
+ *  - `|` delimits a table, and the Adaptive Card subset does not render tables.
+ *  - `(` and `)` are only meaningful immediately after a `]`, and `[` is escaped
+ *    here, so the link never forms and the parenthesis never matters.
+ *
+ * The asymmetry is the point: escaping too little is a formatting injection, while
+ * escaping too much is noise on every message. Full CommonMark renders `\-` as `-`,
+ * so a compliant renderer would hide the damage — but a restricted subset need not
+ * implement an escape for a character it never treats as special, and betting the
+ * legibility of every alert on that is the wrong way round.
  */
 function escapeAdaptive(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/([*_[\]()~`>#|-])/g, '\\$1');
+  return value.replace(/\\/g, '\\\\').replace(/([*_[`~])/g, '\\$1');
 }
 
 /** Slack mrkdwn only needs these three escaped. */

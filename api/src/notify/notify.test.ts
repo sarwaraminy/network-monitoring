@@ -456,15 +456,61 @@ describe('message formats', () => {
     assert.match(payload, /click here/);
   });
 
-  it('leaves ordinary text readable after escaping', () => {
-    // An escaper that mangles normal output is its own bug: addresses and plain
-    // prose have to survive intact.
-    const payload = format.renderTeams(notification) as {
-      attachments: { content: { body: { text?: string }[] } }[];
+  it('leaves the tool’s own prose alone, hyphens included', () => {
+    // The other half of escaping, and the half the previous version of this test
+    // missed: it checked the summary line for an escaped capital letter, which
+    // passes whether or not the finding titles below it are full of backslashes.
+    //
+    // This is not hypothetical. All three threat-intelligence titles in
+    // intel/assess.ts read "known-malicious address …", so escaping `-` put a
+    // backslash into every intel alert the tool raises. Escaping too little is a
+    // formatting injection; escaping too much is visible noise on every message, in
+    // a channel people are being asked to trust.
+    const intel: Notification = {
+      ...notification,
+      findings: [
+        {
+          ...notification.findings[0]!,
+          title: 'Outbound connection to known-malicious address 203.0.113.7',
+          description: 'A host contacted an address on a threat feed (feodo). See #1 below.',
+          evidence: { mac: 'aa-bb-cc-dd-ee-ff', port: 445 },
+        },
+      ],
     };
-    const summary = payload.attachments[0]!.content.body.find((block) => block.text)?.text ?? '';
-    assert.match(summary, /Network Monitoring raised/);
-    assert.ok(!summary.includes('\\N'), 'escaping should not touch ordinary letters');
+
+    const payload = JSON.stringify(format.renderTeams(intel));
+
+    // Each of these would carry a backslash under the over-broad set.
+    assert.match(payload, /known-malicious address 203\.0\.113\.7/);
+    assert.match(payload, /aa-bb-cc-dd-ee-ff/);
+    assert.match(payload, /See #1 below/);
+    assert.ok(!payload.includes('\\\\-'), 'a hyphen was escaped');
+    assert.ok(!payload.includes('\\\\#'), 'a hash was escaped');
+  });
+
+  it('escapes the connector card too, so the two renderers cannot drift', () => {
+    // Nothing the MessageCard currently carries needs escaping — four facts, all
+    // charset-restricted or generated here, and no Evidence. But detectFormat now
+    // routes every *.webhook.office.com URL to it, so it is a default path rather
+    // than a museum piece, and two renderers for one product with different escaping
+    // is a gap that opens the moment either gains a field.
+    const hostile: Notification = {
+      ...notification,
+      findings: [
+        {
+          ...notification.findings[0]!,
+          title: 'Indicator match [click here](http://attacker.test)',
+          description: 'note says **urgent**',
+        },
+      ],
+    };
+
+    const payload = JSON.stringify(format.renderTeamsConnector(hostile));
+    assert.ok(!/[^\\]\[click here\]/.test(payload), 'an unescaped markdown link reached the card');
+    // The bold in activityTitle is ours and deliberate, so it survives; the bold
+    // inside the finding's own text does not.
+    assert.ok(!payload.includes('says **urgent**'), 'unescaped bold reached the card');
+    assert.match(payload, /\*\*CRITICAL\*\*/);
   });
 
   it('links the dashboard as an Action.OpenUrl', () => {
