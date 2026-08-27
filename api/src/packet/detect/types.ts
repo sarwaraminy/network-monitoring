@@ -30,6 +30,7 @@ export const ALERT_KINDS = [
   'plaintext_credentials',
   'dns_tunneling',
   'new_device',
+  'threat_intel',
 ] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 

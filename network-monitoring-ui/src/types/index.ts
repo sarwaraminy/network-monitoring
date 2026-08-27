@@ -48,6 +48,7 @@ export const ALERT_KINDS = [
   'plaintext_credentials',
   'dns_tunneling',
   'new_device',
+  'threat_intel',
 ] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
@@ -95,6 +96,42 @@ export interface AlertTrendPoint {
 export interface AlertDashboard extends AlertSummary {
   trend: AlertTrendPoint[];
   topSources: Array<{ sourceIp: string; count: number; occurrences: number }>;
+}
+
+/** Where a feed's contents actually came from on the last load. */
+export type IntelFeedOrigin = 'network' | 'cache' | 'file' | 'failed';
+
+export interface IntelFeedStatus {
+  name: string;
+  indicators: number;
+  /** Lines that were not indicators: comments, headers, junk. */
+  skipped: number;
+  from: IntelFeedOrigin;
+  error?: string;
+}
+
+export interface IntelStatus {
+  enabled: boolean;
+  loadedAt: string | null;
+  refreshSeconds: number;
+  stats: {
+    total: number;
+    ipv4: number;
+    ipv6: number;
+    cidr: number;
+    domain: number;
+    /** Entries refused on the way in — private ranges, malformed lines. */
+    rejected: number;
+    bySource: Record<string, number>;
+  };
+  sources: IntelFeedStatus[];
+}
+
+export interface IntelReloadResult {
+  status: 'loaded';
+  loadedAt: string;
+  indicators: number;
+  sources: IntelFeedStatus[];
 }
 
 export interface KnownDevice {
@@ -177,4 +214,56 @@ export interface StartCaptureParams {
   snaplength: number;
   timeout: number;
   ipAddress?: string;
+}
+
+/**
+ * Alert delivery.
+ *
+ * Two classes of channel, and the distinction is the point of the page built on
+ * this: webhook and email are read by a person, so they are gated by severity,
+ * throttled and digested. Syslog feeds a SIEM, which correlates and deduplicates
+ * itself and needs the complete stream, so it receives every finding ungated.
+ */
+export interface NotifyChannelWebhook {
+  configured: boolean;
+  /** Never the URL — it is a bearer credential for Slack and Teams. */
+  format: string | null;
+}
+
+export interface NotifyChannelEmail {
+  configured: boolean;
+  recipients: number;
+}
+
+export interface NotifyChannelSyslog {
+  configured: boolean;
+  /** `host:port`. Safe to show: a syslog target carries no credential. */
+  target: string | null;
+  protocol: 'udp' | 'tcp';
+  format: 'cef' | 'json';
+  rfc: '5424' | '3164';
+  includeEvidence: boolean;
+}
+
+export interface NotifyStatus {
+  enabled: boolean;
+  /** True only when at least one channel could actually deliver. */
+  active: boolean;
+  channels: string[];
+  minSeverity: string;
+  digestSeconds: number;
+  throttleSeconds: number;
+  maxPerHour: number;
+  includeEvidence: boolean;
+  queued: number;
+  sentLastHour: number;
+  throttledKeys: number;
+  webhook: NotifyChannelWebhook;
+  email: NotifyChannelEmail;
+  syslog: NotifyChannelSyslog;
+}
+
+export interface NotifyTestResult {
+  delivered: number;
+  results: { channel: string; ok: boolean; detail: string }[];
 }

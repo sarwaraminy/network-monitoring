@@ -33,7 +33,14 @@ interface IpInfoDialogProps {
  * One dialog shared by all three pages. The Bootstrap markup for this modal was
  * previously copy-pasted into LogPage, PacketCapture and PacketCaptureWithIP.
  */
-export default function IpInfoDialog({ open, ipAddress, info, loading, error, onClose }: IpInfoDialogProps) {
+export default function IpInfoDialog({
+  open,
+  ipAddress,
+  info,
+  loading,
+  error,
+  onClose,
+}: Readonly<IpInfoDialogProps>) {
   const geo = info?.geoData ?? null;
 
   return (
@@ -130,7 +137,7 @@ export default function IpInfoDialog({ open, ipAddress, info, loading, error, on
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: Readonly<{ title: string; children: React.ReactNode }>) {
   return (
     <Box>
       <Typography
@@ -147,7 +154,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function NotAvailable({ label }: { label: string }) {
+function NotAvailable({ label }: Readonly<{ label: string }>) {
   return (
     <Typography
       variant="body2"
@@ -161,7 +168,7 @@ function NotAvailable({ label }: { label: string }) {
   );
 }
 
-function GeoTable({ geo }: { geo: GeoData }) {
+function GeoTable({ geo }: Readonly<{ geo: GeoData }>) {
   const rows: Array<[string, React.ReactNode]> = [
     ['Country', geo.country],
     ['Region', geo.regionName],

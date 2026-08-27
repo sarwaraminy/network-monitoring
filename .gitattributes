@@ -21,5 +21,9 @@
 *.webp binary
 *.ico binary
 
-# Generated. Collapse it in reviews and let git resolve conflicts by regenerating.
-package-lock.json -diff linguist-generated=true
+# Generated: collapsed by default in GitHub reviews.
+#
+# Deliberately NOT marked `-diff`. That would make git treat it as binary, which
+# hides the content entirely — and a lockfile diff is exactly what you want to
+# read when checking whether an install pulled in something unexpected.
+package-lock.json linguist-generated=true

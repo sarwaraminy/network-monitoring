@@ -77,7 +77,10 @@ export class PlaintextCredentialDetector implements Detector {
     const findings: Finding[] = [];
 
     // Authorization: Basic <base64(user:pass)>
-    const basic = /^authorization:[ \t]*basic[ \t]+([A-Za-z0-9+/=]+)/im.exec(text);
+    // `A-Z` only: the `i` flag is on for the header name, so the class already
+    // matches lowercase. Spelling `A-Za-z` as well claimed a case sensitivity
+    // the flag had already removed, and made one class look like two.
+    const basic = /^authorization:[ \t]*basic[ \t]+([A-Z0-9+/=]+)/im.exec(text);
     if (basic?.[1]) {
       const decoded = safeBase64(basic[1]);
       const separator = decoded.indexOf(':');
@@ -231,7 +234,7 @@ export class PlaintextCredentialDetector implements Detector {
   }
 
   private inspectSmtp(text: string, context: Context): Finding[] {
-    const authPlain = /^AUTH[ \t]+PLAIN[ \t]+([A-Za-z0-9+/=]+)/im.exec(text);
+    const authPlain = /^AUTH[ \t]+PLAIN[ \t]+([A-Z0-9+/=]+)/im.exec(text);
     const authLogin = /^AUTH[ \t]+LOGIN/im.test(text);
     if (!authPlain && !authLogin) return [];
 
@@ -305,6 +308,12 @@ interface Context {
 function startsWith(buffer: Buffer, prefix: string): boolean {
   if (buffer.length < prefix.length) return false;
   for (let i = 0; i < prefix.length; i += 1) {
+    // `charCodeAt`, not `codePointAt`. This compares against `buffer[i]`, a byte
+    // in 0-255, and a UTF-16 code unit is the right unit for that. `codePointAt`
+    // returns a full code point above 0xFFFF for a surrogate pair and is typed
+    // `number | undefined` — identical for the ASCII prefixes passed here, but it
+    // would make this look like it handles astral characters when the comparison
+    // it performs cannot.
     if (buffer[i] !== prefix.charCodeAt(i)) return false;
   }
   return true;
@@ -330,17 +339,43 @@ function sanitize(value: string): string {
   return out;
 }
 
+/**
+ * The request line, with its query string removed.
+ *
+ * SECURITY: this reaches `alerts.evidence`, the UI evidence panel and — because
+ * NOTIFY_INCLUDE_EVIDENCE is on by default — a third-party chat webhook. A form
+ * login sent as GET puts the password in the query string, so storing the line
+ * verbatim recorded the secret in all three places and broke this module's one
+ * promise: username and length, never the value.
+ *
+ * The suite missed it because the credential test posts a body. `?` and `&` are
+ * field separators for the form regex above, so the GET case was always in
+ * scope for detection — just not for redaction.
+ */
 function firstLine(text: string): string {
-  return sanitize(text.split(/\r?\n/, 1)[0] ?? '').slice(0, 200);
+  const line = sanitize(text.split(/\r?\n/, 1)[0] ?? '');
+  const query = line.indexOf('?');
+  if (query === -1) return line.slice(0, 200);
+
+  // Keep the method and path; drop everything from `?` to the HTTP version.
+  //
+  // `tail` guards the case a capture ring actually produces: a truncated request
+  // line with no space after the query string. `indexOf` returns -1 there, and
+  // `slice(-1)` appends the LAST character rather than nothing — evidence read
+  // `GET /login?<redacted>t`. Not a leak either way, but wrong in the branch
+  // truncation makes common.
+  const versionAt = line.indexOf(' ', query);
+  const tail = versionAt === -1 ? '' : line.slice(versionAt);
+  return `${line.slice(0, query)}?<redacted>${tail}`.slice(0, 200);
 }
 
 function firstHeader(text: string, header: string): string | null {
-  const match = new RegExp(`^${header}:[ \\t]*(.+)$`, 'im').exec(text);
+  const match = new RegExp(String.raw`^${header}:[ \t]*(.+)$`, 'im').exec(text);
   return match?.[1] ? sanitize(match[1].trim()) : null;
 }
 
 /** Best-effort username alongside a password field, for context in the alert. */
 function extractFormUsername(text: string): string | null {
   const match = /(?:^|[&?\s])(?:username|user|email|login|uid)=([^&\s"']{1,128})/i.exec(text);
-  return match?.[1] ? sanitize(decodeURIComponent(match[1].replace(/\+/g, ' '))) : null;
+  return match?.[1] ? sanitize(decodeURIComponent(match[1].replaceAll('+', ' '))) : null;
 }

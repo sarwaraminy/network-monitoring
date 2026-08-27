@@ -1,8 +1,6 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
-import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
 import {
   acknowledgeAlert,
   dashboardData,
@@ -13,50 +11,18 @@ import {
   unacknowledgeAlert,
 } from '../services/alert.service.js';
 import { forgetDevice, listKnownDevices } from '../services/device.service.js';
+import { alertDashboardQuerySchema, alertListQuerySchema, idSchema, parseSince } from './validation.js';
 
 /** Security findings raised by the detectors. Mounted at /api/alerts. */
 export const alertsRouter = Router();
 
 alertsRouter.use(requireAuth);
 
-const listQuerySchema = z.object({
-  severity: z.enum(SEVERITIES).optional(),
-  kind: z.enum(ALERT_KINDS).optional(),
-  /** ISO timestamp, or a relative window such as `24h` / `7d` / `30m`. */
-  since: z.string().trim().min(1).optional(),
-  acknowledged: z
-    .enum(['true', 'false'])
-    .optional()
-    .transform((value) => (value === undefined ? undefined : value === 'true')),
-  limit: z.coerce.number().int().min(1).max(500).default(200),
-  offset: z.coerce.number().int().min(0).default(0),
-});
-
-const idSchema = z.coerce.number().int().positive();
-
-/** Accepts an ISO date or a relative window like `24h`. */
-function parseSince(value: string | undefined): Date | undefined {
-  if (!value) return undefined;
-
-  const relative = /^(\d+)([mhd])$/.exec(value.trim());
-  if (relative) {
-    const amount = Number(relative[1]);
-    const unitMs = { m: 60_000, h: 3_600_000, d: 86_400_000 }[relative[2] as 'm' | 'h' | 'd'];
-    return new Date(Date.now() - amount * unitMs);
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new HttpError(400, `Could not parse "since": use an ISO date or a window like 24h`);
-  }
-  return parsed;
-}
-
 /** GET /api/alerts */
 alertsRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const parsed = listQuerySchema.safeParse(req.query);
+    const parsed = alertListQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
     }
@@ -90,11 +56,7 @@ alertsRouter.get(
 alertsRouter.get(
   '/dashboard',
   asyncHandler(async (req, res) => {
-    const schema = z.object({
-      days: z.coerce.number().int().min(1).max(365).default(7),
-      bucket: z.enum(['hour', 'day']).optional(),
-    });
-    const parsed = schema.safeParse(req.query);
+    const parsed = alertDashboardQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
     }

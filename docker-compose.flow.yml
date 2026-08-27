@@ -16,6 +16,19 @@
 #
 # Kept as a separate override rather than folded into docker-compose.yml so that
 # a plain `docker compose up` does not publish a UDP port nobody asked for.
+#
+# That separation is the whole point, and it is worth being precise about why:
+# `ports:` publishes at container start. Docker binds the HOST port and installs
+# the forwarding rule whether or not anything inside the container is listening,
+# so a publish in the main file would open 2055/udp on every deployment —
+# including one with FLOW_ENABLED=false, which is the state that setting exists to
+# prevent — and would break `up` outright on a host already running a NetFlow
+# collector on that port.
+#
+# The environment block and the publish therefore belong together, in here. One
+# without the other is a half-configured deployment that reports nothing and
+# explains nothing: a published port forwarding to a process that is not
+# listening, or a listening process no exporter can reach.
 
 services:
   api:
@@ -23,7 +36,10 @@ services:
       FLOW_ENABLED: 'true'
       FLOW_PORT: ${FLOW_PORT:-2055}
       # Inside the container this must be 0.0.0.0: the published port is
-      # forwarded to the container's own interface, not to its loopback.
+      # forwarded to the container's own interface, not to its loopback. Pinned
+      # rather than passed through, because FLOW_BIND_ADDRESS=127.0.0.1 looks like
+      # a reasonable hardening step and silently produces a collector nothing can
+      # reach, with no error anywhere.
       FLOW_BIND_ADDRESS: '0.0.0.0'
       # Allow-list of exporter addresses. Leave empty for the first run to
       # discover them, then set it — NetFlow source addresses are spoofable, and

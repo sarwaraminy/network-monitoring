@@ -1,7 +1,7 @@
-import Typography from '@mui/material/Typography';
 import CaptureToolbar from '../components/CaptureToolbar';
 import IpInfoDialog from '../components/IpInfoDialog';
 import PacketTable from '../components/PacketTable';
+import SurfaceCard from '../components/SurfaceCard';
 import { useIpInfo } from '../hooks/useIpInfo';
 import { usePacketCapture } from '../hooks/usePacketCapture';
 
@@ -12,17 +12,15 @@ export default function PacketCapture() {
 
   return (
     <>
-      <Typography variant="h5" component="h1" gutterBottom>
-        Capture from a local interface
-      </Typography>
-
-      <CaptureToolbar capture={capture} />
-
-      <PacketTable
-        packets={capture.packets}
-        capturing={capture.capturing}
-        onIpClick={(ipAddress) => void ipInfo.show(ipAddress)}
+      <CaptureToolbar
+        title="Capture from a local interface"
+        subtitle="Live packets from one adapter, decoded frame by frame"
+        capture={capture}
       />
+
+      <SurfaceCard title="Packets" subtitle="Newest first, decoded from the wire" bodyVariant="grid">
+        <PacketTable packets={capture.packets} capturing={capture.capturing} onIpClick={ipInfo.show} />
+      </SurfaceCard>
 
       <IpInfoDialog
         open={ipInfo.open}

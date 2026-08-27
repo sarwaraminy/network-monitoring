@@ -129,7 +129,19 @@ export class DnsTunnelingDetector implements Detector {
  * Reads the QNAME of the first question in a DNS message. Compression pointers
  * cannot appear in a question's name, so a plain label walk is sufficient.
  */
-function readFirstQuestion(payload: Buffer): string | null {
+export function readFirstQuestion(payload: Buffer): string | null {
+  // The guard lives here rather than at the call site. It used to sit in this
+  // detector's inspect(), and when this function was exported for the
+  // threat-intel detector the guard did not travel with it — a 3-byte UDP/53
+  // payload then threw RangeError out of readUInt16BE. Nothing crashed, because
+  // the engine catches, but the whole packet was abandoned mid-inspection, so a
+  // listed *address* on that packet was missed too and every such packet wrote
+  // an error log line. Trivially craftable traffic, unbounded log flood.
+  //
+  // 12 bytes of header plus at least one byte of question is the minimum a
+  // readable query can be.
+  if (payload.length < 13) return null;
+
   const questionCount = payload.readUInt16BE(4);
   if (questionCount === 0) return null;
 
@@ -173,7 +185,7 @@ function describeIfEncoded(label: string): EncodedLabel | null {
   // Hyphens and underscores are word separators; encoders do not emit them.
   if (!/^[a-z0-9]+$/.test(label)) return null;
 
-  const digits = (label.match(/[0-9]/g) ?? []).length / label.length;
+  const digits = (label.match(/\d/g) ?? []).length / label.length;
   const vowels = (label.match(/[aeiou]/g) ?? []).length / label.length;
   const entropy = shannonEntropy(label);
 

@@ -1,6 +1,15 @@
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
-import { ADMIN_USER, ALERTS, DASHBOARD, IDLE_STATUS, INTERFACES, PACKET } from './fixtures';
+import {
+  ADMIN_USER,
+  ALERTS,
+  DASHBOARD,
+  IDLE_STATUS,
+  INTEL_STATUS,
+  INTERFACES,
+  NOTIFY_STATUS,
+  PACKET,
+} from './fixtures';
 
 /**
  * Default handlers: the happy path. Individual tests override with
@@ -31,6 +40,35 @@ export const handlers = [
   }),
 
   http.post('/auth/signup', () => HttpResponse.json(ADMIN_USER, { status: 201 })),
+
+  /**
+   * Defaults to the secure state, matching a real installation that already has
+   * users. Tests that need first-time setup or open registration override it.
+   */
+  http.get('/auth/signup-allowed', () => HttpResponse.json({ allowed: false, mode: 'admin-only' })),
+
+  http.get('/api/notify/status', () => HttpResponse.json(NOTIFY_STATUS)),
+
+  http.post('/api/notify/test', () =>
+    HttpResponse.json({
+      delivered: 2,
+      results: [
+        { channel: 'webhook', ok: true, detail: 'delivered' },
+        { channel: 'syslog', ok: true, detail: 'sent 1 event(s) to siem.internal:514 over udp' },
+      ],
+    }),
+  ),
+
+  http.get('/api/intel/status', () => HttpResponse.json(INTEL_STATUS)),
+
+  http.post('/api/intel/reload', () =>
+    HttpResponse.json({
+      status: 'loaded',
+      loadedAt: '2026-08-26T12:00:00.000Z',
+      indicators: 1204,
+      sources: INTEL_STATUS.sources,
+    }),
+  ),
 
   http.get('/api/alerts', ({ request }) => {
     const url = new URL(request.url);

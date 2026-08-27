@@ -3,9 +3,25 @@ import { env } from '../config/env.js';
 import { db } from '../db/index.js';
 import { type AlertRow, alerts } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
+import { notifier } from '../notify/notifier.js';
 import { type Finding, SEVERITY_RANK, type Severity } from '../packet/detect/types.js';
 
 const log = componentLogger('alerts');
+
+/**
+ * Offers a stored alert to the notifier.
+ *
+ * Wrapped and swallowed on purpose. Notification is downstream of detection, and a
+ * misconfigured webhook or mail server must not be able to interrupt the flush loop
+ * and cost the remaining alerts in the batch.
+ */
+function notify(entry: Pending): void {
+  try {
+    notifier().consider(entry.finding, entry.occurrences, entry.firstSeen, entry.lastSeen);
+  } catch (error) {
+    log.error({ err: error }, 'Notifier threw while considering an alert');
+  }
+}
 
 /**
  * Turns detector findings into stored alerts.
@@ -109,6 +125,9 @@ export class AlertSink {
       for (const [key, entry] of batch) {
         try {
           await upsertAlert(key, entry);
+          // Only after it is stored. Notifying about something that failed to
+          // persist would send people to a dashboard that does not show it.
+          notify(entry);
         } catch (error) {
           log.error(
             { finding: entry.finding.title, kind: entry.finding.kind, err: error },
@@ -130,6 +149,9 @@ export class AlertSink {
       this.timer = null;
     }
     await this.flush();
+    // The notifier batches on its own timer, so a capture that stops immediately
+    // after a finding would otherwise lose the digest that was still pending.
+    await notifier().flush();
   }
 
   get pendingCount(): number {

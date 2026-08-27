@@ -20,7 +20,7 @@ interface AlertSummaryTilesProps {
  * matter more than four hundred informational ones, which is exactly the
  * distinction the old flat log could not express.
  */
-export default function AlertSummaryTiles({ summary, selected, onSelect }: AlertSummaryTilesProps) {
+export default function AlertSummaryTiles({ summary, selected, onSelect }: Readonly<AlertSummaryTilesProps>) {
   const tiles: Array<{ key: Severity | 'all'; label: string; value: number; hex: string }> = [
     { key: 'all', label: 'All alerts', value: summary?.total ?? 0, hex: '#1d4ed8' },
     ...SEVERITIES.map((severity) => ({
@@ -32,7 +32,7 @@ export default function AlertSummaryTiles({ summary, selected, onSelect }: Alert
   ];
 
   return (
-    <Grid container spacing={1.5} sx={{ mb: 2 }}>
+    <Grid container spacing={1.5}>
       {tiles.map((tile) => {
         const active = selected === tile.key;
         const muted = tile.value === 0 && !active;

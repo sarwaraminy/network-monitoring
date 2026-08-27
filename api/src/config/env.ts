@@ -88,6 +88,69 @@ function flowExporters(): string[] {
     .filter((entry) => entry !== '');
 }
 
+const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
+type SeverityName = (typeof SEVERITIES)[number];
+
+/** Rejects a typo rather than silently notifying about everything or nothing. */
+function severity(name: string, fallback: SeverityName): SeverityName {
+  const raw = optional(name, fallback).toLowerCase();
+  if (!(SEVERITIES as readonly string[]).includes(raw)) {
+    throw new TypeError(`${name} must be one of ${SEVERITIES.join(', ')}, got "${raw}".`);
+  }
+  return raw as SeverityName;
+}
+
+const WEBHOOK_FORMATS = ['auto', 'slack', 'teams', 'discord', 'generic'] as const;
+type WebhookFormatName = (typeof WEBHOOK_FORMATS)[number];
+
+function webhookFormat(): WebhookFormatName {
+  const raw = optional('NOTIFY_WEBHOOK_FORMAT', 'auto').toLowerCase();
+  if (!(WEBHOOK_FORMATS as readonly string[]).includes(raw)) {
+    throw new TypeError(`NOTIFY_WEBHOOK_FORMAT must be one of ${WEBHOOK_FORMATS.join(', ')}, got "${raw}".`);
+  }
+  return raw as WebhookFormatName;
+}
+
+const SYSLOG_FORMATS = ['cef', 'json'] as const;
+type SyslogFormatName = (typeof SYSLOG_FORMATS)[number];
+
+function syslogFormat(): SyslogFormatName {
+  const raw = optional('SYSLOG_FORMAT', 'cef').toLowerCase();
+  if (!(SYSLOG_FORMATS as readonly string[]).includes(raw)) {
+    throw new TypeError(`SYSLOG_FORMAT must be one of ${SYSLOG_FORMATS.join(', ')}, got "${raw}".`);
+  }
+  return raw as SyslogFormatName;
+}
+
+const SYSLOG_PROTOCOLS = ['udp', 'tcp'] as const;
+type SyslogProtocolName = (typeof SYSLOG_PROTOCOLS)[number];
+
+function syslogProtocol(): SyslogProtocolName {
+  const raw = optional('SYSLOG_PROTOCOL', 'udp').toLowerCase();
+  if (!(SYSLOG_PROTOCOLS as readonly string[]).includes(raw)) {
+    throw new TypeError(`SYSLOG_PROTOCOL must be one of ${SYSLOG_PROTOCOLS.join(', ')}, got "${raw}".`);
+  }
+  return raw as SyslogProtocolName;
+}
+
+const SYSLOG_RFCS = ['5424', '3164'] as const;
+type SyslogRfcName = (typeof SYSLOG_RFCS)[number];
+
+function syslogRfc(): SyslogRfcName {
+  const raw = optional('SYSLOG_RFC', '5424');
+  if (!(SYSLOG_RFCS as readonly string[]).includes(raw)) {
+    throw new TypeError(`SYSLOG_RFC must be one of ${SYSLOG_RFCS.join(', ')}, got "${raw}".`);
+  }
+  return raw as SyslogRfcName;
+}
+
+function recipients(): string[] {
+  return optional('NOTIFY_EMAIL_TO', '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '');
+}
+
 export const env = {
   nodeEnv: optional('NODE_ENV', 'development'),
   isProduction: optional('NODE_ENV', 'development') === 'production',
@@ -103,6 +166,19 @@ export const env = {
   jwtSecret: required('JWT_SECRET'),
   jwtExpiresIn: optional('JWT_EXPIRES_IN', '1d'),
 
+  /**
+   * Allow anyone to register an account.
+   *
+   * False by default, and it should stay false for any real deployment. Account
+   * creation is otherwise restricted to an authenticated administrator, plus a
+   * single unauthenticated request to create the very first account on an empty
+   * installation — see routes/auth.routes.ts.
+   *
+   * Even when this is true, a self-registered account is always a USER. A public
+   * form that can mint administrators is exactly the hole this setting replaced.
+   */
+  allowOpenSignup: bool('ALLOW_OPEN_SIGNUP', false),
+
   captureBufferSize: int('CAPTURE_BUFFER_SIZE', 5000),
   /** How often a running capture is drained. The pcap handle is non-blocking. */
   capturePollIntervalMs: Math.max(1, int('CAPTURE_POLL_INTERVAL_MS', 10)),
@@ -110,9 +186,56 @@ export const env = {
    * Blanks packet payloads in API responses. For deployments where captured
    * traffic may contain personal data or message content — which brings wiretap
    * statutes and GDPR into scope — this keeps payloads off the wire entirely.
+   *
+   * On by default. Off was the wrong default for a tool whose API hands back the
+   * whole frame hex-encoded: it made every reader of /api/packets a wiretap, and
+   * a deployment that wants raw frames should have to say so.
    */
-  redactPacketPayload: bool('REDACT_PACKET_PAYLOAD', false),
+  redactPacketPayload: bool('REDACT_PACKET_PAYLOAD', true),
+
+  /**
+   * Whether something in front of this API sets `X-Forwarded-For`.
+   *
+   * Off by default, and that matters: express-rate-limit keys on `req.ip`, which
+   * with this on is read from that header. Enabled where nothing sets it — an
+   * API reached directly, which the README's host-install path produces — a
+   * caller can send a fresh value per request and never trip the auth limiter.
+   */
+  trustProxy: bool('TRUST_PROXY', false),
   arpTrustedMappings: arpTrustedMappings(),
+
+  /**
+   * Threat intelligence.
+   *
+   * Off by default, and no feeds are shipped. Which intelligence to trust is the
+   * operator's call, and a security tool should not start making outbound
+   * requests to a third-party list nobody chose.
+   */
+  intel: {
+    enabled: bool('INTEL_ENABLED', false),
+    /**
+     * `name=location` pairs, comma-separated. A location is a URL or a file path.
+     * Local files are first-class: the networks this tool is aimed at frequently
+     * have no outbound internet from the monitoring host.
+     */
+    feeds: optional('INTEL_FEEDS', ''),
+    /**
+     * How often feeds are re-read. Stale intelligence is close to useless.
+     *
+     * Floored at one hour. `0` is the natural way to write "never refresh", but
+     * without a floor it becomes `setInterval(…, 0)` — a continuous refetch loop
+     * that hammers whatever third-party URL is configured until they block you.
+     * `capturePollIntervalMs` above sets the same precedent.
+     */
+    refreshMs: Math.max(1, int('INTEL_REFRESH_HOURS', 6)) * 3_600_000,
+    /** Downloaded copies live here so a restart without connectivity still loads. */
+    cacheDir: (() => {
+      const configured = optional('INTEL_CACHE_DIR', '');
+      return configured !== '' ? configured : resolve(API_ROOT, '.cache/intel');
+    })(),
+    /** Ceiling on indicators held in memory, so one bad feed cannot exhaust it. */
+    maxIndicators: int('INTEL_MAX_INDICATORS', 500_000),
+  },
 
   /**
    * NetFlow/IPFIX collector. Off by default because it opens a UDP port, and a
@@ -135,6 +258,83 @@ export const env = {
      * NetFlow source addresses are spoofable, so this is the only filter available.
      */
     allowedExporters: flowExporters(),
+  },
+
+  /**
+   * Alert delivery. Off by default: a deployment should not start emailing people
+   * because it was upgraded.
+   */
+  notify: {
+    enabled: bool('NOTIFY_ENABLED', false),
+    /**
+     * Notify at this severity and above. `high` by default — critical and high
+     * only. Medium and below belong on the dashboard; putting them in an inbox is
+     * how the channel gets muted, and then the critical one is missed too.
+     */
+    minSeverity: severity('NOTIFY_MIN_SEVERITY', 'high'),
+    /** Findings are batched for this long, so one burst is one message. */
+    digestMs: int('NOTIFY_DIGEST_SECONDS', 60) * 1000,
+    /** The same finding will not notify again inside this period. */
+    throttleMs: int('NOTIFY_THROTTLE_SECONDS', 900) * 1000,
+    /** Hard ceiling on messages per hour, whatever detection does. */
+    maxPerHour: int('NOTIFY_MAX_PER_HOUR', 12),
+    /**
+     * Include structured evidence in the message body.
+     *
+     * Evidence never contains passwords or payloads — the detectors guarantee that
+     * and the tests assert it. It does contain internal IP addresses, MAC
+     * addresses and usernames, and sending those to a third-party chat service
+     * moves them outside the network being protected. Hence a separate switch.
+     */
+    includeEvidence: bool('NOTIFY_INCLUDE_EVIDENCE', true),
+    /** Linked from messages, e.g. https://nmt.example.com/alerts */
+    dashboardUrl: optional('NOTIFY_DASHBOARD_URL', '') || null,
+
+    /** Slack, Teams, Discord or any endpoint accepting JSON. */
+    webhookUrl: optional('NOTIFY_WEBHOOK_URL', ''),
+    webhookFormat: webhookFormat(),
+
+    /**
+     * Syslog / CEF export to a SIEM.
+     *
+     * Deliberately outside the gates above. `minSeverity`, the digest and the
+     * throttle all exist because a person mutes a noisy channel; a SIEM does its
+     * own correlation and needs the complete stream, so it receives every
+     * finding. See notify/syslog.ts for why a digested SIEM feed is a broken one.
+     *
+     * It is also independent of NOTIFY_ENABLED: shipping events to a collector
+     * you already own is a different decision from putting them in someone's
+     * inbox, and plenty of deployments will want exactly one of the two.
+     */
+    syslog: {
+      host: optional('SYSLOG_HOST', ''),
+      port: int('SYSLOG_PORT', 514),
+      protocol: syslogProtocol(),
+      format: syslogFormat(),
+      rfc: syslogRfc(),
+      /** 16-23 are the "local use" facilities; 16 (local0) is the usual choice for an app. */
+      facility: int('SYSLOG_FACILITY', 16),
+      appName: optional('SYSLOG_APP_NAME', 'nmt'),
+      /**
+       * Included by default, unlike the chat channels.
+       *
+       * The disclosure argument that gates evidence for Slack does not apply to a
+       * collector inside the same network, and evidence is most of what makes an
+       * event useful to a correlation rule.
+       */
+      includeEvidence: bool('SYSLOG_INCLUDE_EVIDENCE', true),
+    },
+
+    email: {
+      host: optional('SMTP_HOST', ''),
+      port: int('SMTP_PORT', 587),
+      /** True only for implicit TLS on port 465; 587 uses STARTTLS with this false. */
+      secure: bool('SMTP_SECURE', false),
+      user: optional('SMTP_USER', ''),
+      password: optional('SMTP_PASSWORD', ''),
+      from: optional('NOTIFY_EMAIL_FROM', ''),
+      to: recipients(),
+    },
   },
 
   /** Requests allowed per minute per client IP, by endpoint group. */

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
+import { IndicatorSet } from '../intel/match.js';
+import { intel } from '../intel/registry.js';
 import { IE, VARIABLE_LENGTH } from './fields.js';
 import { TemplateCache } from './templates.js';
 import {
@@ -644,6 +646,136 @@ function runFlows(
 
   return findings;
 }
+
+/**
+ * As runFlows, but hands back the engine so `stats()` can be asserted.
+ *
+ * The counters are not incidental here: `/api/flow/status` is how an operator
+ * decides whether the collector is doing anything, and it used to report
+ * `findings: 0` while an indicator alert had just been raised.
+ */
+function runFlowsOnEngine(flows: Parameters<typeof flowDatagram>[0][], options: { stepMs?: number } = {}) {
+  const startedAt = Date.parse('2026-07-26T12:00:00Z');
+  const stepMs = options.stepMs ?? 100;
+  const engine = new detect.FlowDetectionEngine();
+  const templates = new TemplateCache();
+  const findings = [];
+
+  for (const [index, flow] of flows.entries()) {
+    const observedAt = new Date(startedAt + index * stepMs);
+    const result = parse.parseFlowDatagram(flowDatagram(flow), EXPORTER, observedAt, templates);
+    for (const record of result.records) findings.push(...engine.inspect(record));
+  }
+
+  return { findings, stats: engine.stats() };
+}
+
+/** Installs one listed address, and takes it away again afterwards. */
+function withIndicator<T>(value: string, run: () => T): T {
+  const set = new IndicatorSet();
+  set.add({ value, type: 'ipv4', source: 'testfeed', note: 'Cobalt Strike' });
+  set.seal();
+  intel().replaceForTesting(set);
+  try {
+    return run();
+  } finally {
+    intel().replaceForTesting(new IndicatorSet());
+  }
+}
+
+/**
+ * Indicator matching over flows.
+ *
+ * The detector's own matching is covered in intel/feeds.test.ts; what is covered
+ * here is the wiring — that a flow record reaches it at all, that the finding
+ * carries the provenance a triaging analyst needs, and that the status counters
+ * account for it. That last one is not cosmetic: an alert nobody is told about
+ * and a status endpoint claiming nothing happened are the same failure.
+ */
+describe('flow indicator matching', () => {
+  it('reports a listed address a local host connected out to', () => {
+    const { findings } = withIndicator('203.0.113.77', () =>
+      runFlowsOnEngine([
+        {
+          srcIp: '10.0.0.66',
+          dstIp: '203.0.113.77',
+          srcPort: 51_000,
+          dstPort: 443,
+          packets: 40,
+          bytes: 9000,
+        },
+      ]),
+    );
+
+    const hit = findings.find((finding) => finding.kind === 'threat_intel');
+    assert.ok(hit, 'expected a threat_intel finding');
+    // Outbound to a listed address is the strongest thing this tool can say: a
+    // host here chose to talk to it, rather than being scanned by it.
+    assert.equal(hit.severity, 'critical');
+    assert.equal(hit.evidence.direction, 'outbound');
+    assert.equal(hit.evidence.indicator, '203.0.113.77');
+    assert.equal(hit.evidence.feed, 'testfeed');
+    assert.equal(hit.evidence.feedNote, 'Cobalt Strike');
+    // Provenance, same as the scan findings: which device saw it, and how.
+    assert.equal(hit.evidence.exporter, EXPORTER);
+    assert.equal(hit.evidence.observedVia, 'ipfix');
+    assert.equal(hit.evidence.destinationPort, 443);
+  });
+
+  it('matches a listed address that initiated the conversation', () => {
+    const { findings } = withIndicator('203.0.113.77', () =>
+      runFlowsOnEngine([
+        { srcIp: '203.0.113.77', dstIp: '10.0.0.66', srcPort: 40_000, dstPort: 3389, packets: 4, bytes: 300 },
+      ]),
+    );
+
+    const hit = findings.find((finding) => finding.kind === 'threat_intel');
+    assert.ok(hit, 'expected a threat_intel finding');
+    assert.equal(hit.evidence.direction, 'inbound');
+    // Deliberately below critical: the internet scans every routable address
+    // constantly, so an inbound touch is worth seeing and not worth waking to.
+    assert.equal(hit.severity, 'medium');
+  });
+
+  it('counts the match in stats, so status cannot report findings: 0', () => {
+    const { stats } = withIndicator('203.0.113.77', () =>
+      runFlowsOnEngine([{ srcIp: '10.0.0.66', dstIp: '203.0.113.77', srcPort: 51_000, dstPort: 443 }]),
+    );
+
+    assert.equal(stats.intelMatches, 1);
+    assert.ok(stats.findings >= 1, 'the scan count alone used to be reported here');
+    assert.equal(stats.flowsInspected, 1);
+  });
+
+  it('does not repeat the same pairing inside the cooldown', () => {
+    // One conversation producing a finding per flow record would bury the rest
+    // of the alert table within a minute of a busy download.
+    const { findings, stats } = withIndicator('203.0.113.77', () =>
+      runFlowsOnEngine(
+        Array.from({ length: 5 }, () => ({
+          srcIp: '10.0.0.66',
+          dstIp: '203.0.113.77',
+          srcPort: 51_000,
+          dstPort: 443,
+        })),
+        { stepMs: 100 },
+      ),
+    );
+
+    assert.equal(findings.filter((finding) => finding.kind === 'threat_intel').length, 1);
+    assert.equal(stats.intelMatches, 1);
+  });
+
+  it('stays silent when no indicators are loaded', () => {
+    intel().replaceForTesting(new IndicatorSet());
+    const { findings, stats } = runFlowsOnEngine([
+      { srcIp: '10.0.0.66', dstIp: '203.0.113.77', srcPort: 51_000, dstPort: 443 },
+    ]);
+
+    assert.equal(findings.filter((finding) => finding.kind === 'threat_intel').length, 0);
+    assert.equal(stats.intelMatches, 0);
+  });
+});
 
 describe('flow detection', () => {
   it('reports a port scan across many ports on one host', () => {

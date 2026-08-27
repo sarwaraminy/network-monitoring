@@ -1,4 +1,41 @@
 {
-  "files": [],
-  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }]
+  // The app's TypeScript config, and deliberately the ONLY one covering `src`.
+  //
+  // This used to be a solution-style file — `files: []` plus references to
+  // tsconfig.app.json and tsconfig.node.json. That shape is invalid: TypeScript
+  // requires a referenced project to set `composite` and to emit, and neither of
+  // those did. It went unreported only because `files: []` meant the references
+  // were never walked; give the file anything to compile and TS6306 and TS6310
+  // appear immediately.
+  //
+  // The cost was not theoretical. An editor cannot attribute `src/**` to a
+  // project it cannot load, so it falls back to an inferred project with default
+  // settings — node10 resolution rather than `bundler`. Under node10 MUI v7's
+  // two entry points resolve to two different declaration files, so
+  // `TableContainerProps` and everything downstream of it genuinely becomes two
+  // unrelated types, and the editor reports errors on generic components that
+  // `tsc` never sees.
+
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "useDefineForClassFields": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowImportingTsExtensions": false,
+    "verbatimModuleSyntax": false,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
 }

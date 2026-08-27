@@ -60,11 +60,106 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
       # nginx proxies same-origin, so no cross-origin browser requests are made.
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
-      REDACT_PACKET_PAYLOAD: ${REDACT_PACKET_PAYLOAD:-false}
+      REDACT_PACKET_PAYLOAD: ${REDACT_PACKET_PAYLOAD:-true}
+      # nginx is unconditionally in front of the api here — it is `expose`-only,
+      # so every request arrives through the ui service, which sets
+      # X-Forwarded-For. Without this the rate limiter keys every client to the
+      # nginx container address and they all share one bucket: 20 bad logins
+      # from anyone locks everybody out. A direct host install must leave it off.
+      TRUST_PROXY: ${TRUST_PROXY:-true}
       CAPTURE_BUFFER_SIZE: ${CAPTURE_BUFFER_SIZE:-5000}
       ARP_TRUSTED_MAPPINGS: ${ARP_TRUSTED_MAPPINGS:-}
+      # Public registration. Off by default; a self-registered account is always
+      # a USER regardless. Listed explicitly because the api service does not
+      # inherit the host environment — without this line the README-documented
+      # setting silently has no effect under Compose.
+      ALLOW_OPEN_SIGNUP: ${ALLOW_OPEN_SIGNUP:-false}
+      # Threat intelligence. Off unless INTEL_ENABLED is set; no feeds ship by
+      # default, so nothing is fetched until you choose a source.
+      INTEL_ENABLED: ${INTEL_ENABLED:-false}
+      INTEL_FEEDS: ${INTEL_FEEDS:-}
+      INTEL_REFRESH_HOURS: ${INTEL_REFRESH_HOURS:-6}
+      INTEL_MAX_INDICATORS: ${INTEL_MAX_INDICATORS:-500000}
+      # Cached feed copies. Documented in api/.env.example but previously missing
+      # here — the same omission as ALLOW_OPEN_SIGNUP last round. Backed by a
+      # named volume below, or the README's promise that "a restart without
+      # connectivity starts from the last known-good copy" is false under
+      # Compose: every --force-recreate would start from nothing.
+      INTEL_CACHE_DIR: /var/lib/nmt/intel
+      # Alert delivery. Off unless NOTIFY_ENABLED is set in .env; see the README
+      # for the severity gate, throttle and hourly ceiling that bound the volume.
+      NOTIFY_ENABLED: ${NOTIFY_ENABLED:-false}
+      NOTIFY_MIN_SEVERITY: ${NOTIFY_MIN_SEVERITY:-high}
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+      NOTIFY_WEBHOOK_FORMAT: ${NOTIFY_WEBHOOK_FORMAT:-auto}
+      NOTIFY_DASHBOARD_URL: ${NOTIFY_DASHBOARD_URL:-http://localhost:${HTTP_PORT:-8080}/alerts}
+      NOTIFY_INCLUDE_EVIDENCE: ${NOTIFY_INCLUDE_EVIDENCE:-true}
+      NOTIFY_DIGEST_SECONDS: ${NOTIFY_DIGEST_SECONDS:-60}
+      NOTIFY_THROTTLE_SECONDS: ${NOTIFY_THROTTLE_SECONDS:-900}
+      NOTIFY_MAX_PER_HOUR: ${NOTIFY_MAX_PER_HOUR:-12}
+      NOTIFY_EMAIL_TO: ${NOTIFY_EMAIL_TO:-}
+
+      # Syslog / CEF export to a SIEM. Set SYSLOG_HOST to switch it on.
+      #
+      # Deliberately not governed by NOTIFY_ENABLED or the gates above: a SIEM
+      # correlates and deduplicates itself and needs the complete stream. See
+      # api/src/notify/syslog.ts.
+      SYSLOG_HOST: ${SYSLOG_HOST:-}
+      SYSLOG_PORT: ${SYSLOG_PORT:-514}
+      SYSLOG_PROTOCOL: ${SYSLOG_PROTOCOL:-udp}
+      SYSLOG_FORMAT: ${SYSLOG_FORMAT:-cef}
+      SYSLOG_RFC: ${SYSLOG_RFC:-5424}
+      SYSLOG_FACILITY: ${SYSLOG_FACILITY:-16}
+      SYSLOG_APP_NAME: ${SYSLOG_APP_NAME:-nmt}
+      SYSLOG_INCLUDE_EVIDENCE: ${SYSLOG_INCLUDE_EVIDENCE:-true}
+
+      # Flow collection. The driver-free path: point a switch or router at
+      # FLOW_PORT and no capture library is needed at all.
+      #
+      # Publishing the port is a SEPARATE opt-in, in docker-compose.flow.yml.
+      # `ports:` binds the host port whether or not anything is listening, so
+      # putting it here opened 2055/udp on every deployment — including the
+      # default one where this is false, which is the thing this setting exists
+      # to prevent.
+      #
+      #   docker compose -f docker-compose.yml -f docker-compose.flow.yml up -d
+      FLOW_ENABLED: ${FLOW_ENABLED:-false}
+      FLOW_PORT: ${FLOW_PORT:-2055}
+      FLOW_BIND_ADDRESS: ${FLOW_BIND_ADDRESS:-0.0.0.0}
+      # Empty accepts any exporter. Narrow it: the collector is an unauthenticated
+      # write path into the alert table, and a forged flow forges a finding.
+      FLOW_EXPORTERS: ${FLOW_EXPORTERS:-}
+
+      # Capture tuning.
+      CAPTURE_POLL_INTERVAL_MS: ${CAPTURE_POLL_INTERVAL_MS:-10}
+
+      # Rate limits. Operator-tunable because the right value depends on how many
+      # people share an egress address.
+      RATE_LIMIT_AUTH_PER_MINUTE: ${RATE_LIMIT_AUTH_PER_MINUTE:-20}
+      RATE_LIMIT_CAPTURE_PER_MINUTE: ${RATE_LIMIT_CAPTURE_PER_MINUTE:-20}
+      RATE_LIMIT_LOOKUP_PER_MINUTE: ${RATE_LIMIT_LOOKUP_PER_MINUTE:-30}
+      RATE_LIMIT_API_PER_MINUTE: ${RATE_LIMIT_API_PER_MINUTE:-600}
+
+      # Detector thresholds. These are the tuning knobs — an authorised scanner
+      # on the network is the usual reason to raise one.
+      DETECT_SCAN_WINDOW_MS: ${DETECT_SCAN_WINDOW_MS:-60000}
+      DETECT_PORT_SCAN_PORTS: ${DETECT_PORT_SCAN_PORTS:-15}
+      DETECT_HOST_SWEEP_HOSTS: ${DETECT_HOST_SWEEP_HOSTS:-20}
+      DETECT_FLOOD_WINDOW_MS: ${DETECT_FLOOD_WINDOW_MS:-10000}
+      DETECT_SYN_FLOOD_ATTEMPTS: ${DETECT_SYN_FLOOD_ATTEMPTS:-300}
+      DETECT_DNS_SUBDOMAINS: ${DETECT_DNS_SUBDOMAINS:-40}
+      DETECT_DEVICE_LEARNING_MS: ${DETECT_DEVICE_LEARNING_MS:-60000}
+      DETECT_ALERT_WINDOW_MS: ${DETECT_ALERT_WINDOW_MS:-300000}
+      NOTIFY_EMAIL_FROM: ${NOTIFY_EMAIL_FROM:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     expose:
       - '8080'
+    volumes:
+      - intel-cache:/var/lib/nmt/intel
 
   ui:
     build:
@@ -82,3 +177,4 @@ services:
 
 volumes:
   db-data:
+  intel-cache:

@@ -30,6 +30,7 @@ structured evidence — not one row per suspicious packet.
 | **SYN flood** | High | An implausible rate of connection attempts from one source. | ✅ | ✅ |
 | **DNS tunnelling** | Medium | Query names shaped like encoded data rather than hostnames, which is how data is smuggled out over DNS. Requires two independent signals before alerting. | ✅ | ✗ payload |
 | **New device** | Medium | A MAC address never seen on this network. Known devices are persisted, and there is a learning period at the start of each capture. | ✅ | ✗ needs MACs |
+| **Threat intelligence** | Critical / Medium | An address or domain matching a loaded indicator feed. The only detector here that is not a threshold — see [below](#threat-intelligence). | ✅ | ✅ |
 
 The three that run on flow data are the ones that benefit most from it, because they depend on
 seeing *many* conversations rather than the contents of one — exactly what a single interface
@@ -131,15 +132,17 @@ versions are adopted so nothing is re-applied. The SQL files are the same Flyway
 
 ### 6. Create a login
 
-The accounts seeded by `V2__Insert_initial_data.sql` (`admin@example.com`, `user@example.com`)
-carry bcrypt hashes **whose plaintext nobody has** — they came from the original Java migration.
-Set a password you know:
+There are no seeded accounts. `V2__Insert_initial_data.sql` used to create
+`admin@example.com` and `user@example.com`, both carrying a bcrypt hash committed to this
+repository — a published hash is a published credential, so `V5__Remove_seeded_accounts.sql`
+deletes any row still holding it.
 
-```bash
-npm run user -- set-password --email admin@example.com --generate
-```
+That makes the first-account bootstrap reachable, which on a fresh database means:
 
-Or create your own admin account:
+> **The first unauthenticated request to `POST /auth/signup` becomes ADMIN**, and the window
+> shuts the moment that account exists. Create it before the port is reachable by anyone else.
+
+Do that through the sign-up page, or from the command line:
 
 ```bash
 npm run user -- create --email you@example.com --generate --role ADMIN
@@ -241,6 +244,152 @@ collection exists below.
 
 ---
 
+## Threat intelligence
+
+Every other detector answers *"does this traffic look unusual?"* — a threshold, a rate, a
+breadth. Useful, but a judgement: reasonable networks disagree about where the line sits.
+
+This one answers a different question: *"is this address or domain on a list of things already
+known to be malicious?"* That is not a judgement. If a host opens a connection to a current C2
+address, something is wrong, regardless of how the thresholds are tuned. It is the first
+detector here that produces findings a security person would call high-confidence.
+
+```bash
+# api/.env
+INTEL_ENABLED=true
+INTEL_FEEDS=feodo=https://feodotracker.abuse.ch/downloads/ipblocklist.txt,internal=/etc/nmt/indicators.txt
+```
+
+Then open **Threat Intel** in the navigation bar to see what loaded.
+
+### The page is a table of feeds, not a count of indicators
+
+"1,204 indicators loaded" is the least useful thing this feature can report. A feed silently
+serving an empty file, or quietly falling back to a months-old cached copy, looks identical to
+a healthy one from a total — and a detector that stopped matching is worse than one never
+enabled, because it looks like coverage.
+
+So every feed shows where its contents actually came from:
+
+| Badge | Meaning |
+| --- | --- |
+| **Live** | Downloaded on the last refresh. Current. |
+| **Cached** | The download failed and the saved copy was used. Detection works, but these indicators are as old as the last successful fetch. |
+| **Local file** | Read from disk. Freshness is whatever your own process makes it. |
+| **Failed** | Nothing loaded. These indicators are not being matched at all. |
+
+Failed and cached feeds are also called out in a banner above the table, because a single bad
+row is easy to miss among healthy-looking numbers. A feed reporting **zero** indicators is
+highlighted for the same reason. Administrators get a **Reload feeds** button; it reports what
+actually happened, including when a reload was refused and the previous indicators were kept.
+
+The same data is available over the API:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/intel/status
+```
+
+**No feeds ship by default.** Which intelligence to trust is your decision, and a security tool
+should not start making outbound requests to a third-party list nobody chose. Check each feed's
+licence before relying on it commercially.
+
+### Local files are first-class
+
+A URL or a filesystem path both work. That is deliberate: the networks this tool targets —
+a segregated manufacturing VLAN, a defence subcontractor's CUI enclave — frequently have no
+outbound internet from the monitoring host at all. Downloaded feeds are also cached to disk, so
+a restart without connectivity starts from the last known-good copy rather than from nothing.
+
+### Direction is graded, and that is the whole trick
+
+| Observation | Severity | Why |
+| --- | --- | --- |
+| **Outbound** to a listed address | Critical | Something inside chose to contact it — a compromised host, or software nobody sanctioned |
+| **DNS lookup** of a listed domain | Critical | The lookup is what a beacon does first, and it happens even when the connection is blocked downstream — often the only trace left |
+| **Inbound** from a listed address | Medium | The internet scans everything constantly and much of any blocklist is scanners. Grading this critical would bury you on day one |
+
+Repeats of the same pairing share a dedup key, so a beacon calling home every thirty seconds is
+one alert with a rising occurrence count rather than thousands of rows.
+
+### What it refuses to believe
+
+A detector whose value is that a hit *means something* must not fire wrongly — it claims
+certainty, and the operator has no way to argue with it. So indicators are validated on the way
+in, and the test suite leans harder on what must **not** match than on what must:
+
+- **Private and reserved addresses are refused**, whatever a feed says. Blocklists do
+  occasionally contain RFC1918 or loopback entries; accepting one would alert on every host at
+  once and destroy trust permanently.
+- **A malformed `1.2.3.0/` is refused.** `Number('')` is 0, so a naive parse turns that into
+  `/0` — an indicator matching the entire internet. This was a real bug the tests caught.
+- **An invalid `999.999.999.999` is refused**, rather than falling through to being accepted as
+  a domain because it happens to contain dots.
+- **Partial suffixes do not match.** `notbad.example` is not a match for `bad.example`, though
+  `c2.bad.example` is — listing a domain covers what it delegates.
+
+Feeds also go stale: an address hosting C2 last month may be an innocent VPS today. The feed
+name travels with every finding, and `/api/intel/status` reports when each was last loaded and
+whether it came from the network, the cache, or a file — so a feed silently serving an empty
+file for a month is visible rather than looking like healthy coverage.
+
+---
+
+## Notifications
+
+Detection is only half of it. Nobody watches a dashboard at 2am, so findings are
+delivered to a webhook, to email, or both.
+
+```bash
+# api/.env
+NOTIFY_ENABLED=true
+NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/...   # or Teams, Discord, anything
+NOTIFY_DASHBOARD_URL=https://nmt.example.com/alerts
+```
+
+Then prove it works before you rely on it:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/notify/test
+```
+
+That endpoint exists because notification config fails silently by nature: a wrong webhook URL
+or SMTP password produces no error anyone sees until the night an alert does not arrive. It
+bypasses every gate below, including `NOTIFY_ENABLED`, so you can check delivery before
+committing to it.
+
+### What stops it becoming spam
+
+The sending is the easy part. Three independent limits apply before anything leaves the
+process, because volume is what gets an alert channel muted — and then the one that mattered is
+missed too:
+
+| Limit | Default | What it does |
+| --- | --- | --- |
+| `NOTIFY_MIN_SEVERITY` | `high` | Critical and high only. Medium and below stay on the dashboard. |
+| `NOTIFY_THROTTLE_SECONDS` | 900 | The same finding will not notify again for 15 minutes, however often it recurs. |
+| `NOTIFY_MAX_PER_HOUR` | 12 | Hard ceiling. If detection misbehaves — which it has done here before — the blast radius is bounded. |
+
+On top of those, findings are batched into a **digest** (`NOTIFY_DIGEST_SECONDS`, default 60).
+A port scan produces dozens of findings; this makes it one message that leads with the most
+urgent and says how many it truncated.
+
+### Sending is disclosure
+
+`NOTIFY_INCLUDE_EVIDENCE` is a separate switch from notifications for a reason. Evidence never
+contains passwords or packet payloads — the detectors guarantee that and the tests assert it,
+including the base64 form. It *does* contain internal IP addresses, MAC addresses and
+usernames, and pushing those to a third-party chat service moves them outside the network you
+are protecting. Turn it off and the titles still say what happened.
+
+The webhook URL is likewise treated as a secret: `GET /api/notify/status` reports the detected
+format and whether it is configured, never the URL, because for Slack and Teams that URL *is*
+the credential.
+
+Notification never affects detection. A dead webhook or a wrong SMTP password cannot stop
+alerts being stored or capture running — every failure path here ends in a log line.
+
+---
+
 ## Flow collection (NetFlow / IPFIX)
 
 Instead of capturing packets ourselves, let the switch, router or firewall do the observing and
@@ -259,6 +408,18 @@ FLOW_PORT=2055               # 2055 is the de facto NetFlow port; 4739 is IANA's
 FLOW_BIND_ADDRESS=0.0.0.0
 FLOW_EXPORTERS=              # empty accepts any source; fill in once devices are known
 ```
+
+Under Docker, publishing the UDP port is a separate opt-in:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.flow.yml up -d
+```
+
+It is separate because `ports:` binds the host port whether or not anything inside
+the container is listening. Putting it in the main file would open `2055/udp` on
+every deployment — including the default one with `FLOW_ENABLED=false`, which is
+exactly what that setting exists to prevent — and would break `up` outright on a
+host already running a NetFlow collector on that port.
 
 Then point the device at it. On pfSense/OPNsense that is the softflowd or ipfix service; on
 Cisco, `ip flow-export destination <collector> 2055`; on UniFi and Meraki it is a field in the
@@ -344,17 +505,19 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 136 tests
-npm run test:api  # 102 API tests
-npm run test:ui   # 34 UI tests
+npm test          # both suites: 355 tests
+npm run test:api  # 279 API tests
+npm run test:ui   # 76 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 102 tests
+### API — 279 tests
 
-Over `api/src/packet/` and `api/src/flow/`, covering the hand-written decoders, every detector,
-the NetFlow/IPFIX parsers, and the FFI binding. They use Node's built-in test runner, so there
+Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
+`api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
+parsers, indicator matching and feed loading, the notification gate, request validation, and
+the FFI binding. They use Node's built-in test runner, so there
 is no framework to install. The FFI tests skip themselves when no pcap library is present.
 
 Three groups are worth knowing about:
@@ -373,6 +536,11 @@ Three groups are worth knowing about:
   prove the two agree, which is exactly the bug class — a misread offset — that matters here.
   These cover template arrival after data, template redefinition, enterprise fields, variable
   length, reduced-size encoding, NTP-format timestamps, and truncated or over-long sets.
+- **Indicator refusals** are the threat-intelligence equivalent of the false-positive guards.
+  A feed line that is *nearly* an indicator must be refused rather than guessed at, because a
+  wrong indicator produces a confident false alarm: `999.999.999.999` must not be accepted as
+  a domain, `1.2.3.0/` must not parse as `/0` and match the whole internet, and a stray colon
+  in an IPv6 literal must not be quietly rewritten into a different, valid address.
 
 The credential tests also assert that no password appears anywhere in a finding, including its
 base64 form.
@@ -380,7 +548,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 34 tests
+### UI — 76 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —
@@ -551,6 +719,23 @@ whether exporters are configured to send to it, not something a user starts and 
 capture. A start/stop endpoint would invite a UI button that silently switches off security
 telemetry.
 
+### Threat intelligence — `/api/intel`
+
+| Method | Path      | Purpose                                                        |
+| ------ | --------- | -------------------------------------------------------------- |
+| `GET`  | `/status` | What is loaded, per feed, and whether it came from network/cache/file |
+| `POST` | `/reload` | Re-read every feed now (**ADMIN only**)                         |
+
+### Notifications — `/api/notify`
+
+| Method | Path      | Purpose                                                          |
+| ------ | --------- | ---------------------------------------------------------------- |
+| `GET`  | `/status` | Channels configured, gates in force, what has been sent this hour |
+| `POST` | `/test`   | Send a test message to every channel (**ADMIN only**)             |
+
+`/test` is admin-only because it makes the server send outbound messages to a third party on
+demand. `/status` never returns the webhook URL — for Slack and Teams that URL is the credential.
+
 `GET /health` is unauthenticated and reports uptime.
 
 ---
@@ -617,7 +802,8 @@ network-monitoring-ui/        React + TypeScript + Vite frontend
 | `JWT_EXPIRES_IN`       | `1d`                                           |                                                |
 | `CAPTURE_BUFFER_SIZE`  | `5000`                                         | Packets held in memory per capture             |
 | `CAPTURE_POLL_INTERVAL_MS` | `10`                                       | How often a running capture is drained         |
-| `REDACT_PACKET_PAYLOAD` | `false`                                       | Blanks packet payloads in API responses — see below |
+| `REDACT_PACKET_PAYLOAD` | `true`                                        | Blanks packet payloads in API responses — see below |
+| `TRUST_PROXY`           | `false`                                       | Read the client IP from `X-Forwarded-For`. On under Compose, off for a direct host install |
 | `ARP_TRUSTED_MAPPINGS` | —                                              | `ip=mac,ip=mac` pairs treated as authoritative  |
 | `FLOW_ENABLED`         | `false`                                        | Receive NetFlow/IPFIX. Off by default — it opens a UDP port |
 | `FLOW_PORT`            | `2055`                                         | 4739 is IANA's for IPFIX                       |
@@ -699,6 +885,25 @@ packet. See [What it detects](#what-it-detects).
   `{userid, pass}` into `sessionStorage`, and `PrivateRoute` decided you were logged in by
   decrypting a localStorage string and comparing it to `Love<email>...<password>...`.
   Authentication is now "the server accepted our token".
+- **`POST /auth/signup` no longer hands out administrator accounts to anonymous callers.**
+  This was the most serious hole found in the port. The endpoint required no authentication
+  *and* honoured a `role` of `ADMIN` taken straight from the request body, so a single
+  unauthenticated request gave an attacker full control of a security monitoring tool —
+  verified against a running server, which returned `201` with `"role":"ADMIN"`. The UI made it
+  worse by advertising the path: `/sign-up` sat outside the auth guard and offered a Role
+  dropdown containing Administrator.
+
+  Account creation now permits exactly two callers: an authenticated **ADMIN**, whose role is
+  read from the verified token and never from the body; and a single unauthenticated request on
+  an installation with an **empty users table**, because a fresh deployment has nobody who
+  could authorise the first account. That account is forced to ADMIN, and the window shuts the
+  moment it exists. `ALLOW_OPEN_SIGNUP` (default off) re-enables public registration for anyone
+  who wants it, and even then a self-registered account is always a USER.
+
+  The decision lives in one pure function, `services/signup-policy.ts`, pinned by a regression
+  suite that asserts a non-admin can never obtain ADMIN across every combination of inputs.
+  Adding a user is now an action in the account menu, where an administrator will be, rather
+  than a "register here" link on the login screen.
 - **`GET /auth/users` requires an ADMIN token** and no longer returns bcrypt hashes. It was
   open to anonymous callers and serialised the whole entity.
 - **Capture endpoints require a token.** They were unauthenticated, which let any caller start
@@ -818,9 +1023,12 @@ handler ran, so they reflect when the frame actually arrived.
 **`Missing required environment variable JWT_SECRET`** — copy `api/.env.example` to
 `api/.env` and generate a secret.
 
-**`Invalid email or password` with the seeded accounts** — the plaintext for
-`admin@example.com` and `user@example.com` was never recorded; the hashes came from the original
-Java migration. Set one with `npm run user -- set-password --email admin@example.com --generate`.
+**`Invalid email or password` for `admin@example.com`** — that account no longer exists.
+`V5__Remove_seeded_accounts.sql` deletes any row still carrying the bcrypt hash this repository
+used to ship, because a published hash is a published credential. On an empty `users` table the
+first unauthenticated `POST /auth/signup` becomes ADMIN; on a populated one, an existing
+administrator creates accounts from the account menu, or run
+`npm run user -- set-password --email you@example.com --generate`.
 
 **`Too many failed attempts`** — the auth rate limit tripped after 20 failed logins in a minute
 from your IP. Wait for the window to expire, or raise `RATE_LIMIT_AUTH_PER_MINUTE`. Successful
@@ -887,7 +1095,6 @@ capture, since nothing else sees payload.
 
 **Product**
 
-- Notifications: email, webhook and Slack, so alerts reach someone who is not watching the page.
 - Stream over WebSocket/SSE instead of polling once a second.
 - Retention and rollup, so the alerts table stays bounded over months.
 - pcap export, so a finding can be opened in Wireshark for deeper analysis.

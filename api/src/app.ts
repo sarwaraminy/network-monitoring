@@ -11,7 +11,9 @@ import { apiLimiter, authLimiter } from './middleware/rate-limit.js';
 import { alertsRouter } from './routes/alerts.routes.js';
 import { authRouter } from './routes/auth.routes.js';
 import { flowRouter } from './routes/flow.routes.js';
+import { intelRouter } from './routes/intel.routes.js';
 import { logsRouter } from './routes/logs.routes.js';
+import { notifyRouter } from './routes/notify.routes.js';
 import { createPacketRouter } from './routes/packets.routes.js';
 import { filteredIpCapture, interfaceCapture } from './services/packet-capture.registry.js';
 
@@ -20,9 +22,21 @@ export function createApp(): Express {
   const app = express();
 
   app.disable('x-powered-by');
-  // Required for rate limiting and request logging to see the real client IP when
-  // running behind nginx or a load balancer.
-  app.set('trust proxy', 1);
+
+  /*
+   * Opt-in, because trusting a header nobody sets is worse than not trusting it.
+   *
+   * express-rate-limit keys on `req.ip`, and with `trust proxy` on that is taken
+   * from `X-Forwarded-For`. Enabled unconditionally — as it was — an API reached
+   * directly, which is exactly what the host-install path in the README
+   * produces, let any caller send a fresh `X-Forwarded-For` per request and never
+   * trip the auth limiter. That turns the bcrypt login route into an unthrottled
+   * password oracle, the precise risk the limiter exists to prevent.
+   *
+   * Set TRUST_PROXY=true only when something in front of the API is actually
+   * appending the header.
+   */
+  if (env.trustProxy) app.set('trust proxy', 1);
 
   // --- Security headers ---
   app.use(
@@ -104,6 +118,8 @@ export function createApp(): Express {
   app.use('/api', apiLimiter);
   app.use('/api/alerts', alertsRouter);
   app.use('/api/flow', flowRouter);
+  app.use('/api/intel', intelRouter);
+  app.use('/api/notify', notifyRouter);
   app.use('/api/packets', createPacketRouter(interfaceCapture, { requireIpFilter: false }));
   app.use('/api/ip/packets', createPacketRouter(filteredIpCapture, { requireIpFilter: true }));
   // Legacy: the per-packet anomaly log that `alerts` supersedes. Kept so existing

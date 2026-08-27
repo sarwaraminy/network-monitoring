@@ -12,8 +12,10 @@ import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import { useQuery } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
+import { fetchSignupMode } from '../api/auth.api';
 import { describeError } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -24,6 +26,20 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const { login } = useAuth();
+
+  /**
+   * Whether to offer registration at all.
+   *
+   * On failure this resolves to undefined and the link stays hidden, which is the
+   * safe direction: better to omit a link an administrator does not need than to
+   * show one that leads to a refusal.
+   */
+  const signupMode = useQuery({
+    queryKey: ['auth', 'signup-mode'],
+    queryFn: fetchSignupMode,
+    retry: false,
+    staleTime: 30_000,
+  });
   const navigate = useNavigate();
   const location = useLocation();
   const redirectTo = (location.state as { from?: string } | null)?.from ?? '/';
@@ -134,24 +150,37 @@ export default function LoginPage() {
               alignItems: 'center',
             }}
           >
-            <Typography
-              variant="body2"
-              sx={{
-                color: 'text.secondary',
-              }}
-            >
-              Don&apos;t have an account?{' '}
-              <Link
-                component={RouterLink}
-                to="/sign-up"
-                underline="hover"
+            {/*
+              Shown only when the server will actually accept a registration.
+              Accounts are created by an administrator on a normal installation, so
+              inviting a visitor to "register here" would walk them into a refusal —
+              and it was previously an invitation to escalate to administrator.
+              Adding a user now lives in the account menu, where an admin will be.
+            */}
+            {signupMode.data?.allowed && (
+              <Typography
+                variant="body2"
                 sx={{
-                  fontWeight: 600,
+                  color: 'text.secondary',
                 }}
               >
-                Register here
-              </Link>
-            </Typography>
+                {signupMode.data.mode === 'first-admin' ? (
+                  <>
+                    No accounts exist yet.{' '}
+                    <Link component={RouterLink} to="/sign-up" underline="hover" sx={{ fontWeight: 600 }}>
+                      Create the first administrator
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    Don&apos;t have an account?{' '}
+                    <Link component={RouterLink} to="/sign-up" underline="hover" sx={{ fontWeight: 600 }}>
+                      Register here
+                    </Link>
+                  </>
+                )}
+              </Typography>
+            )}
             <Stack
               direction="row"
               spacing={0.75}

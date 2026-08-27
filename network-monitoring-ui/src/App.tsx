@@ -21,6 +21,8 @@ import { theme } from './theme';
  * signed in. LoginPage itself stays eager — it is the first paint.
  */
 const SignUpPage = lazy(() => import('./auth/SignUpPage'));
+const ThreatIntelPage = lazy(() => import('./pages/ThreatIntelPage'));
+const DeliveryPage = lazy(() => import('./pages/DeliveryPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
 const PacketCapture = lazy(() => import('./pages/PacketCapture'));
@@ -56,6 +58,8 @@ export default function App() {
                           <Route index element={<Navigate to="/dashboard" replace />} />
                           <Route path="/dashboard" element={<DashboardPage />} />
                           <Route path="/alerts" element={<AlertsPage />} />
+                          <Route path="/threat-intel" element={<ThreatIntelPage />} />
+                          <Route path="/delivery" element={<DeliveryPage />} />
                           {/* /logs was the per-packet anomaly log that alerts supersede. */}
                           <Route path="/logs" element={<Navigate to="/alerts" replace />} />
                           <Route path="/capture-packets" element={<PacketCapture />} />
