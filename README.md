@@ -505,14 +505,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 355 tests
-npm run test:api  # 279 API tests
+npm test          # both suites: 362 tests
+npm run test:api  # 286 API tests
 npm run test:ui   # 76 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 279 tests
+### API — 286 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
@@ -536,6 +536,14 @@ Three groups are worth knowing about:
   prove the two agree, which is exactly the bug class — a misread offset — that matters here.
   These cover template arrival after data, template redefinition, enterprise fields, variable
   length, reduced-size encoding, NTP-format timestamps, and truncated or over-long sets.
+- **Repository-configuration guards** compare a config file against the repo it governs, in
+  text, because the failure they catch is a comment asserting something the configuration
+  underneath does not do. `env-defaults.test.ts` holds `.env.example` and Compose to env.ts's
+  own defaults; `dependabot-config.test.ts` holds `.github/dependabot.yml` to its own header —
+  every ecosystem capped and grouped explicitly, every `0.x` production dependency excluded
+  from the production group (a breaking `0.x` bump reads as a *minor* to Dependabot, so it
+  would otherwise be swallowed by a group), and the security-bypass guarantee never asserted
+  without naming the repository setting it depends on.
 - **Indicator refusals** are the threat-intelligence equivalent of the false-positive guards.
   A feed line that is *nearly* an indicator must be refused rather than guessed at, because a
   wrong indicator produces a confident false alarm: `999.999.999.999` must not be accepted as
