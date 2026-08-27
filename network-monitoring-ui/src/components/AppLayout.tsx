@@ -3,6 +3,7 @@ import GppMaybeOutlinedIcon from '@mui/icons-material/GppMaybeOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
+import RuleFolderOutlinedIcon from '@mui/icons-material/RuleFolderOutlined';
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
 import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
 import ShieldMoonOutlinedIcon from '@mui/icons-material/ShieldMoonOutlined';
@@ -43,6 +44,9 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: <SpaceDashboardOutlinedIcon /> },
   { label: 'Security Alerts', to: '/alerts', icon: <WarningAmberOutlinedIcon /> },
+  // Next to the alerts, because it is read as part of triaging them: the
+  // question "why am I seeing this every night" and the answer live together.
+  { label: 'Suppressions', to: '/suppressions', icon: <RuleFolderOutlinedIcon /> },
   { label: 'Threat Intel', to: '/threat-intel', icon: <GppMaybeOutlinedIcon /> },
   { label: 'Delivery', to: '/delivery', icon: <SendOutlinedIcon /> },
   { label: 'Capture by Interface', to: '/capture-packets', icon: <SettingsEthernetIcon /> },

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { HttpError } from '../middleware/error-handler.js';
+import { parsePrefix } from '../net/prefix.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
 
 /**
@@ -104,6 +105,108 @@ export function parseSince(value: string | undefined, now = Date.now()): Date | 
   }
   return parsed;
 }
+
+// --- Alert suppression ---
+
+/**
+ * A CIDR range or a bare address, normalised to the range that will actually match.
+ *
+ * Normalising here rather than on the way out is what stops a rule displaying one
+ * address while covering 256 of them: `10.0.0.7/24` is stored as `10.0.0.0/24`,
+ * which is what it means. `/0` is refused by `parsePrefix` and the message says so
+ * explicitly, because "match every address" already has a spelling — leave the
+ * field empty — and a rule that suppresses everything while looking specific is
+ * the single most dangerous thing anyone can type on this screen.
+ */
+const prefixSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine((value) => parsePrefix(value) !== null, {
+    message:
+      'must be an IP address or CIDR range, e.g. 10.0.0.7 or 10.0.0.0/24. ' +
+      'A /0 range is not accepted: leave the field empty to match any address.',
+  })
+  // Safe: the refinement above rejected everything `parsePrefix` returns null for.
+  .transform((value) => parsePrefix(value)!.text);
+
+/**
+ * The four criteria, shared by create, update and preview so they cannot drift.
+ *
+ * `nullish` throughout, and the two absent-versus-null cases mean different
+ * things on update: undefined leaves a criterion alone, null clears it. Create
+ * treats them the same, since there is nothing to leave alone.
+ */
+const suppressionCriteria = {
+  kind: z.enum(ALERT_KINDS).nullish(),
+  sourceCidr: prefixSchema.nullish(),
+  targetCidr: prefixSchema.nullish(),
+  port: z.coerce.number().int().min(1).max(65_535).nullish(),
+};
+
+/** Any criterion at all. A rule with none matches every finding on the network. */
+export function hasSuppressionCriterion(values: {
+  kind?: string | null;
+  sourceCidr?: string | null;
+  targetCidr?: string | null;
+  port?: number | null;
+}): boolean {
+  return (
+    (values.kind ?? null) !== null ||
+    (values.sourceCidr ?? null) !== null ||
+    (values.targetCidr ?? null) !== null ||
+    (values.port ?? null) !== null
+  );
+}
+
+export const NO_CRITERIA =
+  'A suppression rule needs at least one of kind, source, target or port. ' +
+  'A rule with none would drop every finding on the network.';
+
+/**
+ * `expiresAt` is accepted even when it is already in the past.
+ *
+ * Refusing it was the first instinct, and it is wrong in two ways. Such a rule is
+ * inert, so it cannot hide anything — the failure mode this whole file guards
+ * against does not apply. And refusing it would make an edit to any *other* field
+ * of an already-expired rule fail, which is how an operator ends up deleting and
+ * retyping a rule instead of extending it. The UI marks expired rules instead,
+ * which is the honest place for it: the state is visible rather than unrepresentable.
+ */
+export const suppressionCreateSchema = z
+  .object({
+    ...suppressionCriteria,
+    reason: z.string().trim().min(3, 'reason is required: record why these findings are expected').max(500),
+    enabled: z.boolean().default(true),
+    expiresAt: z.coerce.date().nullish(),
+  })
+  .refine(hasSuppressionCriterion, { message: NO_CRITERIA });
+
+/**
+ * Every field optional, and no criteria refinement here.
+ *
+ * The check cannot run on the patch alone: clearing the only criterion of a rule
+ * is invalid, and clearing one of two is fine, and the patch does not know which
+ * case it is in. The route merges the patch over the stored row and checks the
+ * result — see `hasSuppressionCriterion`.
+ */
+export const suppressionUpdateSchema = z.object({
+  ...suppressionCriteria,
+  reason: z.string().trim().min(3, 'reason must say why these findings are expected').max(500).optional(),
+  enabled: z.boolean().optional(),
+  expiresAt: z.coerce.date().nullish(),
+});
+
+/** A rule that has not been saved, checked against alerts already stored. */
+export const suppressionPreviewSchema = z
+  .object({
+    ...suppressionCriteria,
+    // Bounded like the alert list, and for the same reason: this is the only
+    // thing between a caller and a scan of the whole table.
+    limit: z.coerce.number().int().min(1).max(2_000).default(500),
+  })
+  .refine(hasSuppressionCriterion, { message: NO_CRITERIA });
 
 // --- Packet capture ---
 

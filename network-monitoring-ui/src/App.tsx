@@ -25,6 +25,7 @@ const ThreatIntelPage = lazy(() => import('./pages/ThreatIntelPage'));
 const DeliveryPage = lazy(() => import('./pages/DeliveryPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
+const SuppressionsPage = lazy(() => import('./pages/SuppressionsPage'));
 const PacketCapture = lazy(() => import('./pages/PacketCapture'));
 const PacketCaptureWithIP = lazy(() => import('./pages/PacketCaptureWithIP'));
 
@@ -58,6 +59,7 @@ export default function App() {
                           <Route index element={<Navigate to="/dashboard" replace />} />
                           <Route path="/dashboard" element={<DashboardPage />} />
                           <Route path="/alerts" element={<AlertsPage />} />
+                          <Route path="/suppressions" element={<SuppressionsPage />} />
                           <Route path="/threat-intel" element={<ThreatIntelPage />} />
                           <Route path="/delivery" element={<DeliveryPage />} />
                           {/* /logs was the per-packet anomaly log that alerts supersede. */}

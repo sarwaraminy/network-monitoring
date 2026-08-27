@@ -15,6 +15,7 @@ import { intelRouter } from './routes/intel.routes.js';
 import { logsRouter } from './routes/logs.routes.js';
 import { notifyRouter } from './routes/notify.routes.js';
 import { createPacketRouter } from './routes/packets.routes.js';
+import { suppressionsRouter } from './routes/suppressions.routes.js';
 import { filteredIpCapture, interfaceCapture } from './services/packet-capture.registry.js';
 
 /** Replaces NetworkMonitoringApplication + WebMvcConfig + SecurityConfig. */
@@ -120,6 +121,7 @@ export function createApp(): Express {
   app.use('/api/flow', flowRouter);
   app.use('/api/intel', intelRouter);
   app.use('/api/notify', notifyRouter);
+  app.use('/api/suppressions', suppressionsRouter);
   app.use('/api/packets', createPacketRouter(interfaceCapture, { requireIpFilter: false }));
   app.use('/api/ip/packets', createPacketRouter(filteredIpCapture, { requireIpFilter: true }));
   // Legacy: the per-packet anomaly log that `alerts` supersedes. Kept so existing

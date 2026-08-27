@@ -134,6 +134,9 @@ export class FlowScanDetector {
           sourceIp: source,
           sourceMac: flow.srcMac,
           protocol: flow.protocolName,
+          // One port defines this finding, unlike the port scan above, so a
+          // suppression rule may name it.
+          port: flow.dstPort,
           evidence: {
             scanner: source,
             port: flow.dstPort,

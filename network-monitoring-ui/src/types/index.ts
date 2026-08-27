@@ -64,6 +64,8 @@ export interface Alert {
   targetIp: string | null;
   targetMac: string | null;
   protocol: string | null;
+  /** The one destination port this finding is about, when exactly one describes it. */
+  port: number | null;
   dedupKey: string;
   occurrences: number;
   firstSeen: string;
@@ -96,6 +98,73 @@ export interface AlertTrendPoint {
 export interface AlertDashboard extends AlertSummary {
   trend: AlertTrendPoint[];
   topSources: Array<{ sourceIp: string; count: number; occurrences: number }>;
+}
+
+/**
+ * A suppression rule: findings the operator has declared expected.
+ *
+ * Every criterion is nullable and null means "any", so a rule is the conjunction
+ * of whichever ones are set. `matchCount` and `lastMatchAt` are the point of
+ * showing these at all — a suppressed finding is dropped rather than hidden, so
+ * the counter is the only evidence of what a rule is actually eating.
+ */
+export interface SuppressionRule {
+  id: number;
+  kind: AlertKind | null;
+  sourceCidr: string | null;
+  targetCidr: string | null;
+  port: number | null;
+  reason: string;
+  enabled: boolean;
+  /** Null never expires. */
+  expiresAt: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  matchCount: number;
+  lastMatchAt: string | null;
+}
+
+export interface SuppressionListing {
+  rules: SuppressionRule[];
+  /** Ids whose stored range will not parse. Such a rule matches nothing at all. */
+  invalid: number[];
+}
+
+/** The editable half of a rule, as the form holds it. */
+export interface SuppressionDraft {
+  kind: AlertKind | null;
+  sourceCidr: string | null;
+  targetCidr: string | null;
+  port: number | null;
+  reason: string;
+  enabled: boolean;
+  expiresAt: string | null;
+}
+
+/**
+ * What an unsaved rule would have hidden, measured against alerts already stored.
+ *
+ * `occurrences` matters more than `matched`: three alerts can carry twelve
+ * thousand observations between them, so a row count reads as trivial while
+ * describing most of the noise on the network.
+ */
+export interface SuppressionPreview {
+  examined: number;
+  matched: number;
+  occurrences: number;
+  /** Range of `lastSeen` across what was examined, so a zero is interpretable. */
+  window: { from: string; to: string } | null;
+  samples: Array<{
+    id: number;
+    kind: string;
+    severity: Severity;
+    sourceIp: string | null;
+    targetIp: string | null;
+    port: number | null;
+    occurrences: number;
+    lastSeen: string;
+  }>;
 }
 
 /** Where a feed's contents actually came from on the last load. */

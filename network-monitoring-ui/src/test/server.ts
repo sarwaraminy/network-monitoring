@@ -9,6 +9,8 @@ import {
   INTERFACES,
   NOTIFY_STATUS,
   PACKET,
+  SUPPRESSION_PREVIEW,
+  SUPPRESSION_RULES,
 } from './fixtures';
 
 /**
@@ -58,6 +60,32 @@ export const handlers = [
       ],
     }),
   ),
+
+  http.get('/api/suppressions', () => HttpResponse.json(SUPPRESSION_RULES)),
+
+  http.post('/api/suppressions', async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json(
+      {
+        ...SUPPRESSION_RULES.rules[0],
+        ...body,
+        id: 99,
+        matchCount: 0,
+        lastMatchAt: null,
+      },
+      { status: 201 },
+    );
+  }),
+
+  http.patch('/api/suppressions/:id', async ({ params, request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const existing = SUPPRESSION_RULES.rules.find((rule) => String(rule.id) === params.id);
+    return HttpResponse.json({ ...existing, ...body });
+  }),
+
+  http.delete('/api/suppressions/:id', () => new HttpResponse(null, { status: 204 })),
+
+  http.post('/api/suppressions/preview', () => HttpResponse.json(SUPPRESSION_PREVIEW)),
 
   http.get('/api/intel/status', () => HttpResponse.json(INTEL_STATUS)),
 

@@ -52,6 +52,19 @@ export interface Finding {
   targetMac?: string | null;
   protocol?: string | null;
   /**
+   * The destination port this finding is about, when exactly one port describes it.
+   *
+   * Left unset for most kinds, deliberately. A port scan's defining property is
+   * that it touched *many* ports, so there is no one port that describes it, and
+   * putting the last one observed here would make a suppression rule naming a
+   * port behave like a lottery — a rule for 445 would swallow a whole scan that
+   * happened to include it. Set only where one port is part of the finding's
+   * identity: a sweep of a single service, a cleartext login on a service port.
+   *
+   * Consumed by suppression matching and stored on the alert row.
+   */
+  port?: number | null;
+  /**
    * Structured supporting detail. Must never contain packet payloads, passwords
    * or other secrets — it is persisted and displayed.
    */

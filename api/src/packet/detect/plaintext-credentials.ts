@@ -288,6 +288,9 @@ export class PlaintextCredentialDetector implements Detector {
       targetIp: context.target,
       targetMac: context.packet.ethernet?.destinationAddress ?? null,
       protocol: 'TCP',
+      // Every finding from this detector is about one service on one port, so a
+      // suppression rule may name it.
+      port: context.port,
       evidence: { service: detail.service, port: context.port, ...detail.evidence },
       timestamp: context.packet.timestamp,
     };
