@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
-import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
 import type { Finding, Severity } from '../packet/detect/types.js';
 import { BoundedMap } from '../packet/detect/types.js';
 import { EmailChannel } from './email.js';
 import { MAX_LISTED_FINDINGS } from './format.js';
+import type { DeliverySettings } from './settings.js';
+import { currentSettings } from './settings.service.js';
 import { SyslogChannel } from './syslog.js';
 import {
   type DeliveryResult,
@@ -113,14 +114,35 @@ export class Notifier {
    */
   private readonly now: () => number;
 
-  constructor(channels?: NotificationChannel[], nowFn: () => number = Date.now) {
-    this.channels = channels ?? buildChannelsFromEnv();
+  /**
+   * The settings this notifier was built with, held rather than read per call.
+   *
+   * A notifier is now replaced when settings change — see `reloadNotifier` — so a
+   * held copy is also a guarantee: every gate a given notification passes through
+   * is measured against one consistent set of values, rather than against whatever
+   * the store happened to hold at each read. The old code read `env.notify` at
+   * twenty-nine points, which was consistent only because it could never change.
+   */
+  private readonly settings: DeliverySettings;
+
+  constructor(
+    channels?: NotificationChannel[],
+    nowFn: () => number = Date.now,
+    settings: DeliverySettings = currentSettings(),
+  ) {
+    this.settings = settings;
+    this.channels = channels ?? buildChannels(settings);
     this.now = nowFn;
   }
 
   /** True when at least one channel could actually deliver. */
   get active(): boolean {
-    return env.notify.enabled && this.channels.some((channel) => channel.isConfigured());
+    return this.settings.enabled && this.channels.some((channel) => channel.isConfigured());
+  }
+
+  /** For `reloadNotifier`, which has to release what these channels hold. */
+  get channelsForShutdown(): readonly NotificationChannel[] {
+    return this.channels;
   }
 
   get configuredChannels(): string[] {
@@ -156,17 +178,17 @@ export class Notifier {
 
     if (!this.active) return 'disabled';
 
-    if (!meetsThreshold(finding.severity, env.notify.minSeverity)) return 'below-threshold';
+    if (!meetsThreshold(finding.severity, this.settings.minSeverity)) return 'below-threshold';
 
     const throttleKey = finding.dedupKey;
     const last = this.lastNotifiedAt.get(throttleKey);
-    if (last !== undefined && now - last < env.notify.throttleMs) return 'throttled';
+    if (last !== undefined && now - last < this.settings.throttleSeconds * 1000) return 'throttled';
 
-    if (this.hourlyCountAt(now) >= env.notify.maxPerHour) {
+    if (this.hourlyCountAt(now) >= this.settings.maxPerHour) {
       // Logged once per occurrence deliberately: hitting the ceiling means either
       // a real incident or broken detection, and both need to be visible.
       log.warn(
-        { maxPerHour: env.notify.maxPerHour, kind: finding.kind },
+        { maxPerHour: this.settings.maxPerHour, kind: finding.kind },
         'Notification hourly limit reached; suppressing until the window rolls',
       );
       return 'rate-limited';
@@ -179,7 +201,7 @@ export class Notifier {
     } else {
       this.queue.push({
         dedupKey: throttleKey,
-        finding: toNotifiable(finding, occurrences, firstSeen, lastSeen, env.notify.includeEvidence),
+        finding: toNotifiable(finding, occurrences, firstSeen, lastSeen, this.settings.includeEvidence),
       });
     }
 
@@ -245,7 +267,7 @@ export class Notifier {
     }
 
     this.exportQueue.push(
-      toNotifiable(finding, occurrences, firstSeen, lastSeen, env.notify.syslog.includeEvidence),
+      toNotifiable(finding, occurrences, firstSeen, lastSeen, this.settings.syslogIncludeEvidence),
     );
 
     if (this.exportQueue.length >= MAX_EXPORT_BATCH) {
@@ -307,7 +329,7 @@ export class Notifier {
       omittedCount: 0,
       countsBySeverity: counts,
       generatedAt: new Date(this.now()),
-      dashboardUrl: env.notify.dashboardUrl,
+      dashboardUrl: this.settings.dashboardUrl || null,
       isTest: false,
     };
 
@@ -346,7 +368,7 @@ export class Notifier {
       omittedCount: 0,
       countsBySeverity: { info: 1 },
       generatedAt: now,
-      dashboardUrl: env.notify.dashboardUrl,
+      dashboardUrl: this.settings.dashboardUrl || null,
       isTest: true,
     };
 
@@ -393,7 +415,7 @@ export class Notifier {
     this.digestTimer = setTimeout(() => {
       this.digestTimer = null;
       void this.dispatch();
-    }, env.notify.digestMs);
+    }, this.settings.digestSeconds * 1000);
     // The digest timer alone must not keep the process alive.
     this.digestTimer.unref();
   }
@@ -412,7 +434,7 @@ export class Notifier {
     this.omitted = 0;
 
     try {
-      const notification = buildNotification(batch, omittedCount, env.notify.dashboardUrl);
+      const notification = buildNotification(batch, omittedCount, this.settings.dashboardUrl || null);
       this.sentTimestamps.push(this.now());
       const results = await this.deliver(notification);
 
@@ -517,39 +539,46 @@ export function buildNotification(
   };
 }
 
-function buildChannelsFromEnv(): NotificationChannel[] {
+/**
+ * The channels a given set of settings implies.
+ *
+ * A channel exists only when it could actually deliver, which is why each block has
+ * a guard: a webhook with no URL, or an email channel with no recipients, would
+ * report itself unconfigured on every send and clutter every status response.
+ */
+export function buildChannels(settings: DeliverySettings): NotificationChannel[] {
   const channels: NotificationChannel[] = [];
 
-  if (env.notify.webhookUrl !== '') {
-    channels.push(new WebhookChannel({ url: env.notify.webhookUrl, format: env.notify.webhookFormat }));
+  if (settings.webhookUrl !== '') {
+    channels.push(new WebhookChannel({ url: settings.webhookUrl, format: settings.webhookFormat }));
   }
 
-  if (env.notify.syslog.host !== '') {
+  if (settings.syslogHost !== '') {
     channels.push(
       new SyslogChannel({
-        host: env.notify.syslog.host,
-        port: env.notify.syslog.port,
-        protocol: env.notify.syslog.protocol,
-        format: env.notify.syslog.format,
-        rfc: env.notify.syslog.rfc,
-        facility: env.notify.syslog.facility,
-        appName: env.notify.syslog.appName,
+        host: settings.syslogHost,
+        port: settings.syslogPort,
+        protocol: settings.syslogProtocol,
+        format: settings.syslogFormat,
+        rfc: settings.syslogRfc,
+        facility: settings.syslogFacility,
+        appName: settings.syslogAppName,
         hostname: hostname(),
         productVersion: PRODUCT_VERSION,
       }),
     );
   }
 
-  if (env.notify.email.host !== '' && env.notify.email.to.length > 0) {
+  if (settings.emailHost !== '' && settings.emailTo.length > 0) {
     channels.push(
       new EmailChannel({
-        host: env.notify.email.host,
-        port: env.notify.email.port,
-        secure: env.notify.email.secure,
-        user: env.notify.email.user,
-        password: env.notify.email.password,
-        from: env.notify.email.from,
-        to: env.notify.email.to,
+        host: settings.emailHost,
+        port: settings.emailPort,
+        secure: settings.emailSecure,
+        user: settings.emailUser,
+        password: settings.emailPassword,
+        from: settings.emailFrom,
+        to: settings.emailTo,
       }),
     );
   }
@@ -563,6 +592,48 @@ let instance: Notifier | null = null;
 export function notifier(): Notifier {
   instance ??= new Notifier();
   return instance;
+}
+
+/**
+ * Rebuilds the notifier against the settings now in force.
+ *
+ * Replacing it rather than mutating it, and in this order, because both halves
+ * matter:
+ *
+ *  - **Flush first.** A settings change must not discard a digest that is already
+ *    queued. Those findings were accepted for delivery under the old settings and
+ *    dropping them would make "I saved the form" a reason an alert never arrived.
+ *  - **Close after.** `EmailChannel` holds a pooled SMTP transport. Building a new
+ *    notifier without closing the old one leaks a connection pool per save, and a
+ *    form somebody tunes a few times would accumulate them.
+ *
+ * The syslog channel needs no closing: it opens a socket per send and closes it,
+ * deliberately, so there is nothing held between sends.
+ *
+ * Never throws. A failure here must not fail the request that saved the settings —
+ * the settings are already stored, and the next call rebuilds anyway.
+ */
+export async function reloadNotifier(): Promise<void> {
+  const previous = instance;
+  // Cleared before awaiting, so anything arriving during the flush builds a fresh
+  // notifier from the new settings rather than joining the one being retired.
+  instance = null;
+
+  if (!previous) return;
+
+  try {
+    await previous.flush();
+  } catch (error) {
+    log.error({ err: error }, 'Could not flush the notifier before applying new settings');
+  }
+
+  for (const channel of previous.channelsForShutdown) {
+    try {
+      channel.close?.();
+    } catch (error) {
+      log.error({ channel: channel.name, err: error }, 'Could not close a delivery channel');
+    }
+  }
 }
 
 /** Test seam, so a suite can install a notifier with fake channels. */
