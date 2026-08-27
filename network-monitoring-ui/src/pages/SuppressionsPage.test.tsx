@@ -51,15 +51,16 @@ describe('SuppressionsPage', () => {
     expect(screen.getByText('dropped before storage, all time')).toBeInTheDocument();
   });
 
-  it('calls out a rule the server could not parse', async () => {
+  it('calls out a rule the server cannot use, with the reason', async () => {
     // The state that looks like coverage and is not: its author believes findings
     // are being suppressed and none are.
     renderApp(<SuppressionsPage />, { authenticated: true });
 
-    // Named, not counted. "1 rule is invalid" sends the operator hunting through
-    // the table for it.
-    const banner = await screen.findByText(/could not be parsed by the server/i);
+    // Named with its reason, not counted. "1 rule is invalid" sends the operator
+    // hunting through the table for it, and says nothing about what to fix.
+    const banner = await screen.findByText(/cannot match anything/i);
     expect(banner).toHaveTextContent('#4');
+    expect(banner).toHaveTextContent('is not an address or CIDR range');
     expect(screen.getByText('Invalid')).toBeInTheDocument();
   });
 

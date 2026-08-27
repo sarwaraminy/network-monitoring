@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   bigserial,
@@ -119,11 +120,23 @@ export const alertSuppressions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 
-    /** How much this rule is actually hiding. The point of the whole table. */
+    /**
+     * How much this rule is actually hiding. The point of the whole table.
+     *
+     * BIGINT in the column, `mode: 'number'` here, and the two ceilings are not
+     * the same: the SQL comment expects a busy rule to pass two billion, which
+     * needs BIGINT, while the JS side stays exact only to 2^53. That is four
+     * million times the figure the column was widened for, so the gap is
+     * comfortable rather than a bug — but it is a gap, not an equivalence.
+     */
     matchCount: bigint('match_count', { mode: 'number' }).notNull().default(0),
     lastMatchAt: timestamp('last_match_at', { withTimezone: true, mode: 'date' }),
   },
-  (table) => [index('alert_suppressions_enabled_idx').on(table.enabled)],
+  // Carries the partial predicate from the migration. Migrations here are raw SQL
+  // so nothing depends on this at runtime, but `drizzle-kit` is a dependency and
+  // api/drizzle.config.ts exists — declaring the index without its `WHERE` makes a
+  // diff report a phantom change against a table that is in fact correct.
+  (table) => [index('alert_suppressions_enabled_idx').on(table.enabled).where(sql`${table.enabled}`)],
 );
 
 export type UserRow = typeof users.$inferSelect;

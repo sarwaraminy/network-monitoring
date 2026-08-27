@@ -1,4 +1,5 @@
 import { type Prefix, parsePrefix, prefixContains } from '../net/prefix.js';
+import { ALERT_KINDS } from '../packet/detect/types.js';
 
 /**
  * Suppression rules: the operator's answer to "yes, I know, that one is expected".
@@ -80,6 +81,25 @@ export interface SuppressibleEvent {
   port?: number | null;
 }
 
+/**
+ * Kinds a detector can actually raise.
+ *
+ * Checked at compile time as well as at the API boundary, and the reason is a
+ * rename rather than a typo — `z.enum(ALERT_KINDS)` already stops anyone typing
+ * an unknown kind in. If a detector kind is ever renamed, every stored rule naming
+ * the old one compiles perfectly and then matches nothing, with no flag anywhere.
+ * Catching it here makes that rename fail visibly instead of quietly restoring the
+ * noise somebody had suppressed months earlier.
+ */
+const KNOWN_KINDS = new Set<string>(ALERT_KINDS);
+
+/** A stored rule that cannot match anything, and why. */
+export interface UnusableRule {
+  id: number;
+  /** Plain enough to act on: shown on the page and written to the log. */
+  reason: string;
+}
+
 interface CompiledRule {
   id: number;
   kind: string | null;
@@ -99,12 +119,22 @@ interface CompiledRule {
  */
 export class SuppressionSet {
   private readonly compiled: CompiledRule[] = [];
-  /** Ids dropped because a stored CIDR would not parse. Reported, never silent. */
-  readonly malformed: number[] = [];
+  /**
+   * Rules dropped because they cannot match anything, with the reason. Reported,
+   * never silent — a rule that quietly does nothing is the worst state here.
+   */
+  readonly unusable: UnusableRule[] = [];
 
   constructor(rules: readonly SuppressionCriteria[]) {
     for (const rule of rules) {
       if (!rule.enabled) continue;
+
+      // Checked before the ranges, because a kind nobody raises makes the rest of
+      // the rule irrelevant, and the reason should name the real problem.
+      if (rule.kind !== null && !KNOWN_KINDS.has(rule.kind)) {
+        this.unusable.push({ id: rule.id, reason: `no detector raises the kind "${rule.kind}"` });
+        continue;
+      }
 
       const source = rule.sourceCidr === null ? null : parsePrefix(rule.sourceCidr);
       const target = rule.targetCidr === null ? null : parsePrefix(rule.targetCidr);
@@ -114,8 +144,18 @@ export class SuppressionSet {
       // The failure direction matters: dropping the rule lets findings through,
       // and an alert that should have been suppressed is a nuisance, whereas a
       // suppression nobody intended is a blind spot.
-      if ((rule.sourceCidr !== null && !source) || (rule.targetCidr !== null && !target)) {
-        this.malformed.push(rule.id);
+      if (rule.sourceCidr !== null && !source) {
+        this.unusable.push({
+          id: rule.id,
+          reason: `source "${rule.sourceCidr}" is not an address or CIDR range`,
+        });
+        continue;
+      }
+      if (rule.targetCidr !== null && !target) {
+        this.unusable.push({
+          id: rule.id,
+          reason: `target "${rule.targetCidr}" is not an address or CIDR range`,
+        });
         continue;
       }
 

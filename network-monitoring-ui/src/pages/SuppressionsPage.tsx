@@ -93,7 +93,8 @@ const STATE: Record<
   },
 };
 
-function ruleState(rule: SuppressionRule, invalid: Set<number>, now: number): RuleState {
+/** `invalid` maps a rule id to why the server cannot use it. */
+function ruleState(rule: SuppressionRule, invalid: Map<number, string>, now: number): RuleState {
   if (invalid.has(rule.id)) return 'invalid';
   if (!rule.enabled) return 'disabled';
   if (rule.expiresAt !== null && new Date(rule.expiresAt).getTime() <= now) return 'expired';
@@ -201,7 +202,10 @@ export default function SuppressionsPage() {
   );
 
   const rules = listing.data?.rules ?? [];
-  const invalid = useMemo(() => new Set(listing.data?.invalid ?? []), [listing.data]);
+  const invalid = useMemo(
+    () => new Map((listing.data?.invalid ?? []).map((problem) => [problem.id, problem.reason])),
+    [listing.data],
+  );
   const now = Date.now();
 
   const states = rules.map((rule) => ruleState(rule, invalid, now));
@@ -244,15 +248,22 @@ export default function SuppressionsPage() {
       )}
 
       {/*
-        Surfaced above the table, because a rule that cannot be parsed is doing
+        Surfaced above the table, because a rule the server cannot use is doing
         nothing while its author believes it is — the one failure here that is
-        invisible from the outside.
+        invisible from the outside. Each reason is named rather than counted: "1
+        rule is invalid" sends an operator hunting through the table for it.
       */}
       {invalid.size > 0 && (
         <Alert severity="error">
-          {invalid.size} rule{invalid.size === 1 ? '' : 's'} could not be parsed by the server and
-          {invalid.size === 1 ? ' matches' : ' match'} nothing at all
-          {`: #${[...invalid].join(', #')}`}. Findings you believe are suppressed are not being suppressed.
+          {invalid.size} rule{invalid.size === 1 ? '' : 's'} cannot match anything, so findings you believe
+          are suppressed are not being suppressed:
+          <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
+            {[...invalid].map(([id, reason]) => (
+              <li key={id}>
+                <strong>#{id}</strong> — {reason}
+              </li>
+            ))}
+          </Box>
         </Alert>
       )}
 
@@ -326,7 +337,7 @@ export default function SuppressionsPage() {
 
 interface RuleTableProps {
   rules: SuppressionRule[];
-  invalid: Set<number>;
+  invalid: Map<number, string>;
   now: number;
   loading: boolean;
   isAdmin: boolean;
@@ -384,8 +395,10 @@ function RuleTable({
         filterSelectOptions: Object.values(STATE).map((state) => state.label),
         Cell: ({ row }) => {
           const state = STATE[ruleState(row.original, invalid, now)];
+          // The server's own reason beats the generic hint when there is one.
+          const reason = invalid.get(row.original.id);
           return (
-            <Tooltip title={state.hint}>
+            <Tooltip title={reason ? `${reason}. ${state.hint}` : state.hint}>
               <Chip size="small" variant="outlined" color={state.color} label={state.label} />
             </Tooltip>
           );

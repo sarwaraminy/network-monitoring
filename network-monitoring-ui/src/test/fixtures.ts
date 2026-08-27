@@ -155,7 +155,7 @@ export const SUPPRESSION_RULES: SuppressionListing = {
       lastMatchAt: null,
     },
   ],
-  invalid: [4],
+  invalid: [{ id: 4, reason: 'source "10.0.0.0/99" is not an address or CIDR range' }],
 };
 
 export const SUPPRESSION_PREVIEW: SuppressionPreview = {

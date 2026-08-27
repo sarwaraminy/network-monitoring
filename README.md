@@ -434,9 +434,12 @@ way it does:
   blind spot because somebody forgot. Expired rules stay on the page, labelled, rather than
   being filtered out of sight.
 
-A rule whose stored range cannot be parsed is called out loudly on the page and in the server
-log, because it matches nothing at all while its author believes otherwise — the one state here
-that looks like coverage and is not.
+A rule the server cannot use is called out loudly on the page and in the server log, with the
+reason next to it, because it matches nothing at all while its author believes otherwise — the
+one state here that looks like coverage and is not. Two things put a rule in that state: a
+stored range that will not parse, and a `kind` no detector raises. The second is unreachable
+through the API, which validates against a closed enum; it exists for the day a detector kind is
+renamed, when every rule naming the old one would otherwise stop suppressing in silence.
 
 ### Check a rule before you save it
 
@@ -602,14 +605,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 423 tests
-npm run test:api  # 332 API tests
+npm test          # both suites: 436 tests
+npm run test:api  # 345 API tests
 npm run test:ui   # 91 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 332 tests
+### API — 345 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
@@ -636,15 +639,19 @@ Three groups are worth knowing about:
 - **Suppression matching** pins what a rule covers, and every case is really the same question
   asked from a different angle: does this rule hide more than its author wrote down? A rule
   naming a source range must not match a finding that has no source; a rule naming a port must
-  not match a port scan; `0.0.0.0/0` and a range that will not parse must both be refused
-  rather than treated as "any"; and the expiry has to be re-read per finding, so a cached rule
-  set stops suppressing at the right moment. Three of those guards were verified by
-  reintroducing the bug and watching them fail.
-- **Route guards** (`src/routes/route-guards.test.ts`) assert the shape of the suppression
-  router — auth on everything, ADMIN on everything that changes a rule, and an exemption list
+  not match a port scan; `0.0.0.0/0`, a range that will not parse and a `kind` no detector
+  raises must all be refused rather than treated as "any"; and the expiry has to be re-read per
+  finding, so a cached rule set stops suppressing at the right moment. Several of those guards
+  were verified by reintroducing the bug and watching them fail.
+- **Route guards** (`src/routes/route-guards.test.ts`) assert the shape of a router's guards —
+  auth on everything, and a role gate on everything that changes state, with an exemption list
   that has to be typed out next to its reason. The recurring mistake in this codebase is the fix
   that stops one step short, and it is invisible to a unit test of the guard itself, which
-  passes either way.
+  passes either way. Two subtleties it has to get right: a guard can be installed away from the
+  route it protects (`router.use(['/start', '/stop'], requireRole('ADMIN'))`, which is how the
+  capture router gates), and admitting ADMIN is not the same as requiring it — a guard that also
+  admits USER is not an admin gate, so the check asks whether a covering guard admits that role
+  and nothing else.
 - **Indicator refusals** are the threat-intelligence equivalent of the false-positive guards.
   A feed line that is *nearly* an indicator must be refused rather than guessed at, because a
   wrong indicator produces a confident false alarm: `999.999.999.999` must not be accepted as

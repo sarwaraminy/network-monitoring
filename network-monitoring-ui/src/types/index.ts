@@ -125,10 +125,22 @@ export interface SuppressionRule {
   lastMatchAt: string | null;
 }
 
+/**
+ * A stored rule the server cannot use, and why.
+ *
+ * The reason travels with the id because it is the difference between fixing a
+ * typo and staring at the row: a range that will not parse, or a detector kind
+ * that no longer exists after a rename.
+ */
+export interface SuppressionProblem {
+  id: number;
+  reason: string;
+}
+
 export interface SuppressionListing {
   rules: SuppressionRule[];
-  /** Ids whose stored range will not parse. Such a rule matches nothing at all. */
-  invalid: number[];
+  /** Rules that match nothing at all. Their authors believe otherwise. */
+  invalid: SuppressionProblem[];
 }
 
 /** The editable half of a rule, as the form holds it. */

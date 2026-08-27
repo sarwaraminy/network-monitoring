@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { ALERT_KINDS } from '../packet/detect/types.js';
 import { type SuppressibleEvent, type SuppressionCriteria, SuppressionSet } from './suppression-rules.js';
 
 /**
@@ -165,14 +166,50 @@ describe('suppression matching', () => {
         rule({ id: 8, kind: 'port_scan', targetCidr: 'not-an-address' }),
       ]);
       assert.equal(set.size, 0);
-      assert.deepEqual(set.malformed, [7, 8]);
+      assert.deepEqual(
+        set.unusable.map((each) => each.id),
+        [7, 8],
+      );
       assert.equal(set.match(event(), NOW), null);
+    });
+
+    it('names the field that is wrong, not just the rule', () => {
+      // The reason reaches the page and the log. "#8 is invalid" sends an operator
+      // hunting; naming the field and the value does not.
+      const set = new SuppressionSet([
+        rule({ id: 7, sourceCidr: '10.0.0.0/99' }),
+        rule({ id: 8, targetCidr: 'not-an-address' }),
+      ]);
+      assert.match(set.unusable[0]!.reason, /source .*10\.0\.0\.0\/99/);
+      assert.match(set.unusable[1]!.reason, /target .*not-an-address/);
     });
 
     it('refuses a match-everything range even though the rest of the rule is valid', () => {
       const set = new SuppressionSet([rule({ id: 9, sourceCidr: '0.0.0.0/0' })]);
       assert.equal(set.size, 0);
-      assert.deepEqual(set.malformed, [9]);
+      assert.deepEqual(
+        set.unusable.map((each) => each.id),
+        [9],
+      );
+    });
+
+    it('drops a rule naming a kind no detector raises', () => {
+      // Not reachable through the API, which validates against a closed enum. The
+      // realistic route is a detector kind being renamed later, at which point
+      // every rule naming the old one silently stops suppressing — the noise comes
+      // back and nothing says why. This is what makes that rename fail visibly.
+      const set = new SuppressionSet([rule({ id: 11, kind: 'port_scanning' })]);
+      assert.equal(set.size, 0);
+      assert.equal(set.unusable[0]?.id, 11);
+      assert.match(set.unusable[0]!.reason, /no detector raises the kind "port_scanning"/);
+    });
+
+    it('accepts every kind a detector actually raises', () => {
+      // The other half: the check must not reject a kind that is real, or the
+      // guard above would take every rule down with it.
+      const set = new SuppressionSet(ALERT_KINDS.map((kind, index) => rule({ id: index + 1, kind })));
+      assert.equal(set.size, ALERT_KINDS.length);
+      assert.deepEqual(set.unusable, []);
     });
   });
 

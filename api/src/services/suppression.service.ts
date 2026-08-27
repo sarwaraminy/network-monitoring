@@ -2,7 +2,7 @@ import { asc, eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { alertSuppressions, type SuppressionRow } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
-import { NO_SUPPRESSIONS, SuppressionSet } from './suppression-rules.js';
+import { NO_SUPPRESSIONS, SuppressionSet, type UnusableRule } from './suppression-rules.js';
 
 const log = componentLogger('suppression');
 
@@ -24,17 +24,51 @@ const log = componentLogger('suppression');
  *    The opposite choice — treating an unreadable rule table as "suppress" — would
  *    turn a database blip into a monitoring outage that looks like a quiet night.
  *  - A rule edited through the API takes effect immediately, because every
- *    mutation reloads before it answers. The interval below only matters when
- *    something else changed the table: a second process, or somebody with psql.
+ *    mutation reloads before it answers — and chains that reload after any load
+ *    already running, so it cannot be satisfied by a query that ran before its own
+ *    write. See `reloadAfterWrite`. The interval only matters when something else
+ *    changed the table: a second process, or somebody with psql.
+ *  - A database that cannot be read is reported once and then at a bounded rate,
+ *    not once per finding batch. See `noteLoadFailure`.
  */
 
-/** How stale the cached set may get before a read triggers a background reload. */
+/**
+ * How stale the cached set may get before a read triggers a background reload.
+ *
+ * There is no environment variable for this on purpose. A hardened default in
+ * env.ts gets silently undone by a Compose file or an `.env.example` that still
+ * sets the old value, which has happened three times in this repo; a knob nobody
+ * asked for is a knob that can drift.
+ */
 const REFRESH_INTERVAL_MS = 30_000;
+
+/**
+ * Failed loads retried at full speed before backing off.
+ *
+ * A reload racing a database restart should recover in seconds rather than in a
+ * minute, so the first few failures retry promptly. After that the retries are
+ * spaced, because `suppressions()` is called once per finding batch and an
+ * unreachable database would otherwise mean back-to-back failing queries and a
+ * continuous error stream for the length of the outage — at exactly the moment
+ * findings are arriving fastest. Loud on the transition, then rate-limited: the
+ * same shape the notifier's export queue was corrected into.
+ */
+const PROMPT_RETRIES = 3;
+const BACKOFF_INTERVAL_MS = 60_000;
+/** Ceiling on how often a continuing failure is logged. */
+const FAILURE_LOG_INTERVAL_MS = 300_000;
 
 let current: SuppressionSet = NO_SUPPRESSIONS;
 let loadedAt = 0;
 /** In-flight reload, so a burst of findings cannot start twenty of them. */
 let loading: Promise<SuppressionSet> | null = null;
+
+/** Failure accounting, so an outage is reported once rather than per batch. */
+let consecutiveFailures = 0;
+let unloggedFailures = 0;
+let lastFailureLogAt = 0;
+/** Earliest time a *read* may start another load. Writes ignore it. */
+let nextAttemptAt = 0;
 
 /**
  * The rules in force, for the hot path. Never throws, never blocks.
@@ -45,63 +79,152 @@ let loading: Promise<SuppressionSet> | null = null;
  * apply is a much smaller problem than either.
  */
 export function suppressions(): SuppressionSet {
-  if (Date.now() - loadedAt > REFRESH_INTERVAL_MS && !loading) {
-    // Fire and forget: refreshSuppressions logs its own failures and leaves the
-    // current set alone, so there is nothing here to handle.
+  const now = Date.now();
+  if (now - loadedAt > REFRESH_INTERVAL_MS && now >= nextAttemptAt && !loading) {
+    // Fire and forget: the load logs its own failures and leaves the current set
+    // alone, so there is nothing here to handle.
     void refreshSuppressions();
   }
   return current;
 }
 
-/** Reloads and recompiles. Resolves to the set now in force, even on failure. */
+/**
+ * Reloads and recompiles, joining a load already in flight.
+ *
+ * For the hot path and for startup, where coalescing is the point: one reload per
+ * burst rather than one per batch. A caller that has just *written* must not use
+ * this — see `reloadAfterWrite`.
+ */
 export async function refreshSuppressions(): Promise<SuppressionSet> {
-  if (loading) return loading;
-
-  loading = (async () => {
-    try {
-      const rows = await loadRules();
-      const set = new SuppressionSet(rows);
-
-      if (set.malformed.length > 0) {
-        // Loud, because such a rule silently does nothing: its author believes
-        // findings are being suppressed and they are not.
-        log.warn({ ids: set.malformed }, 'Suppression rules ignored: the stored range could not be parsed');
-      }
-
-      current = set;
-      loadedAt = Date.now();
-      log.debug({ rules: set.size }, 'Suppression rules loaded');
-      return set;
-    } catch (error) {
-      // Keep serving the last good set, and keep `loadedAt` where it is so the
-      // next read tries again rather than backing off.
-      log.error({ err: error }, 'Could not load suppression rules; keeping the previous set');
-      return current;
-    } finally {
-      loading = null;
-    }
-  })();
-
-  return loading;
+  return loading ?? enqueueLoad();
 }
 
-/** For tests and for a clean shutdown: drops the cache without touching the table. */
+/**
+ * A reload whose query provably starts after the caller's write committed.
+ *
+ * The distinction is not academic. `refreshSuppressions` returns a load already in
+ * flight, and that load's `SELECT` may have run *before* an INSERT that has only
+ * just committed. A mutation awaiting it would then publish a set without its own
+ * new rule and stamp `loadedAt` fresh, so the rule would not apply for up to the
+ * refresh interval — breaking exactly the guarantee the mutations claim, that a
+ * rule is in force by the time its 201 arrives. Chaining rather than joining costs
+ * one extra query on the rare overlap and makes the guarantee true.
+ */
+export async function reloadAfterWrite(): Promise<SuppressionSet> {
+  return enqueueLoad();
+}
+
+/**
+ * Queues a load behind whatever is in flight and publishes it as the current one.
+ *
+ * Chained rather than parallel so two concurrent writes cannot interleave their
+ * `SELECT`s and publish the older result last.
+ */
+function enqueueLoad(): Promise<SuppressionSet> {
+  const previous = loading ?? Promise.resolve(current);
+  // Both arms, because a predecessor's rejection must not cancel this load.
+  // `loadAndCompile` swallows its own errors, so in practice only the first arm
+  // runs; relying on that would make this fragile to a later edit.
+  const run: Promise<SuppressionSet> = previous.then(loadAndCompile, loadAndCompile);
+  loading = run;
+  void run.finally(() => {
+    // Only if nothing has queued behind us in the meantime.
+    if (loading === run) loading = null;
+  });
+  return run;
+}
+
+/**
+ * Where the rows come from. Swapped by tests, never at runtime.
+ *
+ * The same seam `EmailChannel` takes as `transportFactory` and `WebhookChannel` as
+ * `fetchImpl`, and for the same reason: the interesting behaviour in this module is
+ * the caching, the write-ordering and the retry policy, none of which is about
+ * Postgres. With this the suites keep their promise of needing no database.
+ */
+export type RuleLoader = () => Promise<SuppressionRow[]>;
+let loader: RuleLoader = loadRules;
+
+/** Test seam. Passing null restores the real query. */
+export function setRuleLoaderForTests(load: RuleLoader | null): void {
+  loader = load ?? loadRules;
+}
+
+/** Drops the cached set and the failure accounting. For tests and for a reset. */
 export function resetSuppressionCache(): void {
   current = NO_SUPPRESSIONS;
   loadedAt = 0;
+  loading = null;
+  consecutiveFailures = 0;
+  unloggedFailures = 0;
+  lastFailureLogAt = 0;
+  nextAttemptAt = 0;
 }
 
-export interface SuppressionCacheStatus {
-  /** Rules compiled and in force. */
-  rules: number;
-  /** Epoch ms of the last successful load; 0 if none has succeeded. */
-  loadedAt: number;
-  /** Ids ignored because their stored range will not parse. */
-  malformed: number[];
+/** Reads, compiles, publishes. Never rejects: a failure keeps the previous set. */
+async function loadAndCompile(): Promise<SuppressionSet> {
+  try {
+    const rows = await loader();
+    const set = new SuppressionSet(rows);
+
+    if (set.unusable.length > 0) {
+      // Loud, because such a rule silently does nothing: its author believes
+      // findings are being suppressed and they are not. The reason travels with
+      // the id, so a renamed detector kind is diagnosable from the log alone.
+      log.warn({ rules: set.unusable }, 'Suppression rules ignored: they cannot match anything');
+    }
+
+    current = set;
+    loadedAt = Date.now();
+    nextAttemptAt = 0;
+
+    if (consecutiveFailures > 0) {
+      log.warn(
+        { failedAttempts: consecutiveFailures },
+        'Suppression rules loaded again after failing; suppression was not being applied in between',
+      );
+      consecutiveFailures = 0;
+      unloggedFailures = 0;
+    }
+
+    log.debug({ rules: set.size }, 'Suppression rules loaded');
+    return set;
+  } catch (error) {
+    noteLoadFailure(error);
+    return current;
+  }
 }
 
-export function suppressionCacheStatus(): SuppressionCacheStatus {
-  return { rules: current.size, loadedAt, malformed: [...current.malformed] };
+/**
+ * Records a failed load: schedules the next attempt and decides whether to log.
+ *
+ * The previous set stays in force, and `current` is deliberately not cleared —
+ * failing open means findings get through, and clearing the set on a database
+ * blip would silently stop suppressing rules the operator still wants.
+ */
+function noteLoadFailure(error: unknown): void {
+  const now = Date.now();
+  consecutiveFailures += 1;
+  unloggedFailures += 1;
+
+  const prompt = consecutiveFailures <= PROMPT_RETRIES;
+  nextAttemptAt = prompt ? 0 : now + BACKOFF_INTERVAL_MS;
+
+  if (prompt || now - lastFailureLogAt >= FAILURE_LOG_INTERVAL_MS) {
+    log.error(
+      {
+        err: error,
+        consecutiveFailures,
+        // How many attempts this one line stands for, so the rate limiting is
+        // visible rather than looking like the failures stopped.
+        attemptsSinceLastLog: unloggedFailures,
+        retryInMs: nextAttemptAt === 0 ? 0 : BACKOFF_INTERVAL_MS,
+      },
+      'Could not load suppression rules; keeping the previous set',
+    );
+    lastFailureLogAt = now;
+    unloggedFailures = 0;
+  }
 }
 
 // --- Match accounting ---
@@ -181,10 +304,11 @@ async function loadRules(): Promise<SuppressionRow[]> {
 export interface SuppressionListing {
   rules: SuppressionRow[];
   /**
-   * Ids whose stored range will not parse. Such a rule matches nothing at all,
-   * which is worth surfacing: its author believes it is suppressing something.
+   * Rules that cannot match anything, with the reason. Worth surfacing rather
+   * than counting: their author believes findings are being suppressed, and the
+   * reason is the difference between fixing a typo and staring at the row.
    */
-  invalid: number[];
+  invalid: UnusableRule[];
 }
 
 /**
@@ -195,7 +319,7 @@ export interface SuppressionListing {
  */
 export async function listSuppressions(): Promise<SuppressionListing> {
   const rules = await loadRules();
-  return { rules, invalid: new SuppressionSet(rules).malformed };
+  return { rules, invalid: [...new SuppressionSet(rules).unusable] };
 }
 
 export async function getSuppression(id: number): Promise<SuppressionRow | null> {
@@ -224,7 +348,7 @@ export async function createSuppression(input: SuppressionInput, createdBy: stri
   // its 201. Without this an operator watching the alert list would see findings
   // they had just suppressed keep arriving for up to the refresh interval, and
   // conclude the feature does not work.
-  await refreshSuppressions();
+  await reloadAfterWrite();
   return row!;
 }
 
@@ -236,7 +360,7 @@ export async function updateSuppression(id: number, input: SuppressionInput): Pr
     .returning();
 
   if (!row) return null;
-  await refreshSuppressions();
+  await reloadAfterWrite();
   return row;
 }
 
@@ -247,6 +371,6 @@ export async function deleteSuppression(id: number): Promise<boolean> {
     .returning({ id: alertSuppressions.id });
 
   if (deleted.length === 0) return false;
-  await refreshSuppressions();
+  await reloadAfterWrite();
   return true;
 }
