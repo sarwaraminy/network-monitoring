@@ -46,11 +46,17 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
+/** A role guard, carrying the roles it enforces so a routing table can be inspected. */
+export type RoleGuard = ((req: Request, res: Response, next: NextFunction) => void) & {
+  /** Lowercased roles this guard admits. */
+  readonly requiredRoles: readonly string[];
+};
+
 /** Use after requireAuth. Roles are compared case-insensitively, e.g. 'ADMIN'. */
-export function requireRole(...allowed: string[]) {
+export function requireRole(...allowed: string[]): RoleGuard {
   const permitted = new Set(allowed.map((role) => role.toLowerCase()));
 
-  return (req: Request, res: Response, next: NextFunction): void => {
+  const guard = (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({ message: 'Not authenticated' });
       return;
@@ -61,4 +67,16 @@ export function requireRole(...allowed: string[]) {
     }
     next();
   };
+
+  /*
+   * Tagged, so a test can ask a router which of its routes are gated.
+   *
+   * Not decoration. The recurring bug in this codebase is the fix that stops one
+   * step short — capture `/start` was gated on ADMIN while `GET /` stayed open —
+   * and that class is invisible to a unit test of the guard itself, which passes
+   * either way. What catches it is asserting the shape of the routing table, and
+   * an anonymous closure cannot be told apart from any other handler. See
+   * routes/route-guards.test.ts.
+   */
+  return Object.assign(guard, { requiredRoles: [...permitted] as readonly string[] });
 }

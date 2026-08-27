@@ -6,6 +6,8 @@ import type {
   NetworkInterface,
   NotifyStatus,
   Packet,
+  SuppressionListing,
+  SuppressionPreview,
 } from '../types';
 
 /** Shapes here mirror what the API actually returns; see api/src/types/dto.ts. */
@@ -31,6 +33,9 @@ export const CRITICAL_ALERT: Alert = {
   targetIp: '10.0.0.50',
   targetMac: '10:56:ca:05:3c:14',
   protocol: 'TCP',
+  // One service on one port describes this finding, so a suppression rule may
+  // name the port. A port scan below cannot: it touched many.
+  port: 80,
   dedupKey: 'plaintext_credentials|http-basic|alice|10.0.0.50:80|w1',
   occurrences: 3,
   firstSeen: '2026-07-26T09:00:00.000Z',
@@ -53,6 +58,7 @@ export const HIGH_ALERT: Alert = {
   targetIp: '10.0.0.89',
   targetMac: '38:f7:cd:c4:a0:6f',
   protocol: 'TCP',
+  port: null,
   dedupKey: 'port_scan|10.0.0.66|10.0.0.89|w1',
   occurrences: 1,
   firstSeen: '2026-07-26T08:00:00.000Z',
@@ -74,6 +80,112 @@ export const ACKNOWLEDGED_ALERT: Alert = {
 };
 
 export const ALERTS = [CRITICAL_ALERT, HIGH_ALERT, ACKNOWLEDGED_ALERT];
+
+/**
+ * Four rules covering the states the page has to distinguish.
+ *
+ * Deliberately not four healthy rows. The page exists to make the cost of a
+ * suppression visible, so the default fixture contains a rule that has hidden a
+ * great deal, one that has hidden nothing, one switched off, and one whose range
+ * the server could not parse — which is the state that looks like coverage and
+ * is not.
+ */
+export const SUPPRESSION_RULES: SuppressionListing = {
+  rules: [
+    {
+      id: 1,
+      kind: 'port_scan',
+      sourceCidr: '10.20.30.0/24',
+      targetCidr: null,
+      port: null,
+      reason: 'Authorised Nessus scanner, ticket OPS-1421',
+      enabled: true,
+      expiresAt: null,
+      createdBy: 'admin@example.com',
+      createdAt: '2026-08-01T09:00:00.000Z',
+      updatedAt: '2026-08-01T09:00:00.000Z',
+      matchCount: 4820,
+      lastMatchAt: '2026-08-27T02:00:00.000Z',
+    },
+    {
+      id: 2,
+      kind: 'host_sweep',
+      sourceCidr: null,
+      targetCidr: null,
+      port: 445,
+      reason: 'Backup agent enumerating SMB shares nightly',
+      enabled: true,
+      expiresAt: null,
+      createdBy: 'admin@example.com',
+      createdAt: '2026-08-10T09:00:00.000Z',
+      updatedAt: '2026-08-10T09:00:00.000Z',
+      matchCount: 0,
+      lastMatchAt: null,
+    },
+    {
+      id: 3,
+      kind: null,
+      sourceCidr: '192.168.50.10/32',
+      targetCidr: null,
+      port: null,
+      reason: 'Pen test window, week of 12 August',
+      // Left switched on and allowed to lapse, which is the realistic version of
+      // this rule and the state the page has to name rather than imply.
+      enabled: true,
+      expiresAt: '2026-08-19T00:00:00.000Z',
+      createdBy: 'admin@example.com',
+      createdAt: '2026-08-12T09:00:00.000Z',
+      updatedAt: '2026-08-19T09:00:00.000Z',
+      matchCount: 311,
+      lastMatchAt: '2026-08-18T22:40:00.000Z',
+    },
+    {
+      id: 4,
+      kind: 'arp_spoofing',
+      sourceCidr: '10.0.0.0/99',
+      targetCidr: null,
+      port: null,
+      reason: 'Router failover flaps the gateway MAC',
+      enabled: true,
+      expiresAt: null,
+      createdBy: 'admin@example.com',
+      createdAt: '2026-08-20T09:00:00.000Z',
+      updatedAt: '2026-08-20T09:00:00.000Z',
+      matchCount: 0,
+      lastMatchAt: null,
+    },
+  ],
+  invalid: [{ id: 4, reason: 'source "10.0.0.0/99" is not an address or CIDR range' }],
+};
+
+export const SUPPRESSION_PREVIEW: SuppressionPreview = {
+  examined: 500,
+  matched: 2,
+  occurrences: 4821,
+  window: { from: '2026-08-20T00:00:00.000Z', to: '2026-08-27T08:00:00.000Z' },
+  samples: [
+    {
+      id: 102,
+      kind: 'port_scan',
+      severity: 'high',
+      sourceIp: '10.20.30.40',
+      targetIp: '10.0.0.89',
+      port: null,
+      occurrences: 4800,
+      lastSeen: '2026-08-27T02:00:00.000Z',
+    },
+    {
+      id: 140,
+      kind: 'port_scan',
+      severity: 'high',
+      sourceIp: '10.20.30.41',
+      targetIp: '10.0.0.90',
+      port: null,
+      occurrences: 21,
+      lastSeen: '2026-08-26T02:00:00.000Z',
+    },
+  ],
+};
 
 export const DASHBOARD: AlertDashboard = {
   total: 3,

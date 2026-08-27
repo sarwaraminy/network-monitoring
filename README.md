@@ -390,6 +390,106 @@ alerts being stored or capture running — every failure path here ends in a log
 
 ---
 
+## Suppression rules
+
+The feature that decides whether this tool is still switched on in month three.
+
+An authorised vulnerability scanner sweeping the estate every night raises a `high` port-scan
+finding every night — correctly. A backup agent enumerating SMB shares raises a host sweep on
+port 445 every night, also correctly. With no way to record "yes, I know, that one is
+expected", the alerts table fills with known-good noise, the real findings sit underneath it,
+and the person on call learns that the alerts do not mean anything. That is the failure mode
+that gets a monitoring tool ignored, and it is not a detection problem — the detectors are
+right.
+
+A rule is a conjunction of up to four criteria, and any it leaves out means "any":
+
+| Criterion   | Example         | Notes                                                       |
+| ----------- | --------------- | ----------------------------------------------------------- |
+| Kind        | `port_scan`     | One of the eight detector kinds                             |
+| Source      | `10.20.30.0/24` | IPv4 or IPv6, CIDR or a bare address (meaning a single host) |
+| Target      | `192.168.1.50`  | Same                                                        |
+| Port        | `445`           | Destination port — see the caveat below                     |
+
+Plus a mandatory **reason**, an optional **expiry**, and an on/off switch. Rules are edited on
+the **Suppressions** page by an administrator, stored in `alert_suppressions`, and take effect
+before the API answers the request that created them.
+
+### A suppressed finding is dropped, not hidden
+
+This is the important thing to understand before writing one, and it is the risky half of the
+feature. There is no "show suppressed" toggle, because nothing is stored: the finding never
+reaches the alerts table, the webhook, the email digest or the SIEM feed. A rule broader than
+its author realised discards real findings and leaves nothing behind to notice.
+
+Three things exist to make that visible rather than silent, and they are why the page looks the
+way it does:
+
+- **Every rule counts what it hides**, with the time it last fired. "Findings hidden" is a
+  headline tile, not a detail column — a rule quietly eating four thousand findings a day
+  should not need looking for.
+- **A rule in force that has hidden nothing is flagged.** It is either wrong — a typo in the
+  range — or no longer needed. Both are worth knowing.
+- **Every rule can expire**, so "suppress while the pen test runs" does not become a permanent
+  blind spot because somebody forgot. Expired rules stay on the page, labelled, rather than
+  being filtered out of sight.
+
+A rule the server cannot use is called out loudly on the page and in the server log, with the
+reason next to it, because it matches nothing at all while its author believes otherwise — the
+one state here that looks like coverage and is not. Two things put a rule in that state: a
+stored range that will not parse, and a `kind` no detector raises. The second is unreachable
+through the API, which validates against a closed enum; it exists for the day a detector kind is
+renamed, when every rule naming the old one would otherwise stop suppressing in silence.
+
+### Check a rule before you save it
+
+Authoring a suppression is a guess about a range, and the cost of guessing wide is silence
+rather than an error message. **Check against recent alerts** in the rule dialog measures the
+guess against alerts already stored and reports what it would have hidden:
+
+```
+Would have hidden 2 of the last 500 alerts — 4,821 observations in total.
+Examined 20/08/2026, 01:00:00 to 27/08/2026, 09:00:00
+```
+
+The observation count is the number that matters. Two alerts can carry several thousand
+observations between them, so a row count reads as trivial while describing most of the noise
+on the network. The window is reported so that a zero is interpretable — nothing matching over
+four hours of alerts means something quite different from nothing matching over four months.
+
+It runs the same matching code that does the dropping, not a second implementation. A preview
+of different logic would be a preview of nothing.
+
+### Two deliberate limits
+
+**A rule must have at least one criterion.** A rule with none would drop every finding on the
+network. Refused at the API boundary and again by a `CHECK` constraint, and `0.0.0.0/0` is
+refused with it — "any source" already has a spelling, which is to leave the field empty, so
+the only thing a `/0` could add is a way to write a match-everything rule that does not look
+like one.
+
+**A port criterion only matches findings about a single port.** A port scan's defining property
+is that it touched *many* ports, so no one port describes it; recording the last one observed
+would make a rule for port 445 swallow a whole scan that happened to include it. Findings that
+name exactly one port — a host sweep of one service, a cleartext login on a service port —
+carry it, and only those can be matched on a port. To silence a scanner, name its source range
+and the kind instead.
+
+### Where it sits
+
+Suppression is evaluated in one place, `AlertSink.record`, above the aggregation and before
+anything is written. Both sources of findings — the packet engine and the flow collector —
+reach storage through that method, and notification happens downstream of storage, so one check
+covers the alert table, the webhook, the email digest and the SIEM feed together. Suppressing
+at the notifier instead would have left the dashboard full of the noise somebody had just
+declared expected.
+
+If the rules cannot be loaded, the previous set stays in force and findings get through.
+Failing the other way — treating an unreadable rule table as "suppress" — would turn a database
+blip into a monitoring outage that looks like a quiet night.
+
+---
+
 ## Flow collection (NetFlow / IPFIX)
 
 Instead of capturing packets ourselves, let the switch, router or firewall do the observing and
@@ -505,14 +605,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 362 tests
-npm run test:api  # 286 API tests
-npm run test:ui   # 76 UI tests
+npm test          # both suites: 443 tests
+npm run test:api  # 352 API tests
+npm run test:ui   # 91 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 286 tests
+### API — 352 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
@@ -536,6 +636,22 @@ Three groups are worth knowing about:
   prove the two agree, which is exactly the bug class — a misread offset — that matters here.
   These cover template arrival after data, template redefinition, enterprise fields, variable
   length, reduced-size encoding, NTP-format timestamps, and truncated or over-long sets.
+- **Suppression matching** pins what a rule covers, and every case is really the same question
+  asked from a different angle: does this rule hide more than its author wrote down? A rule
+  naming a source range must not match a finding that has no source; a rule naming a port must
+  not match a port scan; `0.0.0.0/0`, a range that will not parse and a `kind` no detector
+  raises must all be refused rather than treated as "any"; and the expiry has to be re-read per
+  finding, so a cached rule set stops suppressing at the right moment. Several of those guards
+  were verified by reintroducing the bug and watching them fail.
+- **Route guards** (`src/routes/route-guards.test.ts`) assert the shape of a router's guards —
+  auth on everything, and a role gate on everything that changes state, with an exemption list
+  that has to be typed out next to its reason. The recurring mistake in this codebase is the fix
+  that stops one step short, and it is invisible to a unit test of the guard itself, which
+  passes either way. Two subtleties it has to get right: a guard can be installed away from the
+  route it protects (`router.use(['/start', '/stop'], requireRole('ADMIN'))`, which is how the
+  capture router gates), and admitting ADMIN is not the same as requiring it — a guard that also
+  admits USER is not an admin gate, so the check asks whether a covering guard admits that role
+  and nothing else.
 - **Repository-configuration guards** compare a config file against the repo it governs, in
   text, because the failure they catch is a comment asserting something the configuration
   underneath does not do. `env-defaults.test.ts` holds `.env.example` and Compose to env.ts's
@@ -556,7 +672,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 76 tests
+### UI — 91 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —
@@ -572,6 +688,10 @@ and only the network is substituted.
 - **Capture** (`src/pages/PacketCapture.test.tsx`): the interface dropdown, start/stop, the IP
   filter, a failed start not claiming success, mid-capture page mount, and a regression test
   that `POST /start` sends no `"null"` body.
+- **Suppressions** (`src/pages/SuppressionsPage.test.tsx`): what each rule covers as one line,
+  the total hidden, a rule in force that has hidden nothing, a rule the server could not parse,
+  an expired rule told apart from a switched-off one, the preview reporting observations rather
+  than a row count, and the edit controls being absent for a non-administrator.
 - **Chart palette** (`src/charts/palette.test.ts`): pins the properties the data-viz validator
   checked — monotone lightness per mode, the 2:1 surface-end floor, 3:1 for bar hues, and that
   each mode has its own steps rather than a flipped copy.
@@ -680,12 +800,33 @@ All `/api/*` routes require an `Authorization: Bearer <token>` header.
 | -------- | ----------------------- | ------------------------------------------------------ |
 | `GET`    | `/`                     | Findings, most urgent first. Filter by `severity`, `kind`, `since` (ISO or `24h`), `acknowledged` |
 | `GET`    | `/summary`              | Counts by severity and detector, for the dashboard tiles |
+| `GET`    | `/dashboard`            | Summary plus trend buckets and top sources (`days`, `bucket`) |
 | `GET`    | `/devices`              | MAC addresses seen on the network                       |
 | `POST`   | `/:id/acknowledge`      | Mark a finding as handled                               |
 | `POST`   | `/:id/unacknowledge`    | Reopen it                                               |
 | `DELETE` | `/:id`                  | Delete one finding                                      |
 | `DELETE` | `/`                     | Clear all findings (ADMIN)                              |
 | `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN) |
+
+### Suppression rules — `/api/suppressions`
+
+Findings the operator has declared expected. See [Suppression rules](#suppression-rules) for
+what a rule means and why a suppressed finding is dropped rather than hidden.
+
+| Method   | Path       | Purpose                                                              |
+| -------- | ---------- | -------------------------------------------------------------------- |
+| `GET`    | `/`        | Every rule, with the ids of any whose range will not parse            |
+| `POST`   | `/`        | Create a rule; in force before this answers (**ADMIN only**)          |
+| `PATCH`  | `/:id`     | Partial update — omitted field left alone, explicit `null` clears it (**ADMIN only**) |
+| `DELETE` | `/:id`     | Delete a rule, discarding its match count (**ADMIN only**)            |
+| `POST`   | `/preview` | What an unsaved rule would have hidden, against stored alerts          |
+
+Reading is open to any authenticated account, on the same reasoning as the alert list: anyone
+who can see every finding on the network should be able to see which of them are being
+discarded. Writing is ADMIN-only, because a suppression rule is the one piece of configuration
+here that can make the tool go quiet. `/preview` changes nothing and is deliberately not
+restricted — it is what turns "I think this covers the scanner" into a number before the rule
+is saved.
 
 ### Legacy packet log — `/api`
 
@@ -776,10 +917,14 @@ api/                          Node + Express + TypeScript API
       fields.ts               The IPFIX information elements we read
       types.ts                Normalised FlowRecord; the unanswered-connection test
       detect.ts               Scan, sweep and flood from flows
+    net/prefix.ts             IPv4/IPv6 CIDR parsing and containment, normalised
     networkservices/          Reverse DNS, WHOIS, ip-api.com geolocation
     routes/                   Express routers
     services/
-      alert.service.ts        Aggregates findings into deduplicated alerts
+      alert.service.ts        Aggregates findings into deduplicated alerts; the one
+                              place a finding can be suppressed
+      suppression-rules.ts    Rule matching — pure, no database, exhaustively tested
+      suppression.service.ts  Rule storage, the hot-path cache, match accounting
       device.service.ts       Persists known MAC addresses
       packet-capture.service.ts  Capture lifecycle and the poll loop
 network-monitoring-ui/        React + TypeScript + Vite frontend
@@ -788,7 +933,8 @@ network-monitoring-ui/        React + TypeScript + Vite frontend
     components/               AppLayout, AlertSummaryTiles, SeverityChip, CaptureToolbar,
                               PacketTable, IpInfoDialog, HexDump
     hooks/                    usePacketCapture, useIpInfo
-    pages/                    AlertsPage, PacketCapture, PacketCaptureWithIP
+    pages/                    AlertsPage, SuppressionsPage, DeliveryPage, ThreatIntelPage,
+                              DashboardPage, PacketCapture, PacketCaptureWithIP
     theme.ts                  Shared MUI theme
 ```
 

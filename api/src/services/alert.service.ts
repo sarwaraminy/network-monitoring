@@ -5,6 +5,12 @@ import { type AlertRow, alerts } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
 import { notifier } from '../notify/notifier.js';
 import { type Finding, SEVERITY_RANK, type Severity } from '../packet/detect/types.js';
+import {
+  countSuppressed,
+  flushSuppressionCounters,
+  hasPendingSuppressionCounts,
+  suppressions,
+} from './suppression.service.js';
 
 const log = componentLogger('alerts');
 
@@ -64,10 +70,39 @@ export class AlertSink {
   private timer: NodeJS.Timeout | null = null;
   private flushing = false;
   private dropped = 0;
+  private suppressed = 0;
 
   /** Records findings and schedules a flush. Never throws. */
   record(findings: Finding[]): void {
+    // One wall-clock reading for the batch. Deliberately not each finding's own
+    // timestamp: a rule's expiry is a statement about real time, and flow
+    // exporters report traffic minutes after it happened.
+    const now = Date.now();
+    const rules = suppressions();
+
     for (const finding of findings) {
+      /*
+       * The single point where a finding can be declared expected.
+       *
+       * It sits here, above the aggregation, rather than in the detectors or at
+       * the notifier, and that placement is the whole design. Both sources of
+       * findings — the packet engine and the flow collector — reach storage
+       * through this method, and notification happens downstream of storage in
+       * `flush`, so one check covers the alert table, the webhook, the email
+       * digest and the SIEM feed. Suppressing at the notifier instead would have
+       * left the dashboard full of the noise somebody just declared expected.
+       *
+       * A suppressed finding is dropped, not stored and hidden. The counters are
+       * the only trace it leaves, which is why they are recorded here rather than
+       * treated as telemetry.
+       */
+      const ruleId = rules.match(finding, now);
+      if (ruleId !== null) {
+        this.suppressed += 1;
+        countSuppressed(ruleId, finding.timestamp);
+        continue;
+      }
+
       const key = windowedKey(finding);
       const existing = this.pending.get(key);
 
@@ -93,7 +128,11 @@ export class AlertSink {
       });
     }
 
-    if (this.pending.size > 0) this.scheduleFlush();
+    // Suppression counts need a flush of their own even when every finding in the
+    // batch was suppressed and there is nothing to store — otherwise a rule doing
+    // all the work shows a match count of zero, which reads as a rule that is not
+    // firing.
+    if (this.pending.size > 0 || hasPendingSuppressionCounts()) this.scheduleFlush();
   }
 
   private scheduleFlush(): void {
@@ -107,11 +146,17 @@ export class AlertSink {
 
   /** Writes buffered findings. Safe to call at any time, including on shutdown. */
   async flush(): Promise<void> {
-    if (this.flushing || this.pending.size === 0) return;
+    if (this.flushing) return;
+    if (this.pending.size === 0 && !hasPendingSuppressionCounts()) return;
     this.flushing = true;
 
     const batch = [...this.pending.entries()];
     this.pending.clear();
+
+    if (this.suppressed > 0) {
+      log.debug({ suppressed: this.suppressed }, 'Findings suppressed by rule since the last flush');
+      this.suppressed = 0;
+    }
 
     if (this.dropped > 0) {
       log.warn(
@@ -135,10 +180,14 @@ export class AlertSink {
           );
         }
       }
+      // After the alerts, so a slow or failing counter write cannot delay them.
+      // These counts are the only record a suppressed finding leaves, so they are
+      // written on the alerts' schedule rather than opportunistically.
+      await flushSuppressionCounters();
     } finally {
       this.flushing = false;
       // Anything recorded while we were writing needs its own flush.
-      if (this.pending.size > 0) this.scheduleFlush();
+      if (this.pending.size > 0 || hasPendingSuppressionCounts()) this.scheduleFlush();
     }
   }
 
@@ -174,6 +223,7 @@ async function upsertAlert(dedupKey: string, entry: Pending): Promise<void> {
       targetIp: finding.targetIp ?? null,
       targetMac: finding.targetMac ?? null,
       protocol: finding.protocol ?? null,
+      port: finding.port ?? null,
       dedupKey,
       occurrences: entry.occurrences,
       firstSeen: entry.firstSeen,
@@ -190,6 +240,9 @@ async function upsertAlert(dedupKey: string, entry: Pending): Promise<void> {
         severity: finding.severity,
         title: finding.title.slice(0, 200),
         description: finding.description,
+        // Set on update too, so a row written before the column existed gains it
+        // the next time the same finding recurs.
+        port: finding.port ?? null,
       },
     });
 }
@@ -224,6 +277,44 @@ export async function listAlerts(query: AlertQuery): Promise<AlertRow[]> {
       .limit(query.limit)
       .offset(query.offset)
   );
+}
+
+/** The columns a suppression rule is matched against, plus what a preview reports. */
+export interface AlertForMatching {
+  id: number;
+  kind: string;
+  severity: string;
+  sourceIp: string | null;
+  targetIp: string | null;
+  port: number | null;
+  occurrences: number;
+  lastSeen: Date;
+}
+
+/**
+ * The most recent alerts, for previewing a suppression rule against real data.
+ *
+ * Ordered by recency, deliberately unlike `listAlerts`, which puts the most
+ * severe first. A preview answering "what would this rule have hidden?" has to
+ * examine a *time* window — the most severe 500 rows could all predate the
+ * scanner whose noise the operator is trying to silence, and the preview would
+ * confidently report zero.
+ */
+export async function recentAlertsForMatching(limit: number): Promise<AlertForMatching[]> {
+  return db
+    .select({
+      id: alerts.id,
+      kind: alerts.kind,
+      severity: alerts.severity,
+      sourceIp: alerts.sourceIp,
+      targetIp: alerts.targetIp,
+      port: alerts.port,
+      occurrences: alerts.occurrences,
+      lastSeen: alerts.lastSeen,
+    })
+    .from(alerts)
+    .orderBy(desc(alerts.lastSeen))
+    .limit(limit);
 }
 
 function severityRank() {

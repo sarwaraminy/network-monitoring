@@ -12,6 +12,9 @@ import {
   parseId,
   parseSince,
   signupSchema,
+  suppressionCreateSchema,
+  suppressionPreviewSchema,
+  suppressionUpdateSchema,
 } from './validation.js';
 
 /**
@@ -308,5 +311,178 @@ describe('log rows', () => {
   it('bounds the field lengths', () => {
     assert.equal(logSchema.safeParse({ ...valid, sourceip: 'x'.repeat(201) }).success, false);
     assert.equal(logSchema.safeParse({ ...valid, protocol: 'x'.repeat(101) }).success, false);
+  });
+});
+
+/**
+ * Suppression rules.
+ *
+ * The stakes here are different from every other schema in this file. A rejected
+ * request is a nuisance; an *accepted* suppression rule that is broader than its
+ * author wrote is silence, and silence looks exactly like a quiet network. So the
+ * cases below concentrate on the two ways this boundary could betray that: a rule
+ * with nothing to match on, and a range that covers more than it appears to.
+ */
+describe('suppression rules', () => {
+  const minimal = { kind: 'port_scan', reason: 'authorised weekly vulnerability scan' };
+
+  describe('create', () => {
+    it('accepts a rule with one criterion and a reason', () => {
+      const parsed = suppressionCreateSchema.parse(minimal);
+      assert.equal(parsed.kind, 'port_scan');
+      // Off by default would be a rule that does nothing until somebody notices.
+      assert.equal(parsed.enabled, true);
+    });
+
+    it('refuses a rule with no criteria at all', () => {
+      // The one mistake on this screen with no recoverable symptom: the tool
+      // simply goes quiet. Refused here, and again by a CHECK constraint.
+      assert.equal(suppressionCreateSchema.safeParse({ reason: 'because' }).success, false);
+      assert.equal(
+        suppressionCreateSchema.safeParse({
+          reason: 'because',
+          kind: null,
+          sourceCidr: null,
+          targetCidr: null,
+          port: null,
+        }).success,
+        false,
+      );
+    });
+
+    it('accepts explicit nulls as long as one criterion survives', () => {
+      const parsed = suppressionCreateSchema.parse({
+        ...minimal,
+        sourceCidr: null,
+        targetCidr: null,
+        port: null,
+      });
+      assert.equal(parsed.kind, 'port_scan');
+    });
+
+    it('demands a reason worth reading', () => {
+      for (const reason of [undefined, '', '   ', 'x']) {
+        assert.equal(
+          suppressionCreateSchema.safeParse({ kind: 'port_scan', reason }).success,
+          false,
+          `reason ${JSON.stringify(reason)}`,
+        );
+      }
+    });
+
+    it('normalises a range to what it actually matches', () => {
+      // `10.0.0.7/24` is a legal way to write the whole /24. Stored verbatim it
+      // would show one address beside a rule covering 256 of them.
+      const parsed = suppressionCreateSchema.parse({
+        ...minimal,
+        sourceCidr: '10.0.0.7/24',
+        targetCidr: ' 192.168.1.50 ',
+      });
+      assert.equal(parsed.sourceCidr, '10.0.0.0/24');
+      assert.equal(parsed.targetCidr, '192.168.1.50/32');
+    });
+
+    it('refuses a match-everything range on either side', () => {
+      assert.equal(suppressionCreateSchema.safeParse({ ...minimal, sourceCidr: '0.0.0.0/0' }).success, false);
+      assert.equal(suppressionCreateSchema.safeParse({ ...minimal, targetCidr: '::/0' }).success, false);
+    });
+
+    it('says how to write a range when it refuses one', () => {
+      // The message is the whole difference between an operator fixing a typo and
+      // an operator concluding the field does not work.
+      const parsed = suppressionCreateSchema.safeParse({ ...minimal, sourceCidr: 'the scanner' });
+      assert.equal(parsed.success, false);
+      const message = parsed.success ? '' : parsed.error.issues.map((issue) => issue.message).join(' ');
+      assert.match(message, /10\.0\.0\.0\/24/);
+      assert.match(message, /leave the field empty/i);
+    });
+
+    it('refuses a range it cannot parse', () => {
+      for (const cidr of ['10.0.0', '10.0.0.256', '10.0.0.0/33', 'fe80::1%eth0', '']) {
+        assert.equal(
+          suppressionCreateSchema.safeParse({ ...minimal, sourceCidr: cidr }).success,
+          false,
+          `sourceCidr ${JSON.stringify(cidr)}`,
+        );
+      }
+    });
+
+    it('refuses a kind no detector produces', () => {
+      // A rule naming a kind that cannot occur is inert, and its author believes
+      // otherwise. The closed enum is what makes that unrepresentable.
+      assert.equal(
+        suppressionCreateSchema.safeParse({ kind: 'portscan', reason: 'typo above' }).success,
+        false,
+      );
+    });
+
+    it('bounds the port and coerces it from a string', () => {
+      assert.equal(suppressionCreateSchema.parse({ ...minimal, port: '445' }).port, 445);
+      assert.equal(suppressionCreateSchema.parse({ ...minimal, port: 1 }).port, 1);
+      assert.equal(suppressionCreateSchema.parse({ ...minimal, port: 65_535 }).port, 65_535);
+      for (const port of [0, -1, 65_536, 1.5]) {
+        assert.equal(suppressionCreateSchema.safeParse({ ...minimal, port }).success, false, `port ${port}`);
+      }
+    });
+
+    it('coerces an expiry and rejects one it cannot read', () => {
+      const parsed = suppressionCreateSchema.parse({ ...minimal, expiresAt: '2026-09-01T00:00:00Z' });
+      assert.ok(parsed.expiresAt instanceof Date);
+      assert.equal(suppressionCreateSchema.safeParse({ ...minimal, expiresAt: 'soon' }).success, false);
+    });
+
+    it('accepts an expiry that has already passed', () => {
+      // Deliberate, and documented where the schema is defined: such a rule is
+      // inert, so it hides nothing, and refusing it would block an edit to any
+      // other field of an already-expired rule.
+      assert.equal(
+        suppressionCreateSchema.safeParse({ ...minimal, expiresAt: '2020-01-01T00:00:00Z' }).success,
+        true,
+      );
+    });
+  });
+
+  describe('update', () => {
+    it('accepts a patch that changes nothing', () => {
+      // The criteria check cannot run here — clearing the only criterion of a rule
+      // is invalid and clearing one of two is fine, and the patch cannot tell
+      // those apart. The route merges and checks the result.
+      assert.equal(suppressionUpdateSchema.safeParse({}).success, true);
+    });
+
+    it('keeps a rule being switched off distinct from one left alone', () => {
+      // `enabled: false` must survive as false rather than being read as absent,
+      // which is the whole point of the `??` in the route's merge.
+      assert.equal(suppressionUpdateSchema.parse({ enabled: false }).enabled, false);
+      assert.equal(suppressionUpdateSchema.parse({}).enabled, undefined);
+    });
+
+    it('distinguishes clearing a criterion from leaving it', () => {
+      assert.equal(suppressionUpdateSchema.parse({ sourceCidr: null }).sourceCidr, null);
+      assert.equal(suppressionUpdateSchema.parse({}).sourceCidr, undefined);
+      assert.equal(suppressionUpdateSchema.parse({ expiresAt: null }).expiresAt, null);
+      assert.equal(suppressionUpdateSchema.parse({}).expiresAt, undefined);
+    });
+
+    it('holds a patched range to the same standard as a new one', () => {
+      assert.equal(suppressionUpdateSchema.parse({ sourceCidr: '10.1.2.3/16' }).sourceCidr, '10.1.0.0/16');
+      assert.equal(suppressionUpdateSchema.safeParse({ sourceCidr: '0.0.0.0/0' }).success, false);
+      assert.equal(suppressionUpdateSchema.safeParse({ port: 70_000 }).success, false);
+    });
+  });
+
+  describe('preview', () => {
+    it('bounds how much history it will scan', () => {
+      assert.equal(suppressionPreviewSchema.parse({ kind: 'port_scan' }).limit, 500);
+      assert.equal(suppressionPreviewSchema.parse({ kind: 'port_scan', limit: '50' }).limit, 50);
+      assert.equal(suppressionPreviewSchema.safeParse({ kind: 'port_scan', limit: 0 }).success, false);
+      assert.equal(suppressionPreviewSchema.safeParse({ kind: 'port_scan', limit: 2_001 }).success, false);
+    });
+
+    it('refuses to preview a rule with no criteria', () => {
+      // A rule that matches everything would report "this would hide all 500 of
+      // your alerts", which is true, useless, and reassuringly specific.
+      assert.equal(suppressionPreviewSchema.safeParse({}).success, false);
+    });
   });
 });

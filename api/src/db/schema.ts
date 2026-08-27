@@ -1,4 +1,16 @@
-import { bigserial, index, integer, jsonb, pgTable, serial, timestamp, varchar } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import {
+  bigint,
+  bigserial,
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  serial,
+  timestamp,
+  varchar,
+} from 'drizzle-orm/pg-core';
 
 /**
  * Mirrors the tables created by db/migrations/V1__Initial_setup.sql, which were
@@ -47,6 +59,12 @@ export const alerts = pgTable(
     targetIp: varchar('target_ip', { length: 64 }),
     targetMac: varchar('target_mac', { length: 32 }),
     protocol: varchar('protocol', { length: 32 }),
+    /**
+     * The destination port this finding is about, when exactly one port describes
+     * it — see V6. Null for kinds like a port scan, whose defining property is
+     * that they touched many.
+     */
+    port: integer('port'),
 
     dedupKey: varchar('dedup_key', { length: 255 }).notNull().unique(),
     occurrences: integer('occurrences').notNull().default(1),
@@ -74,6 +92,53 @@ export const knownDevices = pgTable('known_devices', {
   lastSeen: timestamp('last_seen', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 });
 
+/**
+ * Findings the operator has declared expected — see V6__Alert_suppressions.sql
+ * and services/suppression-rules.ts.
+ *
+ * Every criterion column is nullable, and null means "any", so a rule is the
+ * conjunction of whichever ones are set. A rule with none of them set would match
+ * everything; both the database and the API boundary refuse it.
+ */
+export const alertSuppressions = pgTable(
+  'alert_suppressions',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+
+    kind: varchar('kind', { length: 64 }),
+    sourceCidr: varchar('source_cidr', { length: 64 }),
+    targetCidr: varchar('target_cidr', { length: 64 }),
+    port: integer('port'),
+
+    /** Why this is expected. Mandatory, and never blank. */
+    reason: varchar('reason', { length: 500 }).notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    /** Null never expires. */
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+
+    createdBy: varchar('created_by', { length: 200 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+
+    /**
+     * How much this rule is actually hiding. The point of the whole table.
+     *
+     * BIGINT in the column, `mode: 'number'` here, and the two ceilings are not
+     * the same: the SQL comment expects a busy rule to pass two billion, which
+     * needs BIGINT, while the JS side stays exact only to 2^53. That is four
+     * million times the figure the column was widened for, so the gap is
+     * comfortable rather than a bug — but it is a gap, not an equivalence.
+     */
+    matchCount: bigint('match_count', { mode: 'number' }).notNull().default(0),
+    lastMatchAt: timestamp('last_match_at', { withTimezone: true, mode: 'date' }),
+  },
+  // Carries the partial predicate from the migration. Migrations here are raw SQL
+  // so nothing depends on this at runtime, but `drizzle-kit` is a dependency and
+  // api/drizzle.config.ts exists — declaring the index without its `WHERE` makes a
+  // diff report a phantom change against a table that is in fact correct.
+  (table) => [index('alert_suppressions_enabled_idx').on(table.enabled).where(sql`${table.enabled}`)],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 export type LogRow = typeof logs.$inferSelect;
@@ -81,3 +146,5 @@ export type NewLogRow = typeof logs.$inferInsert;
 export type AlertRow = typeof alerts.$inferSelect;
 export type NewAlertRow = typeof alerts.$inferInsert;
 export type KnownDeviceRow = typeof knownDevices.$inferSelect;
+export type SuppressionRow = typeof alertSuppressions.$inferSelect;
+export type NewSuppressionRow = typeof alertSuppressions.$inferInsert;

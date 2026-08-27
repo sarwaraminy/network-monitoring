@@ -109,6 +109,9 @@ export class ScanDetector implements Detector {
           sourceIp: source,
           sourceMac: packet.ethernet?.sourceAddress ?? null,
           protocol: 'TCP',
+          // One port defines this finding, unlike the port scan above, so a
+          // suppression rule may name it.
+          port: tcp.dstPort,
           evidence: {
             scanner: source,
             port: tcp.dstPort,

@@ -7,6 +7,7 @@ import { startIntel, stopIntel } from './intel/registry.js';
 import { componentLogger, logger } from './logger.js';
 import { libraryVersion } from './packet/libpcap.js';
 import { stopAllCaptures } from './services/packet-capture.registry.js';
+import { flushSuppressionCounters, refreshSuppressions } from './services/suppression.service.js';
 
 const log = componentLogger('server');
 
@@ -34,6 +35,12 @@ async function main(): Promise<void> {
   // from serving. startFlowCollector logs and returns rather than rejecting.
   await startFlowCollector();
 
+  // Before any capture can be started, so the first findings of the process are
+  // filtered by the rules an operator already wrote. It fails open — see
+  // services/suppression.service.ts — so a failure here costs noise, not alerts.
+  const rules = await refreshSuppressions();
+  log.info({ rules: rules.size }, 'Suppression rules loaded');
+
   // Also after listen(): loading feeds can take seconds and may reach the
   // network, and neither should delay the API becoming available.
   await startIntel();
@@ -59,6 +66,11 @@ async function main(): Promise<void> {
       // lose them.
       await stopAllCaptures();
       await stopFlowCollector();
+      // Both of those flush their own sinks, which flushes suppression counts
+      // with them. This catches the counts of a process that suppressed
+      // findings without ever storing one — the case where a rule is doing all
+      // of the work and its match count is the only evidence of it.
+      await flushSuppressionCounters();
       stopIntel();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await closeDb();
