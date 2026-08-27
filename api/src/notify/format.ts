@@ -1,3 +1,4 @@
+import type { Severity } from '../packet/detect/types.js';
 import { type Notification, SEVERITY_COLOR } from './types.js';
 
 /**
@@ -186,8 +187,160 @@ export function renderSlack(notification: Notification): unknown {
   return { text: subjectFor(notification), blocks };
 }
 
-/** Microsoft Teams legacy MessageCard, which incoming webhooks still accept. */
+/**
+ * Microsoft Teams, via a Power Automate Workflows webhook.
+ *
+ * Microsoft retired Office 365 connectors in Teams. The supported replacement is a
+ * Workflows webhook, and it does not accept the MessageCard those connectors took —
+ * it expects an **Adaptive Card**, wrapped in an `attachments` array under a
+ * `type: "message"` envelope. Posting a MessageCard to one produces either a
+ * rejection or an unreadable message, from the channel most customers configure
+ * first and press "Send test" on before they trust anything else.
+ *
+ * Three things about this shape are load-bearing and easy to get subtly wrong:
+ *
+ *  - **`FactSet` facts use `title`, not `name`.** MessageCard used `name`. A card
+ *    with `name` renders with every fact blank rather than failing, so the mistake
+ *    survives a successful-looking test send.
+ *  - **Colour is a fixed vocabulary, not a hex value.** `SEVERITY_COLOR` cannot be
+ *    used here at all: a `Container` takes one of six named styles. So the severity
+ *    word is always printed in the text, and the style is a coarse cue on top of it
+ *    rather than the only signal — see `CONTAINER_STYLE`.
+ *  - **Version 1.4.** Teams supports it everywhere; 1.5 and above are only partly
+ *    supported, and an unsupported version renders as a blank card.
+ */
+
+/**
+ * Severity to one of Adaptive Cards' six container styles.
+ *
+ * Five severities, six styles, and only three of the styles read as escalating, so
+ * this deliberately collapses rather than inventing distinctions the vocabulary
+ * cannot carry. `good` is avoided entirely: green next to a security finding reads
+ * as "resolved", which is the opposite of true for a `low` one. The exact severity
+ * is in the text of every block regardless.
+ */
+const CONTAINER_STYLE: Record<Severity, string> = {
+  critical: 'attention',
+  high: 'attention',
+  medium: 'warning',
+  low: 'emphasis',
+  info: 'emphasis',
+};
+
 export function renderTeams(notification: Notification): unknown {
+  const body: unknown[] = [];
+
+  if (notification.isTest) {
+    body.push({
+      type: 'TextBlock',
+      text: 'This is a test notification from Network Monitoring. No findings are involved.',
+      wrap: true,
+      isSubtle: true,
+    });
+  }
+
+  body.push({
+    type: 'TextBlock',
+    text: escapeAdaptive(summaryLine(notification)),
+    wrap: true,
+    weight: 'Bolder',
+    size: 'Medium',
+  });
+
+  for (const finding of notification.findings) {
+    const facts = [
+      ...(finding.sourceIp ? [{ title: 'Source', value: escapeAdaptive(finding.sourceIp) }] : []),
+      ...(finding.targetIp ? [{ title: 'Target', value: escapeAdaptive(finding.targetIp) }] : []),
+      { title: 'Occurrences', value: String(finding.occurrences) },
+      { title: 'Last seen', value: finding.lastSeen.toISOString() },
+      ...(finding.evidence
+        ? [{ title: 'Evidence', value: escapeAdaptive(compactEvidence(finding.evidence)) }]
+        : []),
+    ];
+
+    body.push({
+      type: 'Container',
+      style: CONTAINER_STYLE[finding.severity],
+      // No `bleed`. An earlier version set it to keep the three items reading as one
+      // block, which is not what it does — `bleed` extends an element through its
+      // parent's padding to the card edge, and the items are already one unit by
+      // being `items` of a single Container. Dropped rather than re-justified: the
+      // edge-to-edge tint it actually produces is a visual claim this cannot verify.
+      items: [
+        {
+          type: 'TextBlock',
+          text: `${finding.severity.toUpperCase()} — ${escapeAdaptive(finding.title)}`,
+          wrap: true,
+          weight: 'Bolder',
+        },
+        { type: 'TextBlock', text: escapeAdaptive(finding.description), wrap: true, isSubtle: true },
+        { type: 'FactSet', facts },
+      ],
+    });
+  }
+
+  if (notification.omittedCount > 0) {
+    body.push({
+      type: 'TextBlock',
+      text: `…and ${notification.omittedCount} more. Open the dashboard for the full list.`,
+      wrap: true,
+      isSubtle: true,
+    });
+  }
+
+  return {
+    type: 'message',
+    attachments: [
+      {
+        contentType: 'application/vnd.microsoft.card.adaptive',
+        // Present and null in Microsoft's own samples. Omitting it is accepted, but
+        // matching the documented shape costs nothing and removes a variable if a
+        // tenant ever rejects the payload.
+        contentUrl: null,
+        content: {
+          $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+          type: 'AdaptiveCard',
+          version: '1.4',
+          body,
+          ...(notification.dashboardUrl
+            ? {
+                actions: [
+                  {
+                    type: 'Action.OpenUrl',
+                    title: 'Open dashboard',
+                    url: notification.dashboardUrl,
+                  },
+                ],
+              }
+            : {}),
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * The retired Office 365 connector MessageCard.
+ *
+ * Kept because an installation with a connector webhook still provisioned will go on
+ * working until Microsoft finally switches it off, and breaking that on upgrade would
+ * be a worse outcome than carrying this function. `detectFormat` routes every
+ * `*.webhook.office.com` URL here, because such a URL is definitionally a connector —
+ * they can no longer be created — so this is a default path, not a museum piece.
+ *
+ * Which is why it escapes its interpolated values the same way `renderTeams` does,
+ * even though nothing it currently carries needs it: its four facts are Source,
+ * Target, Occurrences and Last seen, all charset-restricted or generated here, and it
+ * has no Evidence fact, so the threat-feed note that motivated `escapeAdaptive` never
+ * reaches it. Two renderers for one product, one escaping and one not, is a gap that
+ * opens silently the moment either gains a field — and Evidence, for parity with the
+ * Adaptive Card, is the obvious next one. Cheaper to make them agree than to leave a
+ * warning for whoever adds it.
+ *
+ * `markdown: true` stays on each section: the `**bold**` in `activityTitle` is ours
+ * and intentional, and only the interpolated values are escaped.
+ */
+export function renderTeamsConnector(notification: Notification): unknown {
   return {
     '@type': 'MessageCard',
     '@context': 'https://schema.org/extensions',
@@ -195,11 +348,11 @@ export function renderTeams(notification: Notification): unknown {
     summary: subjectFor(notification),
     title: subjectFor(notification),
     sections: notification.findings.map((finding) => ({
-      activityTitle: `**${finding.severity.toUpperCase()}** — ${finding.title}`,
-      activitySubtitle: finding.description,
+      activityTitle: `**${finding.severity.toUpperCase()}** — ${escapeAdaptive(finding.title)}`,
+      activitySubtitle: escapeAdaptive(finding.description),
       facts: [
-        ...(finding.sourceIp ? [{ name: 'Source', value: finding.sourceIp }] : []),
-        ...(finding.targetIp ? [{ name: 'Target', value: finding.targetIp }] : []),
+        ...(finding.sourceIp ? [{ name: 'Source', value: escapeAdaptive(finding.sourceIp) }] : []),
+        ...(finding.targetIp ? [{ name: 'Target', value: escapeAdaptive(finding.targetIp) }] : []),
         { name: 'Occurrences', value: String(finding.occurrences) },
         { name: 'Last seen', value: finding.lastSeen.toISOString() },
       ],
@@ -287,6 +440,50 @@ function compactEvidence(evidence: Record<string, unknown>): string {
 
 function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * Escapes the markdown an Adaptive Card renders.
+ *
+ * The counterpart to `escapeSlack` and `escapeHtml`, and until now Teams had no
+ * equivalent — a gap that only became load-bearing when the Adaptive Card started
+ * carrying an Evidence fact. `TextBlock` renders a markdown subset and `FactSet`
+ * values render a narrower one, so text arriving from outside this codebase can
+ * inject formatting, and the one field that does arrive from outside is a
+ * threat-feed note: `intel/parse.ts` takes the remainder of a feed line verbatim,
+ * caps it at 200 characters, restricts no character, and the detectors put it in
+ * evidence as `feedNote`. `NOTIFY_INCLUDE_EVIDENCE` is on by default, so a feed
+ * line reading `1.2.3.4 [click here](http://attacker.test)` would otherwise reach a
+ * Teams channel as a rendered link attributed to this tool.
+ *
+ * It needs a hostile or compromised feed the operator chose to trust, so it is not
+ * a high-severity hole. It is also the one place in this file where the asymmetry
+ * with the other two renderers had a consequence.
+ *
+ * Backslash goes first, or every escape added below gets escaped again. The rest is
+ * deliberately narrow — emphasis, code, strikethrough and the opening bracket of a
+ * link — because escaping too much is its own bug, and a visible one.
+ *
+ * What is NOT escaped, and why:
+ *
+ *  - `-`, `#`, `>` begin a construct only at the START of a line: a list item, a
+ *    heading, a quote. Mid-string they are ordinary characters. Escaping them put a
+ *    backslash into every threat-intelligence alert this tool raises — the three
+ *    titles in intel/assess.ts all read "known-malicious address …" — so a channel
+ *    people are asked to trust filled with `known\-malicious` on the tool's own
+ *    prose. Any evidence carrying a MAC address got the same treatment.
+ *  - `|` delimits a table, and the Adaptive Card subset does not render tables.
+ *  - `(` and `)` are only meaningful immediately after a `]`, and `[` is escaped
+ *    here, so the link never forms and the parenthesis never matters.
+ *
+ * The asymmetry is the point: escaping too little is a formatting injection, while
+ * escaping too much is noise on every message. Full CommonMark renders `\-` as `-`,
+ * so a compliant renderer would hide the damage — but a restricted subset need not
+ * implement an escape for a character it never treats as special, and betting the
+ * legibility of every alert on that is the wrong way round.
+ */
+function escapeAdaptive(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/([*_[`~])/g, '\\$1');
 }
 
 /** Slack mrkdwn only needs these three escaped. */

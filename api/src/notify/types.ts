@@ -106,6 +106,23 @@ export function meetsThreshold(severity: Severity, threshold: Severity): boolean
 }
 
 /** Accent colours for chat cards, matching the UI's severity ramp. */
+/**
+ * Webhook payload shapes.
+ *
+ * Declared here rather than in webhook.ts because env.ts validates
+ * `NOTIFY_WEBHOOK_FORMAT` against the same set, and the two had drifted into
+ * separate literals — the config-drift pattern this repo has been bitten by three
+ * times already. One list now, imported by both, so adding a format cannot be
+ * half-done.
+ *
+ * `teams` is the *current* Teams format: a Power Automate Workflows webhook, which
+ * expects an Adaptive Card. `teams-connector` is the retired Office 365 connector
+ * MessageCard, kept reachable for an installation still running a live connector and
+ * named so that choosing it has to be deliberate. See notify/format.ts.
+ */
+export const WEBHOOK_FORMATS = ['auto', 'slack', 'teams', 'teams-connector', 'discord', 'generic'] as const;
+export type WebhookFormat = (typeof WEBHOOK_FORMATS)[number];
+
 export const SEVERITY_COLOR: Record<Severity, string> = {
   critical: '#b91c1c',
   high: '#c2410c',

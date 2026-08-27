@@ -378,8 +378,155 @@ describe('message formats', () => {
     assert.ok(Array.isArray(payload.blocks) && payload.blocks.length > 0);
   });
 
-  it('renders a Teams MessageCard with the required envelope', () => {
-    const payload = format.renderTeams(notification) as Record<string, unknown>;
+  it('renders Teams as an Adaptive Card in the Workflows envelope', () => {
+    // This test previously pinned the MessageCard shape, which is exactly how the
+    // retired format survived: the assertion agreed with the code and both were
+    // wrong. Office 365 connectors are gone; a Power Automate Workflows webhook
+    // expects an Adaptive Card wrapped in `attachments`.
+    const payload = format.renderTeams(notification) as {
+      type?: string;
+      attachments?: { contentType?: string; content?: Record<string, unknown> }[];
+    };
+
+    assert.equal(payload.type, 'message');
+    assert.equal(payload.attachments?.length, 1);
+
+    const attachment = payload.attachments?.[0];
+    assert.equal(attachment?.contentType, 'application/vnd.microsoft.card.adaptive');
+    assert.equal(attachment?.content?.type, 'AdaptiveCard');
+    // 1.4 is supported across every Teams client; a version Teams does not know
+    // renders as a blank card rather than an error.
+    assert.equal(attachment?.content?.version, '1.4');
+    assert.ok(Array.isArray(attachment?.content?.body) && attachment.content.body.length > 0);
+  });
+
+  it('puts the severity in the text, not only in the container style', () => {
+    // Adaptive Cards take one of six named container styles, not a hex colour, so
+    // SEVERITY_COLOR cannot express five severities here. The word has to carry it.
+    const payload = JSON.stringify(format.renderTeams(notification));
+    assert.match(payload, /CRITICAL/);
+    assert.match(payload, /"style":"attention"/);
+  });
+
+  it('labels Teams facts with `title`, which is what an Adaptive Card reads', () => {
+    // The MessageCard key was `name`. A FactSet given `name` renders every fact
+    // blank instead of failing, so a test send looks like it worked.
+    const payload = format.renderTeams(notification) as {
+      attachments: {
+        content: { body: { type: string; items?: { type: string; facts?: unknown[] }[] }[] };
+      }[];
+    };
+    const factSets = payload.attachments[0]!.content.body.flatMap((block) => block.items ?? []).filter(
+      (item) => item.type === 'FactSet',
+    );
+
+    assert.ok(factSets.length > 0, 'no FactSet in the card');
+    for (const factSet of factSets) {
+      for (const fact of (factSet.facts ?? []) as Record<string, unknown>[]) {
+        assert.ok(fact.title, 'a fact without `title` renders blank in Teams');
+        assert.equal(fact.name, undefined, '`name` is the retired MessageCard key');
+      }
+    }
+  });
+
+  it('escapes markdown in the Teams card, because evidence carries feed text', () => {
+    // The untrusted field: intel/parse.ts takes the remainder of a feed line
+    // verbatim, caps it at 200 characters and restricts no character, and the
+    // detectors put it in evidence as `feedNote`. NOTIFY_INCLUDE_EVIDENCE is on by
+    // default, so without escaping a feed line could put a rendered link in a Teams
+    // channel attributed to this tool. Slack and email have escapers; Teams did not.
+    const hostile: Notification = {
+      ...notification,
+      findings: [
+        {
+          ...notification.findings[0]!,
+          title: 'Indicator match [click here](http://attacker.test)',
+          description: 'note says **urgent** _now_',
+          evidence: { feedNote: '[click here](http://attacker.test)' },
+        },
+      ],
+    };
+
+    const payload = JSON.stringify(format.renderTeams(hostile));
+
+    // No unescaped link syntax survives anywhere in the card.
+    assert.ok(!/[^\\]\[click here\]/.test(payload), 'an unescaped markdown link reached the card');
+    assert.ok(!/[^\\]\*\*urgent\*\*/.test(payload), 'unescaped bold reached the card');
+    // And the text is still there, just inert.
+    assert.match(payload, /click here/);
+  });
+
+  it('leaves the tool’s own prose alone, hyphens included', () => {
+    // The other half of escaping, and the half the previous version of this test
+    // missed: it checked the summary line for an escaped capital letter, which
+    // passes whether or not the finding titles below it are full of backslashes.
+    //
+    // This is not hypothetical. All three threat-intelligence titles in
+    // intel/assess.ts read "known-malicious address …", so escaping `-` put a
+    // backslash into every intel alert the tool raises. Escaping too little is a
+    // formatting injection; escaping too much is visible noise on every message, in
+    // a channel people are being asked to trust.
+    const intel: Notification = {
+      ...notification,
+      findings: [
+        {
+          ...notification.findings[0]!,
+          title: 'Outbound connection to known-malicious address 203.0.113.7',
+          description: 'A host contacted an address on a threat feed (feodo). See #1 below.',
+          evidence: { mac: 'aa-bb-cc-dd-ee-ff', port: 445 },
+        },
+      ],
+    };
+
+    const payload = JSON.stringify(format.renderTeams(intel));
+
+    // Each of these would carry a backslash under the over-broad set.
+    assert.match(payload, /known-malicious address 203\.0\.113\.7/);
+    assert.match(payload, /aa-bb-cc-dd-ee-ff/);
+    assert.match(payload, /See #1 below/);
+    assert.ok(!payload.includes('\\\\-'), 'a hyphen was escaped');
+    assert.ok(!payload.includes('\\\\#'), 'a hash was escaped');
+  });
+
+  it('escapes the connector card too, so the two renderers cannot drift', () => {
+    // Nothing the MessageCard currently carries needs escaping — four facts, all
+    // charset-restricted or generated here, and no Evidence. But detectFormat now
+    // routes every *.webhook.office.com URL to it, so it is a default path rather
+    // than a museum piece, and two renderers for one product with different escaping
+    // is a gap that opens the moment either gains a field.
+    const hostile: Notification = {
+      ...notification,
+      findings: [
+        {
+          ...notification.findings[0]!,
+          title: 'Indicator match [click here](http://attacker.test)',
+          description: 'note says **urgent**',
+        },
+      ],
+    };
+
+    const payload = JSON.stringify(format.renderTeamsConnector(hostile));
+    assert.ok(!/[^\\]\[click here\]/.test(payload), 'an unescaped markdown link reached the card');
+    // The bold in activityTitle is ours and deliberate, so it survives; the bold
+    // inside the finding's own text does not.
+    assert.ok(!payload.includes('says **urgent**'), 'unescaped bold reached the card');
+    assert.match(payload, /\*\*CRITICAL\*\*/);
+  });
+
+  it('links the dashboard as an Action.OpenUrl', () => {
+    const payload = format.renderTeams(notification) as {
+      attachments: { content: { actions?: { type: string; url: string }[] } }[];
+    };
+    const actions = payload.attachments[0]!.content.actions ?? [];
+    assert.equal(actions[0]?.type, 'Action.OpenUrl');
+    assert.equal(actions[0]?.url, 'https://nmt.example.test/alerts');
+  });
+
+  it('keeps the retired MessageCard reachable, but only on request', () => {
+    // An installation with a connector webhook still provisioned goes on working
+    // until Microsoft switches it off. Breaking that on upgrade would be worse than
+    // carrying the function — but it must never be what a URL infers.
+    const payload = format.renderTeamsConnector(notification) as Record<string, unknown>;
     assert.equal(payload['@type'], 'MessageCard');
     assert.equal(payload['@context'], 'https://schema.org/extensions');
     assert.ok(payload.summary, 'Teams rejects a card with no summary');
@@ -416,13 +563,109 @@ describe('message formats', () => {
 });
 
 describe('webhook transport', () => {
+  /** Enough of a notification to render any format. Shared by the payload tests. */
+  const MINIMAL_NOTIFICATION: Notification = {
+    severity: 'high',
+    findings: [
+      {
+        kind: 'port_scan',
+        severity: 'high',
+        title: 'Port scan',
+        description: 'many ports on one host',
+        sourceIp: '10.0.0.66',
+        targetIp: '10.0.0.89',
+        occurrences: 1,
+        firstSeen: AT,
+        lastSeen: AT,
+        evidence: null,
+      },
+    ],
+    omittedCount: 0,
+    countsBySeverity: { high: 1 },
+    generatedAt: AT,
+    dashboardUrl: null,
+    isTest: false,
+  };
+
   it('infers the payload format from the URL', () => {
     assert.equal(webhook.detectFormat('https://hooks.slack.com/services/T000/B000/xxx'), 'slack');
-    assert.equal(webhook.detectFormat('https://acme.webhook.office.com/webhookb2/abc'), 'teams');
+    assert.equal(webhook.detectFormat('https://acme.webhook.office.com/webhookb2/abc'), 'teams-connector');
     assert.equal(webhook.detectFormat('https://discord.com/api/webhooks/1/xyz'), 'discord');
     assert.equal(webhook.detectFormat('https://internal.example.test/hooks/nmt'), 'generic');
     // A malformed URL must not throw during construction.
     assert.equal(webhook.detectFormat('not a url'), 'generic');
+  });
+
+  it('recognises a Power Automate Workflows URL as Teams', () => {
+    // The failure this fixes: Microsoft retired Office 365 connectors, the supported
+    // replacement lives on *.logic.azure.com, and that host fell through to
+    // `generic` — so an admin following Microsoft's current documentation had plain
+    // JSON posted to an endpoint expecting an Adaptive Card.
+    assert.equal(
+      webhook.detectFormat(
+        'https://prod-27.westeurope.logic.azure.com:443/workflows/abc123/triggers/manual/paths/invoke?api-version=2016-06-01',
+      ),
+      'teams',
+    );
+    // The retired host resolves too, but to the format it accepts — see below.
+  });
+
+  it('does not match a host that merely ends with a known domain', () => {
+    // `endsWith('slack.com')` also matches `evilslack.com`, and `includes('office365')`
+    // matches `notoffice365.example.com`. Not a security boundary — this only picks a
+    // payload shape — but a check that means what it says costs nothing.
+    assert.equal(webhook.detectFormat('https://evilslack.com/hook'), 'generic');
+    assert.equal(webhook.detectFormat('https://notoffice365.example.test/hook'), 'generic');
+    assert.equal(webhook.detectFormat('https://mydiscord.com/hook'), 'generic');
+  });
+
+  it('routes each Teams host to the payload it can actually accept', () => {
+    // Not one Teams format but two products. A *.webhook.office.com URL is
+    // definitionally an Office 365 connector — Microsoft retired connectors, so no
+    // new one can be created — and it accepts a MessageCard, not an Adaptive Card.
+    // Mapping it to `teams` would have swapped a working payload for a rejected one
+    // on every installation still running a provisioned connector, which is exactly
+    // the population renderTeamsConnector was kept for.
+    assert.equal(
+      webhook.detectFormat(
+        'https://prod-27.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke',
+      ),
+      'teams',
+    );
+    assert.equal(webhook.detectFormat('https://acme.webhook.office.com/webhookb2/abc'), 'teams-connector');
+  });
+
+  it('sends a connector URL a MessageCard end to end under `auto`', () => {
+    // The finding was about `auto` specifically, so this asserts the whole path
+    // rather than detectFormat alone: URL in, payload out.
+    const connectorUrl = 'https://acme.webhook.office.com/webhookb2/abc';
+    const workflowsUrl =
+      'https://prod-1.northeurope.logic.azure.com/workflows/x/triggers/manual/paths/invoke';
+
+    const forConnector = webhook.buildPayload(
+      MINIMAL_NOTIFICATION,
+      webhook.detectFormat(connectorUrl),
+    ) as Record<string, unknown>;
+    assert.equal(forConnector['@type'], 'MessageCard');
+
+    const forWorkflows = webhook.buildPayload(
+      MINIMAL_NOTIFICATION,
+      webhook.detectFormat(workflowsUrl),
+    ) as Record<string, unknown>;
+    assert.equal(forWorkflows.type, 'message');
+  });
+
+  it('sends the connector format only when it is asked for by name', () => {
+    // teams-connector is never inferred: no URL maps to it, so no new installation
+    // is quietly pointed at a format Microsoft has retired.
+    const inferred = webhook.buildPayload(MINIMAL_NOTIFICATION, 'teams') as Record<string, unknown>;
+    assert.equal(inferred.type, 'message', 'a Teams URL must produce an Adaptive Card');
+
+    const requested = webhook.buildPayload(MINIMAL_NOTIFICATION, 'teams-connector') as Record<
+      string,
+      unknown
+    >;
+    assert.equal(requested['@type'], 'MessageCard');
   });
 
   it('posts JSON and reports success', async () => {

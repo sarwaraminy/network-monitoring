@@ -1,5 +1,6 @@
-import { renderDiscord, renderGeneric, renderSlack, renderTeams } from './format.js';
+import { renderDiscord, renderGeneric, renderSlack, renderTeams, renderTeamsConnector } from './format.js';
 import type { DeliveryResult, Notification, NotificationChannel } from './types.js';
+import { WEBHOOK_FORMATS, type WebhookFormat } from './types.js';
 
 /**
  * Webhook delivery.
@@ -14,13 +15,51 @@ import type { DeliveryResult, Notification, NotificationChannel } from './types.
  * a confusing way to discover a configuration mistake.
  */
 
-export const WEBHOOK_FORMATS = ['auto', 'slack', 'teams', 'discord', 'generic'] as const;
-export type WebhookFormat = (typeof WEBHOOK_FORMATS)[number];
+// Re-exported for the callers that already import them from here. The list itself
+// lives in types.js, so env.ts cannot validate against a different one.
+export { WEBHOOK_FORMATS, type WebhookFormat };
 
 /** Fail fast rather than holding a request open behind the alert flush. */
 const TIMEOUT_MS = 10_000;
 const MAX_ATTEMPTS = 3;
 
+/**
+ * `host` is exactly `domain`, or a subdomain of it.
+ *
+ * Not `endsWith(domain)`, which the previous version used: that also matches
+ * `evilslack.com`, and `office365` was matched as a bare substring, which matches
+ * `notoffice365.example.com`. Neither is a security boundary — this only picks a
+ * payload shape for a URL an operator configured — but a helper that means what it
+ * says costs nothing and removes the question.
+ */
+function isHostOrSubdomain(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+/**
+ * The payload shape a URL implies.
+ *
+ * Teams is the interesting case and the reason this function exists at all, and the
+ * two Teams hosts are not interchangeable — they are two different products with two
+ * different payload shapes:
+ *
+ *  - `*.logic.azure.com` is a Power Automate **Workflows** webhook, the supported
+ *    replacement, and it expects an Adaptive Card. This host was not recognised at
+ *    all, so it returned `generic` and posted plain JSON to an endpoint expecting a
+ *    card — an IT admin following Microsoft's current documentation got a rejection
+ *    from the one button that exists to prove delivery works.
+ *  - `*.webhook.office.com` is an Office 365 **connector**, and it expects a
+ *    MessageCard. Microsoft retired connectors, so no new one can be created — which
+ *    means a URL on this host is *definitionally* a connector, and mapping it to the
+ *    Adaptive Card would swap a payload that works for one the endpoint rejects. The
+ *    population that would break is exactly the one `renderTeamsConnector` was kept
+ *    for.
+ *
+ * So each host resolves to the format it can actually accept. Inferring
+ * `teams-connector` here is not guessing at a dead format: a new installation cannot
+ * obtain such a URL, so it is naming what the URL demonstrably is, and it is wrong for
+ * nobody. `NOTIFY_WEBHOOK_FORMAT` remains the override in both directions.
+ */
 export function detectFormat(url: string): Exclude<WebhookFormat, 'auto'> {
   let host: string;
   try {
@@ -29,9 +68,20 @@ export function detectFormat(url: string): Exclude<WebhookFormat, 'auto'> {
     return 'generic';
   }
 
-  if (host.endsWith('hooks.slack.com') || host.endsWith('slack.com')) return 'slack';
-  if (host.endsWith('webhook.office.com') || host.includes('office365')) return 'teams';
-  if (host.endsWith('discord.com') || host.endsWith('discordapp.com')) return 'discord';
+  if (isHostOrSubdomain(host, 'slack.com')) return 'slack';
+  // Workflows: Adaptive Card.
+  if (isHostOrSubdomain(host, 'logic.azure.com')) return 'teams';
+  // Retired connector: MessageCard, because that is all this endpoint accepts.
+  //
+  // The `office365` substring this replaced was speculative — connector webhooks
+  // lived on `webhook.office.com`, and no Teams webhook host has ever been under
+  // `office365.com` — so it is gone rather than narrowed. Keeping a tighter version
+  // of a guess would have quietly dropped `office365.contoso.com` and similar while
+  // reading as a pure tightening.
+  if (isHostOrSubdomain(host, 'webhook.office.com')) return 'teams-connector';
+  if (isHostOrSubdomain(host, 'discord.com') || isHostOrSubdomain(host, 'discordapp.com')) {
+    return 'discord';
+  }
   return 'generic';
 }
 
@@ -41,6 +91,8 @@ export function buildPayload(notification: Notification, format: Exclude<Webhook
       return renderSlack(notification);
     case 'teams':
       return renderTeams(notification);
+    case 'teams-connector':
+      return renderTeamsConnector(notification);
     case 'discord':
       return renderDiscord(notification);
     default:

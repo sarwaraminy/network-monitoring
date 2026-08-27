@@ -373,6 +373,55 @@ On top of those, findings are batched into a **digest** (`NOTIFY_DIGEST_SECONDS`
 A port scan produces dozens of findings; this makes it one message that leads with the most
 urgent and says how many it truncated.
 
+### Teams, and the format that stopped working
+
+Microsoft retired Office 365 connectors in Teams. The supported replacement is a **Power
+Automate Workflows** webhook — in Teams, channel → Workflows → *"Post to a channel when a
+webhook request is received"* — whose URL lives on `*.logic.azure.com`.
+
+Those are two different payload shapes, not two URLs for one thing. A connector took a
+`MessageCard`; a Workflows webhook expects an **Adaptive Card** wrapped in an `attachments`
+array. Send the wrong one and you get a rejection or an unreadable message, from the channel
+most people configure first and test before trusting anything else.
+
+`NOTIFY_WEBHOOK_FORMAT=auto` sends each host the payload it can actually accept, so **no
+action is needed on upgrade either way**:
+
+| Host | Format | What it is |
+| --- | --- | --- |
+| `*.logic.azure.com` | `teams` — Adaptive Card | A Power Automate Workflows webhook |
+| `*.webhook.office.com` | `teams-connector` — MessageCard | A retired Office 365 connector |
+
+The second row is why `auto` does not simply mean "Adaptive Card". A `webhook.office.com` URL
+is *definitionally* a connector — connectors can no longer be created, so no new installation
+can obtain one — and it rejects an Adaptive Card. Inferring the connector format there is not
+guessing at a dead format; it is naming what the URL demonstrably is, and it is wrong for
+nobody. `NOTIFY_WEBHOOK_FORMAT` overrides in either direction.
+
+Two consequences worth knowing if you compare the code to the Slack renderer. An Adaptive Card
+takes one of six *named* container styles, not a colour, so `SEVERITY_COLOR` cannot express
+five severities there — the severity word is printed in every block instead, and the style is a
+coarse cue on top of it. And a `TextBlock` renders markdown, so the Teams renderer escapes it
+the way the Slack renderer escapes mrkdwn and the email body escapes HTML: evidence can carry a
+threat-feed note, which is text taken verbatim from a third-party feed file, and without
+escaping a feed line could put a rendered link in your Teams channel attributed to this tool.
+
+### Which SMTP host actually works
+
+In the order that succeeds:
+
+1. **An internal relay.** Most organisations running a monitoring tool already have one, it
+   needs no credentials, and it is the right answer for an on-prem sensor. Set `SMTP_HOST`,
+   leave `SMTP_USER` and `SMTP_PASSWORD` empty, and the transport omits AUTH entirely.
+2. **An app password**, where the tenant still permits one.
+3. **Your company mailbox with an ordinary password** — this usually fails. Microsoft 365 and
+   Google disable basic SMTP AUTH by default on modern tenants, so a *correct* password is
+   rejected exactly like a wrong one. When the server returns `535` or nodemailer reports
+   `EAUTH`, the delivery result says so rather than passing the raw SMTP string through, because
+   "authentication unsuccessful" sends people to check a password that was never the problem.
+
+OAuth2 / XOAUTH2 is not implemented. If your tenant requires it, use a relay.
+
 ### Sending is disclosure
 
 `NOTIFY_INCLUDE_EVIDENCE` is a separate switch from notifications for a reason. Evidence never
@@ -605,14 +654,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 443 tests
-npm run test:api  # 352 API tests
+npm test          # both suites: 455 tests
+npm run test:api  # 364 API tests
 npm run test:ui   # 91 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 352 tests
+### API — 364 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX

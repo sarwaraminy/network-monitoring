@@ -109,6 +109,33 @@ export class EmailChannel implements NotificationChannel {
   }
 }
 
+/**
+ * SMTP failures, in language that names the likely cause.
+ *
+ * One case earns the special handling. Microsoft 365 and Google both disable basic
+ * SMTP AUTH by default on modern tenants, so a customer pointing this at their
+ * company mailbox gets a rejection whose raw text — `535 5.7.139 Authentication
+ * unsuccessful` — is indistinguishable from a typo in the password. They then check
+ * the password, which is correct, and conclude the tool is broken. The failure is
+ * real and unavoidable; presenting it as "wrong password" is not.
+ *
+ * `EAUTH` is nodemailer's own classification, and the 5xx codes are SMTP's. Both are
+ * checked because a server may return one without the other.
+ */
 function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (!(error instanceof Error)) return String(error);
+
+  const smtp = error as Error & { responseCode?: number; code?: string };
+  const rejectedCredentials = smtp.code === 'EAUTH' || smtp.responseCode === 535 || smtp.responseCode === 534;
+
+  if (rejectedCredentials) {
+    return (
+      `${error.message} — the server rejected these credentials. Microsoft 365 and Google ` +
+      'disable basic SMTP AUTH by default, so a correct password fails exactly like a wrong ' +
+      'one. Either point SMTP_HOST at an internal relay and leave SMTP_USER empty, or use an ' +
+      'app password where the tenant still permits one.'
+    );
+  }
+
+  return error.message;
 }
