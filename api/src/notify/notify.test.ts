@@ -429,6 +429,44 @@ describe('message formats', () => {
     }
   });
 
+  it('escapes markdown in the Teams card, because evidence carries feed text', () => {
+    // The untrusted field: intel/parse.ts takes the remainder of a feed line
+    // verbatim, caps it at 200 characters and restricts no character, and the
+    // detectors put it in evidence as `feedNote`. NOTIFY_INCLUDE_EVIDENCE is on by
+    // default, so without escaping a feed line could put a rendered link in a Teams
+    // channel attributed to this tool. Slack and email have escapers; Teams did not.
+    const hostile: Notification = {
+      ...notification,
+      findings: [
+        {
+          ...notification.findings[0]!,
+          title: 'Indicator match [click here](http://attacker.test)',
+          description: 'note says **urgent** _now_',
+          evidence: { feedNote: '[click here](http://attacker.test)' },
+        },
+      ],
+    };
+
+    const payload = JSON.stringify(format.renderTeams(hostile));
+
+    // No unescaped link syntax survives anywhere in the card.
+    assert.ok(!/[^\\]\[click here\]/.test(payload), 'an unescaped markdown link reached the card');
+    assert.ok(!/[^\\]\*\*urgent\*\*/.test(payload), 'unescaped bold reached the card');
+    // And the text is still there, just inert.
+    assert.match(payload, /click here/);
+  });
+
+  it('leaves ordinary text readable after escaping', () => {
+    // An escaper that mangles normal output is its own bug: addresses and plain
+    // prose have to survive intact.
+    const payload = format.renderTeams(notification) as {
+      attachments: { content: { body: { text?: string }[] } }[];
+    };
+    const summary = payload.attachments[0]!.content.body.find((block) => block.text)?.text ?? '';
+    assert.match(summary, /Network Monitoring raised/);
+    assert.ok(!summary.includes('\\N'), 'escaping should not touch ordinary letters');
+  });
+
   it('links the dashboard as an Action.OpenUrl', () => {
     const payload = format.renderTeams(notification) as {
       attachments: { content: { actions?: { type: string; url: string }[] } }[];
@@ -479,9 +517,33 @@ describe('message formats', () => {
 });
 
 describe('webhook transport', () => {
+  /** Enough of a notification to render any format. Shared by the payload tests. */
+  const MINIMAL_NOTIFICATION: Notification = {
+    severity: 'high',
+    findings: [
+      {
+        kind: 'port_scan',
+        severity: 'high',
+        title: 'Port scan',
+        description: 'many ports on one host',
+        sourceIp: '10.0.0.66',
+        targetIp: '10.0.0.89',
+        occurrences: 1,
+        firstSeen: AT,
+        lastSeen: AT,
+        evidence: null,
+      },
+    ],
+    omittedCount: 0,
+    countsBySeverity: { high: 1 },
+    generatedAt: AT,
+    dashboardUrl: null,
+    isTest: false,
+  };
+
   it('infers the payload format from the URL', () => {
     assert.equal(webhook.detectFormat('https://hooks.slack.com/services/T000/B000/xxx'), 'slack');
-    assert.equal(webhook.detectFormat('https://acme.webhook.office.com/webhookb2/abc'), 'teams');
+    assert.equal(webhook.detectFormat('https://acme.webhook.office.com/webhookb2/abc'), 'teams-connector');
     assert.equal(webhook.detectFormat('https://discord.com/api/webhooks/1/xyz'), 'discord');
     assert.equal(webhook.detectFormat('https://internal.example.test/hooks/nmt'), 'generic');
     // A malformed URL must not throw during construction.
@@ -499,8 +561,7 @@ describe('webhook transport', () => {
       ),
       'teams',
     );
-    // And the retired host still resolves, so a live connector keeps working.
-    assert.equal(webhook.detectFormat('https://acme.webhook.office.com/webhookb2/abc'), 'teams');
+    // The retired host resolves too, but to the format it accepts — see below.
   });
 
   it('does not match a host that merely ends with a known domain', () => {
@@ -512,36 +573,52 @@ describe('webhook transport', () => {
     assert.equal(webhook.detectFormat('https://mydiscord.com/hook'), 'generic');
   });
 
+  it('routes each Teams host to the payload it can actually accept', () => {
+    // Not one Teams format but two products. A *.webhook.office.com URL is
+    // definitionally an Office 365 connector — Microsoft retired connectors, so no
+    // new one can be created — and it accepts a MessageCard, not an Adaptive Card.
+    // Mapping it to `teams` would have swapped a working payload for a rejected one
+    // on every installation still running a provisioned connector, which is exactly
+    // the population renderTeamsConnector was kept for.
+    assert.equal(
+      webhook.detectFormat(
+        'https://prod-27.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke',
+      ),
+      'teams',
+    );
+    assert.equal(webhook.detectFormat('https://acme.webhook.office.com/webhookb2/abc'), 'teams-connector');
+  });
+
+  it('sends a connector URL a MessageCard end to end under `auto`', () => {
+    // The finding was about `auto` specifically, so this asserts the whole path
+    // rather than detectFormat alone: URL in, payload out.
+    const connectorUrl = 'https://acme.webhook.office.com/webhookb2/abc';
+    const workflowsUrl =
+      'https://prod-1.northeurope.logic.azure.com/workflows/x/triggers/manual/paths/invoke';
+
+    const forConnector = webhook.buildPayload(
+      MINIMAL_NOTIFICATION,
+      webhook.detectFormat(connectorUrl),
+    ) as Record<string, unknown>;
+    assert.equal(forConnector['@type'], 'MessageCard');
+
+    const forWorkflows = webhook.buildPayload(
+      MINIMAL_NOTIFICATION,
+      webhook.detectFormat(workflowsUrl),
+    ) as Record<string, unknown>;
+    assert.equal(forWorkflows.type, 'message');
+  });
+
   it('sends the connector format only when it is asked for by name', () => {
     // teams-connector is never inferred: no URL maps to it, so no new installation
     // is quietly pointed at a format Microsoft has retired.
-    const minimal: Notification = {
-      severity: 'high',
-      findings: [
-        {
-          kind: 'port_scan',
-          severity: 'high',
-          title: 'Port scan',
-          description: 'many ports on one host',
-          sourceIp: '10.0.0.66',
-          targetIp: '10.0.0.89',
-          occurrences: 1,
-          firstSeen: AT,
-          lastSeen: AT,
-          evidence: null,
-        },
-      ],
-      omittedCount: 0,
-      countsBySeverity: { high: 1 },
-      generatedAt: AT,
-      dashboardUrl: null,
-      isTest: false,
-    };
-
-    const inferred = webhook.buildPayload(minimal, 'teams') as Record<string, unknown>;
+    const inferred = webhook.buildPayload(MINIMAL_NOTIFICATION, 'teams') as Record<string, unknown>;
     assert.equal(inferred.type, 'message', 'a Teams URL must produce an Adaptive Card');
 
-    const requested = webhook.buildPayload(minimal, 'teams-connector') as Record<string, unknown>;
+    const requested = webhook.buildPayload(MINIMAL_NOTIFICATION, 'teams-connector') as Record<
+      string,
+      unknown
+    >;
     assert.equal(requested['@type'], 'MessageCard');
   });
 

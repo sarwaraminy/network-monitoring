@@ -241,7 +241,7 @@ export function renderTeams(notification: Notification): unknown {
 
   body.push({
     type: 'TextBlock',
-    text: summaryLine(notification),
+    text: escapeAdaptive(summaryLine(notification)),
     wrap: true,
     weight: 'Bolder',
     size: 'Medium',
@@ -249,26 +249,31 @@ export function renderTeams(notification: Notification): unknown {
 
   for (const finding of notification.findings) {
     const facts = [
-      ...(finding.sourceIp ? [{ title: 'Source', value: finding.sourceIp }] : []),
-      ...(finding.targetIp ? [{ title: 'Target', value: finding.targetIp }] : []),
+      ...(finding.sourceIp ? [{ title: 'Source', value: escapeAdaptive(finding.sourceIp) }] : []),
+      ...(finding.targetIp ? [{ title: 'Target', value: escapeAdaptive(finding.targetIp) }] : []),
       { title: 'Occurrences', value: String(finding.occurrences) },
       { title: 'Last seen', value: finding.lastSeen.toISOString() },
-      ...(finding.evidence ? [{ title: 'Evidence', value: compactEvidence(finding.evidence) }] : []),
+      ...(finding.evidence
+        ? [{ title: 'Evidence', value: escapeAdaptive(compactEvidence(finding.evidence)) }]
+        : []),
     ];
 
     body.push({
       type: 'Container',
       style: CONTAINER_STYLE[finding.severity],
-      // Keeps the tinted block visually one unit rather than three stacked ones.
-      bleed: true,
+      // No `bleed`. An earlier version set it to keep the three items reading as one
+      // block, which is not what it does — `bleed` extends an element through its
+      // parent's padding to the card edge, and the items are already one unit by
+      // being `items` of a single Container. Dropped rather than re-justified: the
+      // edge-to-edge tint it actually produces is a visual claim this cannot verify.
       items: [
         {
           type: 'TextBlock',
-          text: `${finding.severity.toUpperCase()} — ${finding.title}`,
+          text: `${finding.severity.toUpperCase()} — ${escapeAdaptive(finding.title)}`,
           wrap: true,
           weight: 'Bolder',
         },
-        { type: 'TextBlock', text: finding.description, wrap: true, isSubtle: true },
+        { type: 'TextBlock', text: escapeAdaptive(finding.description), wrap: true, isSubtle: true },
         { type: 'FactSet', facts },
       ],
     });
@@ -424,6 +429,32 @@ function compactEvidence(evidence: Record<string, unknown>): string {
 
 function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * Escapes the markdown an Adaptive Card renders.
+ *
+ * The counterpart to `escapeSlack` and `escapeHtml`, and until now Teams had no
+ * equivalent — a gap that only became load-bearing when the Adaptive Card started
+ * carrying an Evidence fact. `TextBlock` renders a markdown subset and `FactSet`
+ * values render a narrower one, so text arriving from outside this codebase can
+ * inject formatting, and the one field that does arrive from outside is a
+ * threat-feed note: `intel/parse.ts` takes the remainder of a feed line verbatim,
+ * caps it at 200 characters, restricts no character, and the detectors put it in
+ * evidence as `feedNote`. `NOTIFY_INCLUDE_EVIDENCE` is on by default, so a feed
+ * line reading `1.2.3.4 [click here](http://attacker.test)` would otherwise reach a
+ * Teams channel as a rendered link attributed to this tool.
+ *
+ * It needs a hostile or compromised feed the operator chose to trust, so it is not
+ * a high-severity hole. It is also the one place in this file where the asymmetry
+ * with the other two renderers had a consequence.
+ *
+ * Backslash goes first, or every escape added below gets escaped again. The rest is
+ * the set that begins a construct in the subset Teams supports: emphasis, links,
+ * lists and headings.
+ */
+function escapeAdaptive(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/([*_[\]()~`>#|-])/g, '\\$1');
 }
 
 /** Slack mrkdwn only needs these three escaped. */

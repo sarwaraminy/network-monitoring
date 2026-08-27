@@ -384,15 +384,27 @@ Those are two different payload shapes, not two URLs for one thing. A connector 
 array. Send the wrong one and you get a rejection or an unreadable message, from the channel
 most people configure first and test before trusting anything else.
 
-`NOTIFY_WEBHOOK_FORMAT=auto` detects both Teams hosts and renders the Adaptive Card. The
-retired MessageCard is still reachable as `teams-connector`, for an installation whose
-connector webhook is still provisioned — but it is never inferred from a URL, because pointing
-a new install at a dead format should not be something that happens by accident.
+`NOTIFY_WEBHOOK_FORMAT=auto` sends each host the payload it can actually accept, so **no
+action is needed on upgrade either way**:
 
-One consequence worth knowing if you compare the code to the Slack renderer: an Adaptive Card
+| Host | Format | What it is |
+| --- | --- | --- |
+| `*.logic.azure.com` | `teams` — Adaptive Card | A Power Automate Workflows webhook |
+| `*.webhook.office.com` | `teams-connector` — MessageCard | A retired Office 365 connector |
+
+The second row is why `auto` does not simply mean "Adaptive Card". A `webhook.office.com` URL
+is *definitionally* a connector — connectors can no longer be created, so no new installation
+can obtain one — and it rejects an Adaptive Card. Inferring the connector format there is not
+guessing at a dead format; it is naming what the URL demonstrably is, and it is wrong for
+nobody. `NOTIFY_WEBHOOK_FORMAT` overrides in either direction.
+
+Two consequences worth knowing if you compare the code to the Slack renderer. An Adaptive Card
 takes one of six *named* container styles, not a colour, so `SEVERITY_COLOR` cannot express
-five severities there. The severity word is printed in every block instead, and the style is a
-coarse cue on top of it.
+five severities there — the severity word is printed in every block instead, and the style is a
+coarse cue on top of it. And a `TextBlock` renders markdown, so the Teams renderer escapes it
+the way the Slack renderer escapes mrkdwn and the email body escapes HTML: evidence can carry a
+threat-feed note, which is text taken verbatim from a third-party feed file, and without
+escaping a feed line could put a rendered link in your Teams channel attributed to this tool.
 
 ### Which SMTP host actually works
 
@@ -642,14 +654,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 450 tests
-npm run test:api  # 359 API tests
+npm test          # both suites: 454 tests
+npm run test:api  # 363 API tests
 npm run test:ui   # 91 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 359 tests
+### API — 363 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
