@@ -12,24 +12,43 @@ version: 2
 # handful of PRs rather than a backlog.
 #
 # Schedule, grouping and open-pull-requests-limit do not hold back a security
-# update — Dependabot raises those separately from version updates, so a quiet
-# cadence here does not delay a patch for a known vulnerability.
+# update — Dependabot raises those OUTSIDE this file's limits — but only while
+# "Dependabot security updates" is switched on for the repository, and that is a
+# setting this file cannot see.
 #
-# `ignore` is different, and the distinction matters. An ignore rule suppresses
-# the security update too, so a package with an open advisory must never appear in
-# the list below. Check `npm audit` before adding one.
+#   gh api repos/<owner>/<repo>/automated-security-fixes     -> {"enabled":true}
+#   gh api --method PUT repos/<owner>/<repo>/automated-security-fixes
+#
+# This is not hypothetical caution. That switch was OFF here, while alerts were on,
+# so two open high-severity advisories for drizzle-orm had generated alerts and
+# could never generate a PR. Every security fix was therefore arriving through the
+# version-update path below — monthly, grouped and capped — which is exactly the
+# delay the paragraph above says cannot happen. On a private repository security
+# updates are an explicit opt-in, separate from alerts. If it is ever turned back
+# off, nothing in this file compensates: re-read the caps as the whole story.
+#
+# `ignore` is different again, and the distinction matters. An ignore rule
+# suppresses the security update too, so a package with an open advisory must never
+# appear in the list below. Check `npm audit` before adding one.
 
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: monthly
-    # Two grouped PRs, one standalone drizzle-orm PR (see exclude-patterns below),
-    # plus room for one ungrouped major. Raised from 3 when drizzle-orm was pulled
-    # out of its group: leaving it at 3 would let the drizzle PR crowd out a real
-    # major, which is the same failure this file keeps having — arithmetic in a
-    # comment that no longer matches the config under it.
-    open-pull-requests-limit: 4
+    # A review-time budget, not a calculation.
+    #
+    # Deliberately no arithmetic here any more. Three versions of this comment have
+    # tried to justify the number by counting what should be open — two groups plus
+    # a major, then plus a standalone drizzle-orm — and each went stale within the
+    # month, because the number of ungrouped majors in flight is not knowable in
+    # advance. Twice the stale comment was the only place the reasoning lived.
+    #
+    # So: this is how many routine upgrade PRs we are willing to have open at once.
+    # It is safe to keep low only because security updates are raised outside it —
+    # see the header, and the setting named there. Raise it when the queue is
+    # genuinely being read faster than it fills, not to make room for one package.
+    open-pull-requests-limit: 3
     groups:
       # Everything that cannot reach production in a bad state: tooling, types,
       # test libraries. Reviewable by whether CI is green.
