@@ -183,6 +183,7 @@ function assertRouterGuards(router: Router, options: { role: string; ungatedMuta
 
 let suppressionsRouter: Router;
 let packetRouter: Router;
+let notifyRouter: Router;
 
 before(async () => {
   // These routers pull in the services, which construct a connection pool at
@@ -190,6 +191,7 @@ before(async () => {
   // touches a database — but env is read, and JWT_SECRET is required.
   process.env.JWT_SECRET ??= 'test-secret-not-used-for-signing';
   ({ suppressionsRouter } = await import('./suppressions.routes.js'));
+  ({ notifyRouter } = await import('./notify.routes.js'));
 
   const { createPacketRouter } = await import('./packets.routes.js');
   const { interfaceCapture } = await import('../services/packet-capture.registry.js');
@@ -272,5 +274,46 @@ describe('packet router guards', () => {
       assert.ok(fact, `GET ${path} is missing`);
       assert.ok(!isGated(fact), `GET ${path} should not require a role`);
     }
+  });
+});
+
+/**
+ * The delivery router, which gained a settings endpoint that can redirect where
+ * findings about the network are sent.
+ *
+ * Added here the moment that endpoint existed rather than later: this file's whole
+ * subject is the fix that stops one step short, and adding a mutating route without
+ * extending the check that guards mutating routes would have been an unusually
+ * literal example.
+ */
+describe('delivery router guards', () => {
+  it('requires authentication for everything', () => {
+    assert.ok(requiresAuth(notifyRouter));
+  });
+
+  it('requires ADMIN for both routes that do something', () => {
+    // PUT /settings decides where findings are delivered, so a non-admin who could
+    // write it could redirect the stream or switch it off. POST /test makes the
+    // server send outbound messages to a third party on demand.
+    assertRouterGuards(notifyRouter, { role: 'admin' });
+  });
+
+  it('leaves status and settings readable', () => {
+    // Deliberate, and the same reasoning as the alert list: someone who can see
+    // every finding on the network can see how delivery is configured. The two
+    // credentials are never in the response — that is enforced in
+    // notify/settings.ts, not by gating the route.
+    for (const path of ['/status', '/settings']) {
+      const fact = routesOf(notifyRouter).find((route) => route.path === path && route.method === 'get');
+      assert.ok(fact, `GET ${path} is missing`);
+      assert.ok(!isGated(fact), `GET ${path} should not require a role`);
+    }
+  });
+
+  it('exposes the routes the Delivery page depends on and nothing else', () => {
+    const surface = routesOf(notifyRouter)
+      .map((route) => `${route.method.toUpperCase()} ${route.path}`)
+      .sort();
+    assert.deepEqual(surface, ['GET /settings', 'GET /status', 'POST /test', 'PUT /settings']);
   });
 });

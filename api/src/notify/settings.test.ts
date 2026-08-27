@@ -11,6 +11,7 @@ import {
   environmentPinnedFields,
   isSecretField,
   parseFieldValue,
+  pinnedConflicts,
   redactForApi,
   resolveDeliverySettings,
 } from './settings.js';
@@ -247,5 +248,38 @@ describe('delivery defaults match env.ts', () => {
     // Guards against the regex silently matching nothing and the loop asserting
     // nothing — the way a comparison test passes while watching an empty set.
     assert.ok(checked.length > 12, `only ${checked.length} defaults compared: ${checked.join(', ')}`);
+  });
+});
+
+describe('refusing to store what the environment pins', () => {
+  it('names the pinned fields in a patch', () => {
+    // Storing them would be defensible — they would apply if the variable were
+    // removed — but it would mean answering 200 to a change that changes nothing,
+    // and reporting provenance exists precisely so nobody has to guess about that.
+    const resolution = resolveDeliverySettings({ NOTIFY_ENABLED: 'true', SMTP_HOST: 'relay.internal' }, {});
+
+    assert.deepEqual(
+      pinnedConflicts({ enabled: false, maxPerHour: 4, emailHost: 'other.internal' }, resolution).sort(),
+      ['emailHost', 'enabled'],
+    );
+  });
+
+  it('is empty when nothing in the patch is pinned', () => {
+    const resolution = resolveDeliverySettings({ NOTIFY_ENABLED: 'true' }, {});
+    assert.deepEqual(pinnedConflicts({ maxPerHour: 4, minSeverity: 'low' }, resolution), []);
+  });
+
+  it('does not treat a stored or default field as pinned', () => {
+    // Only the environment pins. A value that came from the row is exactly what the
+    // form is for changing.
+    const resolution = resolveDeliverySettings({}, { maxPerHour: 9 });
+    assert.deepEqual(pinnedConflicts({ maxPerHour: 4, minSeverity: 'low' }, resolution), []);
+  });
+
+  it('ignores a key that is not a setting at all', () => {
+    // The schema refuses unknown keys before this runs; this makes the function
+    // safe on its own rather than dependent on that ordering.
+    const resolution = resolveDeliverySettings({ NOTIFY_ENABLED: 'true' }, {});
+    assert.deepEqual(pinnedConflicts({ nonsense: 1 }, resolution), []);
   });
 });

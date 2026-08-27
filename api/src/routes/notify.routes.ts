@@ -1,17 +1,28 @@
 import { Router } from 'express';
-import { env } from '../config/env.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import { asyncHandler } from '../middleware/error-handler.js';
-import { notifier } from '../notify/notifier.js';
+import { asyncHandler, HttpError } from '../middleware/error-handler.js';
+import { notifier, reloadNotifier } from '../notify/notifier.js';
+import { environmentPinnedFields, pinnedConflicts } from '../notify/settings.js';
+import {
+  currentRedactedSettings,
+  currentResolution,
+  currentSettings,
+  saveDeliverySettings,
+} from '../notify/settings.service.js';
 import { detectFormat } from '../notify/webhook.js';
+import { deliverySettingsPatchSchema, parseOrThrow } from './validation.js';
 
 /**
- * Alert delivery status and a test send. Mounted at /api/notify.
+ * Alert delivery: status, settings, and a test send. Mounted at /api/notify.
  *
- * The test endpoint is the point of this router. Notification config fails silently
- * by nature — a wrong webhook URL or SMTP password produces no error anyone sees
- * until the night an alert does not arrive. Being able to prove delivery during
- * setup is the difference between configured and working.
+ * The test endpoint is why this router exists at all. Notification config fails
+ * silently by nature — a wrong webhook URL or SMTP password produces no error anyone
+ * sees until the night an alert does not arrive — so being able to prove delivery
+ * during setup is the difference between configured and working.
+ *
+ * The settings endpoints exist because the buyer is an IT admin, not the developer.
+ * Every one of these values used to require editing a file on the host and
+ * restarting, which made each tuning change an outage. See issue #28.
  */
 export const notifyRouter = Router();
 
@@ -20,84 +31,148 @@ notifyRouter.use(requireAuth);
 /** GET /api/notify/status — what is configured and what has been sent. */
 notifyRouter.get('/status', (_req, res) => {
   const stats = notifier().stats();
+  // Read from the settings layer, not from `env`. Reporting the environment's view
+  // after somebody changed a setting through the form would make this endpoint —
+  // the one whose whole purpose is answering "is delivery actually working?" — the
+  // least trustworthy thing on the page.
+  const settings = currentSettings();
 
   res.json({
-    enabled: env.notify.enabled,
+    enabled: settings.enabled,
     active: notifier().active,
     channels: stats.channels,
-    minSeverity: env.notify.minSeverity,
-    digestSeconds: env.notify.digestMs / 1000,
-    throttleSeconds: env.notify.throttleMs / 1000,
-    maxPerHour: env.notify.maxPerHour,
-    includeEvidence: env.notify.includeEvidence,
+    minSeverity: settings.minSeverity,
+    digestSeconds: settings.digestSeconds,
+    throttleSeconds: settings.throttleSeconds,
+    maxPerHour: settings.maxPerHour,
+    includeEvidence: settings.includeEvidence,
     queued: stats.queued,
     sentLastHour: stats.sentLastHour,
     throttledKeys: stats.throttleKeys,
     // Never the URL itself: it is a bearer secret for Slack and Teams, and this
     // response is readable by any authenticated user.
-    webhook: env.notify.webhookUrl
+    webhook: settings.webhookUrl
       ? {
           configured: true,
-          // Honours an explicit NOTIFY_WEBHOOK_FORMAT. Reporting detectFormat()
-          // unconditionally would show the inferred shape while the channel
-          // actually posts the overridden one — the opposite of what a setup
-          // check is for.
+          // Honours an explicit format. Reporting the inferred shape while the
+          // channel posts the overridden one is the opposite of what a setup check
+          // is for.
           format:
-            env.notify.webhookFormat === 'auto'
-              ? detectFormat(env.notify.webhookUrl)
-              : env.notify.webhookFormat,
+            settings.webhookFormat === 'auto' ? detectFormat(settings.webhookUrl) : settings.webhookFormat,
         }
       : { configured: false, format: null },
     email: {
-      // Same predicate as EmailChannel.isConfigured(), `from` included. Omitting
-      // it reported `configured: true` next to `channels: []` and `active: false`
-      // whenever NOTIFY_EMAIL_FROM was unset, which is exactly the misconfigured
-      // state this endpoint exists to reveal.
+      // The same predicate as EmailChannel.isConfigured(), `from` included. Omitting
+      // it reported `configured: true` beside `channels: []` whenever
+      // NOTIFY_EMAIL_FROM was unset — exactly the misconfigured state this endpoint
+      // exists to reveal.
       configured:
-        env.notify.email.host.trim() !== '' &&
-        env.notify.email.from.trim() !== '' &&
-        env.notify.email.to.length > 0,
-      recipients: env.notify.email.to.length,
+        settings.emailHost.trim() !== '' && settings.emailFrom.trim() !== '' && settings.emailTo.length > 0,
+      recipients: settings.emailTo.length,
     },
     /*
      * Reported in full, unlike the webhook URL.
      *
-     * A webhook URL is a bearer credential for Slack and Teams, so it is withheld
-     * from a response any authenticated user can read. A syslog target is a host
-     * and a port on your own network and carries no secret, and the question this
-     * endpoint exists to answer — "is it pointed at the right collector?" — cannot
-     * be answered without them.
-     */
-    /*
-     * `exporting` is separate from the top-level `active` on purpose.
+     * A webhook URL is a bearer credential. A syslog target is a host and a port on
+     * your own network and carries no secret, and the question this endpoint exists
+     * to answer — "is it pointed at the right collector?" — cannot be answered
+     * without them.
      *
-     * `active` is `NOTIFY_ENABLED && some channel configured`, and syslog ignores
-     * that flag by design. So with NOTIFY_ENABLED off and SYSLOG_HOST set, this
-     * endpoint answered `active: false` while every finding was going to the
-     * collector — an operator reading that concludes nothing is leaving the host,
-     * and for the one channel that ignores the master switch, that is wrong.
+     * `exporting` is separate from the top-level `active` on purpose: `active` is
+     * "enabled AND some channel configured", and syslog ignores that flag by design.
+     * With delivery off and a syslog host set, this endpoint would otherwise answer
+     * `active: false` while every finding went to the collector, and an operator
+     * reading that concludes nothing is leaving the host.
      */
-    syslog: env.notify.syslog.host
+    syslog: settings.syslogHost
       ? {
           configured: true,
           exporting: notifier().exporting,
-          target: `${env.notify.syslog.host}:${env.notify.syslog.port}`,
-          protocol: env.notify.syslog.protocol,
-          format: env.notify.syslog.format,
-          rfc: env.notify.syslog.rfc,
-          includeEvidence: env.notify.syslog.includeEvidence,
+          target: `${settings.syslogHost}:${settings.syslogPort}`,
+          protocol: settings.syslogProtocol,
+          format: settings.syslogFormat,
+          rfc: settings.syslogRfc,
+          includeEvidence: settings.syslogIncludeEvidence,
         }
       : {
           configured: false,
           exporting: false,
           target: null,
-          protocol: env.notify.syslog.protocol,
-          format: env.notify.syslog.format,
-          rfc: env.notify.syslog.rfc,
-          includeEvidence: env.notify.syslog.includeEvidence,
+          protocol: settings.syslogProtocol,
+          format: settings.syslogFormat,
+          rfc: settings.syslogRfc,
+          includeEvidence: settings.syslogIncludeEvidence,
         },
   });
 });
+
+/**
+ * GET /api/notify/settings — every setting, with where it came from.
+ *
+ * Readable by any authenticated account, on the same reasoning as the alert list and
+ * the suppression rules: someone who can see every finding can see how delivery is
+ * configured. The two credentials are the exception and are never included — each
+ * reports `configured: true|false` instead, and the redaction happens in
+ * notify/settings.ts rather than here so a future endpoint cannot leak them by
+ * forgetting.
+ *
+ * `pinnedByEnvironment` is the part the form depends on. A field set in the
+ * environment cannot be changed here, so the page has to render it uneditable — a
+ * control that accepts an edit and changes nothing is the failure this codebase keeps
+ * finding, and the server is the only thing that knows which fields those are.
+ */
+notifyRouter.get('/settings', (_req, res) => {
+  res.json({
+    settings: currentRedactedSettings(),
+    pinnedByEnvironment: environmentPinnedFields(currentResolution()),
+  });
+});
+
+/**
+ * PUT /api/notify/settings — changes stored settings. Admin only.
+ *
+ * Admin because these values decide where findings about your network are sent, and
+ * a non-admin who could edit them could redirect that stream or switch it off.
+ *
+ * A field sent as `null` is cleared, falling back to the environment or the default.
+ * A field omitted is left alone — which is what lets the form save without
+ * round-tripping a secret the API never sent it.
+ *
+ * A request naming a field the environment has pinned is refused rather than stored.
+ * Storing it would be defensible — it would take effect if the variable were later
+ * removed — but it would also mean the API answering 200 to a change that does not
+ * change anything, and the whole point of `pinnedByEnvironment` is that nobody has
+ * to guess about that.
+ */
+notifyRouter.put(
+  '/settings',
+  requireRole('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const patch = parseOrThrow(deliverySettingsPatchSchema, req.body);
+
+    const conflicts = pinnedConflicts(patch, currentResolution());
+    if (conflicts.length > 0) {
+      throw new HttpError(
+        409,
+        `Set in the environment and not editable here: ${conflicts.join(', ')}. ` +
+          'Remove the variable from api/.env (or your Compose file) to manage it from this page.',
+      );
+    }
+
+    const who = req.user?.email ?? `user:${req.user?.id ?? 'unknown'}`;
+    await saveDeliverySettings(patch, who);
+
+    // Rebuild against the new settings: flushes anything queued, then releases what
+    // the old channels held. Done here rather than inside the settings service to
+    // keep that module free of an import cycle with the notifier.
+    await reloadNotifier();
+
+    res.json({
+      settings: currentRedactedSettings(),
+      pinnedByEnvironment: environmentPinnedFields(currentResolution()),
+    });
+  }),
+);
 
 /**
  * POST /api/notify/test — sends a test message to every configured channel.
@@ -112,14 +187,14 @@ notifyRouter.post(
     if (notifier().configuredChannels.length === 0) {
       res.status(400).json({
         message:
-          'No delivery channel is configured. Set NOTIFY_WEBHOOK_URL, SYSLOG_HOST, or SMTP_HOST with NOTIFY_EMAIL_TO.',
+          'No delivery channel is configured. Set a webhook URL, a syslog host, or an SMTP host with recipients — on this page, or in api/.env.',
       });
       return;
     }
 
-    // Deliberately bypasses NOTIFY_ENABLED and every gate: the question being
+    // Deliberately bypasses every gate, including `enabled`: the question being
     // answered is "can this reach you", and requiring the feature to be switched on
-    // first makes it useless for checking config before you commit to it.
+    // first makes it useless for checking config before committing to it.
     const results = await notifier().sendTest();
     const delivered = results.filter((result) => result.ok).length;
 

@@ -301,6 +301,22 @@ export function environmentPinnedFields(resolution: DeliveryResolution): Deliver
   );
 }
 
+/**
+ * Fields in a patch that the environment has pinned, which cannot be stored.
+ *
+ * Pure and exported so the refusal has a test. Storing such a field would be
+ * defensible — it would take effect if the variable were later removed — but it
+ * would also mean answering 200 to a change that changes nothing, and the entire
+ * point of reporting provenance is that nobody has to guess about that.
+ */
+export function pinnedConflicts(
+  patch: Record<string, unknown>,
+  resolution: DeliveryResolution,
+): DeliveryField[] {
+  const pinned = new Set(environmentPinnedFields(resolution));
+  return Object.keys(patch).filter((field): field is DeliveryField => pinned.has(field as DeliveryField));
+}
+
 export function isSecretField(field: DeliveryField): boolean {
   return 'secret' in DELIVERY_FIELDS[field];
 }
