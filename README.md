@@ -409,6 +409,18 @@ FLOW_BIND_ADDRESS=0.0.0.0
 FLOW_EXPORTERS=              # empty accepts any source; fill in once devices are known
 ```
 
+Under Docker, publishing the UDP port is a separate opt-in:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.flow.yml up -d
+```
+
+It is separate because `ports:` binds the host port whether or not anything inside
+the container is listening. Putting it in the main file would open `2055/udp` on
+every deployment — including the default one with `FLOW_ENABLED=false`, which is
+exactly what that setting exists to prevent — and would break `up` outright on a
+host already running a NetFlow collector on that port.
+
 Then point the device at it. On pfSense/OPNsense that is the softflowd or ipfix service; on
 Cisco, `ip flow-export destination <collector> 2055`; on UniFi and Meraki it is a field in the
 controller UI.
@@ -493,14 +505,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 352 tests
-npm run test:api  # 276 API tests
+npm test          # both suites: 354 tests
+npm run test:api  # 278 API tests
 npm run test:ui   # 76 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 276 tests
+### API — 278 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX

@@ -114,8 +114,15 @@ services:
       SYSLOG_INCLUDE_EVIDENCE: ${SYSLOG_INCLUDE_EVIDENCE:-true}
 
       # Flow collection. The driver-free path: point a switch or router at
-      # FLOW_PORT and no capture library is needed at all. Off by default, and
-      # the UDP port below is only published when it is on.
+      # FLOW_PORT and no capture library is needed at all.
+      #
+      # Publishing the port is a SEPARATE opt-in, in docker-compose.flow.yml.
+      # `ports:` binds the host port whether or not anything is listening, so
+      # putting it here opened 2055/udp on every deployment — including the
+      # default one where this is false, which is the thing this setting exists
+      # to prevent.
+      #
+      #   docker compose -f docker-compose.yml -f docker-compose.flow.yml up -d
       FLOW_ENABLED: ${FLOW_ENABLED:-false}
       FLOW_PORT: ${FLOW_PORT:-2055}
       FLOW_BIND_ADDRESS: ${FLOW_BIND_ADDRESS:-0.0.0.0}
@@ -151,10 +158,6 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     expose:
       - '8080'
-    ports:
-      # The flow collector's UDP port, so an exporter outside the compose network
-      # can reach it. Harmless while FLOW_ENABLED is false: nothing binds it.
-      - '${FLOW_PORT:-2055}:${FLOW_PORT:-2055}/udp'
     volumes:
       - intel-cache:/var/lib/nmt/intel
 

@@ -62,10 +62,31 @@ function parseComposeDefaults(text: string): Map<string, string> {
  */
 function parseCodeDefaults(text: string): Map<string, string> {
   const values = new Map<string, string>();
-  const pattern = /\b(?:bool|int|optional)\(\s*'([A-Z0-9_]+)'\s*,\s*([^),]*)\)/g;
+  // The default may itself be a quoted string containing commas —
+  // CORS_ORIGIN's is a comma-separated list — so match a quoted form first.
+  const pattern = /\b(?:bool|int|optional)\(\s*'([A-Z0-9_]+)'\s*,\s*('[^']*'|[^),]*)\)/g;
+  const requiredPattern = /\brequired\(\s*'([A-Z0-9_]+)'\s*\)/g;
 
   for (const match of text.matchAll(pattern)) {
     if (match[1]) values.set(match[1], (match[2] ?? '').trim());
+  }
+
+  /*
+   * Bare `process.env.NAME` too, which the helpers do not cover.
+   *
+   * The whole inversion rests on "a new setting fails by default", and a
+   * setting read this way did not fail — it failed to APPEAR, which is silence
+   * rather than a failure. `DATABASE_URL` and `PGPASSWORD` are read this way.
+   */
+  for (const match of text.matchAll(/process\.env(?:\.([A-Z0-9_]+)|\['([A-Z0-9_]+)'\])/g)) {
+    const name = match[1] ?? match[2];
+    if (name && !values.has(name)) values.set(name, '<read directly>');
+  }
+
+  // `required()` carries no default, but it is still a setting the code reads
+  // and a deployment has to supply.
+  for (const match of text.matchAll(requiredPattern)) {
+    if (match[1] && !values.has(match[1])) values.set(match[1], '<required>');
   }
 
   return values;
@@ -97,11 +118,10 @@ const NOT_IN_COMPOSE = new Set([
   'PORT',
   'NODE_ENV',
   'DATABASE_URL',
-  'HOST',
   // Secrets belong in the .env file Compose reads, never in a committed default.
   'JWT_SECRET',
-  // Host-install concerns with no meaning inside the container network.
-  'CORS_ORIGINS',
+  // Read, but Compose-irrelevant: nginx serves the UI on the same origin.
+  'CORS_ORIGIN',
   // The discrete PG* variables are the host-install alternative to DATABASE_URL,
   // which Compose sets instead. Passing both invites them to disagree.
   'PGHOST',
@@ -113,20 +133,43 @@ const NOT_IN_COMPOSE = new Set([
   'ARP_TRUSTED_MAPPINGS',
 ]);
 
+/** Compose sets these itself; an operator has no reason to see them. */
+const COMPOSE_OWNS = new Set(['HTTP_PORT', 'POSTGRES_PASSWORD', 'POSTGRES_USER', 'POSTGRES_DB']);
+
 const ALLOWED_TO_DIFFER = new Set([
   // Compose runs migrations on boot by design; a host install may not want to.
   'DB_AUTO_MIGRATE',
   // On behind nginx, off for a direct host install. Both are correct in place,
   // which is exactly why both have to be stated rather than defaulted.
   'TRUST_PROXY',
-  // Ports and hosts are deployment shape, not policy.
+  // A port is deployment shape, not policy.
   'PORT',
-  'API_PORT',
-  'UI_PORT',
 ]);
 
 describe('deployment defaults match the code', () => {
   const code = parseCodeDefaults(read('api/src/config/env.ts'));
+
+  it('excuses only settings that env.ts actually reads', () => {
+    /*
+     * Fail-closed, applied to the list itself.
+     *
+     * The inversion's argument is that excusing a setting has to be a conscious
+     * act. An excusal nobody checks is where that erodes: a third of these
+     * entries were inert — some naming settings env.ts does not read at all,
+     * some kept out by the parser rather than by the exclusion — each carrying a
+     * reason comment that read as active policy. The next inert entry could be a
+     * real setting with a mistyped name, excused in silence.
+     */
+    const unknown = [...NOT_IN_COMPOSE, ...ALLOWED_TO_DIFFER].filter((name) => !code.has(name));
+
+    assert.deepEqual(
+      unknown,
+      [],
+      `excused but not read by env.ts: ${unknown.join(', ')}. ` +
+        'Remove them, or correct the name — an exclusion for a setting that does ' +
+        'not exist is one that will eventually cover a setting that does.',
+    );
+  });
 
   it('finds the code defaults at all, so a passing run means something', () => {
     // Guards the regex: if env.ts is reformatted and nothing parses, every
@@ -204,5 +247,25 @@ describe('deployment defaults match the code', () => {
           'Compose passes the literal, and bool() only falls back when a variable is unset.',
       );
     }
+  });
+
+  it('offers every Compose setting in .env.docker.example', () => {
+    /*
+     * One level out, same failure in a new place. The check above enforces
+     * env.ts -> Compose; nothing enforced Compose -> the file the README tells a
+     * Docker operator to copy. The twelve DETECT_* and RATE_LIMIT_* knobs were
+     * reachable and undiscoverable, which is most of the way back to the original
+     * problem.
+     */
+    const compose = parseComposeDefaults(read('docker-compose.yml'));
+    const example = parseDotenv(read('.env.docker.example'));
+    const missing = [...compose.keys()].filter((name) => !COMPOSE_OWNS.has(name) && !example.has(name));
+
+    assert.deepEqual(
+      missing,
+      [],
+      `interpolated in docker-compose.yml but absent from .env.docker.example: ${missing.join(', ')}. ` +
+        'An operator copying the example cannot discover a setting that is not in it.',
+    );
   });
 });
