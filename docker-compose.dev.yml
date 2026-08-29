@@ -6,6 +6,12 @@
 # script for exactly when this kicks in. To run it by hand instead:
 #
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db
+#
+# Binds the same host port (5432) a native Postgres install would use.
+# ensure-db.mjs can't tell "nothing installed" from "installed but not
+# running right now" — both look like connection-refused — so if you have a
+# native Postgres that's just stopped, start that instead of leaving this
+# running, or the two will fight over the port.
 
 services:
   db:

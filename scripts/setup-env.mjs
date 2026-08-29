@@ -95,7 +95,10 @@ function createEnvFile(dir, exampleName, substitutions) {
       contents = applySubstitution(contents, substitution, file.label);
     }
 
-    writeFileSync(file.envPath, contents);
+    // 0o600: these files hold real secrets (JWT_SECRET, a DB password) — on a
+    // shared machine, the process's default umask-derived mode (typically
+    // 0o644) would leave them readable by any other local user.
+    writeFileSync(file.envPath, contents, { mode: 0o600 });
     console.log(`[setup-env] Created ${file.label}.`);
     return true;
   } catch (err) {
@@ -104,9 +107,37 @@ function createEnvFile(dir, exampleName, substitutions) {
   }
 }
 
+// Extracts the DB password from whichever of api/.env or the root .env
+// already exists, so that creating the other one (a contributor who already
+// hand-configured one of the two, pulling this in) matches it instead of
+// getting an unrelated fresh password. Only when neither exists yet — a
+// fully fresh clone — does a new shared password get generated below.
+function existingDbPassword() {
+  try {
+    const apiEnvPath = resolve(ROOT, 'api', '.env');
+    if (existsSync(apiEnvPath)) {
+      const match = readFileSync(apiEnvPath, 'utf8').match(/^DATABASE_URL=postgres:\/\/[^:]+:([^@]+)@/m);
+      if (match) return match[1];
+    }
+  } catch {
+    // Fall through to the root .env / fresh-generation below.
+  }
+  try {
+    const rootEnvPath = resolve(ROOT, '.env');
+    if (existsSync(rootEnvPath)) {
+      const match = readFileSync(rootEnvPath, 'utf8').match(/^POSTGRES_PASSWORD=(.+)$/m);
+      if (match) return match[1].trim();
+    }
+  } catch {
+    // Neither file is readable; fall back to generating a fresh one.
+  }
+  return null;
+}
+
 // One password, used for both files: when a fresh clone gets both api/.env and
 // the root .env in the same run, they end up pointing at the same database.
-const dbPassword = generateDbPassword();
+// When only one of the two already exists, reuse its password instead.
+const dbPassword = existingDbPassword() ?? generateDbPassword();
 
 const apiCreated = createEnvFile('api', '.env.example', [
   jwtSecretSubstitution(),

@@ -38,15 +38,23 @@ function isNetworkError({ code, message }) {
 // vars api/src/config/env.ts also accepts; usesDiscreteVars distinguishes them.
 function loadDatabaseConfig() {
   const envPath = resolve(ROOT, 'api', '.env');
-  if (!existsSync(envPath)) return { envExists: false };
+  try {
+    if (!existsSync(envPath)) return { envExists: false };
 
-  const parsed = dotenv.parse(readFileSync(envPath, 'utf8'));
-  if (parsed.DATABASE_URL) return { envExists: true, databaseUrl: parsed.DATABASE_URL };
-  return {
-    envExists: true,
-    databaseUrl: null,
-    usesDiscreteVars: PG_DISCRETE_VARS.some((key) => parsed[key]),
-  };
+    const parsed = dotenv.parse(readFileSync(envPath, 'utf8'));
+    if (parsed.DATABASE_URL) return { envExists: true, databaseUrl: parsed.DATABASE_URL };
+    return {
+      envExists: true,
+      databaseUrl: null,
+      usesDiscreteVars: PG_DISCRETE_VARS.some((key) => parsed[key]),
+    };
+  } catch (err) {
+    // A transient read failure (permission hiccup, antivirus lock, the file
+    // vanishing between existsSync and readFileSync) shouldn't abort
+    // `npm run dev` — skip the check the same as a missing file would.
+    console.warn(`[ensure-db] Could not read api/.env, skipping the database check: ${err.message}`);
+    return { envExists: false };
+  }
 }
 
 async function tryAuth(connectionString) {
@@ -149,7 +157,10 @@ async function main() {
   }
 
   console.log(
-    `[ensure-db] No Postgres reachable at ${hostname}:${port} — starting one with Docker Compose...`,
+    `[ensure-db] No Postgres reachable at ${hostname}:${port} — starting one with Docker Compose. ` +
+      "If you have a native Postgres install that's just not running right now (rather than none at " +
+      'all), start that instead and re-run this — a Docker container will bind the same port with an ' +
+      'empty database, and your real one will fail to start afterwards while this is still running.',
   );
   // --wait blocks until the db service's own healthcheck (pg_isready) passes,
   // rather than racing a TCP-only probe against Postgres's two-phase startup
@@ -177,4 +188,11 @@ async function main() {
   );
 }
 
-await main();
+// This runs as the predev/predev:api npm lifecycle hook — an uncaught
+// rejection here would abort `npm run dev` entirely over what should be, at
+// worst, a skipped convenience check.
+try {
+  await main();
+} catch (err) {
+  console.warn(`[ensure-db] Unexpected error, skipping the database check: ${err.message}`);
+}
