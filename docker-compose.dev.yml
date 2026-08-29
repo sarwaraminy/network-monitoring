@@ -1,0 +1,13 @@
+# Local-dev-only override: exposes the database on the host so `npm run dev`
+# (which runs the API on the host, not in a container) can reach it directly.
+#
+# Applied automatically by `npm run dev` via scripts/ensure-db.mjs when no
+# other Postgres is already reachable at api/.env's DATABASE_URL — see that
+# script for exactly when this kicks in. To run it by hand instead:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db
+
+services:
+  db:
+    ports:
+      - '5432:5432'

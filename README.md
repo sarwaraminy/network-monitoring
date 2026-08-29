@@ -73,6 +73,14 @@ Depending on how Npcap was installed, capture may require elevated privileges: r
 
 ## Setup
 
+**Fast path:** `npm install` generates `api/.env`, `network-monitoring-ui/.env` and a root
+`.env` with a real `JWT_SECRET` and a matching database password already filled in. Then
+`npm run dev` checks whether that database is reachable and, if Docker is installed but nothing
+is listening on `localhost:5432`, starts one for you (`docker-compose.dev.yml`) — no
+`createdb`, no manual secret generation. If you already run Postgres locally, just update
+`DATABASE_URL` in `api/.env` to match it and that check gets out of the way. The steps below are
+for doing any of that by hand, or understanding what the fast path did.
+
 ### 1. Install dependencies
 
 From the repository root — this is an npm workspace, so one install covers both packages:
