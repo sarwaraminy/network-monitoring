@@ -22,8 +22,16 @@ const PG_DISCRETE_VARS = ['PGHOST', 'PGPORT', 'PGDATABASE', 'PGUSER', 'PGPASSWOR
 // Node network errors (nothing there to talk to) vs. anything else, which
 // means a real Postgres answered — most commonly 28P01 (auth failed) because
 // a leftover container volume has a different password baked in from a
-// previous clone or a since-regenerated api/.env.
+// previous clone or a since-regenerated api/.env. pg's own connect-timeout
+// (connectionTimeoutMillis elapsing on a dropped/blackholed connection, as
+// opposed to Node's net-level ETIMEDOUT) throws with code undefined and this
+// exact message — checked separately since `code` alone can't catch it.
 const NETWORK_ERROR_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'EHOSTUNREACH', 'ECONNRESET']);
+const PG_CONNECT_TIMEOUT_MESSAGE = 'timeout expired';
+
+function isNetworkError({ code, message }) {
+  return NETWORK_ERROR_CODES.has(code) || message === PG_CONNECT_TIMEOUT_MESSAGE;
+}
 
 // { envExists, databaseUrl } — databaseUrl is null both when api/.env is
 // missing and when it configures Postgres via the discrete PGHOST/PGPORT/...
@@ -54,6 +62,15 @@ async function tryAuth(connectionString) {
   }
 }
 
+// WHATWG URL's hostname setter silently no-ops for a bare IPv6 literal — it
+// requires bracket syntax (`[::1]`), and assigning `'::1'` leaves the URL
+// unchanged with no error. Any candidate containing a colon is IPv6.
+function withHost(connectionString, candidate) {
+  const url = new URL(connectionString);
+  url.hostname = candidate.includes(':') ? `[${candidate}]` : candidate;
+  return url.toString();
+}
+
 // `localhost` can resolve to either 127.0.0.1 or ::1 depending on the OS and
 // Node version, and Docker Desktop doesn't always publish a port on both —
 // probing the wrong family looks identical to nothing running at all. Try
@@ -68,10 +85,8 @@ async function checkAuth(connectionString, hostname) {
 
   let last;
   for (const candidate of ['127.0.0.1', '::1']) {
-    const url = new URL(connectionString);
-    url.hostname = candidate;
-    last = await tryAuth(url.toString());
-    if (last.ok || !NETWORK_ERROR_CODES.has(last.code)) return last;
+    last = await tryAuth(withHost(connectionString, candidate));
+    if (last.ok || !isNetworkError(last)) return last;
   }
   return last;
 }
@@ -107,7 +122,7 @@ async function main() {
 
   const initial = await checkAuth(databaseUrl, hostname);
   if (initial.ok) return;
-  if (!NETWORK_ERROR_CODES.has(initial.code)) {
+  if (!isNetworkError(initial)) {
     console.warn(
       `[ensure-db] Something is already listening at ${hostname}:${port}, but rejected DATABASE_URL's ` +
         `credentials (${initial.code ?? initial.message}). Leaving it alone — update api/.env's ` +
