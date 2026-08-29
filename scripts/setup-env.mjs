@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 // means we're actually in CI.
 const isCI = Boolean(process.env.CI) && process.env.CI !== 'false';
 if (isCI) {
+  console.log('[setup-env] CI detected (CI env var set) — skipping .env generation.');
   process.exit(0);
 }
 
@@ -34,11 +35,20 @@ function generateDbPassword() {
   return randomBytes(24).toString('base64url');
 }
 
-function fillEmptyValue(contents, key, value, fileLabel) {
-  const next = contents.replace(new RegExp(`^${key}=\\s*$`, 'm'), `${key}=${value}`);
+function emptyValuePattern(key) {
+  return new RegExp(`^${key}=\\s*$`, 'm');
+}
+
+// Applies one `{ pattern, replacement, description }` substitution, warning
+// with concrete next steps (not a pointer to env.ts's crash message, which
+// assumes a *missing* file — by the time that crash could fire, this script
+// already created one) if the pattern didn't match anything.
+function applySubstitution(contents, { pattern, replacement, description, key }, fileLabel) {
+  const next = contents.replace(pattern, replacement);
   if (next === contents) {
     console.warn(
-      `[setup-env] Could not find an empty ${key}= line in ${fileLabel} — wrote it without a generated value for it.`,
+      `[setup-env] Could not find ${description} in ${fileLabel} — wrote it unfilled. ` +
+        `Add "${key}=<a random value>" to ${fileLabel} yourself before starting the app.`,
     );
   }
   return next;
@@ -59,62 +69,26 @@ function readExampleIfEnvMissing(dir, exampleName) {
   return { envPath, label, contents: readFileSync(examplePath, 'utf8') };
 }
 
-function setupApiEnv(dbPassword) {
+// Copies dir/exampleName to dir/.env (if dir/.env doesn't already exist),
+// applying each substitution in order. Never throws: a filesystem error is
+// logged and treated the same as "nothing to do" so it can't fail `npm install`.
+function createEnvFile(dir, exampleName, substitutions) {
+  const label = dir === '.' ? '.env' : `${dir}/.env`;
   try {
-    const file = readExampleIfEnvMissing('api', '.env.example');
-    if (!file) return { created: false };
+    const file = readExampleIfEnvMissing(dir, exampleName);
+    if (!file) return false;
 
-    let contents = fillEmptyValue(file.contents, 'JWT_SECRET', generateSecret(), file.label);
-    const withDbPassword = contents.replace(
-      /^(DATABASE_URL=postgres:\/\/[^:]+:)CHANGE_ME(@.*)$/m,
-      `$1${dbPassword}$2`,
-    );
-    if (withDbPassword === contents) {
-      console.warn(
-        `[setup-env] Could not find DATABASE_URL=...:CHANGE_ME@... in api/.env.example — wrote ${file.label} with the placeholder password still in it.`,
-      );
+    let contents = file.contents;
+    for (const substitution of substitutions) {
+      contents = applySubstitution(contents, substitution, file.label);
     }
-    contents = withDbPassword;
 
     writeFileSync(file.envPath, contents);
-    console.log(`[setup-env] Created ${file.label} with a generated JWT_SECRET and DATABASE_URL password.`);
-    return { created: true };
-  } catch (err) {
-    console.warn(`[setup-env] Could not set up api/.env: ${err.message}`);
-    return { created: false };
-  }
-}
-
-function setupUiEnv() {
-  try {
-    const file = readExampleIfEnvMissing('network-monitoring-ui', '.env.example');
-    if (!file) return { created: false };
-
-    writeFileSync(file.envPath, file.contents);
     console.log(`[setup-env] Created ${file.label}.`);
-    return { created: true };
+    return true;
   } catch (err) {
-    console.warn(`[setup-env] Could not set up network-monitoring-ui/.env: ${err.message}`);
-    return { created: false };
-  }
-}
-
-function setupRootEnv(dbPassword) {
-  try {
-    const file = readExampleIfEnvMissing('.', '.env.docker.example');
-    if (!file) return { created: false };
-
-    let contents = fillEmptyValue(file.contents, 'JWT_SECRET', generateSecret(), file.label);
-    contents = fillEmptyValue(contents, 'POSTGRES_PASSWORD', dbPassword, file.label);
-
-    writeFileSync(file.envPath, contents);
-    console.log(
-      `[setup-env] Created ${file.label} for docker compose, with a generated JWT_SECRET and POSTGRES_PASSWORD.`,
-    );
-    return { created: true };
-  } catch (err) {
-    console.warn(`[setup-env] Could not set up .env: ${err.message}`);
-    return { created: false };
+    console.warn(`[setup-env] Could not set up ${label}: ${err.message}`);
+    return false;
   }
 }
 
@@ -122,11 +96,39 @@ function setupRootEnv(dbPassword) {
 // the root .env in the same run, they end up pointing at the same database.
 const dbPassword = generateDbPassword();
 
-const api = setupApiEnv(dbPassword);
-setupUiEnv();
-setupRootEnv(dbPassword);
+const apiCreated = createEnvFile('api', '.env.example', [
+  {
+    key: 'JWT_SECRET',
+    pattern: emptyValuePattern('JWT_SECRET'),
+    replacement: `JWT_SECRET=${generateSecret()}`,
+    description: 'an empty JWT_SECRET= line',
+  },
+  {
+    key: 'DATABASE_URL',
+    pattern: /^(DATABASE_URL=postgres:\/\/[^:]+:)CHANGE_ME(@.*)$/m,
+    replacement: `$1${dbPassword}$2`,
+    description: 'DATABASE_URL=...:CHANGE_ME@...',
+  },
+]);
 
-if (api.created) {
+createEnvFile('network-monitoring-ui', '.env.example', []);
+
+createEnvFile('.', '.env.docker.example', [
+  {
+    key: 'JWT_SECRET',
+    pattern: emptyValuePattern('JWT_SECRET'),
+    replacement: `JWT_SECRET=${generateSecret()}`,
+    description: 'an empty JWT_SECRET= line',
+  },
+  {
+    key: 'POSTGRES_PASSWORD',
+    pattern: emptyValuePattern('POSTGRES_PASSWORD'),
+    replacement: `POSTGRES_PASSWORD=${dbPassword}`,
+    description: 'an empty POSTGRES_PASSWORD= line',
+  },
+]);
+
+if (apiCreated) {
   console.log(
     '[setup-env] api/.env now has a generated DATABASE_URL password. If you already run Postgres ' +
       'locally, update DATABASE_URL to match it — otherwise `npm run dev` will offer to start a ' +
