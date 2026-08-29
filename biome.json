@@ -92,7 +92,7 @@
       }
     },
     {
-      "includes": ["api/src/index.ts", "api/src/db/migrate.ts", "api/scripts/**"],
+      "includes": ["api/src/index.ts", "api/src/db/migrate.ts", "api/scripts/**", "scripts/**"],
       "linter": {
         "rules": {
           "suspicious": {

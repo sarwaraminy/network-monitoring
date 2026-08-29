@@ -27,6 +27,7 @@
     "format": "biome format --write",
     "ci": "biome ci && tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit && tsx --test api/src/**/*.test.ts && vitest run --root network-monitoring-ui",
     "prepare": "husky || true",
+    "postinstall": "node scripts/setup-env.mjs",
     "start": "node api/dist/index.js",
     "migrate": "tsx api/src/db/migrate.ts",
     "preview": "vite preview network-monitoring-ui",
