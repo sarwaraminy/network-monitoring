@@ -9,6 +9,7 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /repo
 
 COPY package.json package-lock.json ./
+COPY scripts ./scripts
 COPY api/package.json ./api/
 COPY network-monitoring-ui/package.json ./network-monitoring-ui/
 

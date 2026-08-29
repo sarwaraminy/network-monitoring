@@ -13,6 +13,7 @@ WORKDIR /repo
 
 # Copy only manifests first, so `npm ci` is cached until a dependency changes.
 COPY package.json package-lock.json ./
+COPY scripts ./scripts
 COPY api/package.json ./api/
 COPY network-monitoring-ui/package.json ./network-monitoring-ui/
 
