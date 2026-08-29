@@ -39,6 +39,18 @@ function emptyValuePattern(key) {
   return new RegExp(`^${key}=\\s*$`, 'm');
 }
 
+// Every JWT_SECRET= line looks the same across .env.example files; each call
+// site still mints its own fresh secret (api's and the root .env's are
+// unrelated to each other, unlike the DB password).
+function jwtSecretSubstitution() {
+  return {
+    key: 'JWT_SECRET',
+    pattern: emptyValuePattern('JWT_SECRET'),
+    replacement: `JWT_SECRET=${generateSecret()}`,
+    description: 'an empty JWT_SECRET= line',
+  };
+}
+
 // Applies one `{ pattern, replacement, description }` substitution, warning
 // with concrete next steps (not a pointer to env.ts's crash message, which
 // assumes a *missing* file — by the time that crash could fire, this script
@@ -97,12 +109,7 @@ function createEnvFile(dir, exampleName, substitutions) {
 const dbPassword = generateDbPassword();
 
 const apiCreated = createEnvFile('api', '.env.example', [
-  {
-    key: 'JWT_SECRET',
-    pattern: emptyValuePattern('JWT_SECRET'),
-    replacement: `JWT_SECRET=${generateSecret()}`,
-    description: 'an empty JWT_SECRET= line',
-  },
+  jwtSecretSubstitution(),
   {
     key: 'DATABASE_URL',
     pattern: /^(DATABASE_URL=postgres:\/\/[^:]+:)CHANGE_ME(@.*)$/m,
@@ -114,12 +121,7 @@ const apiCreated = createEnvFile('api', '.env.example', [
 createEnvFile('network-monitoring-ui', '.env.example', []);
 
 createEnvFile('.', '.env.docker.example', [
-  {
-    key: 'JWT_SECRET',
-    pattern: emptyValuePattern('JWT_SECRET'),
-    replacement: `JWT_SECRET=${generateSecret()}`,
-    description: 'an empty JWT_SECRET= line',
-  },
+  jwtSecretSubstitution(),
   {
     key: 'POSTGRES_PASSWORD',
     pattern: emptyValuePattern('POSTGRES_PASSWORD'),

@@ -12,14 +12,17 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /repo
 
 # Copy only manifests first, so `npm ci` is cached until a dependency changes.
+# --ignore-scripts skips postinstall (scripts/setup-env.mjs), which needs
+# scripts/ present — copying that in here would bust this cache on any edit to
+# it, unrelated to dependencies. The build has no use for the .env files it
+# creates anyway.
 COPY package.json package-lock.json ./
-COPY scripts ./scripts
 COPY api/package.json ./api/
 COPY network-monitoring-ui/package.json ./network-monitoring-ui/
 
 # The UI is not needed to build the API, but npm workspaces resolves the whole
 # tree, so its manifest has to be present.
-RUN npm ci --workspaces --include-workspace-root
+RUN npm ci --workspaces --include-workspace-root --ignore-scripts
 
 COPY tsconfig*.json ./
 COPY api ./api

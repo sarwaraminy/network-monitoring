@@ -5,6 +5,10 @@
 // fresh clone can run `npm run dev` without installing Postgres by hand. Does
 // nothing if DATABASE_URL already authenticates against something — a native
 // install or an already-running container both count.
+//
+// dotenv and pg are workspace-hoisted from api/package.json, not declared
+// here — the root package.json devDependencies pin the same versions so this
+// script keeps resolving them even if hoisting ever stops covering it.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -13,6 +17,7 @@ import dotenv from 'dotenv';
 import pg from 'pg';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const PG_DISCRETE_VARS = ['PGHOST', 'PGPORT', 'PGDATABASE', 'PGUSER', 'PGPASSWORD'];
 
 // Node network errors (nothing there to talk to) vs. anything else, which
 // means a real Postgres answered — most commonly 28P01 (auth failed) because
@@ -20,18 +25,24 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // previous clone or a since-regenerated api/.env.
 const NETWORK_ERROR_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'EHOSTUNREACH', 'ECONNRESET']);
 
-function loadDatabaseUrl() {
+// { envExists, databaseUrl } — databaseUrl is null both when api/.env is
+// missing and when it configures Postgres via the discrete PGHOST/PGPORT/...
+// vars api/src/config/env.ts also accepts; usesDiscreteVars distinguishes them.
+function loadDatabaseConfig() {
   const envPath = resolve(ROOT, 'api', '.env');
-  if (!existsSync(envPath)) return null;
-  return dotenv.parse(readFileSync(envPath, 'utf8')).DATABASE_URL ?? null;
+  if (!existsSync(envPath)) return { envExists: false };
+
+  const parsed = dotenv.parse(readFileSync(envPath, 'utf8'));
+  if (parsed.DATABASE_URL) return { envExists: true, databaseUrl: parsed.DATABASE_URL };
+  return {
+    envExists: true,
+    databaseUrl: null,
+    usesDiscreteVars: PG_DISCRETE_VARS.some((key) => parsed[key]),
+  };
 }
 
-async function tryAuth(connectionString, hostOverride) {
-  const client = new pg.Client({
-    connectionString,
-    ...(hostOverride ? { host: hostOverride } : {}),
-    connectionTimeoutMillis: 3000,
-  });
+async function tryAuth(connectionString) {
+  const client = new pg.Client({ connectionString, connectionTimeoutMillis: 3000 });
   try {
     await client.connect();
     await client.query('SELECT 1');
@@ -46,22 +57,39 @@ async function tryAuth(connectionString, hostOverride) {
 // `localhost` can resolve to either 127.0.0.1 or ::1 depending on the OS and
 // Node version, and Docker Desktop doesn't always publish a port on both —
 // probing the wrong family looks identical to nothing running at all. Try
-// both explicitly; stop early if either succeeds, or if either gets an actual
-// reply from Postgres (as opposed to a bare connection failure), since that's
-// the more informative result either way.
+// both explicitly by swapping the URL's hostname per attempt (passing `host`
+// alongside `connectionString` to pg.Client doesn't work: pg parses the
+// connection string over top of it, so the string's own host always wins).
+// Stop early if either succeeds, or if either gets an actual reply from
+// Postgres (as opposed to a bare connection failure), since that's the more
+// informative result either way.
 async function checkAuth(connectionString, hostname) {
-  const candidates = hostname === 'localhost' ? ['127.0.0.1', '::1'] : [hostname];
+  if (hostname !== 'localhost') return tryAuth(connectionString);
+
   let last;
-  for (const candidate of candidates) {
-    last = await tryAuth(connectionString, candidate);
+  for (const candidate of ['127.0.0.1', '::1']) {
+    const url = new URL(connectionString);
+    url.hostname = candidate;
+    last = await tryAuth(url.toString());
     if (last.ok || !NETWORK_ERROR_CODES.has(last.code)) return last;
   }
   return last;
 }
 
 async function main() {
-  const databaseUrl = loadDatabaseUrl();
-  if (!databaseUrl) return; // No api/.env yet; npm install's postinstall explains that.
+  const db = loadDatabaseConfig();
+  if (!db.envExists) return; // No api/.env yet; npm install's postinstall explains that.
+  if (!db.databaseUrl) {
+    if (db.usesDiscreteVars) {
+      console.warn(
+        '[ensure-db] api/.env configures Postgres via PGHOST/PGPORT/etc. rather than DATABASE_URL — ' +
+          "ensure-db.mjs doesn't check that form yet, so it won't verify it's reachable or offer to " +
+          'start one with Docker. Set DATABASE_URL instead, or make sure Postgres is running yourself.',
+      );
+    }
+    return;
+  }
+  const databaseUrl = db.databaseUrl;
 
   let hostname;
   let port;
@@ -70,7 +98,7 @@ async function main() {
     hostname = url.hostname;
     port = Number(url.port) || 5432;
   } catch {
-    return; // Not a URL — PGHOST/PGPORT are in play instead, nothing generic to check.
+    return; // Not a URL — shouldn't happen once db.databaseUrl is set, but nothing generic to check if so.
   }
 
   // Only offer to help for the local target this exists for; a remote/shared
