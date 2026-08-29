@@ -20,26 +20,36 @@ function setupEnv(dir, { fillJwtSecret = false } = {}) {
   const examplePath = resolve(ROOT, dir, '.env.example');
   const envPath = resolve(ROOT, dir, '.env');
 
-  if (!existsSync(examplePath)) return;
+  if (!existsSync(examplePath)) return { created: false };
   if (existsSync(envPath)) {
     console.log(`[setup-env] ${dir}/.env already exists, leaving it alone.`);
-    return;
+    return { created: false };
   }
 
   let contents = readFileSync(examplePath, 'utf8');
 
   if (fillJwtSecret) {
     const secret = randomBytes(48).toString('base64');
-    contents = contents.replace(/^JWT_SECRET=\s*$/m, `JWT_SECRET=${secret}`);
+    const withSecret = contents.replace(/^JWT_SECRET=\s*$/m, `JWT_SECRET=${secret}`);
+    if (withSecret === contents) {
+      console.warn(
+        `[setup-env] Could not find an empty JWT_SECRET= line in ${dir}/.env.example — ` +
+          `wrote ${dir}/.env without a generated secret. Set JWT_SECRET yourself before starting the API.`,
+      );
+    }
+    contents = withSecret;
   }
 
   writeFileSync(envPath, contents);
   console.log(`[setup-env] Created ${dir}/.env${fillJwtSecret ? ' with a generated JWT_SECRET' : ''}.`);
+  return { created: true };
 }
 
-setupEnv('api', { fillJwtSecret: true });
+const api = setupEnv('api', { fillJwtSecret: true });
 setupEnv('network-monitoring-ui');
 
-console.log(
-  '[setup-env] Check api/.env — DATABASE_URL still has the placeholder password until you point it at your Postgres instance.',
-);
+if (api.created) {
+  console.log(
+    '[setup-env] Check api/.env — DATABASE_URL still has the placeholder password until you point it at your Postgres instance.',
+  );
+}
