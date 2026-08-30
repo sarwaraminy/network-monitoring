@@ -93,6 +93,8 @@ npm install
 
 ### 2. Create the database
 
+Not needed on the fast path above — Docker creates it, or your existing Postgres already has it:
+
 ```bash
 createdb netminitoring
 ```

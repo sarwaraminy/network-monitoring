@@ -139,8 +139,12 @@ async function main() {
     const url = new URL(databaseUrl);
     // WHATWG URL serializes an IPv6 host in bracket form ('[::1]'), unlike
     // the bare '::1' this script otherwise deals in — strip it once here so
-    // every comparison and message below sees the same plain form.
-    hostname = url.hostname.replace(/^\[|\]$/g, '');
+    // every comparison and message below sees the same plain form. It also
+    // only lowercases the host for a fixed list of "special" schemes (http,
+    // ws, ftp, file, ...) — postgres:// isn't one, so 'LOCALHOST' would
+    // otherwise fail the exact-string comparisons below and be silently
+    // treated as a remote target.
+    hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
     port = Number(url.port) || 5432;
   } catch {
     return; // Not a URL — shouldn't happen once db.databaseUrl is set, but nothing generic to check if so.
@@ -241,6 +245,17 @@ async function main() {
   }
   if (up.status !== 0) {
     console.warn('[ensure-db] Failed to start the dev Postgres container — see the error above.');
+    return;
+  }
+  if (isNetworkError(after)) {
+    // Genuinely unreachable, not a credential problem — e.g. the container's
+    // internal pg_isready passed but the host-side port-publish hasn't caught
+    // up yet. Don't suggest deleting the volume for what might just be a
+    // moment's delay.
+    console.warn(
+      `[ensure-db] Started the dev Postgres container, but it isn't reachable at ${hostname}:${port} yet ` +
+        `(${after.code ?? after.message}). It may still be catching up — try npm run dev again in a moment.`,
+    );
     return;
   }
   console.warn(
