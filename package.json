@@ -14,7 +14,9 @@
     "scripts": "Commands are spelled out rather than nesting `npm run`, because npm puts every ancestor node_modules/.bin on PATH and an older npm found there would be used for the inner call."
   },
   "scripts": {
+    "predev": "node scripts/ensure-db.mjs",
     "dev": "concurrently -n api,ui -c blue,magenta \"tsx watch api/src/index.ts\" \"vite network-monitoring-ui\"",
+    "predev:api": "node scripts/ensure-db.mjs",
     "dev:api": "tsx watch api/src/index.ts",
     "dev:ui": "vite network-monitoring-ui",
     "build": "tsc -p api/tsconfig.json && node api/scripts/copy-migrations.mjs && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit && vite build network-monitoring-ui",
@@ -27,6 +29,7 @@
     "format": "biome format --write",
     "ci": "biome ci && tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit && tsx --test api/src/**/*.test.ts && vitest run --root network-monitoring-ui",
     "prepare": "husky || true",
+    "postinstall": "node scripts/setup-env.mjs",
     "start": "node api/dist/index.js",
     "migrate": "tsx api/src/db/migrate.ts",
     "preview": "vite preview network-monitoring-ui",
@@ -37,6 +40,8 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.10",
     "concurrently": "^9.1.0",
-    "husky": "^9.1.7"
+    "dotenv": "^16.4.5",
+    "husky": "^9.1.7",
+    "pg": "^8.23.0"
   }
 }

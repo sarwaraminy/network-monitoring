@@ -73,6 +73,16 @@ Depending on how Npcap was installed, capture may require elevated privileges: r
 
 ## Setup
 
+**Fast path:** `npm install` generates `api/.env` and a root `.env` — each with a real
+`JWT_SECRET` and a matching database password already filled in — plus an empty
+`network-monitoring-ui/.env` (it has no secrets to fill). Then `npm run dev` checks whether that
+database is reachable and, if Docker is installed but nothing is listening on `localhost:5432`,
+starts one for you (`docker-compose.dev.yml`) — no `createdb`, no manual secret generation. If
+you already run Postgres locally, just update `DATABASE_URL` in `api/.env` to match it and that
+check gets out of the way. The steps below are for doing any of that by hand, or understanding
+what the fast path did — **skip step 3's `cp` if `npm install` already created `api/.env`**,
+copying over it would re-blank the secret and password it just generated.
+
 ### 1. Install dependencies
 
 From the repository root — this is an npm workspace, so one install covers both packages:
@@ -83,11 +93,16 @@ npm install
 
 ### 2. Create the database
 
+Not needed on the fast path above — Docker creates it, or your existing Postgres already has it:
+
 ```bash
 createdb netminitoring
 ```
 
 ### 3. Configure the API
+
+`npm install` already created this if it didn't exist (see the fast path above) — skip the `cp`
+below in that case, it would overwrite the generated `JWT_SECRET` and `DATABASE_URL` password:
 
 ```bash
 cp api/.env.example api/.env
@@ -171,6 +186,8 @@ Brings up Postgres, the API and the UI together. nginx serves the UI and proxies
 everything is on one origin.
 
 ```bash
+# npm install already created this (see the Setup fast path) — skip the cp
+# below if it did, it would overwrite the generated JWT_SECRET/POSTGRES_PASSWORD.
 cp .env.docker.example .env      # then fill in JWT_SECRET and POSTGRES_PASSWORD
 docker compose up --build
 npm run user -- list             # see the Docker note below before running this
