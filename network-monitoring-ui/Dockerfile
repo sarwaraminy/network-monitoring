@@ -11,7 +11,9 @@ WORKDIR /repo
 # --ignore-scripts skips postinstall (scripts/setup-env.mjs), which needs
 # scripts/ present — copying that in here would bust this cache on any edit to
 # it, unrelated to dependencies. The build has no use for the .env files it
-# creates anyway.
+# creates anyway. NOTE: scripts/ is not COPY'd anywhere in this file, so
+# --ignore-scripts is load-bearing, not just a caching nicety — dropping it
+# without also adding that COPY breaks the build outright.
 COPY package.json package-lock.json ./
 COPY api/package.json ./api/
 COPY network-monitoring-ui/package.json ./network-monitoring-ui/

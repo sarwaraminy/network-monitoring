@@ -116,7 +116,12 @@ function existingDbPassword() {
   try {
     const apiEnvPath = resolve(ROOT, 'api', '.env');
     if (existsSync(apiEnvPath)) {
-      const match = readFileSync(apiEnvPath, 'utf8').match(/^DATABASE_URL=postgres:\/\/[^:]+:([^@]+)@/m);
+      // postgresql:// is an equally valid scheme, and the password itself can
+      // contain '@' — greedy `.+` backtracks to the last '@' (before the
+      // host), rather than `[^@]+` wrongly stopping at the password's own.
+      const match = readFileSync(apiEnvPath, 'utf8').match(
+        /^DATABASE_URL=postgres(?:ql)?:\/\/[^:]+:(.+)@[^@]+$/m,
+      );
       if (match) return match[1];
     }
   } catch {

@@ -103,13 +103,21 @@ async function main() {
   const db = loadDatabaseConfig();
   if (!db.envExists) return; // No api/.env yet; npm install's postinstall explains that.
   if (!db.databaseUrl) {
-    if (db.usesDiscreteVars) {
-      console.warn(
-        '[ensure-db] api/.env configures Postgres via PGHOST/PGPORT/etc. rather than DATABASE_URL — ' +
-          "ensure-db.mjs doesn't check that form yet, so it won't verify it's reachable or offer to " +
-          'start one with Docker. Set DATABASE_URL instead, or make sure Postgres is running yourself.',
-      );
-    }
+    // Either way, api/src/config/env.ts still resolves *some* connection —
+    // via PGHOST/etc., or (with none of those set either) its own default of
+    // postgres://postgres@localhost:5432/netminitoring — so silently doing
+    // nothing here would leave that connection attempt with no reachability
+    // check and no Docker offer, and no explanation why either was skipped.
+    console.warn(
+      db.usesDiscreteVars
+        ? '[ensure-db] api/.env configures Postgres via PGHOST/PGPORT/etc. rather than DATABASE_URL — ' +
+            "ensure-db.mjs doesn't check that form yet, so it won't verify it's reachable or offer to " +
+            'start one with Docker. Set DATABASE_URL instead, or make sure Postgres is running yourself.'
+        : '[ensure-db] api/.env has no DATABASE_URL (or PGHOST/PGPORT/etc.) — api/src/config/env.ts ' +
+            'will default to postgres://postgres@localhost:5432/netminitoring. ensure-db.mjs only checks ' +
+            "an explicit DATABASE_URL, so it won't verify that default is reachable or offer to start one " +
+            'with Docker. Set DATABASE_URL, or make sure Postgres is running yourself.',
+    );
     return;
   }
   const databaseUrl = db.databaseUrl;
@@ -183,14 +191,20 @@ async function main() {
       env: { ...process.env, JWT_SECRET: process.env.JWT_SECRET || 'unused-starting-db-only' },
     },
   );
-  if (up.status !== 0) {
-    console.warn('[ensure-db] Failed to start the dev Postgres container — see the error above.');
-    return;
-  }
-
+  // Don't bail out on a non-zero exit before checking reachability: running
+  // `npm run dev` and `npm run dev:api` concurrently in separate terminals on
+  // a fresh clone fires two of these at once, and Compose's own network/volume
+  // creation isn't safe against two simultaneous `up`s for the same project —
+  // the "losing" one can exit non-zero even though the other's container is
+  // genuinely coming up. Only treat it as a real failure if Postgres still
+  // isn't reachable afterwards either.
   const after = await checkAuth(databaseUrl, hostname);
   if (after.ok) {
     console.log(`[ensure-db] Postgres is up and reachable at ${hostname}:${port}.`);
+    return;
+  }
+  if (up.status !== 0) {
+    console.warn('[ensure-db] Failed to start the dev Postgres container — see the error above.');
     return;
   }
   console.warn(
