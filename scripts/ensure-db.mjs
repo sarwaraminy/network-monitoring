@@ -50,12 +50,32 @@ function loadDatabaseConfig() {
     // root .env this repo generates) as a fallback for anything not already
     // set. An already-exported shell value beats both, since dotenv never
     // touches a process.env key that's already set.
-    const resolveVar = (key) => process.env[key] || apiParsed[key] || rootParsed[key];
+    //
+    // hasOwnProperty, not a truthy check: dotenv's override:false skips a key
+    // based on *existence* (verified in its source), so an explicitly
+    // exported DATABASE_URL="" still blocks the api/.env and root .env
+    // fallbacks from ever applying at real runtime, even though it's falsy.
+    const resolveVar = (key) => {
+      if (Object.hasOwn(process.env, key)) return process.env[key];
+      if (Object.hasOwn(apiParsed, key)) return apiParsed[key];
+      if (Object.hasOwn(rootParsed, key)) return rootParsed[key];
+      return undefined;
+    };
+    // env.ts's databaseUrl()/optional() both treat a whitespace-only value as
+    // unset (`value.trim() !== ''`), not merely a non-empty string — matched
+    // here so a stray `DATABASE_URL=   ` isn't treated as a real URL (it
+    // would otherwise throw inside this script's own URL parsing a few lines
+    // down and be silently swallowed, skipping the reachability check
+    // entirely for a case env.ts would have handled via its own defaults).
+    const resolveNonBlankVar = (key) => {
+      const value = resolveVar(key);
+      return value !== undefined && value.trim() !== '' ? value : undefined;
+    };
 
-    const databaseUrl = resolveVar('DATABASE_URL');
+    const databaseUrl = resolveNonBlankVar('DATABASE_URL');
     if (databaseUrl) return { envExists: true, databaseUrl };
 
-    const usesDiscreteVars = PG_DISCRETE_VARS.some((key) => resolveVar(key));
+    const usesDiscreteVars = PG_DISCRETE_VARS.some((key) => resolveNonBlankVar(key));
     if (!apiEnvExists && !usesDiscreteVars) return { envExists: false };
 
     return { envExists: true, databaseUrl: null, usesDiscreteVars };

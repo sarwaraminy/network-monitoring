@@ -131,7 +131,11 @@ function existingDbPassword() {
       const match = readFileSync(apiEnvPath, 'utf8').match(
         /^DATABASE_URL=postgres(?:ql)?:\/\/[^:]+:(.+)@[^@]+$/m,
       );
-      if (match) {
+      // match[1].trim() !== '', not just `if (match)`: a blank/whitespace-only
+      // value (a plausible half-finished hand-edit) would otherwise be
+      // returned and used as-is by the `??` at the call site below — `??`
+      // only substitutes on null/undefined, not on an empty string.
+      if (match && match[1].trim() !== '') {
         const raw = match[1].trim();
         try {
           // A URL's password segment is percent-encoded (verified: pg's own
@@ -166,7 +170,7 @@ function existingDbPassword() {
     const rootEnvPath = resolve(ROOT, '.env');
     if (existsSync(rootEnvPath)) {
       const match = readFileSync(rootEnvPath, 'utf8').match(/^POSTGRES_PASSWORD=(.+)$/m);
-      if (match) return match[1].trim();
+      if (match && match[1].trim() !== '') return match[1].trim();
     }
   } catch (err) {
     console.warn(`[setup-env] Could not read .env to check for an existing DB password: ${err.message}`);
