@@ -159,10 +159,31 @@ async function main() {
     return;
   }
 
-  if (!existsSync(resolve(ROOT, '.env'))) {
+  const rootEnvPath = resolve(ROOT, '.env');
+  if (!existsSync(rootEnvPath)) {
     console.warn(
       '[ensure-db] No Postgres reachable, and no root .env to configure a dev container with ' +
         '(npm install should have created one from .env.docker.example — try running it again).',
+    );
+    return;
+  }
+  // Existing, not just present: setup-env.mjs never fills in a root .env that
+  // already existed before this feature was added, so it's possible to have
+  // one with no POSTGRES_PASSWORD set — which would otherwise surface only as
+  // Compose's generic ':?POSTGRES_PASSWORD is required' interpolation error
+  // a few lines below, with no diagnostic naming the actual missing variable.
+  let rootEnvHasPassword;
+  try {
+    rootEnvHasPassword = /^POSTGRES_PASSWORD=.+$/m.test(readFileSync(rootEnvPath, 'utf8'));
+  } catch (err) {
+    console.warn(`[ensure-db] Could not read .env: ${err.message}`);
+    return;
+  }
+  if (!rootEnvHasPassword) {
+    console.warn(
+      '[ensure-db] .env exists but has no POSTGRES_PASSWORD set, which docker compose needs to start ' +
+        "the dev database. Set it there (matching api/.env's DATABASE_URL password), or delete .env and " +
+        'run npm install again to regenerate it.',
     );
     return;
   }

@@ -96,8 +96,11 @@ function createEnvFile(dir, exampleName, substitutions) {
     }
 
     // 0o600: these files hold real secrets (JWT_SECRET, a DB password) — on a
-    // shared machine, the process's default umask-derived mode (typically
-    // 0o644) would leave them readable by any other local user.
+    // shared POSIX machine, the process's default umask-derived mode
+    // (typically 0o644) would leave them readable by any other local user.
+    // No effect on Windows: verified `mode` there only toggles the read-only
+    // attribute, not POSIX permission bits — restricting access would need an
+    // explicit ACL change instead (e.g. icacls), not attempted here.
     writeFileSync(file.envPath, contents, { mode: 0o600 });
     console.log(`[setup-env] Created ${file.label}.`);
     return true;
@@ -124,8 +127,12 @@ function existingDbPassword() {
       );
       if (match) return match[1];
     }
-  } catch {
-    // Fall through to the root .env / fresh-generation below.
+  } catch (err) {
+    // Falls through to the root .env / fresh-generation below, same as a
+    // missing file — but unlike a missing file, this means api/.env exists
+    // and couldn't be read, which silently reintroduces the password
+    // mismatch this function exists to prevent, so it's worth surfacing.
+    console.warn(`[setup-env] Could not read api/.env to check for an existing DB password: ${err.message}`);
   }
   try {
     const rootEnvPath = resolve(ROOT, '.env');
@@ -133,8 +140,8 @@ function existingDbPassword() {
       const match = readFileSync(rootEnvPath, 'utf8').match(/^POSTGRES_PASSWORD=(.+)$/m);
       if (match) return match[1].trim();
     }
-  } catch {
-    // Neither file is readable; fall back to generating a fresh one.
+  } catch (err) {
+    console.warn(`[setup-env] Could not read .env to check for an existing DB password: ${err.message}`);
   }
   return null;
 }
