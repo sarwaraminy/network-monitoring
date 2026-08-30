@@ -33,40 +33,37 @@ function isNetworkError({ code, message }) {
   return NETWORK_ERROR_CODES.has(code) || message === PG_CONNECT_TIMEOUT_MESSAGE;
 }
 
-// { envExists, databaseUrl } — databaseUrl is null both when api/.env is
-// missing and when it configures Postgres via the discrete PGHOST/PGPORT/...
+// { envExists, databaseUrl } — databaseUrl is null both when nothing sets it
+// anywhere and when it configures Postgres via the discrete PGHOST/PGPORT/...
 // vars api/src/config/env.ts also accepts; usesDiscreteVars distinguishes them.
 function loadDatabaseConfig() {
-  const envPath = resolve(ROOT, 'api', '.env');
+  const apiEnvPath = resolve(ROOT, 'api', '.env');
+  const rootEnvPath = resolve(ROOT, '.env');
   try {
-    // api/src/config/env.ts loads api/.env via dotenv.config(), which
-    // defaults to override: false — an already-exported shell DATABASE_URL
-    // wins over the file's at actual runtime. npm inherits this script's
-    // process.env from that same shell, so checking it first here matches
-    // what the app will actually connect to, rather than only ever checking
-    // the file (and either starting an unused Docker container, or checking
-    // reachability of a URL nothing is actually using).
-    if (process.env.DATABASE_URL) return { envExists: true, databaseUrl: process.env.DATABASE_URL };
+    const apiEnvExists = existsSync(apiEnvPath);
+    const apiParsed = apiEnvExists ? dotenv.parse(readFileSync(apiEnvPath, 'utf8')) : {};
+    const rootParsed = existsSync(rootEnvPath) ? dotenv.parse(readFileSync(rootEnvPath, 'utf8')) : {};
 
-    if (!existsSync(envPath)) {
-      const usesDiscreteVars = PG_DISCRETE_VARS.some((key) => process.env[key]);
-      return usesDiscreteVars
-        ? { envExists: true, databaseUrl: null, usesDiscreteVars }
-        : { envExists: false };
-    }
+    // Matches api/src/config/env.ts's own resolution order: dotenv.config()
+    // defaults to override: false, and env.ts calls it twice — once for
+    // api/.env, then (path-less) for a .env in the working directory (the
+    // root .env this repo generates) as a fallback for anything not already
+    // set. An already-exported shell value beats both, since dotenv never
+    // touches a process.env key that's already set.
+    const resolveVar = (key) => process.env[key] || apiParsed[key] || rootParsed[key];
 
-    const parsed = dotenv.parse(readFileSync(envPath, 'utf8'));
-    if (parsed.DATABASE_URL) return { envExists: true, databaseUrl: parsed.DATABASE_URL };
-    return {
-      envExists: true,
-      databaseUrl: null,
-      usesDiscreteVars: PG_DISCRETE_VARS.some((key) => process.env[key] || parsed[key]),
-    };
+    const databaseUrl = resolveVar('DATABASE_URL');
+    if (databaseUrl) return { envExists: true, databaseUrl };
+
+    const usesDiscreteVars = PG_DISCRETE_VARS.some((key) => resolveVar(key));
+    if (!apiEnvExists && !usesDiscreteVars) return { envExists: false };
+
+    return { envExists: true, databaseUrl: null, usesDiscreteVars };
   } catch (err) {
-    // A transient read failure (permission hiccup, antivirus lock, the file
+    // A transient read failure (permission hiccup, antivirus lock, a file
     // vanishing between existsSync and readFileSync) shouldn't abort
-    // `npm run dev` — skip the check the same as a missing file would.
-    console.warn(`[ensure-db] Could not read api/.env, skipping the database check: ${err.message}`);
+    // `npm run dev` — skip the check the same as neither file existing would.
+    console.warn(`[ensure-db] Could not read .env files, skipping the database check: ${err.message}`);
     return { envExists: false };
   }
 }
@@ -188,7 +185,11 @@ async function main() {
   // a few lines below, with no diagnostic naming the actual missing variable.
   let rootEnvHasPassword;
   try {
-    rootEnvHasPassword = /^POSTGRES_PASSWORD=.+$/m.test(readFileSync(rootEnvPath, 'utf8'));
+    // \S, not just `.+`: a whitespace-only value (POSTGRES_PASSWORD=   , left
+    // over from a hand-edit) would otherwise pass as "set" here, then still
+    // hit Compose's generic interpolation error a few lines below — Compose's
+    // own required-var check only rejects unset/empty, not whitespace.
+    rootEnvHasPassword = /^POSTGRES_PASSWORD=\s*\S/m.test(readFileSync(rootEnvPath, 'utf8'));
   } catch (err) {
     console.warn(`[ensure-db] Could not read .env: ${err.message}`);
     return;

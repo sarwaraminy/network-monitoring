@@ -125,7 +125,7 @@ function existingDbPassword() {
       const match = readFileSync(apiEnvPath, 'utf8').match(
         /^DATABASE_URL=postgres(?:ql)?:\/\/[^:]+:(.+)@[^@]+$/m,
       );
-      if (match) return match[1];
+      if (match) return match[1].trim();
     }
   } catch (err) {
     // Falls through to the root .env / fresh-generation below, same as a
