@@ -16,4 +16,7 @@
 services:
   db:
     ports:
-      - '5432:5432'
+      # Bound to loopback only — a bare '5432:5432' publishes on 0.0.0.0 (every
+      # interface), which would expose this dev database to the whole network
+      # a developer's machine is on, not just itself.
+      - '127.0.0.1:5432:5432'

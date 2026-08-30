@@ -118,7 +118,10 @@ async function main() {
   let port;
   try {
     const url = new URL(databaseUrl);
-    hostname = url.hostname;
+    // WHATWG URL serializes an IPv6 host in bracket form ('[::1]'), unlike
+    // the bare '::1' this script otherwise deals in — strip it once here so
+    // every comparison and message below sees the same plain form.
+    hostname = url.hostname.replace(/^\[|\]$/g, '');
     port = Number(url.port) || 5432;
   } catch {
     return; // Not a URL — shouldn't happen once db.databaseUrl is set, but nothing generic to check if so.
@@ -165,10 +168,20 @@ async function main() {
   // --wait blocks until the db service's own healthcheck (pg_isready) passes,
   // rather than racing a TCP-only probe against Postgres's two-phase startup
   // (initdb, a brief listen, then a restart) on a fresh volume.
+  //
+  // Compose interpolates every service's environment before selecting one, so
+  // `up db` still fails outright if the api service's required JWT_SECRET is
+  // missing from the root .env — even though only db is being started. A
+  // placeholder here (only used for this invocation, never written to disk)
+  // satisfies that check without requiring JWT_SECRET to actually be set.
   const up = spawnSync(
     'docker',
     ['compose', '-f', 'docker-compose.yml', '-f', 'docker-compose.dev.yml', 'up', '-d', '--wait', 'db'],
-    { cwd: ROOT, stdio: 'inherit' },
+    {
+      cwd: ROOT,
+      stdio: 'inherit',
+      env: { ...process.env, JWT_SECRET: process.env.JWT_SECRET || 'unused-starting-db-only' },
+    },
   );
   if (up.status !== 0) {
     console.warn('[ensure-db] Failed to start the dev Postgres container — see the error above.');
