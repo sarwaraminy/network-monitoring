@@ -1,0 +1,17 @@
+# Never send local secrets into the Docker build context. api/Dockerfile and
+# network-monitoring-ui/Dockerfile's `COPY api ./api` / `COPY network-monitoring-ui
+# ./network-monitoring-ui` steps would otherwise pick up a real JWT_SECRET and
+# DB password from api/.env — the default state of a fresh clone once
+# scripts/setup-env.mjs has run, not something a developer has to deliberately
+# create — and bake it into that build stage's layer, retrievable from local
+# build cache or a registry/cache export even though the final runtime image
+# never copies it.
+.env
+**/.env
+
+# Installed fresh inside each container; the host's copy is never needed in
+# the build context.
+node_modules
+**/node_modules
+
+.git

@@ -131,13 +131,29 @@ function existingDbPassword() {
       const match = readFileSync(apiEnvPath, 'utf8').match(
         /^DATABASE_URL=postgres(?:ql)?:\/\/[^:]+:(.+)@[^@]+$/m,
       );
-      // A URL's password segment is percent-encoded (verified: pg's own
-      // parser decodes it) — decode here too, or a reserved character (e.g.
-      // '@', '%') would get written into the root .env's POSTGRES_PASSWORD
-      // still encoded, an effectively different password from what api/.env
-      // actually connects with (docker-compose passes it through as a
-      // literal env var, no URL-decoding).
-      if (match) return decodeURIComponent(match[1].trim());
+      if (match) {
+        const raw = match[1].trim();
+        try {
+          // A URL's password segment is percent-encoded (verified: pg's own
+          // parser decodes it) — decode here too, or a reserved character
+          // (e.g. '@', '%') would get written into the root .env's
+          // POSTGRES_PASSWORD still encoded, an effectively different
+          // password from what api/.env actually connects with
+          // (docker-compose passes it through as a literal env var, no
+          // URL-decoding).
+          return decodeURIComponent(raw);
+        } catch (err) {
+          // A stray literal '%' not part of valid percent-encoding (an easy
+          // typo — Postgres passwords don't require '%' to mean anything)
+          // throws here specifically, not a read failure — caught separately
+          // so the outer catch below doesn't misreport it as one. The raw,
+          // un-decoded value is still usable as a fallback.
+          console.warn(
+            `[setup-env] Could not decode api/.env's DATABASE_URL password (${err.message}) — using it as-is.`,
+          );
+          return raw;
+        }
+      }
     }
   } catch (err) {
     // Falls through to the root .env / fresh-generation below, same as a
@@ -168,7 +184,13 @@ const apiCreated = createEnvFile('api', '.env.example', [
   {
     key: 'DATABASE_URL',
     pattern: /^(DATABASE_URL=postgres:\/\/[^:]+:)CHANGE_ME(@.*)$/m,
-    replacement: (_match, prefix, suffix) => `${prefix}${dbPassword}${suffix}`,
+    // dbPassword may come from the root .env's POSTGRES_PASSWORD (a literal,
+    // never URL-encoded there) — encode it here since this splice site is a
+    // URL; a reserved character (e.g. '/', '#') would otherwise break the
+    // URL outright (verified: both WHATWG URL and pg-connection-string throw
+    // on it). A freshly generated password (base64url) is already URL-safe,
+    // so this is a no-op in the common case.
+    replacement: (_match, prefix, suffix) => `${prefix}${encodeURIComponent(dbPassword)}${suffix}`,
     description: 'DATABASE_URL=...:CHANGE_ME@...',
   },
 ]);
