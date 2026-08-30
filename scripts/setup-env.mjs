@@ -151,12 +151,21 @@ function existingDbPassword() {
 // When only one of the two already exists, reuse its password instead.
 const dbPassword = existingDbPassword() ?? generateDbPassword();
 
+// String.prototype.replace()'s *replacement* argument treats '$'-sequences
+// specially ($1/$2 as capture groups, $$ as a literal '$', $& as the whole
+// match) — a freshly generated dbPassword (base64url) never contains '$', but
+// a *reused* one (existingDbPassword(), read back from a hand-set password)
+// can, and would otherwise be silently misinterpreted instead of inserted
+// verbatim. Only the value going into a replacement string needs this, not
+// dbPassword itself — the raw value is still what actually gets written.
+const dbPasswordForReplacement = dbPassword.replace(/\$/g, '$$$$');
+
 const apiCreated = createEnvFile('api', '.env.example', [
   jwtSecretSubstitution(),
   {
     key: 'DATABASE_URL',
     pattern: /^(DATABASE_URL=postgres:\/\/[^:]+:)CHANGE_ME(@.*)$/m,
-    replacement: `$1${dbPassword}$2`,
+    replacement: `$1${dbPasswordForReplacement}$2`,
     description: 'DATABASE_URL=...:CHANGE_ME@...',
   },
 ]);
@@ -168,7 +177,7 @@ createEnvFile('.', '.env.docker.example', [
   {
     key: 'POSTGRES_PASSWORD',
     pattern: emptyValuePattern('POSTGRES_PASSWORD'),
-    replacement: `POSTGRES_PASSWORD=${dbPassword}`,
+    replacement: `POSTGRES_PASSWORD=${dbPasswordForReplacement}`,
     description: 'an empty POSTGRES_PASSWORD= line',
   },
 ]);

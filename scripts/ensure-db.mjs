@@ -39,14 +39,28 @@ function isNetworkError({ code, message }) {
 function loadDatabaseConfig() {
   const envPath = resolve(ROOT, 'api', '.env');
   try {
-    if (!existsSync(envPath)) return { envExists: false };
+    // api/src/config/env.ts loads api/.env via dotenv.config(), which
+    // defaults to override: false — an already-exported shell DATABASE_URL
+    // wins over the file's at actual runtime. npm inherits this script's
+    // process.env from that same shell, so checking it first here matches
+    // what the app will actually connect to, rather than only ever checking
+    // the file (and either starting an unused Docker container, or checking
+    // reachability of a URL nothing is actually using).
+    if (process.env.DATABASE_URL) return { envExists: true, databaseUrl: process.env.DATABASE_URL };
+
+    if (!existsSync(envPath)) {
+      const usesDiscreteVars = PG_DISCRETE_VARS.some((key) => process.env[key]);
+      return usesDiscreteVars
+        ? { envExists: true, databaseUrl: null, usesDiscreteVars }
+        : { envExists: false };
+    }
 
     const parsed = dotenv.parse(readFileSync(envPath, 'utf8'));
     if (parsed.DATABASE_URL) return { envExists: true, databaseUrl: parsed.DATABASE_URL };
     return {
       envExists: true,
       databaseUrl: null,
-      usesDiscreteVars: PG_DISCRETE_VARS.some((key) => parsed[key]),
+      usesDiscreteVars: PG_DISCRETE_VARS.some((key) => process.env[key] || parsed[key]),
     };
   } catch (err) {
     // A transient read failure (permission hiccup, antivirus lock, the file
