@@ -43,10 +43,11 @@ function emptyValuePattern(key) {
 // site still mints its own fresh secret (api's and the root .env's are
 // unrelated to each other, unlike the DB password).
 function jwtSecretSubstitution() {
+  const secret = generateSecret();
   return {
     key: 'JWT_SECRET',
     pattern: emptyValuePattern('JWT_SECRET'),
-    replacement: `JWT_SECRET=${generateSecret()}`,
+    replacement: () => `JWT_SECRET=${secret}`,
     description: 'an empty JWT_SECRET= line',
   };
 }
@@ -54,7 +55,12 @@ function jwtSecretSubstitution() {
 // Applies one `{ pattern, replacement, description }` substitution, warning
 // with concrete next steps (not a pointer to env.ts's crash message, which
 // assumes a *missing* file — by the time that crash could fire, this script
-// already created one) if the pattern didn't match anything.
+// already created one) if the pattern didn't match anything. `replacement` is
+// always a function, not a string: String.prototype.replace()'s string form
+// treats '$'-sequences specially ($1/$2 as capture groups, $$ as a literal
+// '$'), which would silently mangle a *reused* value (existingDbPassword(),
+// read back from a hand-set password) containing one — a function's return
+// value is inserted verbatim, no escaping required at any call site.
 function applySubstitution(contents, { pattern, replacement, description, key }, fileLabel) {
   const next = contents.replace(pattern, replacement);
   if (next === contents) {
@@ -125,7 +131,13 @@ function existingDbPassword() {
       const match = readFileSync(apiEnvPath, 'utf8').match(
         /^DATABASE_URL=postgres(?:ql)?:\/\/[^:]+:(.+)@[^@]+$/m,
       );
-      if (match) return match[1].trim();
+      // A URL's password segment is percent-encoded (verified: pg's own
+      // parser decodes it) — decode here too, or a reserved character (e.g.
+      // '@', '%') would get written into the root .env's POSTGRES_PASSWORD
+      // still encoded, an effectively different password from what api/.env
+      // actually connects with (docker-compose passes it through as a
+      // literal env var, no URL-decoding).
+      if (match) return decodeURIComponent(match[1].trim());
     }
   } catch (err) {
     // Falls through to the root .env / fresh-generation below, same as a
@@ -151,21 +163,12 @@ function existingDbPassword() {
 // When only one of the two already exists, reuse its password instead.
 const dbPassword = existingDbPassword() ?? generateDbPassword();
 
-// String.prototype.replace()'s *replacement* argument treats '$'-sequences
-// specially ($1/$2 as capture groups, $$ as a literal '$', $& as the whole
-// match) — a freshly generated dbPassword (base64url) never contains '$', but
-// a *reused* one (existingDbPassword(), read back from a hand-set password)
-// can, and would otherwise be silently misinterpreted instead of inserted
-// verbatim. Only the value going into a replacement string needs this, not
-// dbPassword itself — the raw value is still what actually gets written.
-const dbPasswordForReplacement = dbPassword.replace(/\$/g, '$$$$');
-
 const apiCreated = createEnvFile('api', '.env.example', [
   jwtSecretSubstitution(),
   {
     key: 'DATABASE_URL',
     pattern: /^(DATABASE_URL=postgres:\/\/[^:]+:)CHANGE_ME(@.*)$/m,
-    replacement: `$1${dbPasswordForReplacement}$2`,
+    replacement: (_match, prefix, suffix) => `${prefix}${dbPassword}${suffix}`,
     description: 'DATABASE_URL=...:CHANGE_ME@...',
   },
 ]);
@@ -177,7 +180,7 @@ createEnvFile('.', '.env.docker.example', [
   {
     key: 'POSTGRES_PASSWORD',
     pattern: emptyValuePattern('POSTGRES_PASSWORD'),
-    replacement: `POSTGRES_PASSWORD=${dbPasswordForReplacement}`,
+    replacement: () => `POSTGRES_PASSWORD=${dbPassword}`,
     description: 'an empty POSTGRES_PASSWORD= line',
   },
 ]);
