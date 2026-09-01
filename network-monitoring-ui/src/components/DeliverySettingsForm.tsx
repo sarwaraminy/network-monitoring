@@ -250,7 +250,12 @@ function toPatchValue(kind: FieldKind, raw: string | boolean): string | number |
   return text === '' ? null : text;
 }
 
-export default function DeliverySettingsForm() {
+interface DeliverySettingsFormProps {
+  /** Strips this component's own card chrome, for use inside a dialog that already provides one. */
+  embedded?: boolean;
+}
+
+export default function DeliverySettingsForm({ embedded = false }: Readonly<DeliverySettingsFormProps> = {}) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<Draft>({});
   const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
@@ -312,7 +317,7 @@ export default function DeliverySettingsForm() {
 
   if (settings.error) {
     return (
-      <SurfaceCard title="Settings">
+      <SurfaceCard title="Settings" embedded={embedded}>
         <Alert severity="error">
           {describeError(settings.error, 'Could not read the delivery settings')}
         </Alert>
@@ -332,7 +337,7 @@ export default function DeliverySettingsForm() {
    */
   if (settings.isPending || !settings.data) {
     return (
-      <SurfaceCard title="Settings" subtitle="Loading the current configuration">
+      <SurfaceCard title="Settings" subtitle="Loading the current configuration" embedded={embedded}>
         <Stack spacing={2}>
           {[0, 1, 2, 3, 4, 5].map((row) => (
             <Skeleton key={row} height={44} />
@@ -346,6 +351,7 @@ export default function DeliverySettingsForm() {
     <SurfaceCard
       title="Settings"
       subtitle="Changed here, in force immediately — no file to edit and no restart"
+      embedded={embedded}
       headerActions={
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           {changedFields.length > 0 && (
@@ -397,18 +403,27 @@ export default function DeliverySettingsForm() {
             </Typography>
             <Divider sx={{ mb: 2 }} />
 
-            <Stack spacing={2}>
+            {/*
+              A flex-wrap row rather than a single column: a narrow field (a port, a
+              facility number) is one third the width of a dialog and a vertical
+              stack of them leaves most of the row empty for every one of them. Full
+              fields (a URL, a select with a long helper, a switch) still claim the
+              whole row — only the fields marked `narrow` share one.
+            */}
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
               {section.fields.map((field) => {
                 const isPinned = pinned.has(field.key);
                 const state = settings.data?.settings[field.key];
-                const pinnedNote = isPinned
-                  ? `Set by ${ENV_NAMES[field.key] ?? 'the environment'} and not editable here.`
-                  : undefined;
-                const helper = [pinnedNote, field.help].filter(Boolean).join(' ');
+                // The pinned chip (with its own tooltip naming the variable) sits next to
+                // every pinned field already, so the helper text only needs to say
+                // whatever is specific to the field, not restate that it is pinned.
+                const helper = field.help;
+                const fullRowSx = { flex: '1 1 100%', minWidth: 0 };
+                const narrowSx = { flex: '0 1 200px', minWidth: 160 };
 
                 if (field.kind === 'switch') {
                   return (
-                    <Box key={field.key}>
+                    <Box key={field.key} sx={fullRowSx}>
                       <FormControlLabel
                         control={
                           <Switch
@@ -438,7 +453,7 @@ export default function DeliverySettingsForm() {
 
                 if (field.kind === 'secret') {
                   return (
-                    <Box key={field.key}>
+                    <Box key={field.key} sx={fullRowSx}>
                       <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
                         <TextField
                           label={field.label}
@@ -481,34 +496,39 @@ export default function DeliverySettingsForm() {
                 const isList = field.kind === 'list';
 
                 return (
-                  <TextField
-                    key={field.key}
-                    label={field.label}
-                    size="small"
-                    select={isSelect}
-                    multiline={isList}
-                    minRows={isList ? 2 : undefined}
-                    type={field.kind === 'number' ? 'number' : 'text'}
-                    fullWidth={!field.narrow}
-                    sx={field.narrow ? { maxWidth: 220 } : undefined}
-                    value={currentValue(field.key, field.kind)}
-                    disabled={isPinned || save.isPending}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, [field.key]: event.target.value }))
-                    }
-                    helperText={helper}
-                    slotProps={isList ? { inputLabel: { shrink: true } } : undefined}
-                  >
-                    {isSelect &&
-                      field.options?.map((option) => (
-                        <MenuItem key={option} value={option}>
-                          {option}
-                        </MenuItem>
-                      ))}
-                  </TextField>
+                  <Box key={field.key} sx={field.narrow ? narrowSx : fullRowSx}>
+                    <TextField
+                      label={field.label}
+                      size="small"
+                      select={isSelect}
+                      multiline={isList}
+                      minRows={isList ? 2 : undefined}
+                      type={field.kind === 'number' ? 'number' : 'text'}
+                      fullWidth
+                      value={currentValue(field.key, field.kind)}
+                      disabled={isPinned || save.isPending}
+                      onChange={(event) =>
+                        setDraft((current) => ({ ...current, [field.key]: event.target.value }))
+                      }
+                      helperText={helper}
+                      slotProps={isList ? { inputLabel: { shrink: true } } : undefined}
+                    >
+                      {isSelect &&
+                        field.options?.map((option) => (
+                          <MenuItem key={option} value={option}>
+                            {option}
+                          </MenuItem>
+                        ))}
+                    </TextField>
+                    {isPinned && (
+                      <Box sx={{ mt: 0.5 }}>
+                        <PinnedChip name={ENV_NAMES[field.key]} />
+                      </Box>
+                    )}
+                  </Box>
                 );
               })}
-            </Stack>
+            </Box>
           </Box>
         ))}
       </Stack>
@@ -519,7 +539,29 @@ export default function DeliverySettingsForm() {
 function PinnedChip({ name }: Readonly<{ name?: string }>) {
   return (
     <Tooltip title={`Set by ${name ?? 'the environment'}. Remove it from api/.env to edit this here.`}>
-      <Chip size="small" variant="outlined" icon={<LockOutlinedIcon />} label={name ?? 'environment'} />
+      {/*
+        Wraps rather than truncates: a narrow field's column is well short of
+        SYSLOG_INCLUDE_EVIDENCE, and a chip that ellipsizes the one thing an admin
+        needs — which line to remove from api/.env — defeats the point of showing it.
+      */}
+      <Chip
+        size="small"
+        variant="outlined"
+        icon={<LockOutlinedIcon sx={{ fontSize: 14 }} />}
+        label={name ?? 'environment'}
+        sx={{
+          height: 'auto',
+          maxWidth: '100%',
+          '& .MuiChip-label': {
+            whiteSpace: 'normal',
+            overflow: 'visible',
+            textOverflow: 'clip',
+            display: 'block',
+            py: 0.4,
+            lineHeight: 1.3,
+          },
+        }}
+      />
     </Tooltip>
   );
 }

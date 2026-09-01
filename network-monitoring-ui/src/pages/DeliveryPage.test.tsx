@@ -76,7 +76,7 @@ describe('DeliveryPage', () => {
 
     renderApp(<DeliveryPage />, { authenticated: true });
     expect(await screen.findByText(/delivery is switched off/i)).toBeInTheDocument();
-    expect(screen.getByText(/Turn on "Deliver alerts" in Settings below/)).toBeInTheDocument();
+    expect(screen.getByText(/Turn on "Deliver alerts" in Settings above/)).toBeInTheDocument();
     expect(screen.getByText(/Syslog is unaffected/)).toBeInTheDocument();
   });
 
