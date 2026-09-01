@@ -1,8 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
 import {
   DELIVERY_DEFAULTS,
   DELIVERY_FIELDS,
@@ -207,51 +204,6 @@ describe('delivery settings resolution', () => {
       assert.deepEqual(settings.emailTo, []);
       assert.equal(Object.keys(settings).length, Object.keys(DELIVERY_FIELDS).length);
     });
-  });
-});
-
-/**
- * The defaults here must not drift from env.ts's own fallbacks.
- *
- * Exactly the failure `env-defaults.test.ts` was written for, in a new place: a
- * second copy of a default is a default that can silently disagree. Compared as text
- * rather than by importing `env`, because importing it reads `process.env`, which is
- * the layer under test.
- */
-describe('delivery defaults match env.ts', () => {
-  const HERE = dirname(fileURLToPath(import.meta.url));
-  const envSource = readFileSync(join(HERE, '..', 'config', 'env.ts'), 'utf8');
-
-  /** `bool('NAME', true)` / `int('NAME', 42)` / `optional('NAME', 'x')` from env.ts. */
-  function envDefaultFor(variable: string): string | undefined {
-    const pattern = new RegExp(`\\b(?:bool|int|optional)\\(\\s*'${variable}'\\s*,\\s*('[^']*'|[^),]*)\\)`);
-    return pattern.exec(envSource)?.[1]?.trim();
-  }
-
-  it('agrees with env.ts wherever env.ts states a default', () => {
-    const checked: string[] = [];
-
-    for (const [field, spec] of Object.entries(DELIVERY_FIELDS)) {
-      const declared = envDefaultFor(spec.env);
-      if (declared === undefined) continue;
-
-      const ours = DELIVERY_DEFAULTS[field as DeliveryField];
-      // env.ts states seconds for the two windows and multiplies by 1000 itself; our
-      // field is named `…Seconds` and holds the same number.
-      const normalised = declared.replace(/^'|'$/g, '');
-      const oursText = Array.isArray(ours) ? '' : String(ours);
-
-      assert.equal(
-        normalised,
-        oursText,
-        `${field} (${spec.env}): env.ts says ${declared}, DELIVERY_DEFAULTS says ${oursText}`,
-      );
-      checked.push(field);
-    }
-
-    // Guards against the regex silently matching nothing and the loop asserting
-    // nothing — the way a comparison test passes while watching an empty set.
-    assert.ok(checked.length > 12, `only ${checked.length} defaults compared: ${checked.join(', ')}`);
   });
 });
 

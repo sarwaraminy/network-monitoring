@@ -30,8 +30,8 @@ import { WEBHOOK_FORMATS, type WebhookFormat } from './types.js';
  * the page rather than leaving it to infer.
  *
  * Kept free of database and `env` imports so the resolution can be tested against
- * plain objects. `env.ts` continues to expose `env.notify` for now; this module is
- * what the notifier will read once it stops reading `env` directly.
+ * plain objects. `env.ts` no longer has a `notify` block at all — the notifier and
+ * the settings service both read this module instead.
  */
 
 /** Where a resolved value came from. */
@@ -129,12 +129,11 @@ export interface DeliverySettings {
 }
 
 /**
- * The code defaults, matching what `env.ts` falls back to today.
- *
- * These must not drift from `env.ts`, so a test compares the two rather than
- * trusting this comment — the same reasoning as `env-defaults.test.ts`, which exists
- * because a hardened default silently undone by a second copy has happened three
- * times in this repository.
+ * The code defaults. `env.ts` no longer declares any of its own — its `notify`
+ * block was dead code once this module and the database took over (nothing read
+ * `env.notify` any more) and, worse, live code that still threw a `TypeError` on
+ * boot for a value this module was specifically built to fall through on. These
+ * are now the only copy, so there is nothing left for them to drift from.
  */
 export const DELIVERY_DEFAULTS: DeliverySettings = {
   enabled: false,
