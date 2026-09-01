@@ -2,7 +2,12 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { notifier, reloadNotifier } from '../notify/notifier.js';
-import { environmentPinnedFields, pinnedConflicts } from '../notify/settings.js';
+import {
+  environmentPinnedFields,
+  isEmailConfigured,
+  isWebhookConfigured,
+  pinnedConflicts,
+} from '../notify/settings.js';
 import {
   currentRedactedSettings,
   currentResolution,
@@ -52,28 +57,23 @@ notifyRouter.get('/status', (_req, res) => {
     // Never the URL itself: it is a bearer secret for Slack and Teams, and this
     // response is readable by any authenticated user.
     //
-    // Trimmed, not bare truthiness: `redactForApi` (settings.ts) uses the same
-    // check for the identical field on GET /settings, and a whitespace-only stored
-    // value must not have this endpoint and that one disagree about whether the
-    // webhook is configured.
-    webhook:
-      settings.webhookUrl.trim() !== ''
-        ? {
-            configured: true,
-            // Honours an explicit format. Reporting the inferred shape while the
-            // channel posts the overridden one is the opposite of what a setup check
-            // is for.
-            format:
-              settings.webhookFormat === 'auto' ? detectFormat(settings.webhookUrl) : settings.webhookFormat,
-          }
-        : { configured: false, format: null },
+    // isWebhookConfigured/isEmailConfigured (settings.ts) are the same predicates
+    // buildChannels (notifier.ts) uses to decide whether a channel exists at all,
+    // and redactForApi uses for the identical fields on GET /settings — sharing
+    // them is what keeps this endpoint from independently drifting from either,
+    // which it has already done once for each field.
+    webhook: isWebhookConfigured(settings)
+      ? {
+          configured: true,
+          // Honours an explicit format. Reporting the inferred shape while the
+          // channel posts the overridden one is the opposite of what a setup check
+          // is for.
+          format:
+            settings.webhookFormat === 'auto' ? detectFormat(settings.webhookUrl) : settings.webhookFormat,
+        }
+      : { configured: false, format: null },
     email: {
-      // The same predicate as EmailChannel.isConfigured(), `from` included. Omitting
-      // it reported `configured: true` beside `channels: []` whenever
-      // NOTIFY_EMAIL_FROM was unset — exactly the misconfigured state this endpoint
-      // exists to reveal.
-      configured:
-        settings.emailHost.trim() !== '' && settings.emailFrom.trim() !== '' && settings.emailTo.length > 0,
+      configured: isEmailConfigured(settings),
       recipients: settings.emailTo.length,
     },
     /*

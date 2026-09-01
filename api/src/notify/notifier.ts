@@ -5,7 +5,7 @@ import type { Finding, Severity } from '../packet/detect/types.js';
 import { BoundedMap } from '../packet/detect/types.js';
 import { EmailChannel } from './email.js';
 import { MAX_LISTED_FINDINGS } from './format.js';
-import type { DeliverySettings } from './settings.js';
+import { type DeliverySettings, isEmailConfigured, isWebhookConfigured } from './settings.js';
 import { currentSettings } from './settings.service.js';
 import { SyslogChannel } from './syslog.js';
 import {
@@ -88,6 +88,12 @@ interface QueuedFinding {
   dedupKey: string;
 }
 
+/** A notifier's throttle and hourly-ceiling history, carried across a reload. */
+interface RateLimitState {
+  lastNotifiedAt: Array<[string, number]>;
+  sentTimestamps: number[];
+}
+
 export class Notifier {
   private readonly channels: NotificationChannel[] = [];
   private readonly lastNotifiedAt = new BoundedMap<string, number>(MAX_THROTTLE_KEYS);
@@ -129,10 +135,29 @@ export class Notifier {
     channels?: NotificationChannel[],
     nowFn: () => number = Date.now,
     settings: DeliverySettings = currentSettings(),
+    // Carried forward across a reload — see reloadNotifier. Not the throttle
+    // window or the hourly ceiling themselves, which come from `settings` and
+    // may just have changed; only the history measured against whatever the
+    // limits were a moment ago.
+    carried?: RateLimitState,
   ) {
     this.settings = settings;
     this.channels = channels ?? buildChannels(settings);
     this.now = nowFn;
+    if (carried) {
+      for (const [key, value] of carried.lastNotifiedAt) this.lastNotifiedAt.set(key, value);
+      this.sentTimestamps.push(...carried.sentTimestamps);
+    }
+  }
+
+  /**
+   * Throttle and hourly-ceiling history, for `reloadNotifier` to pass to the
+   * notifier replacing this one. Copied out rather than handed over live: this
+   * instance is about to be flushed and discarded, and the replacement must not
+   * keep mutating state through a reference into it.
+   */
+  get rateLimitState(): RateLimitState {
+    return { lastNotifiedAt: [...this.lastNotifiedAt.entries()], sentTimestamps: [...this.sentTimestamps] };
   }
 
   /** True when at least one channel could actually deliver. */
@@ -542,14 +567,19 @@ export function buildNotification(
 /**
  * The channels a given set of settings implies.
  *
- * A channel exists only when it could actually deliver, which is why each block has
- * a guard: a webhook with no URL, or an email channel with no recipients, would
- * report itself unconfigured on every send and clutter every status response.
+ * A channel exists only when it could actually deliver, which is why the webhook
+ * and email blocks guard on `isWebhookConfigured`/`isEmailConfigured` (settings.ts)
+ * rather than a hand-written condition: those are the same predicates `GET /status`
+ * uses to report the same fields, and a channel built here whose own
+ * `isConfigured()` disagrees is present in `this.channels` — counted by anything
+ * that iterates it — while permanently unable to send. Syslog has no such shared
+ * predicate; its one condition (a non-blank host) is simple enough that a second
+ * copy has not yet been the problem the other two were.
  */
 export function buildChannels(settings: DeliverySettings): NotificationChannel[] {
   const channels: NotificationChannel[] = [];
 
-  if (settings.webhookUrl !== '') {
+  if (isWebhookConfigured(settings)) {
     channels.push(new WebhookChannel({ url: settings.webhookUrl, format: settings.webhookFormat }));
   }
 
@@ -569,7 +599,7 @@ export function buildChannels(settings: DeliverySettings): NotificationChannel[]
     );
   }
 
-  if (settings.emailHost !== '' && settings.emailTo.length > 0) {
+  if (isEmailConfigured(settings)) {
     channels.push(
       new EmailChannel({
         host: settings.emailHost,
@@ -597,7 +627,7 @@ export function notifier(): Notifier {
 /**
  * Rebuilds the notifier against the settings now in force.
  *
- * Replacing it rather than mutating it, and in this order, because both halves
+ * Replacing it rather than mutating it, and in this order, because three things
  * matter:
  *
  *  - **Flush first.** A settings change must not discard a digest that is already
@@ -606,6 +636,15 @@ export function notifier(): Notifier {
  *  - **Close after.** `EmailChannel` holds a pooled SMTP transport. Building a new
  *    notifier without closing the old one leaks a connection pool per save, and a
  *    form somebody tunes a few times would accumulate them.
+ *  - **Carry the rate-limit history forward.** The hourly ceiling and the
+ *    per-finding throttle are instance state, and a bare `new Notifier()` starts
+ *    both at zero. Without this, saving *any* delivery setting — including one
+ *    with nothing to do with rate limiting, like the syslog app name — reset how
+ *    many notifications had already gone out this hour, silently doubling the
+ *    ceiling for the rest of the window and letting a just-throttled finding
+ *    re-notify immediately. The queue is not carried the same way: it is flushed
+ *    above instead, deliberately, because a queued digest must be sent, not
+ *    replayed against new settings.
  *
  * The syslog channel needs no closing: it opens a socket per send and closes it,
  * deliberately, so there is nothing held between sends.
@@ -615,11 +654,13 @@ export function notifier(): Notifier {
  */
 export async function reloadNotifier(): Promise<void> {
   const previous = instance;
-  // Cleared before awaiting, so anything arriving during the flush builds a fresh
-  // notifier from the new settings rather than joining the one being retired.
-  instance = null;
-
   if (!previous) return;
+
+  // Built now, synchronously, rather than left for notifier()'s next call to
+  // build lazily — so anything arriving during the flush below gets the carried
+  // rate-limit history too, instead of a notifier that thinks nothing has sent
+  // yet this hour.
+  instance = new Notifier(undefined, undefined, currentSettings(), previous.rateLimitState);
 
   try {
     await previous.flush();

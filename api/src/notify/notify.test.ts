@@ -926,9 +926,24 @@ describe('settings drive the notifier', () => {
       notify.buildChannels(settingsWith({ emailHost: 'relay.internal' })).map((c) => c.name),
       [],
     );
+    // Nor is host and recipients without a sender: EmailChannel.isConfigured()
+    // requires all three, and a channel built without emailFrom would exist in
+    // this.channels while being permanently unable to send.
     assert.deepEqual(
       notify
         .buildChannels(settingsWith({ emailHost: 'relay.internal', emailTo: ['ops@example.test'] }))
+        .map((c) => c.name),
+      [],
+    );
+    assert.deepEqual(
+      notify
+        .buildChannels(
+          settingsWith({
+            emailHost: 'relay.internal',
+            emailFrom: 'nmt@example.test',
+            emailTo: ['ops@example.test'],
+          }),
+        )
         .map((c) => c.name),
       ['email'],
     );
@@ -967,6 +982,43 @@ describe('reloading the notifier', () => {
     assert.equal(channel.sent.length, 1, 'the queued digest was dropped instead of flushed');
 
     notify.setNotifierForTesting(null);
+  });
+
+  it('carries the hourly count forward into the notifier that replaces it', async () => {
+    // reloadNotifier rebuilds against currentSettings() and real buildChannels(),
+    // not an injected test channel — so a real (if fake) webhook URL is needed for
+    // the replacement to be `active` at all. NOTIFY_MAX_PER_HOUR is 3 for this
+    // whole file (see the top-level `before`). A bare `new Notifier()` starts
+    // sentTimestamps at zero, which would let three more through right after any
+    // unrelated settings save doubled the ceiling for the rest of the hour.
+    process.env.NOTIFY_WEBHOOK_URL = 'https://example.test/webhook';
+    try {
+      const channel = new RecordingChannel();
+      const original = new notify.Notifier([channel], undefined, {
+        ...settings.DELIVERY_DEFAULTS,
+        enabled: true,
+        maxPerHour: 3,
+      });
+      notify.setNotifierForTesting(original);
+
+      for (const key of ['a', 'b', 'c']) {
+        assert.equal(original.consider(finding({ dedupKey: key }), 1, AT, AT), 'queued');
+        await original.flush();
+      }
+      assert.equal(original.consider(finding({ dedupKey: 'd' }), 1, AT, AT), 'rate-limited');
+
+      await notify.reloadNotifier();
+
+      assert.equal(
+        notify.notifier().consider(finding({ dedupKey: 'e' }), 1, AT, AT),
+        'rate-limited',
+        'the replacement notifier started counting from zero instead of carrying the history forward',
+      );
+
+      notify.setNotifierForTesting(null);
+    } finally {
+      delete process.env.NOTIFY_WEBHOOK_URL;
+    }
   });
 
   it('closes what the old channels held', async () => {
