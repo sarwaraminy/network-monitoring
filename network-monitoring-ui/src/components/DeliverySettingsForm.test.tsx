@@ -280,6 +280,39 @@ describe('DeliverySettingsForm', () => {
     expect(screen.getByText(/1 unsaved/i)).toBeInTheDocument();
   });
 
+  it('explains why nothing was saved when every changed field turned out to be pinned', async () => {
+    // Reachable without a real race: a background refetch (a window focus, a
+    // poll) can mark a field pinned between typing into it and clicking Save.
+    // Silently doing nothing would look identical to the request having hung —
+    // the button stays enabled and "1 unsaved" keeps showing.
+    let putCalled = false;
+    server.use(
+      http.put('/api/notify/settings', () => {
+        putCalled = true;
+        return HttpResponse.json(DELIVERY_SETTINGS);
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { client } = renderApp(<DeliverySettingsForm />, { authenticated: true });
+
+    await user.clear(await screen.findByLabelText(/app name/i));
+    await user.type(screen.getByLabelText(/app name/i), 'sensor-1');
+    expect(screen.getByText(/1 unsaved/i)).toBeInTheDocument();
+
+    // Stands in for the field becoming pinned mid-edit, as a real refetch would.
+    client.setQueryData(['notify', 'settings'], {
+      ...DELIVERY_SETTINGS,
+      pinnedByEnvironment: [...DELIVERY_SETTINGS.pinnedByEnvironment, 'syslogAppName'],
+    });
+    await screen.findByText('SYSLOG_APP_NAME');
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    expect(await screen.findByText(/every changed field is now set in the environment/i)).toBeInTheDocument();
+    expect(putCalled).toBe(false);
+  });
+
   it('clears recipients to null rather than an empty list, so the environment can take over again', async () => {
     // An empty list is a different, explicit statement from "unset" — permanently
     // no recipients, rather than falling back to whatever NOTIFY_EMAIL_TO says.

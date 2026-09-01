@@ -322,7 +322,18 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
       if (!def || pinned.has(key)) continue;
       patch[key] = toPatchValue(def.kind, draft[key]!);
     }
-    if (Object.keys(patch).length > 0) save.mutate(patch);
+    if (Object.keys(patch).length > 0) {
+      save.mutate(patch);
+      return;
+    }
+    // Reachable: a background refetch can mark a field pinned between typing
+    // into it and clicking Save. Silently doing nothing here would look
+    // identical to the request having hung — the button is enabled, "N unsaved"
+    // is still showing, and nothing else on screen changes.
+    setMessage({
+      severity: 'error',
+      text: 'Every changed field is now set in the environment and cannot be saved. Discard to clear these edits.',
+    });
   };
 
   const clearSecret = (key: string) => {
