@@ -51,16 +51,22 @@ notifyRouter.get('/status', (_req, res) => {
     throttledKeys: stats.throttleKeys,
     // Never the URL itself: it is a bearer secret for Slack and Teams, and this
     // response is readable by any authenticated user.
-    webhook: settings.webhookUrl
-      ? {
-          configured: true,
-          // Honours an explicit format. Reporting the inferred shape while the
-          // channel posts the overridden one is the opposite of what a setup check
-          // is for.
-          format:
-            settings.webhookFormat === 'auto' ? detectFormat(settings.webhookUrl) : settings.webhookFormat,
-        }
-      : { configured: false, format: null },
+    //
+    // Trimmed, not bare truthiness: `redactForApi` (settings.ts) uses the same
+    // check for the identical field on GET /settings, and a whitespace-only stored
+    // value must not have this endpoint and that one disagree about whether the
+    // webhook is configured.
+    webhook:
+      settings.webhookUrl.trim() !== ''
+        ? {
+            configured: true,
+            // Honours an explicit format. Reporting the inferred shape while the
+            // channel posts the overridden one is the opposite of what a setup check
+            // is for.
+            format:
+              settings.webhookFormat === 'auto' ? detectFormat(settings.webhookUrl) : settings.webhookFormat,
+          }
+        : { configured: false, format: null },
     email: {
       // The same predicate as EmailChannel.isConfigured(), `from` included. Omitting
       // it reported `configured: true` beside `channels: []` whenever
