@@ -250,4 +250,70 @@ describe('DeliverySettingsForm', () => {
     await waitFor(() => expect(body).not.toBeNull());
     expect(body).toEqual({ emailTo: ['ops@example.test', 'oncall@example.test'] });
   });
+
+  it('clearing a secret does not discard an unrelated unsaved edit', async () => {
+    // clearSecret fires its own save, immediately, separately from the Save
+    // changes button. Its success must only claim the field it actually sent —
+    // not silently drop whatever else was sitting typed-but-unsaved in the form.
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      http.put('/api/notify/settings', async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(DELIVERY_SETTINGS);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<DeliverySettingsForm />, { authenticated: true });
+
+    await user.clear(await screen.findByLabelText(/app name/i));
+    await user.type(screen.getByLabelText(/app name/i), 'sensor-1');
+    expect(screen.getByText(/1 unsaved/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /clear/i }));
+
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(body).toEqual({ webhookUrl: null });
+    // The unrelated edit is still there, and still marked unsaved — not wiped by
+    // a success message that belongs to the webhook field alone.
+    expect(screen.getByLabelText(/app name/i)).toHaveValue('sensor-1');
+    expect(screen.getByText(/1 unsaved/i)).toBeInTheDocument();
+  });
+
+  it('clears recipients to null rather than an empty list, so the environment can take over again', async () => {
+    // An empty list is a different, explicit statement from "unset" — permanently
+    // no recipients, rather than falling back to whatever NOTIFY_EMAIL_TO says.
+    // Every other field kind already maps an emptied box to null; this is the
+    // same contract for the one field kind that is a list rather than a scalar.
+    server.use(
+      http.get('/api/notify/settings', () =>
+        HttpResponse.json({
+          ...DELIVERY_SETTINGS,
+          settings: {
+            ...DELIVERY_SETTINGS.settings,
+            emailTo: { source: 'database', value: ['ops@example.test'] },
+          },
+        }),
+      ),
+    );
+
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      http.put('/api/notify/settings', async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(DELIVERY_SETTINGS);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<DeliverySettingsForm />, { authenticated: true });
+
+    const recipients = await screen.findByLabelText(/recipients/i);
+    expect(recipients).toHaveValue('ops@example.test');
+    await user.clear(recipients);
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(body).toEqual({ emailTo: null });
+  });
 });

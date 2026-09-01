@@ -240,10 +240,16 @@ function toPatchValue(kind: FieldKind, raw: string | boolean): string | number |
   if (kind === 'switch') return raw === true;
   const text = String(raw).trim();
   if (kind === 'list') {
-    return text
+    const list = text
       .split(/[\n,]/)
       .map((entry) => entry.trim())
       .filter((entry) => entry !== '');
+    // An empty box means the same thing here as an emptied text field: unset, so
+    // the field falls back to the environment or the default. An empty array is a
+    // different, explicit statement — no recipients, permanently — and returning
+    // one for a blank box would mean recipients can never be handed back to
+    // whatever NOTIFY_EMAIL_TO says once they have been set through this page.
+    return list.length === 0 ? null : list;
   }
   if (kind === 'number') return text === '' ? null : Number(text);
   // A text field emptied means "clear it", which the API spells as null.
@@ -278,12 +284,20 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
 
   const save = useMutation({
     mutationFn: (patch: DeliverySettingsPatch) => saveDeliverySettings(patch),
-    onSuccess: (updated: DeliverySettingsResponse) => {
+    onSuccess: (updated: DeliverySettingsResponse, patch) => {
       queryClient.setQueryData(['notify', 'settings'], updated);
       // The status card reads the same settings, so it is stale the moment this
       // returns — and it is the card people look at to decide whether delivery works.
       void queryClient.invalidateQueries({ queryKey: ['notify', 'status'] });
-      setDraft({});
+      // Only the keys this call actually sent, not the whole draft. clearSecret
+      // reuses this same mutation to send a single field — wiping every other
+      // unsaved edit sitting in draft would report "saved" for changes that were
+      // never part of the request.
+      setDraft((current) => {
+        const next = { ...current };
+        for (const key of Object.keys(patch)) delete next[key];
+        return next;
+      });
       setMessage({ severity: 'success', text: 'Saved. The change is already in force — no restart needed.' });
     },
     onError: (error) => {

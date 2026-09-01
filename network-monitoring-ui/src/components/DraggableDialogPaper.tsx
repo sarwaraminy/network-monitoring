@@ -17,9 +17,13 @@ export default function DraggableDialogPaper(props: Readonly<PaperProps>) {
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     // Only the primary button drags, and only from within the marked handle — a
     // mousedown on a title-bar button (e.g. Close) must reach that button, not
-    // start a drag underneath it.
+    // start a drag underneath it. The Close button is a DESCENDANT of the marked
+    // handle (the title bar), so `closest('[data-drag-handle]')` alone finds it
+    // too, from a mousedown anywhere on the button or its icon — excluding any
+    // interactive element explicitly is what actually keeps it clickable.
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
+    if (target.closest('button, a, input, textarea, select')) return;
     if (!target.closest('[data-drag-handle]')) return;
 
     drag.current = { startX: event.clientX, startY: event.clientY, originX: offset.x, originY: offset.y };
