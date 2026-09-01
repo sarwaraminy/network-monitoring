@@ -221,10 +221,18 @@ export const suppressionPreviewSchema = z
  * back would mean the form could not save anything else without retyping the
  * webhook URL.
  *
- * Bounds here are deliberately the same as the CHECK constraints in
- * V7__Delivery_settings.sql. Two copies of a bound can drift, so the tests compare
- * a rejection at this layer against a rejection at that one rather than trusting
- * that they agree.
+ * Lower bounds here are deliberately the same as the CHECK constraints in
+ * V7__Delivery_settings.sql, and the tests compare a rejection at this layer
+ * against a rejection at that one rather than trusting that they agree.
+ *
+ * The upper bounds on `digestSeconds`, `throttleSeconds` and `maxPerHour` are NOT
+ * shared with a CHECK constraint — the database accepts any value up to its
+ * INTEGER range for those three, only this form caps them. That is a deliberate
+ * sanity ceiling on what a person can type into a box, not a mirrored constraint,
+ * and the gap is real: a legacy environment value above it (`NOTIFY_MAX_PER_HOUR=
+ * 5000`, say) still seeds into the row — env.ts never enforced these fields either
+ * — and stays in force from there, reachable only that way, never through this
+ * schema.
  */
 const nullableTrimmed = (max: number) => z.string().trim().max(max).nullable().optional();
 

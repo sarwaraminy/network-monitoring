@@ -186,8 +186,10 @@ export type StoredDeliverySettings = Partial<Record<DeliveryField, unknown>>;
  * instead of taking the process down. That direction matters: the alternative is a
  * server that will not boot because somebody typed `NOTIFY_MAX_PER_HOUR=lots`.
  *
- * The exception is a *booted* value that env.ts already validates and throws on —
- * the enums — where env.ts remains the loud check. Here they are simply refused.
+ * Enums included. `env.ts` used to throw a loud `TypeError` on an invalid one —
+ * exactly the boot-crashing failure mode this module exists to avoid — and no
+ * longer has an opinion at all: its `notify` block is gone. This is the only check
+ * left, and it fails soft like everything else here.
  */
 export function parseFieldValue(field: DeliveryField, raw: unknown): unknown {
   if (raw === null || raw === undefined) return undefined;
