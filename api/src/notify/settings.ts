@@ -199,9 +199,14 @@ export function parseFieldValue(field: DeliveryField, raw: unknown): unknown {
     case 'boolean': {
       if (typeof raw === 'boolean') return raw;
       const text = String(raw).trim().toLowerCase();
-      if (['true', '1', 'yes', 'on'].includes(text)) return true;
-      if (['false', '0', 'no', 'off'].includes(text)) return false;
-      return undefined;
+      // Never falls through to undefined, unlike every other kind here. env.ts's
+      // old bool() treated any non-blank, unrecognized value as false — not as
+      // unset — so a legacy NOTIFY_INCLUDE_EVIDENCE=maybe must keep resolving to
+      // false rather than silently falling through to this field's default
+      // (true), which is a behavior flip for every boolean field that defaults
+      // to true. Same reasoning as the integer case above: a legacy value keeps
+      // behaving exactly as it did before this table existed.
+      return ['true', '1', 'yes', 'on'].includes(text);
     }
     case 'integer': {
       if (typeof raw !== 'number' && String(raw).trim() === '') return undefined;
@@ -310,6 +315,32 @@ export function environmentPinnedFields(resolution: DeliveryResolution): Deliver
 }
 
 /**
+ * Environment variables that are set but do not parse, named by the variable
+ * rather than the field — an operator fixes this by editing `api/.env`, not by
+ * knowing this module's internal field name.
+ *
+ * `resolveDeliverySettings` treats a rejection here as "this layer has no
+ * opinion" and falls through to the stored or default value, deliberately —
+ * see `parseFieldValue`'s docblock. Deliberately-not-an-error is not the same as
+ * invisible, though: env.ts's old behaviour for these same values was a loud
+ * boot-time crash, which at least told somebody. The caller logs this list once
+ * so a legacy or mistyped variable like `NOTIFY_MIN_SEVERITY=critial` leaves a
+ * trace instead of silently doing nothing.
+ */
+export function invalidEnvironmentVariables(environmentSource: Record<string, string | undefined>): string[] {
+  const invalid: string[] = [];
+
+  for (const field of Object.keys(DELIVERY_FIELDS) as DeliveryField[]) {
+    const spec = DELIVERY_FIELDS[field];
+    const raw = environmentSource[spec.env];
+    if (raw === undefined || raw.trim() === '') continue;
+    if (parseFieldValue(field, raw) === undefined) invalid.push(spec.env);
+  }
+
+  return invalid;
+}
+
+/**
  * Fields in a patch that the environment has pinned, which cannot be stored.
  *
  * Pure and exported so the refusal has a test. Storing such a field would be
@@ -357,4 +388,24 @@ export function redactForApi(resolution: DeliveryResolution): Record<string, Red
   }
 
   return out;
+}
+
+/**
+ * Whether the resolved settings could actually deliver over the webhook or email
+ * channel, ahead of anything actually building one.
+ *
+ * `buildChannels` (notifier.ts) and `GET /status` (notify.routes.ts) both have to
+ * answer this before either a `NotificationChannel` or a status response exists,
+ * and each channel's own `isConfigured()` answers the same question about a
+ * channel already built from these same fields — three call sites that have
+ * drifted from each other twice now (a whitespace-only webhook URL, then a blank
+ * `emailFrom`), always the same way: one of the three re-typed the condition
+ * slightly short. Callers should use these rather than a fourth copy.
+ */
+export function isWebhookConfigured(settings: DeliverySettings): boolean {
+  return settings.webhookUrl.trim() !== '';
+}
+
+export function isEmailConfigured(settings: DeliverySettings): boolean {
+  return settings.emailHost.trim() !== '' && settings.emailFrom.trim() !== '' && settings.emailTo.length > 0;
 }

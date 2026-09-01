@@ -8,6 +8,7 @@ import {
   type DeliveryResolution,
   type DeliverySettings,
   effectiveSettings,
+  invalidEnvironmentVariables,
   isSecretField,
   type RedactedField,
   redactForApi,
@@ -64,6 +65,18 @@ export async function loadDeliverySettings(): Promise<DeliverySettings> {
     const stored = await readRow();
     cached = resolveDeliverySettings(process.env, stored);
     log.debug('Delivery settings loaded');
+
+    // A rejection here is deliberately not fatal — see parseFieldValue's
+    // docblock — but env.ts's crash-on-boot behaviour for the same bad values
+    // at least left a trace. This is what replaces it: not a crash, but not
+    // silence either.
+    const invalid = invalidEnvironmentVariables(process.env);
+    if (invalid.length > 0) {
+      log.warn(
+        { variables: invalid },
+        'These environment variables do not parse and are being ignored; using the stored or default value instead',
+      );
+    }
   } catch (error) {
     // Keep whatever was already in force. A database blip must not silently switch
     // delivery off, and it must not switch it *on* either — the previous answer is
@@ -151,7 +164,20 @@ export async function seedFromEnvironment(): Promise<DeliveryField[]> {
         updatedBy: 'environment (first boot)',
       } as Partial<NewDeliverySettingsRow>;
       try {
-        await db.update(deliverySettings).set(values).where(eq(deliverySettings.id, ROW_ID));
+        const result = await db.update(deliverySettings).set(values).where(eq(deliverySettings.id, ROW_ID));
+        // The migration's own seed insert is what's supposed to guarantee this
+        // row exists, but that is a different code path (SQL migration, not
+        // this one) — an install that reached the schema some other way (a
+        // push rather than a migration run, or a hand-deleted row) would have
+        // this UPDATE match nothing, throw nothing, and fall straight through
+        // to "seeded" below, logging success for a write that never happened.
+        if (result.rowCount === 0) {
+          log.warn(
+            { field },
+            'No delivery_settings row to update; the environment still applies, but nothing was persisted',
+          );
+          continue;
+        }
         applied.push(field);
       } catch (error) {
         log.warn(

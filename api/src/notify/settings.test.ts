@@ -6,6 +6,7 @@ import {
   type DeliveryField,
   effectiveSettings,
   environmentPinnedFields,
+  invalidEnvironmentVariables,
   isSecretField,
   parseFieldValue,
   pinnedConflicts,
@@ -164,7 +165,10 @@ describe('delivery settings resolution', () => {
       for (const no of ['false', '0', 'no', 'off', false]) {
         assert.equal(parseFieldValue('enabled', no), false, String(no));
       }
-      assert.equal(parseFieldValue('enabled', 'perhaps'), undefined);
+      // Not undefined: env.ts's old bool() treated any unrecognized, non-blank
+      // value as false, and a legacy typo must keep resolving that way rather
+      // than falling through to a default that might be true.
+      assert.equal(parseFieldValue('enabled', 'perhaps'), false);
     });
 
     it('refuses a fractional integer, but not a negative one', () => {
@@ -237,5 +241,38 @@ describe('refusing to store what the environment pins', () => {
     // safe on its own rather than dependent on that ordering.
     const resolution = resolveDeliverySettings({ NOTIFY_ENABLED: 'true' }, {});
     assert.deepEqual(pinnedConflicts({ nonsense: 1 }, resolution), []);
+  });
+});
+
+describe('naming a bad environment value rather than silently ignoring it', () => {
+  it('names the variable, not the field, since that is what an operator edits', () => {
+    assert.deepEqual(invalidEnvironmentVariables({ NOTIFY_MIN_SEVERITY: 'critial' }), [
+      'NOTIFY_MIN_SEVERITY',
+    ]);
+    assert.deepEqual(invalidEnvironmentVariables({ NOTIFY_MAX_PER_HOUR: 'lots' }), ['NOTIFY_MAX_PER_HOUR']);
+  });
+
+  it('says nothing about a variable that is unset, blank, or parses fine', () => {
+    assert.deepEqual(
+      invalidEnvironmentVariables({
+        NOTIFY_MIN_SEVERITY: 'high',
+        NOTIFY_DIGEST_SECONDS: '',
+        SYSLOG_PORT: undefined,
+      }),
+      [],
+    );
+  });
+
+  it('lists every bad one, not just the first', () => {
+    assert.deepEqual(
+      invalidEnvironmentVariables({ NOTIFY_MIN_SEVERITY: 'critial', NOTIFY_MAX_PER_HOUR: 'lots' }).sort(),
+      ['NOTIFY_MAX_PER_HOUR', 'NOTIFY_MIN_SEVERITY'],
+    );
+  });
+
+  it('never flags a boolean: an unrecognized string still parses, to false', () => {
+    // See parseFieldValue's boolean case — this is the one kind that never falls
+    // through, matching the legacy parser it replaces.
+    assert.deepEqual(invalidEnvironmentVariables({ NOTIFY_INCLUDE_EVIDENCE: 'maybe' }), []);
   });
 });
