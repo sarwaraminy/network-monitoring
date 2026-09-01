@@ -136,20 +136,43 @@ export async function seedFromEnvironment(): Promise<DeliveryField[]> {
 
     if (seeded.length === 0) return [];
 
-    const typed = patch as Partial<NewDeliverySettingsRow>;
-    await db
-      .insert(deliverySettings)
-      .values({ id: ROW_ID, ...typed, updatedBy: 'environment (first boot)' })
-      .onConflictDoUpdate({ target: deliverySettings.id, set: typed });
+    // One UPDATE per field rather than a single batched statement. The parser above
+    // is deliberately as lenient as the env.ts parser it replaces — a legacy value
+    // like a negative NOTIFY_MAX_PER_HOUR still resolves as 'environment' and still
+    // takes effect — but the row's CHECK constraints are tighter (max_per_hour >= 1,
+    // ports in range, and so on). A single value tripping a constraint must not cost
+    // every other field this boot was meant to preserve, and it already had: this
+    // used to be one insert covering the whole patch, so one bad legacy value threw
+    // and silently dropped the rest.
+    const applied: DeliveryField[] = [];
+    for (const field of seeded) {
+      const values = {
+        [field]: patch[field],
+        updatedBy: 'environment (first boot)',
+      } as Partial<NewDeliverySettingsRow>;
+      try {
+        await db.update(deliverySettings).set(values).where(eq(deliverySettings.id, ROW_ID));
+        applied.push(field);
+      } catch (error) {
+        log.warn(
+          { field, err: error },
+          'Environment value for this field violates the stored settings constraints; the environment still applies, but the row does not remember it',
+        );
+      }
+    }
+    seeded.length = 0;
+    seeded.push(...applied);
 
-    log.info(
-      // Field names only. The values include a webhook URL and an SMTP password.
-      {
-        fields: seeded.filter((field) => !isSecretField(field)),
-        secrets: seeded.filter(isSecretField).length,
-      },
-      'Seeded delivery settings from the environment',
-    );
+    if (seeded.length > 0) {
+      log.info(
+        // Field names only. The values include a webhook URL and an SMTP password.
+        {
+          fields: seeded.filter((field) => !isSecretField(field)),
+          secrets: seeded.filter(isSecretField).length,
+        },
+        'Seeded delivery settings from the environment',
+      );
+    }
   } catch (error) {
     log.error({ err: error }, 'Could not seed delivery settings from the environment');
   }

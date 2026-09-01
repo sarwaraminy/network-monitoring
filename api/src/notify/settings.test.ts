@@ -170,11 +170,15 @@ describe('delivery settings resolution', () => {
       assert.equal(parseFieldValue('enabled', 'perhaps'), undefined);
     });
 
-    it('refuses a negative or fractional integer', () => {
+    it('refuses a fractional integer, but not a negative one', () => {
       assert.equal(parseFieldValue('maxPerHour', '12'), 12);
-      assert.equal(parseFieldValue('maxPerHour', -1), undefined);
       assert.equal(parseFieldValue('maxPerHour', 1.5), undefined);
       assert.equal(parseFieldValue('maxPerHour', ''), undefined);
+      // As lenient as the env.ts parser it replaces: a legacy NOTIFY_MAX_PER_HOUR=-1
+      // muted every notification (count >= ceiling is always true for a negative
+      // ceiling) and must keep doing so. The database's CHECK constraint is what
+      // stops a negative value from being stored; this layer only checks shape.
+      assert.equal(parseFieldValue('maxPerHour', -1), -1);
     });
 
     it('refuses an enum value outside the closed set', () => {

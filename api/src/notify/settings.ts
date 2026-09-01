@@ -205,7 +205,14 @@ export function parseFieldValue(field: DeliveryField, raw: unknown): unknown {
     case 'integer': {
       if (typeof raw !== 'number' && String(raw).trim() === '') return undefined;
       const value = typeof raw === 'number' ? raw : Number(String(raw).trim());
-      if (!Number.isInteger(value) || value < 0) return undefined;
+      // Only the shape is checked here, matching the leniency of the env.ts parser
+      // this replaces: it rejected a non-number, never a negative one. A legacy
+      // value such as NOTIFY_MAX_PER_HOUR=-1 (which made the hourly ceiling check
+      // always true, muting delivery) must keep behaving exactly as it did before
+      // this table existed. The database's CHECK constraints are the actual bound
+      // for anything that gets stored — see seedFromEnvironment in
+      // settings.service.ts — and the Zod schema is the bound for the form.
+      if (!Number.isInteger(value)) return undefined;
       return value;
     }
     case 'enum': {
