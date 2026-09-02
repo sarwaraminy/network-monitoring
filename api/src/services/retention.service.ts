@@ -41,6 +41,9 @@ export interface SweepResult {
   skipped: boolean;
 }
 
+/** What `rollUpExpiredAlerts` contributes to a sweep. */
+type RollupTotals = Pick<SweepResult, 'alertsDeleted' | 'bucketsWritten' | 'daysProcessed'>;
+
 const EMPTY: SweepResult = {
   alertsDeleted: 0,
   bucketsWritten: 0,
@@ -66,7 +69,10 @@ export async function sweepRetention(now = Date.now()): Promise<SweepResult> {
   const result: SweepResult = { ...EMPTY };
 
   try {
-    result.daysProcessed = await rollUpExpiredAlerts(cutoffFor(env.retention.alertDays, now), result);
+    const rolled = await rollUpExpiredAlerts(cutoffFor(env.retention.alertDays, now));
+    result.daysProcessed = rolled.daysProcessed;
+    result.alertsDeleted = rolled.alertsDeleted;
+    result.bucketsWritten = rolled.bucketsWritten;
     result.devicesForgotten = await forgetStaleDevices(cutoffFor(env.retention.deviceDays, now));
 
     if (result.alertsDeleted > 0 || result.devicesForgotten > 0) {
@@ -107,17 +113,23 @@ export async function sweepRetention(now = Date.now()): Promise<SweepResult> {
  *    seven-day floor that is a seventh of the window. Both statements now also require
  *    `last_seen < cutoff`, so a partially expired day loses only its expired half and
  *    the additive ON CONFLICT folds the rest in when it expires later.
+ *
+ * Row counts leave the transaction as its return value rather than being added to a
+ * shared total from inside the callback. `db.transaction` resolves only after COMMIT,
+ * so a day whose commit failed contributes nothing by construction — where the first
+ * version added the counts before COMMIT and then reported rolled-back deletions as
+ * done, one log line saying the day was untouched and the next counting its rows.
  */
-async function rollUpExpiredAlerts(cutoff: Date, result: SweepResult): Promise<number> {
+async function rollUpExpiredAlerts(cutoff: Date): Promise<RollupTotals> {
   const days = await expiredDays(cutoff);
-  if (days.length === 0) return 0;
+  if (days.length === 0) return { daysProcessed: 0, alertsDeleted: 0, bucketsWritten: 0 };
 
   log.info({ days: days.length, oldest: days[0], cutoff: cutoff.toISOString() }, 'Rolling up expired alerts');
 
-  let processed = 0;
+  const totals: RollupTotals = { daysProcessed: 0, alertsDeleted: 0, bucketsWritten: 0 };
   for (const day of days) {
     try {
-      await db.transaction(async (tx) => {
+      const committed = await db.transaction(async (tx) => {
         /*
          * One statement: aggregate the day's rows and write the buckets.
          *
@@ -155,17 +167,23 @@ async function rollUpExpiredAlerts(cutoff: Date, result: SweepResult): Promise<n
             rolled_up_at = now()
         `);
 
-        const deleted = await tx.execute(sql`
+        const removed = await tx.execute(sql`
           DELETE FROM ${alerts}
           WHERE ${alerts.lastSeen} >= (${day}::date::timestamp AT TIME ZONE 'UTC')
             AND ${alerts.lastSeen} < ((${day}::date + 1)::timestamp AT TIME ZONE 'UTC')
             AND ${alerts.lastSeen} < ${cutoff}
         `);
 
-        result.bucketsWritten += Number(written.rowCount ?? 0);
-        result.alertsDeleted += Number(deleted.rowCount ?? 0);
+        return {
+          bucketsWritten: Number(written.rowCount ?? 0),
+          alertsDeleted: Number(removed.rowCount ?? 0),
+        };
       });
-      processed += 1;
+
+      // Past COMMIT: these rows are really gone and really rolled up.
+      totals.bucketsWritten += committed.bucketsWritten;
+      totals.alertsDeleted += committed.alertsDeleted;
+      totals.daysProcessed += 1;
     } catch (error) {
       // One bad day does not cost the others. Logged with the day so it can be
       // investigated rather than silently retried for ever.
@@ -173,7 +191,7 @@ async function rollUpExpiredAlerts(cutoff: Date, result: SweepResult): Promise<n
     }
   }
 
-  return processed;
+  return totals;
 }
 
 /** The distinct UTC days entirely older than the cutoff, oldest first. */
@@ -196,6 +214,14 @@ async function expiredDays(cutoff: Date): Promise<string[]> {
  * as new. That is the same trade `DELETE /api/alerts/devices/:mac` already makes on
  * purpose, and after a year of absence "this appeared on the network" is arguably true
  * again.
+ *
+ * That justification rests entirely on `last_seen` measuring absence, which it did not
+ * when this was written: new-device detection returns early for a MAC it already knows,
+ * so the only writer of the column ran on discovery and it meant "first inserted". This
+ * would then have deleted every device recorded on install day a year later however
+ * continuously it had been present, and the next capture would have re-alerted the whole
+ * network. `NewDeviceDetector` now reports sightings of known devices too — see
+ * TOUCH_INTERVAL_MS there — so the column means what its name says.
  */
 async function forgetStaleDevices(cutoff: Date): Promise<number> {
   const deleted = await db
@@ -215,15 +241,20 @@ async function forgetStaleDevices(cutoff: Date): Promise<number> {
 
 // --- Scheduling ---
 
+/**
+ * How long after start the first sweep runs.
+ *
+ * Startup is already doing migrations, feed loading and socket binding, and a pass
+ * over a large table competes with all of it for no benefit: nothing expires in the
+ * first minute that would not still be expired a minute later.
+ */
+const BOOTSTRAP_DELAY_MS = 60_000;
+
 let timer: NodeJS.Timeout | null = null;
+let firstSweep: NodeJS.Timeout | null = null;
 
 /**
- * Starts the periodic sweep.
- *
- * The first sweep runs on a delay rather than at boot. Startup is already doing
- * migrations, feed loading and socket binding, and a retention pass over a large table
- * competes with all of it for no benefit — nothing expires in the first minute that
- * would not still be expired a minute later.
+ * Starts the periodic sweep, after `BOOTSTRAP_DELAY_MS`.
  *
  * Returns whether it scheduled anything, which is not decoration. The timer is
  * `unref`'d so that it can never hold the process open, and a consequence of that is
@@ -247,8 +278,11 @@ export function startRetention(): boolean {
   // Never the reason a process refuses to exit.
   timer.unref();
 
-  const first = setTimeout(() => void sweepRetention(), 60_000);
-  first.unref();
+  firstSweep = setTimeout(() => {
+    firstSweep = null;
+    void sweepRetention();
+  }, BOOTSTRAP_DELAY_MS);
+  firstSweep.unref();
 
   log.info(
     {
@@ -262,8 +296,29 @@ export function startRetention(): boolean {
   return true;
 }
 
-export function stopRetention(): void {
-  if (!timer) return;
-  clearInterval(timer);
-  timer = null;
+/**
+ * Cancels everything scheduled, and returns how many handles that was.
+ *
+ * Both handles, which is the whole point of the count. The first version cleared only
+ * the interval, so a shutdown inside the bootstrap delay let a sweep start *after*
+ * `closeDb()`, and a stop/start cycle armed a second bootstrap timeout while the
+ * first was still pending — two concurrent sweeps. Neither is visible from outside:
+ * the handles are `unref`'d, so they never appear in `getActiveResourcesInfo()` and a
+ * test counting the process's resources would pass with the miss still there.
+ */
+export function stopRetention(): number {
+  let cancelled = 0;
+
+  if (firstSweep) {
+    clearTimeout(firstSweep);
+    firstSweep = null;
+    cancelled += 1;
+  }
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+    cancelled += 1;
+  }
+
+  return cancelled;
 }

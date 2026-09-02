@@ -657,6 +657,15 @@ only thing pruning changes is that a returning device is reported as **new**. Th
 trade `DELETE /api/alerts/devices/:mac` already makes on purpose, and after a year of absence
 "this appeared on the network" is arguably true again.
 
+**Absence is what has to be measured, and originally it was not.** New-device detection returns
+early for a MAC it already knows — that is the whole point of it — so the only code that ever
+wrote `known_devices.last_seen` ran on discovery, and the column meant "first inserted". Pruning
+on it would have deleted every device recorded on install day exactly a year later *however
+continuously it had been on the LAN*, and the next capture would have re-alerted the whole
+network at once. The detector now reports sightings of known devices too, at most one per device
+per quarter of an hour — a write per frame for a column read in days would be absurd, and
+fifteen minutes of staleness costs nothing against a 365-day window.
+
 Buckets are UTC days, explicitly. `date_trunc('day', ts)` uses the session's `TimeZone`, which
 would make the same data roll up differently on two servers — on a machine set to `Asia/Kabul`
 a finding at 22:30Z lands in the *next* day. Both the bucket expression and the range bounds
@@ -779,8 +788,8 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 537 tests
-npm run test:api  # 427 API tests
+npm test          # both suites: 558 tests
+npm run test:api  # 448 API tests
 npm run test:ui   # 110 UI tests
 ```
 

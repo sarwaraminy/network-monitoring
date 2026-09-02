@@ -109,7 +109,11 @@ async function main(): Promise<void> {
       // findings without ever storing one — the case where a rule is doing all
       // of the work and its match count is the only evidence of it.
       await flushSuppressionCounters();
-      stopRetention();
+      // Before closeDb, and the count is logged rather than discarded: this cancels
+      // both the interval and the pending first sweep, and the version that cleared
+      // only the interval let a sweep start against a closed pool.
+      const cancelledSweeps = stopRetention();
+      if (cancelledSweeps > 0) log.debug({ cancelledSweeps }, 'Cancelled scheduled retention sweeps');
       stopIntel();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await closeDb();

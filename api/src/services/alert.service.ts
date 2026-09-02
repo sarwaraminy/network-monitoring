@@ -5,6 +5,7 @@ import { type AlertRow, alertRollupDaily, alerts } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
 import { notifier } from '../notify/notifier.js';
 import { type Finding, SEVERITY_RANK, type Severity } from '../packet/detect/types.js';
+import { firstWholeUtcDay, utcTrunc } from './alert-buckets.js';
 import {
   countSuppressed,
   flushSuppressionCounters,
@@ -364,12 +365,9 @@ export async function dashboardData(options: {
 }): Promise<AlertDashboard> {
   const since = new Date(Date.now() - options.days * 86_400_000);
 
-  // The unit has to be inlined, not bound: as a parameter it becomes date_trunc($1,
-  // …) in SELECT and date_trunc($2, …) in GROUP BY, which Postgres treats as two
-  // different expressions and rejects. Safe to inline because `bucket` is a
-  // closed union validated at the route boundary, but assert it rather than trust it.
-  const truncUnit = options.bucket === 'hour' ? 'hour' : 'day';
-  const bucketExpression = sql`date_trunc('${sql.raw(truncUnit)}', ${alerts.lastSeen})`;
+  // Both this and the rollup below are UTC buckets, and have to be: the two series
+  // are merged into one chart. See alert-buckets.ts.
+  const bucketExpression = utcTrunc(options.bucket === 'hour' ? 'hour' : 'day', alerts.lastSeen);
 
   const [summary, trendRows, sourceRows] = await Promise.all([
     summarizeAlerts(),
@@ -432,6 +430,9 @@ export async function dashboardData(options: {
    * The two sources can overlap on exactly one day — the day the cutoff falls in,
    * whose expired half is rolled up while its recent half is still live — which is
    * why the points are accumulated rather than assigned.
+   *
+   * Whole days only: see `firstWholeUtcDay` for why the day containing `since` is
+   * left out rather than counted in full.
    */
   if (options.bucket === 'day') {
     const rolled = await db
@@ -441,7 +442,7 @@ export async function dashboardData(options: {
         total: alertRollupDaily.alerts,
       })
       .from(alertRollupDaily)
-      .where(gte(alertRollupDaily.day, since.toISOString().slice(0, 10)));
+      .where(gte(alertRollupDaily.day, firstWholeUtcDay(since)));
 
     for (const row of rolled) {
       addTo(new Date(`${row.day}T00:00:00.000Z`).toISOString(), row.severity, Number(row.total));
