@@ -636,15 +636,20 @@ export function notifier(): Notifier {
  *  - **Close after.** `EmailChannel` holds a pooled SMTP transport. Building a new
  *    notifier without closing the old one leaks a connection pool per save, and a
  *    form somebody tunes a few times would accumulate them.
- *  - **Carry the rate-limit history forward.** The hourly ceiling and the
- *    per-finding throttle are instance state, and a bare `new Notifier()` starts
- *    both at zero. Without this, saving *any* delivery setting — including one
- *    with nothing to do with rate limiting, like the syslog app name — reset how
- *    many notifications had already gone out this hour, silently doubling the
- *    ceiling for the rest of the window and letting a just-throttled finding
- *    re-notify immediately. The queue is not carried the same way: it is flushed
- *    above instead, deliberately, because a queued digest must be sent, not
- *    replayed against new settings.
+ *  - **Carry the rate-limit history forward, read AFTER the flush.** The hourly
+ *    ceiling and the per-finding throttle are instance state, and a bare
+ *    `new Notifier()` starts both at zero. Without carrying it forward, saving
+ *    *any* delivery setting — including one with nothing to do with rate
+ *    limiting, like the syslog app name — reset how many notifications had
+ *    already gone out this hour, silently doubling the ceiling for the rest of
+ *    the window. The snapshot has to come from *after* the flush above, not
+ *    before: a finding already `consider()`-ed and sitting in `previous`'s
+ *    digest queue at the moment settings are saved gets dispatched BY that
+ *    flush, which pushes its send onto `previous`'s own timestamps — a snapshot
+ *    taken earlier would miss exactly the dispatch it exists to carry forward.
+ *    The queue itself is not carried the same way: it is flushed above instead,
+ *    deliberately, because a queued digest must be sent, not replayed against
+ *    new settings.
  *
  * The syslog channel needs no closing: it opens a socket per send and closes it,
  * deliberately, so there is nothing held between sends.
@@ -656,16 +661,27 @@ export async function reloadNotifier(): Promise<void> {
   const previous = instance;
   if (!previous) return;
 
-  // Built now, synchronously, rather than left for notifier()'s next call to
-  // build lazily — so anything arriving during the flush below gets the carried
-  // rate-limit history too, instead of a notifier that thinks nothing has sent
-  // yet this hour.
-  instance = new Notifier(undefined, undefined, currentSettings(), previous.rateLimitState);
+  // Cleared before awaiting, so anything arriving during the flush builds a
+  // fresh notifier from the new settings rather than joining the one being
+  // retired. That notifier starts without the carried history below — a narrow,
+  // accepted gap for the rare case of something arriving in the same instant a
+  // save is flushing a queued digest, rather than reading previous.rateLimitState
+  // before the flush, which would miss that same digest's own dispatch every
+  // time, not just in this one overlapping instant.
+  instance = null;
 
   try {
     await previous.flush();
   } catch (error) {
     log.error({ err: error }, 'Could not flush the notifier before applying new settings');
+  }
+
+  // Only if nothing else already built one during the flush above — that
+  // notifier already reflects the new settings; it is only missing the
+  // rate-limit history this carries forward, which does not warrant discarding
+  // whatever it may have already recorded.
+  if (!instance) {
+    instance = new Notifier(undefined, undefined, currentSettings(), previous.rateLimitState);
   }
 
   for (const channel of previous.channelsForShutdown) {

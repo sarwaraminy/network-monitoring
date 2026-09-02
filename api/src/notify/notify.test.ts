@@ -1021,6 +1021,44 @@ describe('reloading the notifier', () => {
     }
   });
 
+  it('counts a digest flushed during the reload itself against the replacement', async () => {
+    // The queued finding here is never dispatched by consider() — digestSeconds
+    // is long, so it is still sitting in the queue at the moment settings are
+    // saved. It is only sent because reloadNotifier flushes `previous`, and that
+    // dispatch has to land in the count the replacement inherits — a snapshot
+    // taken before the flush runs would miss exactly the send it exists to carry
+    // forward, since flushing `previous` is what causes it.
+    process.env.NOTIFY_WEBHOOK_URL = 'https://example.test/webhook';
+    process.env.NOTIFY_MAX_PER_HOUR = '1';
+    try {
+      const channel = new RecordingChannel();
+      const original = new notify.Notifier([channel], undefined, {
+        ...settings.DELIVERY_DEFAULTS,
+        enabled: true,
+        maxPerHour: 1,
+        digestSeconds: 3600,
+      });
+      notify.setNotifierForTesting(original);
+
+      assert.equal(original.consider(finding(), 1, AT, AT), 'queued');
+      assert.equal(channel.sent.length, 0, 'nothing sent yet: it is sitting in the digest');
+
+      await notify.reloadNotifier();
+
+      assert.equal(channel.sent.length, 1, 'reloadNotifier should have flushed the queued digest');
+      assert.equal(
+        notify.notifier().consider(finding({ dedupKey: 'next' }), 1, AT, AT),
+        'rate-limited',
+        "the flush's own dispatch did not carry into the replacement notifier's count",
+      );
+
+      notify.setNotifierForTesting(null);
+    } finally {
+      delete process.env.NOTIFY_WEBHOOK_URL;
+      process.env.NOTIFY_MAX_PER_HOUR = '3';
+    }
+  });
+
   it('closes what the old channels held', async () => {
     // EmailChannel pools SMTP connections. Rebuilding without closing leaks a pool
     // per save, and a form somebody tunes a few times accumulates them.
