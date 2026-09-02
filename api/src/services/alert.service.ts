@@ -109,7 +109,12 @@ export class AlertSink {
 
       if (existing) {
         existing.occurrences += 1;
-        existing.lastSeen = finding.timestamp;
+        // Clamped, not assigned: the flow collector documents findings arriving out
+        // of order, and a later-processed finding with an earlier timestamp must not
+        // pull lastSeen backward past firstSeen — that pairing is a CHECK constraint
+        // on the alerts table once this reaches storage.
+        if (finding.timestamp > existing.lastSeen) existing.lastSeen = finding.timestamp;
+        if (finding.timestamp < existing.firstSeen) existing.firstSeen = finding.timestamp;
         // Keep the newest evidence: counters inside it grow as the event unfolds.
         existing.finding = finding;
         continue;
@@ -207,6 +212,11 @@ export class AlertSink {
   get pendingCount(): number {
     return this.pending.size;
   }
+
+  /** A read-only view of what's pending, for inspecting the merge in tests. */
+  get pendingSnapshot(): ReadonlyMap<string, Readonly<Pending>> {
+    return this.pending;
+  }
 }
 
 async function upsertAlert(dedupKey: string, entry: Pending): Promise<void> {
@@ -235,7 +245,15 @@ async function upsertAlert(dedupKey: string, entry: Pending): Promise<void> {
       target: alerts.dedupKey,
       set: {
         occurrences: sql`${alerts.occurrences} + ${entry.occurrences}`,
-        lastSeen: entry.lastSeen,
+        // greatest()/least(), not a plain assignment: the same dedup key can be
+        // upserted again by a later flush within the same window bucket, and the
+        // flow collector documents findings arriving out of order. An unconditional
+        // assignment could pull lastSeen backward past firstSeen — a pairing the
+        // alerts table's own CHECK constraint forbids — or lose an earlier firstSeen
+        // a later flush discovers. Mirrors the rollup's own ON CONFLICT in
+        // retention.service.ts.
+        firstSeen: sql`least(${alerts.firstSeen}, ${entry.firstSeen})`,
+        lastSeen: sql`greatest(${alerts.lastSeen}, ${entry.lastSeen})`,
         // Later evidence supersedes earlier: its counters reflect the full event.
         evidence: finding.evidence,
         severity: finding.severity,
