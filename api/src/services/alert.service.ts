@@ -387,7 +387,43 @@ export async function dashboardData(options: {
   // are merged into one chart. See alert-buckets.ts.
   const bucketExpression = utcTrunc(options.bucket === 'hour' ? 'hour' : 'day', alerts.lastSeen);
 
-  const [summary, trendRows, sourceRows] = await Promise.all([
+  /*
+   * Rolled-up days, folded into the same series as the live trend below.
+   *
+   * Without this the chart would answer a 365-day question with only what retention
+   * has not yet expired, so a window longer than ALERT_RETENTION_DAYS would show a
+   * flat line before the cutoff — history that was deleted rendered exactly like a
+   * network on which nothing happened. Keeping those two distinguishable is most of
+   * what this codebase's detectors are for, and the trend chart is the last place it
+   * should be given away.
+   *
+   * Only requested for a daily bucket. An hourly view cannot be served from a daily
+   * rollup, and inventing 24 equal hours from one bucket would be fabricating detail
+   * that was deliberately discarded; the honest answer for an hourly window is the
+   * live rows alone, and an hourly window is only offered for two days anyway. The
+   * ternary keeps the "no query for hourly" behaviour while still letting this run
+   * concurrently with the other three below, rather than after them.
+   *
+   * Whole days only: see `firstWholeUtcDay` for why the day containing `since` is
+   * left out rather than counted in full.
+   */
+  const rolledUp: Promise<{ day: string; severity: string; total: number }[]> =
+    options.bucket === 'day'
+      ? db
+          .select({
+            // Cast explicitly: pg-types parses a DATE into a JS Date at *local*
+            // midnight, and drizzle's PgDateString then reads it back a day early
+            // on any server east of UTC. `expiredDays()` already dodges this the
+            // same way.
+            day: sql<string>`${alertRollupDaily.day}::text`,
+            severity: alertRollupDaily.severity,
+            total: alertRollupDaily.alerts,
+          })
+          .from(alertRollupDaily)
+          .where(gte(alertRollupDaily.day, firstWholeUtcDay(since)))
+      : Promise.resolve([]);
+
+  const [summary, trendRows, sourceRows, rolled] = await Promise.all([
     summarizeAlerts(),
     db
       .select({
@@ -410,6 +446,7 @@ export async function dashboardData(options: {
       .groupBy(alerts.sourceIp)
       .orderBy(desc(count()))
       .limit(8),
+    rolledUp,
   ]);
 
   // Collapse (bucket, severity) rows into one point per bucket.
@@ -430,45 +467,12 @@ export async function dashboardData(options: {
     addTo(new Date(row.bucket).toISOString(), row.severity, Number(row.total));
   }
 
-  /*
-   * Rolled-up days, folded into the same series.
-   *
-   * Without this the chart would answer a 365-day question with only what retention
-   * has not yet expired, so a window longer than ALERT_RETENTION_DAYS would show a
-   * flat line before the cutoff — history that was deleted rendered exactly like a
-   * network on which nothing happened. Keeping those two distinguishable is most of
-   * what this codebase's detectors are for, and the trend chart is the last place it
-   * should be given away.
-   *
-   * Only requested for a daily bucket. An hourly view cannot be served from a daily
-   * rollup, and inventing 24 equal hours from one bucket would be fabricating detail
-   * that was deliberately discarded; the honest answer for an hourly window is the
-   * live rows alone, and an hourly window is only offered for two days anyway.
-   *
-   * The two sources can overlap on exactly one day — the day the cutoff falls in,
-   * whose expired half is rolled up while its recent half is still live — which is
-   * why the points are accumulated rather than assigned.
-   *
-   * Whole days only: see `firstWholeUtcDay` for why the day containing `since` is
-   * left out rather than counted in full.
-   */
-  if (options.bucket === 'day') {
-    const rolled = await db
-      .select({
-        // Cast explicitly: pg-types parses a DATE into a JS Date at *local*
-        // midnight, and drizzle's PgDateString then reads it back a day early
-        // on any server east of UTC. `expiredDays()` already dodges this the
-        // same way.
-        day: sql<string>`${alertRollupDaily.day}::text`,
-        severity: alertRollupDaily.severity,
-        total: alertRollupDaily.alerts,
-      })
-      .from(alertRollupDaily)
-      .where(gte(alertRollupDaily.day, firstWholeUtcDay(since)));
-
-    for (const row of rolled) {
-      addTo(new Date(`${row.day}T00:00:00.000Z`).toISOString(), row.severity, Number(row.total));
-    }
+  // The two sources can overlap on exactly one day — the day the cutoff falls in,
+  // whose expired half is rolled up while its recent half is still live — which is
+  // why the points are accumulated rather than assigned. `rolled` is `[]` for an
+  // hourly bucket, so this is a no-op there.
+  for (const row of rolled) {
+    addTo(new Date(`${row.day}T00:00:00.000Z`).toISOString(), row.severity, Number(row.total));
   }
 
   return {
