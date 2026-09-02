@@ -1,4 +1,4 @@
-import { count, lt, sql } from 'drizzle-orm';
+import { lt, sql } from 'drizzle-orm';
 import { env } from '../config/env.js';
 import { db } from '../db/index.js';
 import { alertRollupDaily, alerts, knownDevices } from '../db/schema.js';
@@ -224,13 +224,20 @@ let timer: NodeJS.Timeout | null = null;
  * migrations, feed loading and socket binding, and a retention pass over a large table
  * competes with all of it for no benefit — nothing expires in the first minute that
  * would not still be expired a minute later.
+ *
+ * Returns whether it scheduled anything, which is not decoration. The timer is
+ * `unref`'d so that it can never hold the process open, and a consequence of that is
+ * it never appears in the process's handle list — so "did this schedule a sweep?" is
+ * otherwise unobservable from outside. A test comparing handle counts passed even with
+ * the disabled check deleted, which is worse than no test. The caller logs the answer
+ * too, so an operator sees it rather than inferring it.
  */
-export function startRetention(): void {
+export function startRetention(): boolean {
   if (!env.retention.enabled) {
     log.info('Retention is disabled; alerts and devices will be kept indefinitely');
-    return;
+    return false;
   }
-  if (timer) return;
+  if (timer) return true;
 
   const intervalMs = Math.max(1, env.retention.sweepHours) * 3_600_000;
 
@@ -251,34 +258,12 @@ export function startRetention(): void {
     },
     'Retention scheduled',
   );
+
+  return true;
 }
 
 export function stopRetention(): void {
   if (!timer) return;
   clearInterval(timer);
   timer = null;
-}
-
-/** Live alert rows plus rollup buckets, for the status endpoint and the tests. */
-export async function retentionStatus(): Promise<{
-  enabled: boolean;
-  alertDays: number;
-  deviceDays: number;
-  liveAlerts: number;
-  rollupBuckets: number;
-  oldestLiveAlert: string | null;
-}> {
-  const [live] = await db
-    .select({ n: count(), oldest: sql<string | null>`min(${alerts.lastSeen})` })
-    .from(alerts);
-  const [buckets] = await db.select({ n: count() }).from(alertRollupDaily);
-
-  return {
-    enabled: env.retention.enabled,
-    alertDays: env.retention.alertDays,
-    deviceDays: env.retention.deviceDays,
-    liveAlerts: Number(live?.n ?? 0),
-    rollupBuckets: Number(buckets?.n ?? 0),
-    oldestLiveAlert: live?.oldest ? new Date(live.oldest).toISOString() : null,
-  };
 }

@@ -77,7 +77,11 @@ async function main(): Promise<void> {
   // Schedules the first sweep a minute out rather than running one now. Startup is
   // already doing migrations, feeds and sockets, and nothing expires in that minute
   // which would not still be expired afterwards.
-  startRetention();
+  if (!startRetention()) {
+    // Said plainly at boot rather than left to be discovered when a table is large:
+    // the escape hatch is honoured, and nothing will be deleted.
+    log.info('Retention disabled: alerts and known devices will be kept indefinitely');
+  }
 
   let shuttingDown = false;
 
