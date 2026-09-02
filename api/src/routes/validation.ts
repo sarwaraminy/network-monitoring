@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { env } from '../config/env.js';
 import { HttpError } from '../middleware/error-handler.js';
 import { parsePrefix } from '../net/prefix.js';
 import { WEBHOOK_FORMATS } from '../notify/types.js';
@@ -96,10 +97,11 @@ export const alertListQuerySchema = z.object({
  * `MAX_HOURLY_DAYS` keeps that case at the old ceiling.
  */
 const MAX_HOURLY_DAYS = 365;
+const MAX_TREND_DAYS = Math.max(1825, env.retention.alertDays + 1);
 
 export const alertDashboardQuerySchema = z
   .object({
-    days: z.coerce.number().int().min(1).max(1825).default(7),
+    days: z.coerce.number().int().min(1).max(MAX_TREND_DAYS).default(7),
     bucket: z.enum(['hour', 'day']).optional(),
   })
   .refine((data) => data.bucket !== 'hour' || data.days <= MAX_HOURLY_DAYS, {
