@@ -28,11 +28,13 @@ In this order, they explain the shape of the whole system faster than the file t
    over it. Short enough to read end to end in a few minutes.
 3. **[`api/src/services/alert.service.ts`](api/src/services/alert.service.ts)** — where findings
    become alerts: deduplication within a time window, suppression, notification, and the
-   dashboard trend logic. The single busiest file in the backend, and the one most PRs touch.
+   dashboard trend logic. This is the layer both pipelines below converge on, regardless of
+   which one produced the finding.
 4. **[`api/src/routes/alerts.routes.ts`](api/src/routes/alerts.routes.ts)** — a short, typical
-   router. Shows the pattern every route follows: `requireAuth`/`requireRole` guard, a zod schema
-   from `validation.ts` parses the request, a service function does the work,
-   `asyncHandler` turns a thrown `HttpError` into the right status code.
+   router: `requireAuth` mounted once for the whole router, `requireRole('ADMIN')` added to the
+   individual routes that need it, a zod schema from `validation.ts` parsing the request, a
+   service function doing the work, `asyncHandler` turning a thrown `HttpError` into the right
+   status code.
 5. **[`README.md`](README.md#project-layout)**'s "Project layout" section — now that you've seen
    real code, the file tree it describes will actually mean something.
 
@@ -41,25 +43,27 @@ In this order, they explain the shape of the whole system faster than the file t
 Two independent pipelines feed the same alert table:
 
 ```
-Packet capture (libpcap/Npcap, live traffic)  ─┐
-                                                 ├─→ DetectionEngine → Finding[] → AlertSink
-Flow collection (NetFlow/IPFIX, UDP, no driver)─┘        (packet/detect/)   (services/alert.service.ts)
-                                                                                       │
+Packet capture (libpcap/Npcap, live traffic)   ─→ DetectionEngine     ─┐
+                                                    (packet/detect/)    ├─→ Finding[] → AlertSink
+Flow collection (NetFlow/IPFIX, UDP, no driver)─→ FlowDetectionEngine ─┘   (services/alert.service.ts)
+                                                    (flow/detect.ts)                 │
                                                                     dedup, suppression, notify
-                                                                                       │
-                                                                                       ▼
-                                                                              alerts table (Postgres)
+                                                                                      │
+                                                                                      ▼
+                                                                             alerts table (Postgres)
 ```
 
 The alerts table currently grows without bound — see the README's [Roadmap](
 README.md#roadmap) for the retention/rollup work planned to change that.
 
-A **detector** (`api/src/packet/detect/*.ts` or `api/src/flow/detect.ts`) never touches the
-database — it's pure, stateful only in memory, and independently unit-testable with hand-built
-packets or flow records. Everything downstream of "producing a `Finding`" — dedup, suppression,
-storage, notification — lives in `alert.service.ts` and is the same regardless of which pipeline
-the finding came from. If you're adding new detection logic, this is the boundary to respect:
-detectors decide *what happened*, `alert.service.ts` decides *what to do about it*.
+Two separate engines, deliberately — see the README's "[Why flow detection is a separate
+detector](README.md#why-flow-detection-is-a-separate-detector)" — not one shared class. A
+**detector** (registered in either engine) never touches the database — it's pure, stateful only
+in memory, and independently unit-testable with hand-built packets or flow records. Everything
+downstream of "producing a `Finding`" — dedup, suppression, storage, notification — lives in
+`alert.service.ts` and is the same regardless of which engine produced the finding. If you're
+adding new detection logic, this is the boundary to respect: detectors decide *what happened*,
+`alert.service.ts` decides *what to do about it*.
 
 On the frontend, `network-monitoring-ui/src/api/` wraps every backend endpoint in a typed
 function; pages call those, never `axios` directly. `AppLayout` and the shared MUI `theme.ts`
@@ -77,11 +81,14 @@ are the two files that touch every page's shell.
 README.md#tests) for why the guard matters as much as the detection.
 
 **Add an API endpoint.** Add the route in `api/src/routes/`, following
-`alerts.routes.ts`'s pattern: `requireAuth` (mounted on the router already, in most cases),
-`requireRole('ADMIN')` on anything that mutates state, a schema in `validation.ts` parsing
-`req.query`/`req.body`, the actual work in a `services/*.ts` function. Add a case to
-`route-guards.test.ts` if the route needs a role gate — that suite is what catches a guard
-installed on the wrong path.
+`alerts.routes.ts`'s pattern: `requireAuth` (mounted on the router already, in most cases), a
+schema in `validation.ts` parsing `req.query`/`req.body`, the actual work in a `services/*.ts`
+function. Not every mutating route needs more than `requireAuth` — in `alerts.routes.ts` itself,
+acknowledging an alert is open to any signed-in user, while `requireRole('ADMIN')` is reserved
+for the routes whose damage is hard to undo (clearing the whole alert table, forgetting a
+device). Decide which your route is before copying a guard. Add a case to `route-guards.test.ts`
+either way — that suite is what catches a guard installed on the wrong path, or missing entirely
+from one that needed it.
 
 **Add a migration.** SQL files in `api/src/db/migrations/`, named `V<n>__<description>.sql`,
 picked up automatically by `npm run migrate` / on boot while `DB_AUTO_MIGRATE=true`. Update the
@@ -102,10 +109,9 @@ Docker Compose files to `env.ts`'s own defaults in *text* — see [Tests](README
 that file exists and how a widened regex can silently stop covering a variable.
 
 **Add a suppression-affecting change.** Rule matching lives in
-`api/src/services/suppression-rules.ts` — pure, no database — and is the most exhaustively
-tested file in the project for a reason: a rule that hides more than its author intended is a
-security bug wearing a convenience feature's clothes. Read the "Suppression rules" section of the
-README before changing it.
+`api/src/services/suppression-rules.ts` — pure, no database, and worth testing thoroughly for a
+reason: a rule that hides more than its author intended is a security bug wearing a convenience
+feature's clothes. Read the "Suppression rules" section of the README before changing it.
 
 **Add a UI page or component.** Look at an existing page in `network-monitoring-ui/src/pages/`
 for the shape (data fetching via `api/`, MUI components, a loading/error/empty state). Tests use
@@ -132,9 +138,9 @@ A few conventions this codebase holds to more strictly than most:
   review. A comment recording a non-obvious constraint, a bug that a fix like this one
   reintroduces, or a trade-off deliberately made — that's what's expected, and the existing files
   are full of examples of the tone.
-- **A fix ships with the test that would have caught it**, and where practical, that test is
-  verified by temporarily reintroducing the bug and watching it fail. Several existing tests'
-  comments say exactly that.
+- **A fix ships with the test that would have caught it.** Where practical, verify that test by
+  temporarily reintroducing the bug and confirming it fails, then restore the fix — a test that
+  would pass either way is worse than no test.
 - **Tests need no database, no browser, no running server.** If a change makes that stop being
   true, that's worth a second look before committing to it — see the README's [Tests](
   README.md#tests) section for how migrations and other SQL-heavy paths are instead verified by
