@@ -33,6 +33,15 @@ import type { AlertKind } from '../types';
  * Once detail has expired, those days are served from the daily rollup rather than
  * from `alerts` — a window that could never exceed the retention setting would have
  * made the rollup invisible from here, which is most of what it is for.
+ *
+ * 1825 matches `MAX_TREND_DAYS`'s own floor in api/src/routes/validation.ts
+ * (`Math.max(1825, env.retention.alertDays + 1)`), so this reaches every rolled-up
+ * day for the common case — `ALERT_RETENTION_DAYS` left at its default or anywhere
+ * under five years. `ALERT_RETENTION_DAYS` itself has no ceiling, though, so an
+ * operator who configures a longer window (a compliance-driven decade, say) has
+ * real, API-reachable rollup data beyond what any option here can request. Fixing
+ * that fully means the API telling this page how far back retention actually
+ * reaches, which is worth doing if that case shows up in practice.
  */
 const PERIODS = [
   { value: 1, label: 'Last 24 hours' },
@@ -40,7 +49,7 @@ const PERIODS = [
   { value: 30, label: 'Last 30 days' },
   { value: 90, label: 'Last 90 days' },
   { value: 365, label: 'Last 12 months' },
-  { value: 1095, label: 'Last 3 years' },
+  { value: 1825, label: 'Last 5 years' },
 ] as const;
 
 /**
