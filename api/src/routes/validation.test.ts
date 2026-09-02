@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { env } from '../config/env.js';
 import { HttpError } from '../middleware/error-handler.js';
 import {
   alertDashboardQuerySchema,
@@ -125,9 +126,25 @@ describe('dashboard query', () => {
     assert.equal(alertDashboardQuerySchema.parse(q({})).days, 7);
   });
 
-  it('bounds days to a year', () => {
-    assert.equal(alertDashboardQuerySchema.parse(q({ days: '365' })).days, 365);
-    assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '366' })).success, false);
+  it('allows a window longer than the retention default', () => {
+    /*
+     * The ceiling used to be 365, which is also the `ALERT_RETENTION_DAYS` default,
+     * and that combination made the daily rollup unreachable: retention rolls up
+     * days *older* than its cutoff, so every bucket in `alert_rollup_daily` sat
+     * outside the longest window anyone could ask for. The trend answered a
+     * year-long question with only what had not yet expired — the exact flat line
+     * the rollup exists to prevent.
+     */
+    assert.ok(
+      1825 > env.retention.alertDays,
+      'the dashboard window must be able to reach past the retention cutoff, or the rollup is invisible',
+    );
+    assert.equal(alertDashboardQuerySchema.parse(q({ days: '730' })).days, 730);
+  });
+
+  it('still bounds the window', () => {
+    assert.equal(alertDashboardQuerySchema.parse(q({ days: '1825' })).days, 1825);
+    assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '1826' })).success, false);
     assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '0' })).success, false);
   });
 

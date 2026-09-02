@@ -66,6 +66,37 @@ function retentionDays(name: string, fallback: number): number {
   return days;
 }
 
+/**
+ * `setInterval` takes a signed 32-bit delay in milliseconds. Anything larger is not
+ * rejected and does not throw — Node emits a `TimeoutOverflowWarning` and silently
+ * uses **1 ms**, so `RETENTION_SWEEP_HOURS=720` (a monthly sweep, and a perfectly
+ * reasonable thing to ask for) would run the sweep continuously against the database
+ * instead of once a month.
+ */
+const MAX_SWEEP_HOURS = Math.floor(2_147_483_647 / 3_600_000);
+
+function sweepHours(name: string, fallback: number): number {
+  const hours = int(name, fallback);
+
+  if (hours < 1) {
+    console.warn(`[config] ${name}=${hours} is not a usable interval; using 1 hour.`);
+    return 1;
+  }
+  if (hours > MAX_SWEEP_HOURS) {
+    // Named and explained rather than quietly clamped: the operator asked for a
+    // month and is getting 24 days, and the reason is a platform limit they have
+    // no way to guess.
+    console.warn(
+      `[config] ${name}=${hours} exceeds the ${MAX_SWEEP_HOURS}-hour maximum a JavaScript timer ` +
+        `can express; using ${MAX_SWEEP_HOURS}. Retention only needs to run often enough to keep ` +
+        'the backlog small, so a longer interval buys nothing.',
+    );
+    return MAX_SWEEP_HOURS;
+  }
+
+  return hours;
+}
+
 function databaseUrl(): string {
   const url = process.env.DATABASE_URL;
   if (url && url.trim() !== '') return url;
@@ -288,7 +319,12 @@ export const env = {
      * year of absence, "this appeared on the network" is arguably true again.
      */
     deviceDays: retentionDays('DEVICE_RETENTION_DAYS', 365),
-    /** Gap between sweeps. The work is idempotent, so a missed one costs nothing. */
-    sweepHours: int('RETENTION_SWEEP_HOURS', 24),
+    /**
+     * Gap between sweeps. The work is idempotent, so a missed one costs nothing.
+     *
+     * Clamped at both ends — see `sweepHours`. The upper bound is not a policy
+     * choice: past it a JavaScript timer silently becomes 1 ms.
+     */
+    sweepHours: sweepHours('RETENTION_SWEEP_HOURS', 24),
   },
 } as const;

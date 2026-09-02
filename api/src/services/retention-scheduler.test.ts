@@ -18,6 +18,9 @@ import { before, describe, it } from 'node:test';
  * are `unref`'d and so never appear in `getActiveResourcesInfo()` — the mistake an
  * earlier test in this feature already made once. `stopRetention` returns how many
  * handles it cancelled instead, which the shutdown path logs.
+ *
+ * The re-entrancy guard is here for the same reason: it only exists when retention
+ * is enabled.
  */
 
 let retention: typeof import('./retention.service.js');
@@ -69,5 +72,41 @@ describe('retention scheduling', () => {
     retention.startRetention();
 
     assert.equal(retention.stopRetention(), 2);
+  });
+});
+
+describe('overlapping sweeps', () => {
+  it('refuses a second sweep while the first is still running', async () => {
+    /*
+     * Concurrent sweeps do not waste work, they corrupt the rollup permanently.
+     * Both run the aggregate INSERT — the second still sees the rows, because the
+     * first has not committed its DELETE — and the additive `ON CONFLICT` sums
+     * both, while only one DELETE removes anything. The day's bucket is double for
+     * ever. The interval fires on a timer regardless of whether the previous sweep
+     * has finished, and a first reclaim over a large backlog is exactly the case
+     * that runs longer than one.
+     *
+     * Started together rather than awaited in turn: the flag is set before the
+     * first `await`, so whichever of the two runs second must be turned away. The
+     * database here is unreachable, so the one that proceeds fails at `connect` and
+     * comes back with `skipped: false` and no counts — which is the distinction
+     * being asserted.
+     */
+    const [first, second] = await Promise.all([retention.sweepRetention(), retention.sweepRetention()]);
+
+    const outcomes = [first.skipped, second.skipped];
+    assert.equal(
+      outcomes.filter((skipped) => skipped === 'in-progress').length,
+      1,
+      `expected exactly one sweep to be turned away, got ${JSON.stringify(outcomes)}`,
+    );
+  });
+
+  it('allows the next sweep once the first has finished', async () => {
+    // The flag has to be released on the failure path too, or one failed sweep
+    // would silently disable retention until the process restarted.
+    const after = await retention.sweepRetention();
+
+    assert.notEqual(after.skipped, 'in-progress');
   });
 });

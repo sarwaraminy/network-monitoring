@@ -26,11 +26,21 @@ import SurfaceCard from '../components/SurfaceCard';
 import { useKnownDevices } from '../hooks/useAlerts';
 import type { AlertKind } from '../types';
 
+/**
+ * Trend windows.
+ *
+ * The last two exist to reach past `ALERT_RETENTION_DAYS`, whose default is a year.
+ * Once detail has expired, those days are served from the daily rollup rather than
+ * from `alerts` — a window that could never exceed the retention setting would have
+ * made the rollup invisible from here, which is most of what it is for.
+ */
 const PERIODS = [
   { value: 1, label: 'Last 24 hours' },
   { value: 7, label: 'Last 7 days' },
   { value: 30, label: 'Last 30 days' },
   { value: 90, label: 'Last 90 days' },
+  { value: 365, label: 'Last 12 months' },
+  { value: 1095, label: 'Last 3 years' },
 ] as const;
 
 /**

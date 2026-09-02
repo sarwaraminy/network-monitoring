@@ -25,6 +25,9 @@ before(async () => {
   process.env.ALERT_RETENTION_DAYS = '1';
   // A legitimate short window, to be sure the floor is a floor and not a fixed value.
   process.env.DEVICE_RETENTION_DAYS = '30';
+  // A monthly sweep: over what a JavaScript timer can express, and the failure mode
+  // is the opposite of what was asked for.
+  process.env.RETENTION_SWEEP_HOURS = '720';
 
   // Captured rather than silenced: a clamp that happens quietly is its own bug, so
   // the warning is part of the behaviour being asserted.
@@ -59,6 +62,27 @@ describe('retention floor', () => {
     // 30 days is a real choice for a noisy lab. A floor that quietly became a
     // default would take that away.
     assert.equal(env.retention.deviceDays, 30);
+  });
+
+  it('clamps a sweep interval past what a timer can express', () => {
+    /*
+     * `setInterval` takes a signed 32-bit delay. 720 hours is 2,592,000,000 ms,
+     * which Node does not reject and does not throw on — it warns and uses **1 ms**,
+     * so the operator who asked for a monthly sweep gets a continuous one hammering
+     * the database. Inverting a setting into its own opposite is the worst of the
+     * three ways this could go wrong.
+     */
+    assert.equal(env.retention.sweepHours, 596);
+    // 596 hours is the largest whole number of hours that fits.
+    assert.ok(596 * 3_600_000 <= 2_147_483_647);
+    assert.ok(597 * 3_600_000 > 2_147_483_647);
+  });
+
+  it('says so, naming the variable and what it is now doing', () => {
+    const warning = warnings.find((line) => line.includes('RETENTION_SWEEP_HOURS'));
+    assert.ok(warning, `no warning mentioned RETENTION_SWEEP_HOURS: ${JSON.stringify(warnings)}`);
+    assert.match(warning, /=720/);
+    assert.match(warning, /596/);
   });
 
   it('does not warn about the value it accepted', () => {

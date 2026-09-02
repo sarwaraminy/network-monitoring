@@ -42,7 +42,9 @@ describe('retention when disabled', () => {
     // means the operator's setting is being honoured.
     const result = await retention.sweepRetention();
 
-    assert.equal(result.skipped, true);
+    // Named, not a boolean: "off" and "another sweep has it" are both "did not
+    // sweep", and only this one means the operator's setting is being honoured.
+    assert.equal(result.skipped, 'disabled');
     assert.equal(result.alertsDeleted, 0);
     assert.equal(result.devicesForgotten, 0);
     assert.equal(result.daysProcessed, 0);
@@ -51,11 +53,11 @@ describe('retention when disabled', () => {
   it('deletes nothing even when called directly and repeatedly', async () => {
     // `sweepRetention` swallows its own errors, so a query attempt against the
     // unreachable database above would come back as `skipped: false` with zero
-    // counts. Asserting the flag is what proves it returned before the first query
-    // rather than after a failed one.
+    // counts. Asserting the reason is what proves it returned before the first
+    // query rather than after a failed one.
     for (let i = 0; i < 3; i += 1) {
       const result = await retention.sweepRetention();
-      assert.equal(result.skipped, true, `call ${i + 1} did not skip`);
+      assert.equal(result.skipped, 'disabled', `call ${i + 1} did not skip`);
     }
   });
 

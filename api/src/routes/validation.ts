@@ -78,8 +78,18 @@ export const alertListQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
+/**
+ * The trend window.
+ *
+ * The ceiling has to be larger than `ALERT_RETENTION_DAYS` — not as headroom, but
+ * because the two windows being equal makes the rollup unreachable. Retention rolls
+ * up days *older* than its cutoff, so with both at 365 every bucket in
+ * `alert_rollup_daily` sits outside the longest window that can be asked for, and the
+ * whole point of aggregating expiring days instead of deleting them is unobservable.
+ * Five years is arbitrary; being strictly greater than the retention default is not.
+ */
 export const alertDashboardQuerySchema = z.object({
-  days: z.coerce.number().int().min(1).max(365).default(7),
+  days: z.coerce.number().int().min(1).max(1825).default(7),
   bucket: z.enum(['hour', 'day']).optional(),
 });
 

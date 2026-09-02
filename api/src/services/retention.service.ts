@@ -1,6 +1,7 @@
-import { lt, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
+import type { PoolClient } from 'pg';
 import { env } from '../config/env.js';
-import { db } from '../db/index.js';
+import { db, pool } from '../db/index.js';
 import { alertRollupDaily, alerts, knownDevices } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
 
@@ -38,7 +39,15 @@ export interface SweepResult {
   devicesForgotten: number;
   /** Days processed. Zero means nothing was old enough. */
   daysProcessed: number;
-  skipped: boolean;
+  /**
+   * Why no sweep ran, or `false` if one did.
+   *
+   * Not a boolean, because "swept and found nothing", "the operator turned this
+   * off" and "another sweep already has it" are three states an operator reading
+   * a log needs to be able to tell apart, and only the middle one means their
+   * setting is being honoured.
+   */
+  skipped: false | 'disabled' | 'in-progress';
 }
 
 /** What `rollUpExpiredAlerts` contributes to a sweep. */
@@ -52,6 +61,16 @@ const EMPTY: SweepResult = {
   skipped: false,
 };
 
+/**
+ * Key for the Postgres advisory lock that serialises sweeps across processes.
+ *
+ * Arbitrary, and only has to be unique within this database's advisory-lock space.
+ */
+const SWEEP_LOCK_KEY = 7_213_559_001;
+
+/** Set while a sweep is running in *this* process. */
+let sweeping = false;
+
 function cutoffFor(days: number, now: number): Date {
   return new Date(now - days * 86_400_000);
 }
@@ -64,16 +83,65 @@ function cutoffFor(days: number, now: number): Date {
  * because the work is idempotent.
  */
 export async function sweepRetention(now = Date.now()): Promise<SweepResult> {
-  if (!env.retention.enabled) return { ...EMPTY, skipped: true };
+  if (!env.retention.enabled) return { ...EMPTY, skipped: 'disabled' };
 
-  const result: SweepResult = { ...EMPTY };
+  // Cheap guard first, no round trip: the common overlap is this process's own
+  // interval firing while a long first reclaim is still going.
+  if (sweeping) {
+    log.warn('A retention sweep is already running; skipping this one');
+    return { ...EMPTY, skipped: 'in-progress' };
+  }
+  sweeping = true;
 
   try {
+    return await lockedSweep(now);
+  } finally {
+    sweeping = false;
+  }
+}
+
+/**
+ * Runs one sweep, but only if no other process is running one.
+ *
+ * Concurrent sweeps do not merely waste work, they corrupt the rollup. Two sweeps
+ * on day D both run the aggregate INSERT — under READ COMMITTED the second still
+ * sees the rows, because the first has not committed its DELETE — and the additive
+ * `ON CONFLICT` sums both. Only one DELETE then removes anything, so D's bucket is
+ * permanently double. The idempotence this feature relies on is idempotence across
+ * *sequential* retries; it was never idempotence under concurrency.
+ *
+ * The in-process flag cannot see a second API replica, so the real serialisation is
+ * a Postgres advisory lock. It is held on a dedicated client for the duration while
+ * the work itself runs on other pooled connections: advisory locks are
+ * session-scoped, so taking one through `db.execute` would attach it to whichever
+ * connection the pool happened to hand out and release it immediately.
+ *
+ * `pg_try_advisory_lock`, not `pg_advisory_lock`: a sweep that cannot get the lock
+ * should say so and let the next interval try, not queue up behind a reclaim that
+ * may run for hours.
+ */
+async function lockedSweep(now: number): Promise<SweepResult> {
+  const result: SweepResult = { ...EMPTY };
+  let client: PoolClient | undefined;
+  let locked = false;
+
+  try {
+    client = await pool.connect();
+    const held = await client.query<{ locked: boolean }>('SELECT pg_try_advisory_lock($1) AS locked', [
+      SWEEP_LOCK_KEY,
+    ]);
+    locked = held.rows[0]?.locked === true;
+
+    if (!locked) {
+      log.info('Another process holds the retention lock; skipping this sweep');
+      return { ...EMPTY, skipped: 'in-progress' };
+    }
+
     const rolled = await rollUpExpiredAlerts(cutoffFor(env.retention.alertDays, now));
     result.daysProcessed = rolled.daysProcessed;
     result.alertsDeleted = rolled.alertsDeleted;
     result.bucketsWritten = rolled.bucketsWritten;
-    result.devicesForgotten = await forgetStaleDevices(cutoffFor(env.retention.deviceDays, now));
+    result.devicesForgotten = await forgetStaleDevices(env.retention.deviceDays);
 
     if (result.alertsDeleted > 0 || result.devicesForgotten > 0) {
       log.info(result, 'Retention sweep complete');
@@ -82,6 +150,17 @@ export async function sweepRetention(now = Date.now()): Promise<SweepResult> {
     }
   } catch (error) {
     log.error({ err: error }, 'Retention sweep failed; nothing was lost and the next one retries');
+  } finally {
+    if (client) {
+      if (locked) {
+        // Best effort. A connection that died has already dropped the lock with
+        // its session, and failing to unlock must not mask the sweep's own error.
+        await client
+          .query('SELECT pg_advisory_unlock($1)', [SWEEP_LOCK_KEY])
+          .catch((error: unknown) => log.warn({ err: error }, 'Could not release the retention lock'));
+      }
+      client.release();
+    }
   }
 
   return result;
@@ -207,7 +286,8 @@ async function expiredDays(cutoff: Date): Promise<string[]> {
 }
 
 /**
- * Forgets devices not seen inside the window.
+ * Forgets devices not seen inside the window, where "the window" is measured
+ * against the newest sighting in the table rather than against the wall clock.
  *
  * There is nothing to roll up here: the table is a set of "we have seen this MAC
  * before", and the only thing pruning changes is that a returning device is reported
@@ -222,17 +302,44 @@ async function expiredDays(cutoff: Date): Promise<string[]> {
  * continuously it had been present, and the next capture would have re-alerted the whole
  * network. `NewDeviceDetector` now reports sightings of known devices too — see
  * TOUCH_INTERVAL_MS there — so the column means what its name says.
+ *
+ * That still leaves the clocks mismatched, and this is why the cutoff is not
+ * `now - deviceDays`. `last_seen` only advances while a capture is running, and
+ * nothing starts one automatically; the sweep, by contrast, starts with the process.
+ * On an installation where captures are run for an afternoon at a time, wall-clock
+ * time would march past a frozen column until the window elapsed and the *entire*
+ * device table went at once — the same mass re-alert, arrived at from the other
+ * direction.
+ *
+ * So the reference point is `max(last_seen)`: the most recent moment we have any
+ * evidence of being on this network. It advances only when something is actually
+ * seen, which makes it a clock that stops when we stop listening. Under continuous
+ * capture it tracks wall time to within TOUCH_INTERVAL_MS and the behaviour is
+ * identical; under intermittent capture the devices that appeared in the latest
+ * capture — which is to say the ones that are really here — keep their place, and
+ * only addresses absent across the observed history are forgotten.
+ *
+ * It is not a full accounting of capture uptime: a five-minute capture after a year
+ * of silence still advances the reference to now, so a device that was present but
+ * quiet during those five minutes can be dropped. That is the trade the docblock
+ * above already accepts for one device. What it cannot do any more is drop all of
+ * them.
  */
-async function forgetStaleDevices(cutoff: Date): Promise<number> {
+async function forgetStaleDevices(days: number): Promise<number> {
   const deleted = await db
     .delete(knownDevices)
-    .where(lt(knownDevices.lastSeen, cutoff))
+    .where(
+      sql`${knownDevices.lastSeen} < (
+        SELECT max(${knownDevices.lastSeen}) - ${days}::int * interval '1 day' FROM ${knownDevices}
+      )`,
+    )
     .returning({ mac: knownDevices.macAddress });
 
   if (deleted.length > 0) {
     log.info(
-      { devices: deleted.length, cutoff: cutoff.toISOString() },
-      'Forgot devices not seen inside the retention window; each will be reported as new if it returns',
+      { devices: deleted.length, days },
+      'Forgot devices absent for the retention window, measured from the newest sighting; ' +
+        'each will be reported as new if it returns',
     );
   }
 
@@ -270,7 +377,10 @@ export function startRetention(): boolean {
   }
   if (timer) return true;
 
-  const intervalMs = Math.max(1, env.retention.sweepHours) * 3_600_000;
+  // `sweepHours` is already clamped to what a timer can express (see env.ts); this
+  // is the belt to that braces, because the failure mode is silent and severe — an
+  // overflowing delay becomes 1 ms and sweeps continuously.
+  const intervalMs = Math.min(Math.max(1, env.retention.sweepHours) * 3_600_000, 2_147_483_647);
 
   timer = setInterval(() => {
     void sweepRetention();
