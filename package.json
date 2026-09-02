@@ -11,7 +11,8 @@
     "node": ">=20"
   },
   "comments": {
-    "scripts": "Commands are spelled out rather than nesting `npm run`, because npm puts every ancestor node_modules/.bin on PATH and an older npm found there would be used for the inner call."
+    "scripts": "Commands are spelled out rather than nesting `npm run`, because npm puts every ancestor node_modules/.bin on PATH and an older npm found there would be used for the inner call.",
+    "overrides['@esbuild-kit/core-utils'].esbuild": "drizzle-kit pulls the deprecated @esbuild-kit/esm-loader, which pins esbuild to this one nested, vulnerable ~0.18.20 (GHSA-67mh-4wv8-2f99: esbuild's dev server accepting cross-origin requests). Not reachable here -- drizzle-kit only uses esbuild-kit to transpile TS config/migration files, never esbuild's own serve mode -- but bumped anyway. Scoped to this one path rather than a blanket `esbuild` override: drizzle-kit's own direct esbuild dependency wants ^0.25.4 while tsx/vite want 0.27-0.28.x, and a global override forcing one version onto all of them just trades this vulnerability for an `npm ls` \"invalid\" (unsatisfied peer range) on whichever one loses. No newer stable drizzle-kit exists yet to drop the dependency itself (latest is a 1.0.0 release candidate)."
   },
   "scripts": {
     "predev": "node scripts/ensure-db.mjs",
@@ -43,5 +44,10 @@
     "dotenv": "^16.4.5",
     "husky": "^9.1.7",
     "pg": "^8.23.0"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.0"
+    }
   }
 }
