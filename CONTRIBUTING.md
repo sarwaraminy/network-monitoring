@@ -28,8 +28,7 @@ In this order, they explain the shape of the whole system faster than the file t
    over it. Short enough to read end to end in a few minutes.
 3. **[`api/src/services/alert.service.ts`](api/src/services/alert.service.ts)** — where findings
    become alerts: deduplication within a time window, suppression, notification, and the
-   dashboard trend/rollup logic. The single busiest file in the backend, and the one most PRs
-   touch.
+   dashboard trend logic. The single busiest file in the backend, and the one most PRs touch.
 4. **[`api/src/routes/alerts.routes.ts`](api/src/routes/alerts.routes.ts)** — a short, typical
    router. Shows the pattern every route follows: `requireAuth`/`requireRole` guard, a zod schema
    from `validation.ts` parses the request, a service function does the work,
@@ -50,12 +49,10 @@ Flow collection (NetFlow/IPFIX, UDP, no driver)─┘        (packet/detect/)   
                                                                                        │
                                                                                        ▼
                                                                               alerts table (Postgres)
-                                                                                       │
-                                                                    retention sweep ───┤ (services/retention.service.ts)
-                                                                    rolls up + deletes  │
-                                                                    expired detail      ▼
-                                                                          alert_rollup_daily (permanent)
 ```
+
+The alerts table currently grows without bound — see the README's [Roadmap](
+README.md#roadmap) for the retention/rollup work planned to change that.
 
 A **detector** (`api/src/packet/detect/*.ts` or `api/src/flow/detect.ts`) never touches the
 database — it's pure, stateful only in memory, and independently unit-testable with hand-built
@@ -92,10 +89,14 @@ Drizzle schema in `api/src/db/schema.ts` to match — the migration is the sourc
 database, the schema file is what the query builder and TypeScript see, and they have to agree
 by hand; nothing generates one from the other here.
 
-**Add or change an environment variable.** `api/src/config/env.ts` is the only place
-`process.env` should be read outside of it — everything else imports the parsed `env` object.
-Add it there with the `required`/`optional`/`int`/`bool` helpers already in the file, document it
-in the README's [Environment variables](README.md#environment-variables) table, and add it to
+**Add or change an environment variable.** `api/src/config/env.ts` is where nearly all of
+`process.env` is read and parsed — everything else should import the parsed `env` object rather
+than read `process.env` directly. Two deliberate exceptions: `logger.ts` reads `NODE_ENV`/
+`LOG_LEVEL` itself, because it has to exist before `env.ts` can load; and
+`notify/settings.service.ts` reads the environment directly as the non-crashing fallback layer
+beneath the stored delivery settings. Add a new variable to `env.ts` with the
+`required`/`optional`/`int`/`bool` helpers already in the file, document it in the README's
+[Environment variables](README.md#environment-variables) table, and add it to
 `api/.env.example`. There's a test (`env-defaults.test.ts`) that holds `.env.example` and the
 Docker Compose files to `env.ts`'s own defaults in *text* — see [Tests](README.md#tests) for why
 that file exists and how a widened regex can silently stop covering a variable.
@@ -116,12 +117,14 @@ hang shows nothing at all.
 ## 5. Before opening a PR
 
 ```bash
-npm run ci
+npm run ci && npm run build
 ```
 
-Runs everything CI runs — Biome (lint + format check), `tsc` over both packages, and both test
-suites — nothing here needs a database. `npm run lint:fix` fixes what Biome can fix
-automatically; the rest it reports.
+`npm run ci` covers what most of CI's jobs run — Biome (lint + format check), `tsc` over both
+packages, and both test suites, none of which need a database. It does **not** run `npm run
+build`, which is CI's separate `build` job (compiling the API and bundling the UI) — run it too,
+since a change can pass `ci` and still fail to compile or bundle. `npm run lint:fix` fixes what
+Biome can fix automatically; the rest it reports.
 
 A few conventions this codebase holds to more strictly than most:
 
@@ -134,10 +137,8 @@ A few conventions this codebase holds to more strictly than most:
   comments say exactly that.
 - **Tests need no database, no browser, no running server.** If a change makes that stop being
   true, that's worth a second look before committing to it — see the README's [Tests](
-  README.md#tests) section for how the SQL-heavy paths (retention, migrations) are instead
-  verified by hand against a real Postgres and documented as such, rather than mocked.
-- Run `npm run typecheck` and `npm run build` at minimum before opening a PR — `npm run ci` covers
-  both and more.
+  README.md#tests) section for how migrations and other SQL-heavy paths are instead verified by
+  hand against a real Postgres and documented as such, rather than mocked.
 
 ## License
 

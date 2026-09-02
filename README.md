@@ -1367,10 +1367,8 @@ capture, since nothing else sees payload.
 
 ## Contributing
 
-Issues and pull requests are welcome. New to this codebase? **[CONTRIBUTING.md](CONTRIBUTING.md)**
-is the "where do I start" guide — a reading order, the mental model behind the two detection
-pipelines, and where to begin for the most common changes (a new detector, a new endpoint, a
-migration). Please run `npm run ci` before opening a PR.
+Issues and pull requests are welcome. Please run `npm run typecheck` and `npm run build`
+before opening one.
 
 ## License
 
