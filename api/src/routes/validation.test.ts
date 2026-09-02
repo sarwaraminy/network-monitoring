@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { env } from '../config/env.js';
 import { HttpError } from '../middleware/error-handler.js';
 import {
   alertDashboardQuerySchema,
@@ -125,9 +126,25 @@ describe('dashboard query', () => {
     assert.equal(alertDashboardQuerySchema.parse(q({})).days, 7);
   });
 
-  it('bounds days to a year', () => {
-    assert.equal(alertDashboardQuerySchema.parse(q({ days: '365' })).days, 365);
-    assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '366' })).success, false);
+  it('allows a window longer than the retention default', () => {
+    /*
+     * The ceiling used to be 365, which is also the `ALERT_RETENTION_DAYS` default,
+     * and that combination made the daily rollup unreachable: retention rolls up
+     * days *older* than its cutoff, so every bucket in `alert_rollup_daily` sat
+     * outside the longest window anyone could ask for. The trend answered a
+     * year-long question with only what had not yet expired — the exact flat line
+     * the rollup exists to prevent.
+     */
+    assert.ok(
+      1825 > env.retention.alertDays,
+      'the dashboard window must be able to reach past the retention cutoff, or the rollup is invisible',
+    );
+    assert.equal(alertDashboardQuerySchema.parse(q({ days: '730' })).days, 730);
+  });
+
+  it('still bounds the window', () => {
+    assert.equal(alertDashboardQuerySchema.parse(q({ days: '1825' })).days, 1825);
+    assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '1826' })).success, false);
     assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '0' })).success, false);
   });
 
@@ -140,6 +157,22 @@ describe('dashboard query', () => {
 
     const injection = `day'); DROP TABLE alerts;--`;
     assert.equal(alertDashboardQuerySchema.safeParse(q({ bucket: injection })).success, false);
+  });
+
+  it('keeps hourly windows at the old ceiling, since the wider one only pays for itself on day buckets', () => {
+    /*
+     * The 1825-day ceiling above exists so a *daily* trend can reach the rollup.
+     * `dashboardData` only folds the rollup into day buckets — an hourly one is
+     * always live rows alone — so an hourly request at the wide ceiling would be
+     * pure live-row scan and grouping over five years, five times what the old,
+     * single 365-day ceiling ever allowed.
+     */
+    assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '365', bucket: 'hour' })).success, true);
+    assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '366', bucket: 'hour' })).success, false);
+    // The same window is fine for a day bucket, and for no bucket at all (the
+    // route picks 'day' itself once days > 2).
+    assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '1825', bucket: 'day' })).success, true);
+    assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '1825' })).success, true);
   });
 });
 

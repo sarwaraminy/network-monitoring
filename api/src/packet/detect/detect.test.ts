@@ -526,6 +526,123 @@ describe('new device', () => {
   });
 });
 
+describe('recording that a known device is still here', () => {
+  /**
+   * Frames from one MAC at chosen offsets from a fixed start, in milliseconds.
+   *
+   * `run` above spaces frames 10 ms apart, which is right for windowed detectors
+   * and useless here: what is under test is a throttle measured in minutes.
+   */
+  const sightingsAt = (detector: Detector, offsetsMs: number[], mac = UNICAST_MAC): void => {
+    const start = Date.parse('2026-07-26T12:00:00Z');
+    for (const offset of offsetsMs) {
+      detector.inspect(
+        decodePacket(
+          buildTcp({ srcIp: '10.0.0.90', dstIp: '10.0.0.1', dstPort: 443, srcMac: mac }),
+          new Date(start + offset),
+        ),
+      );
+    }
+  };
+
+  it('reports a sighting of a device that is already known', () => {
+    /*
+     * The bug this guards is not a false alert, it is a deletion.
+     *
+     * `inspect` returned early for a known MAC, so the only code that ever wrote
+     * `known_devices.last_seen` was the discovery callback — making the column mean
+     * "first inserted", permanently. Retention prunes on that column, so a device
+     * that had been on the LAN continuously since install would be forgotten at the
+     * end of the window and re-alerted as new on the next capture: the whole
+     * network at once, a year after install, with nothing having changed.
+     */
+    const refreshed: Array<[string, string | null]> = [];
+    const detector = new detect.NewDeviceDetector(0, {
+      onSeen: (address, ip) => refreshed.push([address, ip]),
+    });
+    detector.seed([UNICAST_MAC]);
+
+    sightingsAt(detector, [0]);
+
+    // On the first frame, not a quarter hour into the capture: these addresses came
+    // from a previous run, so every one of them is already due a refresh.
+    assert.deepEqual(refreshed, [[UNICAST_MAC, '10.0.0.90']]);
+  });
+
+  it('leaves a first sighting to the discovery callback', () => {
+    // A brand-new MAC is persisted by `onDiscovered` with the same upsert. Firing
+    // both would be a redundant write on the busiest path in the process.
+    const discovered: string[] = [];
+    const refreshed: string[] = [];
+    const detector = new detect.NewDeviceDetector(0, {
+      onDiscovered: (address) => discovered.push(address),
+      onSeen: (address) => refreshed.push(address),
+    });
+
+    sightingsAt(detector, [0]);
+
+    assert.deepEqual(discovered, [UNICAST_MAC]);
+    assert.deepEqual(refreshed, []);
+  });
+
+  it('refreshes once per quarter hour, not once per frame', () => {
+    // A device sending a thousand frames a second is the normal case, and a write
+    // per frame is why this is not simply an upsert on the known path. `last_seen`
+    // feeds a decision taken in days.
+    const refreshed: string[] = [];
+    const detector = new detect.NewDeviceDetector(0, { onSeen: (address) => refreshed.push(address) });
+    detector.seed([UNICAST_MAC]);
+
+    sightingsAt(detector, [0, 1, 10, 1_000, 60_000, 899_999]);
+
+    assert.deepEqual(refreshed, [UNICAST_MAC]);
+  });
+
+  it('refreshes again once the interval has passed', () => {
+    // The other half of the throttle: one that never released would be the original
+    // bug again, with an extra fifteen minutes of grace.
+    let refreshes = 0;
+    const detector = new detect.NewDeviceDetector(0, {
+      onSeen: () => {
+        refreshes += 1;
+      },
+    });
+    detector.seed([UNICAST_MAC]);
+
+    // t=0, then the boundary exactly, then a millisecond past it, then the next one.
+    sightingsAt(detector, [0, 900_000, 900_001, 1_800_000]);
+
+    assert.equal(refreshes, 3);
+  });
+
+  it('measures the interval per device rather than globally', () => {
+    // A shared timestamp would let a chatty device starve every quiet one, which on
+    // a network of mostly-idle devices is most of them.
+    const refreshed: string[] = [];
+    const other = 'aa:bb:cc:00:11:22';
+    const detector = new detect.NewDeviceDetector(0, { onSeen: (address) => refreshed.push(address) });
+    detector.seed([UNICAST_MAC, other]);
+
+    sightingsAt(detector, [0]);
+    sightingsAt(detector, [1], other);
+
+    assert.deepEqual(refreshed, [UNICAST_MAC, other]);
+  });
+
+  it('says nothing about a structural address', () => {
+    // Broadcast and multicast MACs are not device identities, and a row per
+    // multicast group is not something retention should be keeping alive.
+    const refreshed: string[] = [];
+    const detector = new detect.NewDeviceDetector(0, { onSeen: (address) => refreshed.push(address) });
+    detector.seed(['ff:ff:ff:ff:ff:ff', '01:00:5e:00:00:fb']);
+
+    sightingsAt(detector, [0], 'ff:ff:ff:ff:ff:ff');
+    sightingsAt(detector, [1], '01:00:5e:00:00:fb');
+
+    assert.deepEqual(refreshed, []);
+  });
+});
+
 describe('quiet on normal traffic', () => {
   /**
    * The regression guard. This mirrors what the real database actually contained:

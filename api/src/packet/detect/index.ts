@@ -27,6 +27,14 @@ export interface DetectionEngineOptions {
   knownDevices?: Iterable<string>;
   /** Called when a MAC is seen for the first time, for persistence. */
   onDeviceDiscovered?: (mac: string, ip: string | null) => void;
+  /**
+   * Called when an already-known MAC is seen again, throttled per device.
+   *
+   * Retention prunes `known_devices` on `last_seen`, so without this the column
+   * records when a device was first inserted and a permanent fixture of the
+   * network is eventually forgotten and re-alerted as new.
+   */
+  onDeviceSeen?: (mac: string, ip: string | null) => void;
 }
 
 /**
@@ -43,6 +51,7 @@ export class DetectionEngine {
   constructor(options: DetectionEngineOptions = {}) {
     this.newDevice = new NewDeviceDetector(env.detection.deviceLearningPeriodMs, {
       ...(options.onDeviceDiscovered ? { onDiscovered: options.onDeviceDiscovered } : {}),
+      ...(options.onDeviceSeen ? { onSeen: options.onDeviceSeen } : {}),
     });
     if (options.knownDevices) this.newDevice.seed(options.knownDevices);
 

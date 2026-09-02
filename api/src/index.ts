@@ -9,6 +9,7 @@ import { reloadNotifier } from './notify/notifier.js';
 import { loadDeliverySettings, seedFromEnvironment } from './notify/settings.service.js';
 import { libraryVersion } from './packet/libpcap.js';
 import { stopAllCaptures } from './services/packet-capture.registry.js';
+import { retentionIdle, startRetention, stopRetention } from './services/retention.service.js';
 import { flushSuppressionCounters, refreshSuppressions } from './services/suppression.service.js';
 
 const log = componentLogger('server');
@@ -73,6 +74,15 @@ async function main(): Promise<void> {
   // network, and neither should delay the API becoming available.
   await startIntel();
 
+  // Schedules the first sweep a minute out rather than running one now. Startup is
+  // already doing migrations, feeds and sockets, and nothing expires in that minute
+  // which would not still be expired afterwards.
+  if (!startRetention()) {
+    // Said plainly at boot rather than left to be discovered when a table is large:
+    // the escape hatch is honoured, and nothing will be deleted.
+    log.info('Retention disabled: alerts and known devices will be kept indefinitely');
+  }
+
   let shuttingDown = false;
 
   const shutdown = async (signal: string): Promise<void> => {
@@ -99,6 +109,14 @@ async function main(): Promise<void> {
       // findings without ever storing one — the case where a rule is doing all
       // of the work and its match count is the only evidence of it.
       await flushSuppressionCounters();
+      // Before closeDb, and the count is logged rather than discarded: this cancels
+      // both the interval and the pending first sweep, and the version that cleared
+      // only the interval let a sweep start against a closed pool.
+      const cancelledSweeps = stopRetention();
+      if (cancelledSweeps > 0) log.debug({ cancelledSweeps }, 'Cancelled scheduled retention sweeps');
+      // stopRetention only cancels what had not started; a sweep already running
+      // keeps querying the pool that closeDb() is about to end.
+      await retentionIdle();
       stopIntel();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await closeDb();

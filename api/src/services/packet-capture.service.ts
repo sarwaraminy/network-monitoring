@@ -159,6 +159,15 @@ export class PacketCaptureService {
           this.log.warn({ mac, err: error }, 'Could not record device');
         });
       },
+      // Same upsert, taken for a device already known: it refreshes `last_seen`,
+      // which is what retention prunes on. Warned rather than ignored, because
+      // touches that fail silently are how a device present all along becomes
+      // stale enough to forget.
+      onDeviceSeen: (mac, ip) => {
+        void recordDevice(mac, ip).catch((error: unknown) => {
+          this.log.warn({ mac, err: error }, 'Could not refresh when a known device was last seen');
+        });
+      },
     });
 
     this.handle = handle;

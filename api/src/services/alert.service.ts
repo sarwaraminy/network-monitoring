@@ -1,10 +1,11 @@
 import { and, asc, count, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { env } from '../config/env.js';
 import { db } from '../db/index.js';
-import { type AlertRow, alerts } from '../db/schema.js';
+import { type AlertRow, alertRollupDaily, alerts } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
 import { notifier } from '../notify/notifier.js';
 import { type Finding, SEVERITY_RANK, type Severity } from '../packet/detect/types.js';
+import { firstWholeUtcDay, utcTrunc } from './alert-buckets.js';
 import {
   countSuppressed,
   flushSuppressionCounters,
@@ -108,7 +109,12 @@ export class AlertSink {
 
       if (existing) {
         existing.occurrences += 1;
-        existing.lastSeen = finding.timestamp;
+        // Clamped, not assigned: the flow collector documents findings arriving out
+        // of order, and a later-processed finding with an earlier timestamp must not
+        // pull lastSeen backward past firstSeen — that pairing is a CHECK constraint
+        // on the alerts table once this reaches storage.
+        if (finding.timestamp > existing.lastSeen) existing.lastSeen = finding.timestamp;
+        if (finding.timestamp < existing.firstSeen) existing.firstSeen = finding.timestamp;
         // Keep the newest evidence: counters inside it grow as the event unfolds.
         existing.finding = finding;
         continue;
@@ -206,6 +212,11 @@ export class AlertSink {
   get pendingCount(): number {
     return this.pending.size;
   }
+
+  /** A read-only view of what's pending, for inspecting the merge in tests. */
+  get pendingSnapshot(): ReadonlyMap<string, Readonly<Pending>> {
+    return this.pending;
+  }
 }
 
 async function upsertAlert(dedupKey: string, entry: Pending): Promise<void> {
@@ -234,7 +245,15 @@ async function upsertAlert(dedupKey: string, entry: Pending): Promise<void> {
       target: alerts.dedupKey,
       set: {
         occurrences: sql`${alerts.occurrences} + ${entry.occurrences}`,
-        lastSeen: entry.lastSeen,
+        // greatest()/least(), not a plain assignment: the same dedup key can be
+        // upserted again by a later flush within the same window bucket, and the
+        // flow collector documents findings arriving out of order. An unconditional
+        // assignment could pull lastSeen backward past firstSeen — a pairing the
+        // alerts table's own CHECK constraint forbids — or lose an earlier firstSeen
+        // a later flush discovers. Mirrors the rollup's own ON CONFLICT in
+        // retention.service.ts.
+        firstSeen: sql`least(${alerts.firstSeen}, ${entry.firstSeen})`,
+        lastSeen: sql`greatest(${alerts.lastSeen}, ${entry.lastSeen})`,
         // Later evidence supersedes earlier: its counters reflect the full event.
         evidence: finding.evidence,
         severity: finding.severity,
@@ -364,14 +383,47 @@ export async function dashboardData(options: {
 }): Promise<AlertDashboard> {
   const since = new Date(Date.now() - options.days * 86_400_000);
 
-  // The unit has to be inlined, not bound: as a parameter it becomes date_trunc($1,
-  // …) in SELECT and date_trunc($2, …) in GROUP BY, which Postgres treats as two
-  // different expressions and rejects. Safe to inline because `bucket` is a
-  // closed union validated at the route boundary, but assert it rather than trust it.
-  const truncUnit = options.bucket === 'hour' ? 'hour' : 'day';
-  const bucketExpression = sql`date_trunc('${sql.raw(truncUnit)}', ${alerts.lastSeen})`;
+  // Both this and the rollup below are UTC buckets, and have to be: the two series
+  // are merged into one chart. See alert-buckets.ts.
+  const bucketExpression = utcTrunc(options.bucket === 'hour' ? 'hour' : 'day', alerts.lastSeen);
 
-  const [summary, trendRows, sourceRows] = await Promise.all([
+  /*
+   * Rolled-up days, folded into the same series as the live trend below.
+   *
+   * Without this the chart would answer a 365-day question with only what retention
+   * has not yet expired, so a window longer than ALERT_RETENTION_DAYS would show a
+   * flat line before the cutoff — history that was deleted rendered exactly like a
+   * network on which nothing happened. Keeping those two distinguishable is most of
+   * what this codebase's detectors are for, and the trend chart is the last place it
+   * should be given away.
+   *
+   * Only requested for a daily bucket. An hourly view cannot be served from a daily
+   * rollup, and inventing 24 equal hours from one bucket would be fabricating detail
+   * that was deliberately discarded; the honest answer for an hourly window is the
+   * live rows alone, and an hourly window is only offered for two days anyway. The
+   * ternary keeps the "no query for hourly" behaviour while still letting this run
+   * concurrently with the other three below, rather than after them.
+   *
+   * Whole days only: see `firstWholeUtcDay` for why the day containing `since` is
+   * left out rather than counted in full.
+   */
+  const rolledUp: Promise<{ day: string; severity: string; total: number }[]> =
+    options.bucket === 'day'
+      ? db
+          .select({
+            // Cast explicitly: pg-types parses a DATE into a JS Date at *local*
+            // midnight, and drizzle's PgDateString then reads it back a day early
+            // on any server east of UTC. `expiredDays()` already dodges this the
+            // same way.
+            day: sql<string>`${alertRollupDaily.day}::text`,
+            severity: alertRollupDaily.severity,
+            total: alertRollupDaily.alerts,
+          })
+          .from(alertRollupDaily)
+          .where(gte(alertRollupDaily.day, firstWholeUtcDay(since)))
+      : Promise.resolve([]);
+
+  const [summary, trendRows, sourceRows, rolled] = await Promise.all([
     summarizeAlerts(),
     db
       .select({
@@ -394,20 +446,33 @@ export async function dashboardData(options: {
       .groupBy(alerts.sourceIp)
       .orderBy(desc(count()))
       .limit(8),
+    rolledUp,
   ]);
 
   // Collapse (bucket, severity) rows into one point per bucket.
   const byBucket = new Map<string, AlertTrendPoint>();
-  for (const row of trendRows) {
-    const key = new Date(row.bucket).toISOString();
+  const addTo = (key: string, severity: string, total: number) => {
     let point = byBucket.get(key);
     if (!point) {
       point = { bucket: key, critical: 0, high: 0, medium: 0, low: 0, info: 0 };
       byBucket.set(key, point);
     }
-    if (row.severity in point) {
-      point[row.severity as Severity] = Number(row.total);
+    if (severity in point) {
+      // Added, not assigned: a day can arrive from both sources at once — see below.
+      point[severity as Severity] += total;
     }
+  };
+
+  for (const row of trendRows) {
+    addTo(new Date(row.bucket).toISOString(), row.severity, Number(row.total));
+  }
+
+  // The two sources can overlap on exactly one day — the day the cutoff falls in,
+  // whose expired half is rolled up while its recent half is still live — which is
+  // why the points are accumulated rather than assigned. `rolled` is `[]` for an
+  // hourly bucket, so this is a no-op there.
+  for (const row of rolled) {
+    addTo(new Date(`${row.day}T00:00:00.000Z`).toISOString(), row.severity, Number(row.total));
   }
 
   return {
@@ -423,6 +488,22 @@ export async function dashboardData(options: {
   };
 }
 
+/**
+ * Counts across the alerts that are still stored in full.
+ *
+ * Deliberately NOT including `alert_rollup_daily`, unlike the trend, and the
+ * asymmetry is a choice rather than an oversight. These numbers describe what can be
+ * opened, filtered and acknowledged — `unacknowledged` has no meaning for a rollup
+ * bucket, which records how many alerts a day held and not what anyone did about
+ * them — so folding rollups in would produce a total that the alert list could never
+ * account for.
+ *
+ * The visible consequence, worth knowing before it looks like a bug: with retention
+ * on, a window longer than `ALERT_RETENTION_DAYS` shows trend bars for days that the
+ * totals no longer count. The trend answers "what did this period look like?" and the
+ * tiles answer "what is in the table now?", and after an expiry those are genuinely
+ * different questions.
+ */
 export async function summarizeAlerts(): Promise<AlertSummary> {
   const [severityRows, kindRows, totals] = await Promise.all([
     db.select({ severity: alerts.severity, total: count() }).from(alerts).groupBy(alerts.severity),

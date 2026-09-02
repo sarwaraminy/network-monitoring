@@ -586,6 +586,127 @@ blip into a monitoring outage that looks like a quiet night.
 
 ---
 
+## Retention
+
+`alerts` and `known_devices` grow for ever otherwise. One recurring finding writes a fresh
+row every `DETECT_ALERT_WINDOW_MS` — five minutes by default — so a vulnerability scanner
+that runs nightly is a few hundred rows a day by itself, and `known_devices` gains a row per
+MAC address ever seen, which on a network of modern phones means one per phone *per
+randomised address*.
+
+```bash
+# api/.env
+RETENTION_ENABLED=true        # false keeps everything for ever
+ALERT_RETENTION_DAYS=365      # full-detail alert rows
+DEVICE_RETENTION_DAYS=365     # how long a device is remembered after it was last seen
+RETENTION_SWEEP_HOURS=24
+```
+
+### Detail expires; the shape does not
+
+The obvious implementation is `DELETE FROM alerts WHERE last_seen < cutoff`, and it would
+quietly break the thing this project is most careful about. The dashboard's trend chart reads
+`alerts.last_seen`, so a window set to a year would show a flat line before the cutoff —
+history that was deleted, rendered exactly like a network on which nothing happened. Keeping
+those two states distinguishable is most of what the detectors here are for.
+
+So every expiring day is aggregated into `alert_rollup_daily` — one row per
+(UTC day, kind, severity), carrying how many alerts there were and how many observations they
+represented — **in the same transaction that deletes it**. Rollups are never pruned, and
+`GET /api/alerts/dashboard` reads both, so a window **longer than `ALERT_RETENTION_DAYS`**
+still has a trend long after the individual rows are gone.
+
+That emphasis is load-bearing, and getting it wrong once made the whole feature unobservable.
+Retention rolls up days *older* than its cutoff, so if the longest window anyone can ask for
+is also the retention window, every bucket in `alert_rollup_daily` sits just outside it and the
+fold-in is dead code. The dashboard accepts up to five years and the period selector offers 12
+months and 3 years for exactly that reason: the reachable window has to be able to reach past
+the cutoff.
+
+Sharing a transaction is what makes the sweep safe to retry: rolling up and then failing to
+delete would double-count the day, deleting and then failing to roll up would lose it, and
+neither is possible if both commit together. One day per transaction rather than one for the
+whole backlog, so a failure costs a day of progress instead of the entire reclaim.
+
+Retried, though, not overlapped — the two are not the same. Two sweeps working the same day
+both run the aggregate INSERT, because neither sees the other's uncommitted DELETE, and the
+additive `ON CONFLICT` sums both while only one DELETE removes anything: that day's bucket is
+double for ever. A flag covers this process's own interval firing while a long first reclaim is
+still running; a Postgres advisory lock covers a second replica, held on its own connection for
+the length of the sweep. `pg_try_advisory_lock`, so a sweep that cannot get it stands down and
+lets the next interval try rather than queueing behind a reclaim that may run for hours.
+
+### What the numbers mean after an expiry
+
+The trend and the summary tiles answer different questions once retention has run, and it is
+worth knowing before it looks like a bug:
+
+| | Reads | Answers |
+| --- | --- | --- |
+| Trend chart | live rows **and** rollups | "what did this period look like?" |
+| Summary tiles | live rows only | "what is in the table now?" |
+
+The tiles are deliberately live-only. `unacknowledged` has no meaning for a bucket that
+records how many alerts a day held rather than what anyone did about them, so folding rollups
+in would produce a total the alert list could never account for. An hourly trend window is
+also served from live rows alone — a daily rollup cannot be split into 24 equal hours without
+fabricating detail that was deliberately discarded.
+
+### Three things it deliberately refuses
+
+**A window under seven days is clamped up, with a warning.** `ALERT_RETENTION_DAYS=1` is a
+plausible typo for 10 or 100, and honouring it would delete very nearly every finding on the
+next sweep — irreversibly, because the rollup preserves counts and not rows. There is no undo
+for that one. Set `RETENTION_ENABLED=false` if the intent is really to keep everything.
+
+**Only the expired part of a day is taken.** A day contains rows on both sides of the cutoff,
+so deleting whole days would remove alerts still inside the retention window by up to 24
+hours — against the seven-day floor, a seventh of it. Both the aggregate and the delete
+require `last_seen < cutoff`, and the rollup's `ON CONFLICT` is additive so the rest of that
+day folds in when it expires.
+
+**A sweep interval longer than a timer can hold is clamped down, with a warning.**
+`RETENTION_SWEEP_HOURS=720` — a monthly sweep, and a reasonable thing to want — is
+2,592,000,000 ms, past the signed 32-bit delay `setInterval` accepts. Node does not reject it
+and does not throw: it warns and uses **1 ms**, so the operator who asked for the least
+frequent sweep possible would get a continuous one. Clamped to 596 hours, which is the largest
+that fits.
+
+### Forgetting a device
+
+`known_devices` has nothing to roll up: it is a set of "we have seen this MAC before", and the
+only thing pruning changes is that a returning device is reported as **new**. That is the same
+trade `DELETE /api/alerts/devices/:mac` already makes on purpose, and after a year of absence
+"this appeared on the network" is arguably true again.
+
+**Absence is what has to be measured, and originally it was not.** New-device detection returns
+early for a MAC it already knows — that is the whole point of it — so the only code that ever
+wrote `known_devices.last_seen` ran on discovery, and the column meant "first inserted". Pruning
+on it would have deleted every device recorded on install day exactly a year later *however
+continuously it had been on the LAN*, and the next capture would have re-alerted the whole
+network at once. The detector now reports sightings of known devices too, at most one per device
+per quarter of an hour — a write per frame for a column read in days would be absurd, and
+fifteen minutes of staleness costs nothing against a 365-day window.
+
+**And the two clocks have to be the same clock.** `last_seen` advances only while a capture is
+running, and nothing starts one automatically; the sweep starts with the process. On an
+installation where captures are run for an afternoon at a time, wall-clock time would march
+past a frozen column until the window elapsed and the entire device table went at once — the
+same mass re-alert, reached from the other direction. So the cutoff is measured from
+`max(last_seen)`, the most recent moment there is any evidence of being on this network: a
+clock that stops when we stop listening. Against a table frozen 400 days ago, `now() - 365
+days` forgets **4 of 4** devices and `max(last_seen) - 365 days` forgets **1**; with a capture
+running, both forget the same one. It is not a full accounting of capture uptime — a
+five-minute capture after a year of silence still advances the reference — but it cannot take
+the whole network any more.
+
+Buckets are UTC days, explicitly. `date_trunc('day', ts)` uses the session's `TimeZone`, which
+would make the same data roll up differently on two servers — on a machine set to `Asia/Kabul`
+a finding at 22:30Z lands in the *next* day. Both the bucket expression and the range bounds
+say `AT TIME ZONE 'UTC'`.
+
+---
+
 ## Flow collection (NetFlow / IPFIX)
 
 Instead of capturing packets ourselves, let the switch, router or firewall do the observing and
@@ -701,14 +822,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 529 tests
-npm run test:api  # 419 API tests
-npm run test:ui   # 110 UI tests
+npm test          # both suites: 569 tests
+npm run test:api  # 453 API tests
+npm run test:ui   # 116 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 419 tests
+### API — 453 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
@@ -748,6 +869,14 @@ Three groups are worth knowing about:
   capture router gates), and admitting ADMIN is not the same as requiring it — a guard that also
   admits USER is not an admin gate, so the check asks whether a covering guard admits that role
   and nothing else.
+- **Retention** (`src/services/retention.test.ts`, `src/config/retention-floor.test.ts`) covers the
+  parts that do not need Postgres, which is where the failures that would hurt live: a disabled
+  sweep must report that it *skipped* rather than that it found nothing, must delete nothing when
+  called directly, and must schedule no timer — asserted on `startRetention`'s return value, not
+  on the process's handle count, because the timer is `unref`'d and an earlier version of that
+  test passed with the disabled check deleted. Plus the seven-day floor clamping a slipped digit
+  and saying so, while leaving a legitimately short window alone. The SQL half — aggregate a day,
+  delete it, both in one transaction — is verified against a real database rather than a mock.
 - **Repository-configuration guards** compare a config file against the repo it governs, in
   text, because the failure they catch is a comment asserting something the configuration
   underneath does not do. `env-defaults.test.ts` holds `.env.example` and Compose to env.ts's
@@ -768,7 +897,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 110 tests
+### UI — 116 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —

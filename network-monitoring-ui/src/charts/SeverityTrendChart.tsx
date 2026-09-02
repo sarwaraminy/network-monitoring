@@ -6,6 +6,28 @@ import type { AlertTrendPoint } from '../types';
 import { SEVERITY_LABEL, SEVERITY_ORDER } from './palette';
 import { useChartPalette } from './useChartPalette';
 
+/**
+ * How one bucket is named on the axis.
+ *
+ * Exported because the timezone question here has one right answer per bucket kind
+ * and it is not obvious which:
+ *
+ *  - An **hourly** bucket is an instant, and an instant belongs in the viewer's own
+ *    time. 22:00Z happened to them at whatever their clock said.
+ *  - A **daily** bucket is not an instant, it is the name of a UTC day. The API
+ *    aggregates days in UTC so that live rows out of `alerts` and rolled-up days out
+ *    of `alert_rollup_daily` can be merged into one series, and formatting that
+ *    midnight in local time renames it: anywhere west of UTC, every bar would carry
+ *    the previous day's date.
+ */
+export function bucketLabel(bucket: 'hour' | 'day', iso: string): string {
+  const date = new Date(iso);
+
+  return bucket === 'hour'
+    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
 interface Props {
   trend: AlertTrendPoint[];
   bucket: 'hour' | 'day';
@@ -26,16 +48,7 @@ interface Props {
 export default function SeverityTrendChart({ trend, bucket, height = 260 }: Readonly<Props>) {
   const palette = useChartPalette();
 
-  const labels = useMemo(
-    () =>
-      trend.map((point) => {
-        const date = new Date(point.bucket);
-        return bucket === 'hour'
-          ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-      }),
-    [trend, bucket],
-  );
+  const labels = useMemo(() => trend.map((point) => bucketLabel(bucket, point.bucket)), [trend, bucket]);
 
   // Least severe at the bottom, so the stack reads upward in order of seriousness.
   const stackOrder = useMemo(() => [...SEVERITY_ORDER].reverse(), []);

@@ -150,6 +150,16 @@ services:
       DETECT_DNS_SUBDOMAINS: ${DETECT_DNS_SUBDOMAINS:-40}
       DETECT_DEVICE_LEARNING_MS: ${DETECT_DEVICE_LEARNING_MS:-60000}
       DETECT_ALERT_WINDOW_MS: ${DETECT_ALERT_WINDOW_MS:-300000}
+
+      # Retention. Alerts expire in detail after ALERT_RETENTION_DAYS and survive as
+      # daily rollups, which are never pruned — so a long dashboard window keeps its
+      # shape after the rows have gone. RETENTION_ENABLED=false keeps everything.
+      # Under seven days is clamped up, loudly: a slipped digit deletes findings
+      # irreversibly.
+      RETENTION_ENABLED: ${RETENTION_ENABLED:-true}
+      ALERT_RETENTION_DAYS: ${ALERT_RETENTION_DAYS:-365}
+      DEVICE_RETENTION_DAYS: ${DEVICE_RETENTION_DAYS:-365}
+      RETENTION_SWEEP_HOURS: ${RETENTION_SWEEP_HOURS:-24}
       NOTIFY_EMAIL_FROM: ${NOTIFY_EMAIL_FROM:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

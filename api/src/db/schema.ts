@@ -3,10 +3,12 @@ import {
   bigint,
   bigserial,
   boolean,
+  date,
   index,
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   serial,
   smallint,
   text,
@@ -186,6 +188,36 @@ export const deliverySettings = pgTable('delivery_settings', {
   updatedBy: varchar('updated_by', { length: 200 }),
 });
 
+/**
+ * Daily alert rollups — see V8__Alert_retention.sql.
+ *
+ * Written by the retention sweep immediately before it deletes the day's alerts, in
+ * the same transaction, and never pruned. The dashboard reads this alongside the live
+ * rows so a long window still has a shape after the detail has expired.
+ */
+export const alertRollupDaily = pgTable(
+  'alert_rollup_daily',
+  {
+    /** The UTC day summarised. A bucket, not an instant. */
+    day: date('day').notNull(),
+    kind: varchar('kind', { length: 64 }).notNull(),
+    severity: varchar('severity', { length: 16 }).notNull(),
+
+    /** Distinct alert rows collapsed into this bucket. */
+    alerts: integer('alerts').notNull(),
+    /** Observations those alerts represented. */
+    occurrences: bigint('occurrences', { mode: 'number' }).notNull(),
+
+    firstSeen: timestamp('first_seen', { withTimezone: true, mode: 'date' }).notNull(),
+    lastSeen: timestamp('last_seen', { withTimezone: true, mode: 'date' }).notNull(),
+    rolledUpAt: timestamp('rolled_up_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.day, table.kind, table.severity] }),
+    index('alert_rollup_daily_day_idx').on(table.day),
+  ],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 export type LogRow = typeof logs.$inferSelect;
@@ -193,6 +225,7 @@ export type NewLogRow = typeof logs.$inferInsert;
 export type AlertRow = typeof alerts.$inferSelect;
 export type NewAlertRow = typeof alerts.$inferInsert;
 export type KnownDeviceRow = typeof knownDevices.$inferSelect;
+export type AlertRollupRow = typeof alertRollupDaily.$inferSelect;
 export type DeliverySettingsRow = typeof deliverySettings.$inferSelect;
 export type NewDeliverySettingsRow = typeof deliverySettings.$inferInsert;
 export type SuppressionRow = typeof alertSuppressions.$inferSelect;
