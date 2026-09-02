@@ -270,10 +270,24 @@ export const deliverySettingsPatchSchema = z
     emailHost: nullableTrimmed(255),
     emailPort: z.coerce.number().int().min(1).max(65_535).nullable().optional(),
     emailSecure: z.boolean().nullable().optional(),
+    // Not validated as an email: this is an SMTP AUTH username, and plenty of
+    // providers hand out one that is not email-shaped at all (an API key, a
+    // plain account name). Only `from` and `to` are addresses in the RFC 5321
+    // sense, so only those get the format check.
     emailUser: nullableTrimmed(255),
     // A password. Accepted, never returned.
     emailPassword: nullableTrimmed(500),
-    emailFrom: nullableTrimmed(255),
+    // z.email(), not a bare trimmed string: this becomes the From: header, and a
+    // malformed one used to save successfully and only surface later as a
+    // silent SMTP rejection — the same class of failure notify.ts's own
+    // isConfigured() checks exist to catch before it gets that far.
+    emailFrom: z
+      .string()
+      .trim()
+      .pipe(z.email('emailFrom must be a valid email address'))
+      .pipe(z.string().max(255))
+      .nullable()
+      .optional(),
     /**
      * Recipients as a list, not a comma-separated string.
      *
@@ -290,7 +304,18 @@ export const deliverySettingsPatchSchema = z
         const list = Array.isArray(value) ? value : value.split(',');
         return list.map((entry) => entry.trim()).filter((entry) => entry !== '');
       })
-      .pipe(z.array(z.string().max(320)).max(50).nullable().optional()),
+      .pipe(
+        z
+          .array(
+            z
+              .string()
+              .pipe(z.email('every recipient must be a valid email address'))
+              .pipe(z.string().max(320)),
+          )
+          .max(50)
+          .nullable()
+          .optional(),
+      ),
   })
   // Unknown keys are refused rather than ignored: a typo like `minSeverety` would
   // otherwise return 200 having changed nothing, which is the silent no-op this

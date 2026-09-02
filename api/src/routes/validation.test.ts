@@ -578,4 +578,26 @@ describe('delivery settings patch', () => {
       'https://hooks.slack.com/services/T/B/x',
     );
   });
+
+  it('refuses a from-address or recipient that is not a real email address', () => {
+    // Otherwise a typo saves successfully and only surfaces later as a silent
+    // SMTP rejection, on the one field this feature exists to make configurable
+    // without editing a file and finding out at the next incident.
+    assert.equal(deliverySettingsPatchSchema.safeParse({ emailFrom: 'not-an-email' }).success, false);
+    assert.equal(
+      deliverySettingsPatchSchema.safeParse({ emailTo: ['ops@example.test', 'bad'] }).success,
+      false,
+    );
+
+    assert.equal(
+      deliverySettingsPatchSchema.parse({ emailFrom: '  nmt@example.test  ' }).emailFrom,
+      'nmt@example.test',
+    );
+  });
+
+  it('does not hold emailUser to the same standard, since it is a login, not an address', () => {
+    // Plenty of SMTP providers hand out an AUTH username that is not
+    // email-shaped at all — an API key, a plain account name.
+    assert.equal(deliverySettingsPatchSchema.parse({ emailUser: 'apikey' }).emailUser, 'apikey');
+  });
 });
