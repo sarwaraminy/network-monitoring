@@ -28,20 +28,44 @@ export default function DraggableDialogPaper(props: Readonly<PaperProps>) {
 
     drag.current = { startX: event.clientX, startY: event.clientY, originX: offset.x, originY: offset.y };
 
+    /**
+     * Ends the drag and unsubscribes. Declared before both handlers because each
+     * needs to call it — a `mouseup` is the normal ending, and a move with no
+     * button held is the one that catches the abnormal one.
+     */
+    const release = () => {
+      drag.current = null;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', release);
+    };
+
     const handleMouseMove = (moveEvent: MouseEvent) => {
       if (!drag.current) return;
+
+      /*
+       * The fallback release, and it is not theoretical.
+       *
+       * `mouseup` only reaches `document` when the button is released over the
+       * viewport. Drag the title bar quickly to the edge of the screen and let go
+       * outside the window and no `mouseup` ever arrives — so without this the
+       * dialog keeps following the cursor the moment it re-enters, with no button
+       * held, until some unrelated click happens to end it. `buttons` is a bitmask
+       * of what is currently held, so zero means the gesture is over whatever we
+       * missed.
+       */
+      if (moveEvent.buttons === 0) {
+        release();
+        return;
+      }
+
       setOffset({
         x: drag.current.originX + (moveEvent.clientX - drag.current.startX),
         y: drag.current.originY + (moveEvent.clientY - drag.current.startY),
       });
     };
-    const handleMouseUp = () => {
-      drag.current = null;
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
+
     document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mouseup', release);
   };
 
   return (

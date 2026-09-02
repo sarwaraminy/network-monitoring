@@ -307,6 +307,23 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
     },
   });
 
+  /** The classic SMTP misconfiguration, described if the current pair is one. */
+  const smtpMismatch = (() => {
+    const host = String(currentValue('emailHost', 'text'));
+    if (host.trim() === '') return null;
+
+    const secure = currentValue('emailSecure', 'switch') === true;
+    const port = Number(currentValue('emailPort', 'number'));
+
+    if (secure && port === 587) {
+      return 'Port 587 with implicit TLS on will hang until the socket times out: 587 expects STARTTLS. Use port 465, or turn implicit TLS off.';
+    }
+    if (!secure && port === 465) {
+      return 'Port 465 expects implicit TLS from the first byte. Turn implicit TLS on, or use port 587.';
+    }
+    return null;
+  })();
+
   const changedFields = Object.keys(draft).filter((key) => {
     const def = SECTIONS.flatMap((section) => section.fields).find((field) => field.key === key);
     if (!def) return false;
@@ -405,6 +422,23 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
       {message && (
         <Alert severity={message.severity} onClose={() => setMessage(null)} sx={{ mb: 2 }}>
           {message.text}
+        </Alert>
+      )}
+
+      {/*
+        The one pairing in this form that fails by hanging rather than by erroring.
+        `emailSecure` means implicit TLS, which is port 465; on 587 the server
+        expects STARTTLS instead, and a client that opens TLS immediately sits there
+        until the socket times out. The field's own help text says so, which is not
+        the same as noticing that the two current values contradict each other.
+        Warned rather than refused: implicit TLS on a non-standard port is a real
+        configuration, and the schema cannot check the pair anyway — only changed
+        fields are sent, so the API often sees one of the two and the row holds the
+        other. The form is the one place that always has both.
+      */}
+      {smtpMismatch && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {smtpMismatch}
         </Alert>
       )}
 

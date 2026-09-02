@@ -601,3 +601,56 @@ describe('delivery settings patch', () => {
     assert.equal(deliverySettingsPatchSchema.parse({ emailUser: 'apikey' }).emailUser, 'apikey');
   });
 });
+
+describe('webhook URL shape', () => {
+  it('refuses a URL with no scheme, which is the plausible paste', () => {
+    // It used to store fine. Then `detectFormat` falls back to `generic` because
+    // `new URL()` throws, and every send burns three attempts with 500ms/1s/2s
+    // backoff before reporting `webhook request failed` — visible only to whoever
+    // reads the logs. Refused where the operator is still looking at the field.
+    const parsed = deliverySettingsPatchSchema.safeParse({
+      webhookUrl: 'hooks.slack.com/services/T000/B000/xxx',
+    });
+    assert.equal(parsed.success, false);
+    const message = parsed.success ? '' : parsed.error.issues.map((issue) => issue.message).join(' ');
+    assert.match(message, /including the scheme/i);
+  });
+
+  it('accepts http as well as https', () => {
+    // A generic JSON endpoint on an internal network is a legitimate target, and
+    // refusing it would be inventing a policy nobody asked for.
+    assert.equal(
+      deliverySettingsPatchSchema.parse({ webhookUrl: 'https://hooks.slack.com/services/T/B/x' }).webhookUrl,
+      'https://hooks.slack.com/services/T/B/x',
+    );
+    assert.equal(
+      deliverySettingsPatchSchema.parse({ webhookUrl: 'http://collector.internal/hook' }).webhookUrl,
+      'http://collector.internal/hook',
+    );
+  });
+
+  it('refuses every other scheme', () => {
+    // Which also keeps `javascript:` and `file:` out of a value that later gets
+    // fetched.
+    for (const url of ['javascript:alert(1)', 'file:///etc/passwd', 'ftp://x.test/hook', 'not a url']) {
+      assert.equal(
+        deliverySettingsPatchSchema.safeParse({ webhookUrl: url }).success,
+        false,
+        `expected ${url} to be refused`,
+      );
+    }
+  });
+
+  it('still allows clearing it', () => {
+    // Null is how "fall back to the environment or the default" is expressed, and
+    // a shape check must not take that away.
+    assert.equal(deliverySettingsPatchSchema.parse({ webhookUrl: null }).webhookUrl, null);
+  });
+
+  it('trims before checking, so a pasted URL with whitespace is accepted', () => {
+    assert.equal(
+      deliverySettingsPatchSchema.parse({ webhookUrl: '  https://x.test/hook  ' }).webhookUrl,
+      'https://x.test/hook',
+    );
+  });
+});

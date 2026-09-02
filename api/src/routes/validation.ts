@@ -251,9 +251,42 @@ export const deliverySettingsPatchSchema = z
     includeEvidence: z.boolean().nullable().optional(),
     dashboardUrl: nullableTrimmed(500),
 
-    // The webhook URL is a bearer credential for Slack and Teams. It is accepted
-    // here and never returned; see notify/settings.ts.
-    webhookUrl: nullableTrimmed(1000),
+    /**
+     * The webhook URL: a bearer credential for Slack and Teams, accepted here and
+     * never returned. See notify/settings.ts.
+     *
+     * Shape-checked for the same reason `emailFrom` is. A schemeless paste —
+     * `hooks.slack.com/services/...`, a plausible copy-paste slip — used to store
+     * fine, and then `detectFormat` falls back to `generic` because `new URL()`
+     * throws, and every send burns three delivery attempts with 500ms/1s/2s backoff
+     * before reporting `webhook request failed`. That is the silent-until-someone-
+     * reads-the-logs failure this whole feature exists to remove, so it is refused
+     * at the boundary where the operator is still looking at the field.
+     *
+     * http as well as https: a generic JSON endpoint on an internal network is a
+     * legitimate target, and refusing it would be inventing a policy nobody asked
+     * for. Every other scheme is refused, which also rules out `javascript:` and
+     * `file:` reaching a URL that later gets fetched.
+     */
+    webhookUrl: z
+      .string()
+      .trim()
+      .max(1000)
+      .refine(
+        (value) => {
+          try {
+            return ['http:', 'https:'].includes(new URL(value).protocol);
+          } catch {
+            return false;
+          }
+        },
+        {
+          message:
+            'webhookUrl must be a full URL including the scheme, e.g. https://hooks.slack.com/services/…',
+        },
+      )
+      .nullable()
+      .optional(),
     webhookFormat: z.enum(WEBHOOK_FORMATS).nullable().optional(),
 
     syslogHost: nullableTrimmed(255),

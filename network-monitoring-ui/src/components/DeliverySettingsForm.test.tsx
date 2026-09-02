@@ -222,6 +222,58 @@ describe('DeliverySettingsForm', () => {
     expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
   });
 
+  it('warns when implicit TLS and the port contradict each other', async () => {
+    // The one pairing in this form that fails by HANGING rather than erroring: 587
+    // expects STARTTLS, so a client opening TLS immediately sits there until the
+    // socket times out. The field's help text says so, which is not the same as
+    // noticing that the two current values disagree.
+    server.use(
+      http.get('/api/notify/settings', () =>
+        HttpResponse.json({
+          ...DELIVERY_SETTINGS,
+          settings: {
+            ...DELIVERY_SETTINGS.settings,
+            emailHost: { source: 'database', value: 'smtp.example.test' },
+            emailPort: { source: 'database', value: 587 },
+            emailSecure: { source: 'database', value: true },
+          },
+        }),
+      ),
+    );
+
+    renderApp(<DeliverySettingsForm />, { authenticated: true });
+    expect(await screen.findByText(/587 with implicit TLS on will hang/i)).toBeInTheDocument();
+  });
+
+  it('warns about the other direction too', async () => {
+    server.use(
+      http.get('/api/notify/settings', () =>
+        HttpResponse.json({
+          ...DELIVERY_SETTINGS,
+          settings: {
+            ...DELIVERY_SETTINGS.settings,
+            emailHost: { source: 'database', value: 'smtp.example.test' },
+            emailPort: { source: 'database', value: 465 },
+            emailSecure: { source: 'database', value: false },
+          },
+        }),
+      ),
+    );
+
+    renderApp(<DeliverySettingsForm />, { authenticated: true });
+    expect(await screen.findByText(/465 expects implicit TLS/i)).toBeInTheDocument();
+  });
+
+  it('says nothing when no SMTP host is configured', async () => {
+    // The default fixture has 587 with implicit TLS off, which is correct, and no
+    // host at all — warning about a mail server nobody has set up is noise.
+    renderApp(<DeliverySettingsForm />, { authenticated: true });
+
+    await screen.findByText('Gates');
+    expect(screen.queryByText(/will hang/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/expects implicit TLS/i)).not.toBeInTheDocument();
+  });
+
   it('reports a read failure instead of an empty form', async () => {
     server.use(
       http.get('/api/notify/settings', () => HttpResponse.json({ message: 'boom' }, { status: 500 })),
@@ -244,7 +296,14 @@ describe('DeliverySettingsForm', () => {
     const user = userEvent.setup();
     renderApp(<DeliverySettingsForm />, { authenticated: true });
 
-    await user.type(await screen.findByLabelText(/recipients/i), 'ops@example.test, oncall@example.test');
+    // Pasted, not typed. `type` sends one event per character, which made this the
+    // slowest case in the file and flaky under full-suite load — it timed out once
+    // in CI-equivalent conditions while passing in isolation, and a test that
+    // teaches people to re-run is worse than no test. Pasting is also what an
+    // administrator actually does with a recipient list.
+    const recipients = await screen.findByLabelText(/recipients/i);
+    await user.click(recipients);
+    await user.paste('ops@example.test, oncall@example.test');
     await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => expect(body).not.toBeNull());

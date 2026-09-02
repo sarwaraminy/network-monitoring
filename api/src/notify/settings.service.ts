@@ -86,11 +86,6 @@ export async function loadDeliverySettings(): Promise<DeliverySettings> {
   return currentSettings();
 }
 
-/** Drops the cache. For tests, and for a reset. */
-export function resetDeliverySettingsCache(): void {
-  cached = null;
-}
-
 async function readRow(): Promise<StoredDeliverySettings> {
   const [row] = await db.select().from(deliverySettings).where(eq(deliverySettings.id, ROW_ID)).limit(1);
 
@@ -159,6 +154,7 @@ export async function seedFromEnvironment(): Promise<DeliveryField[]> {
     // and silently dropped the rest.
     const applied: DeliveryField[] = [];
     for (const field of seeded) {
+      const spec = DELIVERY_FIELDS[field];
       const values = {
         [field]: patch[field],
         updatedBy: 'environment (first boot)',
@@ -173,16 +169,33 @@ export async function seedFromEnvironment(): Promise<DeliveryField[]> {
         // to "seeded" below, logging success for a write that never happened.
         if (result.rowCount === 0) {
           log.warn(
-            { field },
+            { field, variable: spec.env },
             'No delivery_settings row to update; the environment still applies, but nothing was persisted',
           );
           continue;
         }
         applied.push(field);
       } catch (error) {
+        /*
+         * The variable's name, not the field key — the same distinction the 409
+         * conflict message needed. An operator reading `syslogAppName` has nothing
+         * to search for; `SYSLOG_APP_NAME` is a line in their file.
+         *
+         * And it spells out the consequence, because this is the one case where
+         * this feature's promise cannot be kept. The parser is deliberately as
+         * lenient as the env.ts parser it replaces, so a legacy value outside the
+         * row's CHECK bounds — a pre-existing NOTIFY_MAX_PER_HOUR=0, a mistyped
+         * SYSLOG_FACILITY=99 — still takes effect from the environment and still
+         * cannot be stored. So "delete the line later and your behaviour is
+         * preserved" is false for exactly these values, and the only honest
+         * response is to say so at the moment it happens rather than let the
+         * operator discover it on the boot after they tidy the file.
+         */
         log.warn(
-          { field, err: error },
-          'Environment value for this field violates the stored settings constraints; the environment still applies, but the row does not remember it',
+          { field, variable: spec.env, err: error },
+          `Value of ${spec.env} cannot be stored (it is outside the limits this table enforces). ` +
+            'It still applies while the variable is set — but the row cannot remember it, so removing ' +
+            'that line later will revert this setting to its default rather than preserving it.',
         );
       }
     }
