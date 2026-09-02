@@ -28,9 +28,12 @@ CREATE TABLE alert_rollup_daily (
 
     -- Distinct alert rows collapsed into this bucket.
     alerts       INTEGER      NOT NULL,
-    -- Observations those alerts represented. BIGINT because `occurrences` is summed
-    -- across a whole day of a busy segment, and the per-alert counter is already a
-    -- BIGINT for the same reason.
+    -- Observations those alerts represented. BIGINT, even though the per-alert
+    -- `alerts.occurrences` this is summed from is INTEGER: Postgres's own sum() over
+    -- an integer column returns bigint, precisely because a sum can plausibly exceed
+    -- what any single 32-bit row holds, and a day's total across a busy segment is
+    -- exactly that case. Matching the aggregate's own return type avoids a narrowing
+    -- cast back to int.
     occurrences  BIGINT       NOT NULL,
 
     -- The real extremes within the bucket, so a rolled-up day still says when
