@@ -3,6 +3,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { notifier, reloadNotifier } from '../notify/notifier.js';
 import {
+  DELIVERY_FIELDS,
   environmentPinnedFields,
   isEmailConfigured,
   isWebhookConfigured,
@@ -158,9 +159,13 @@ notifyRouter.put(
 
     const conflicts = pinnedConflicts(patch, currentResolution());
     if (conflicts.length > 0) {
+      // The variable name, not the field key: `syslogAppName` is not a line an
+      // admin can find in api/.env, `SYSLOG_APP_NAME` is — the same distinction
+      // invalidEnvironmentVariables (settings.ts) makes for the boot-time warning.
+      const variables = conflicts.map((field) => DELIVERY_FIELDS[field].env);
       throw new HttpError(
         409,
-        `Set in the environment and not editable here: ${conflicts.join(', ')}. ` +
+        `Set in the environment and not editable here: ${variables.join(', ')}. ` +
           'Remove the variable from api/.env (or your Compose file) to manage it from this page.',
       );
     }
