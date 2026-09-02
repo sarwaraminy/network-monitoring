@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { env } from '../config/env.js';
 import { db } from '../db/index.js';
-import { type AlertRow, alerts } from '../db/schema.js';
+import { type AlertRow, alertRollupDaily, alerts } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
 import { notifier } from '../notify/notifier.js';
 import { type Finding, SEVERITY_RANK, type Severity } from '../packet/detect/types.js';
@@ -398,15 +398,53 @@ export async function dashboardData(options: {
 
   // Collapse (bucket, severity) rows into one point per bucket.
   const byBucket = new Map<string, AlertTrendPoint>();
-  for (const row of trendRows) {
-    const key = new Date(row.bucket).toISOString();
+  const addTo = (key: string, severity: string, total: number) => {
     let point = byBucket.get(key);
     if (!point) {
       point = { bucket: key, critical: 0, high: 0, medium: 0, low: 0, info: 0 };
       byBucket.set(key, point);
     }
-    if (row.severity in point) {
-      point[row.severity as Severity] = Number(row.total);
+    if (severity in point) {
+      // Added, not assigned: a day can arrive from both sources at once — see below.
+      point[severity as Severity] += total;
+    }
+  };
+
+  for (const row of trendRows) {
+    addTo(new Date(row.bucket).toISOString(), row.severity, Number(row.total));
+  }
+
+  /*
+   * Rolled-up days, folded into the same series.
+   *
+   * Without this the chart would answer a 365-day question with only what retention
+   * has not yet expired, so a window longer than ALERT_RETENTION_DAYS would show a
+   * flat line before the cutoff — history that was deleted rendered exactly like a
+   * network on which nothing happened. Keeping those two distinguishable is most of
+   * what this codebase's detectors are for, and the trend chart is the last place it
+   * should be given away.
+   *
+   * Only requested for a daily bucket. An hourly view cannot be served from a daily
+   * rollup, and inventing 24 equal hours from one bucket would be fabricating detail
+   * that was deliberately discarded; the honest answer for an hourly window is the
+   * live rows alone, and an hourly window is only offered for two days anyway.
+   *
+   * The two sources can overlap on exactly one day — the day the cutoff falls in,
+   * whose expired half is rolled up while its recent half is still live — which is
+   * why the points are accumulated rather than assigned.
+   */
+  if (options.bucket === 'day') {
+    const rolled = await db
+      .select({
+        day: alertRollupDaily.day,
+        severity: alertRollupDaily.severity,
+        total: alertRollupDaily.alerts,
+      })
+      .from(alertRollupDaily)
+      .where(gte(alertRollupDaily.day, since.toISOString().slice(0, 10)));
+
+    for (const row of rolled) {
+      addTo(new Date(`${row.day}T00:00:00.000Z`).toISOString(), row.severity, Number(row.total));
     }
   }
 
@@ -423,6 +461,22 @@ export async function dashboardData(options: {
   };
 }
 
+/**
+ * Counts across the alerts that are still stored in full.
+ *
+ * Deliberately NOT including `alert_rollup_daily`, unlike the trend, and the
+ * asymmetry is a choice rather than an oversight. These numbers describe what can be
+ * opened, filtered and acknowledged — `unacknowledged` has no meaning for a rollup
+ * bucket, which records how many alerts a day held and not what anyone did about
+ * them — so folding rollups in would produce a total that the alert list could never
+ * account for.
+ *
+ * The visible consequence, worth knowing before it looks like a bug: with retention
+ * on, a window longer than `ALERT_RETENTION_DAYS` shows trend bars for days that the
+ * totals no longer count. The trend answers "what did this period look like?" and the
+ * tiles answer "what is in the table now?", and after an expiry those are genuinely
+ * different questions.
+ */
 export async function summarizeAlerts(): Promise<AlertSummary> {
   const [severityRows, kindRows, totals] = await Promise.all([
     db.select({ severity: alerts.severity, total: count() }).from(alerts).groupBy(alerts.severity),

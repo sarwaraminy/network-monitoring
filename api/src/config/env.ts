@@ -42,6 +42,30 @@ function bool(name: string, fallback: boolean): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
 }
 
+/**
+ * A retention window in days, with a floor.
+ *
+ * The floor is the point. `ALERT_RETENTION_DAYS=1` is a plausible typo for 10 or 100,
+ * and it would delete very nearly every finding on the next sweep — irreversibly,
+ * because the rollup keeps counts rather than rows. Seven days is short enough to be
+ * a legitimate choice for a noisy lab and long enough that a slipped digit cannot
+ * empty the table. Clamped loudly rather than honoured, since silently accepting a
+ * dangerous number is how this goes wrong once and unrecoverably.
+ */
+const MIN_RETENTION_DAYS = 7;
+
+function retentionDays(name: string, fallback: number): number {
+  const days = int(name, fallback);
+  if (days < MIN_RETENTION_DAYS) {
+    console.warn(
+      `[config] ${name}=${days} is below the ${MIN_RETENTION_DAYS}-day minimum; using ${MIN_RETENTION_DAYS}. ` +
+        'Set RETENTION_ENABLED=false to keep everything instead.',
+    );
+    return MIN_RETENTION_DAYS;
+  }
+  return days;
+}
+
 function databaseUrl(): string {
   const url = process.env.DATABASE_URL;
   if (url && url.trim() !== '') return url;
@@ -230,5 +254,41 @@ export const env = {
     deviceLearningPeriodMs: int('DETECT_DEVICE_LEARNING_MS', 60_000),
     /** Repeats of one finding merge into a single alert for this long. */
     alertWindowMs: int('DETECT_ALERT_WINDOW_MS', 300_000),
+  },
+
+  /**
+   * How long findings are kept in full detail.
+   *
+   * `alerts` and `known_devices` grow without bound — one recurring finding produces
+   * a row every `alertWindowMs`, and `known_devices` gains one per MAC address ever
+   * seen, which on a network of phones using randomised addresses is one per phone
+   * per address.
+   *
+   * Detail expires; the shape does not. Every day of alerts is aggregated into
+   * `alert_rollup_daily` in the same transaction that deletes it, and the rollup is
+   * never pruned — so a dashboard set to a year still has a trend long after the
+   * individual rows have gone. Deleting without that would make an expired month
+   * render exactly like a quiet one, which is the confusion this codebase works
+   * hardest to avoid.
+   */
+  retention: {
+    /**
+     * On by default: an unbounded table is a problem every installation eventually
+     * has, and the default window is long enough that nobody meets it by surprise.
+     * Set false to keep everything for ever.
+     */
+    enabled: bool('RETENTION_ENABLED', true),
+    /** Full-detail alert rows. A year, after which the daily rollup carries it. */
+    alertDays: retentionDays('ALERT_RETENTION_DAYS', 365),
+    /**
+     * How long a device is remembered after it was last seen.
+     *
+     * Pruning one means it is reported as new if it ever returns, which is the same
+     * trade `DELETE /api/alerts/devices/:mac` already makes deliberately — after a
+     * year of absence, "this appeared on the network" is arguably true again.
+     */
+    deviceDays: retentionDays('DEVICE_RETENTION_DAYS', 365),
+    /** Gap between sweeps. The work is idempotent, so a missed one costs nothing. */
+    sweepHours: int('RETENTION_SWEEP_HOURS', 24),
   },
 } as const;

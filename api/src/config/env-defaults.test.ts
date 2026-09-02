@@ -95,9 +95,18 @@ function parseComposeDefaults(text: string): Map<string, string> {
  */
 function parseCodeDefaults(text: string): Map<string, string> {
   const values = new Map<string, string>();
+  /*
+   * `retentionDays` belongs in that alternation for the reason this file exists.
+   *
+   * It is a thin wrapper around `int()` that clamps to a floor, and adding it made
+   * two settings invisible to every check below — including ALERT_RETENTION_DAYS,
+   * which decides what gets deleted — because they no longer matched a bare `int()`
+   * call. The suite still passed. Any future parser helper has to be added here too,
+   * or it quietly takes its settings out of this guard's view.
+   */
   // The default may itself be a quoted string containing commas —
   // CORS_ORIGIN's is a comma-separated list — so match a quoted form first.
-  const pattern = /\b(?:bool|int|optional)\(\s*'([A-Z0-9_]+)'\s*,\s*('[^']*'|[^),]*)\)/g;
+  const pattern = /\b(?:bool|int|optional|retentionDays)\(\s*'([A-Z0-9_]+)'\s*,\s*('[^']*'|[^),]*)\)/g;
   const requiredPattern = /\brequired\(\s*'([A-Z0-9_]+)'\s*\)/g;
 
   for (const match of text.matchAll(pattern)) {

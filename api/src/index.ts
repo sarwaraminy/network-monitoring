@@ -9,6 +9,7 @@ import { reloadNotifier } from './notify/notifier.js';
 import { loadDeliverySettings, seedFromEnvironment } from './notify/settings.service.js';
 import { libraryVersion } from './packet/libpcap.js';
 import { stopAllCaptures } from './services/packet-capture.registry.js';
+import { startRetention, stopRetention } from './services/retention.service.js';
 import { flushSuppressionCounters, refreshSuppressions } from './services/suppression.service.js';
 
 const log = componentLogger('server');
@@ -73,6 +74,11 @@ async function main(): Promise<void> {
   // network, and neither should delay the API becoming available.
   await startIntel();
 
+  // Schedules the first sweep a minute out rather than running one now. Startup is
+  // already doing migrations, feeds and sockets, and nothing expires in that minute
+  // which would not still be expired afterwards.
+  startRetention();
+
   let shuttingDown = false;
 
   const shutdown = async (signal: string): Promise<void> => {
@@ -99,6 +105,7 @@ async function main(): Promise<void> {
       // findings without ever storing one — the case where a rule is doing all
       // of the work and its match count is the only evidence of it.
       await flushSuppressionCounters();
+      stopRetention();
       stopIntel();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await closeDb();
