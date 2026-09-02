@@ -71,6 +71,9 @@ const SWEEP_LOCK_KEY = 7_213_559_001;
 /** Set while a sweep is running in *this* process. */
 let sweeping = false;
 
+/** The currently running sweep in this process, if any — see `retentionIdle`. */
+let inFlight: Promise<SweepResult> | null = null;
+
 function cutoffFor(days: number, now: number): Date {
   return new Date(now - days * 86_400_000);
 }
@@ -93,11 +96,29 @@ export async function sweepRetention(now = Date.now()): Promise<SweepResult> {
   }
   sweeping = true;
 
-  try {
-    return await lockedSweep(now);
-  } finally {
+  const promise = lockedSweep(now).finally(() => {
     sweeping = false;
-  }
+    inFlight = null;
+  });
+  inFlight = promise;
+  return promise;
+}
+
+/**
+ * Resolves once any sweep currently running in this process has finished.
+ *
+ * `stopRetention` only cancels what has not started yet — a sweep already in flight
+ * keeps issuing queries on its own connections. Shutdown awaits this after
+ * `stopRetention` and before `closeDb()`, which is what closes that gap: without it,
+ * `closeDb()` ends the pool underneath a running sweep, producing a burst of
+ * per-day failures, and `pool.end()` itself blocks until the advisory-lock client
+ * is released, which can push shutdown past its deadline anyway.
+ */
+export function retentionIdle(): Promise<void> {
+  return (inFlight ?? Promise.resolve()).then(
+    () => undefined,
+    () => undefined,
+  );
 }
 
 /**
@@ -326,24 +347,25 @@ async function expiredDays(cutoff: Date): Promise<string[]> {
  * them.
  */
 async function forgetStaleDevices(days: number): Promise<number> {
-  const deleted = await db
-    .delete(knownDevices)
-    .where(
-      sql`${knownDevices.lastSeen} < (
+  // rowCount, not .returning(): the MACs are never read, and this table exists
+  // precisely because it grows unbounded — the first sweep after a long gap would
+  // otherwise pull the whole backlog into memory just to count it.
+  const result = await db.delete(knownDevices).where(
+    sql`${knownDevices.lastSeen} < (
         SELECT max(${knownDevices.lastSeen}) - ${days}::int * interval '1 day' FROM ${knownDevices}
       )`,
-    )
-    .returning({ mac: knownDevices.macAddress });
+  );
+  const deleted = result.rowCount ?? 0;
 
-  if (deleted.length > 0) {
+  if (deleted > 0) {
     log.info(
-      { devices: deleted.length, days },
+      { devices: deleted, days },
       'Forgot devices absent for the retention window, measured from the newest sighting; ' +
         'each will be reported as new if it returns',
     );
   }
 
-  return deleted.length;
+  return deleted;
 }
 
 // --- Scheduling ---

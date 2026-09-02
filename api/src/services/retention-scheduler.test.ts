@@ -110,3 +110,33 @@ describe('overlapping sweeps', () => {
     assert.notEqual(after.skipped, 'in-progress');
   });
 });
+
+describe('shutdown', () => {
+  it('retentionIdle resolves immediately when nothing is running', async () => {
+    // Should not hang: stopRetention() only cancels scheduled handles, so
+    // retentionIdle() must still settle on its own when there is nothing in flight.
+    await retention.retentionIdle();
+  });
+
+  it('retentionIdle stays pending until the in-flight sweep settles', async () => {
+    /*
+     * Reproduces the shutdown race: `stopRetention()` cancels the timers but a
+     * sweep already running keeps going, and `closeDb()` would otherwise end the
+     * pool underneath it. `retentionIdle()` is what shutdown awaits to close that
+     * gap, so it must not resolve before the sweep it is watching does.
+     */
+    const sweep = retention.sweepRetention();
+
+    let idleSettled = false;
+    const idle = retention.retentionIdle().then(() => {
+      idleSettled = true;
+    });
+
+    // Not yet: the sweep this idle promise is tied to has not settled.
+    assert.equal(idleSettled, false);
+
+    await sweep;
+    await idle;
+    assert.equal(idleSettled, true);
+  });
+});

@@ -9,7 +9,7 @@ import { reloadNotifier } from './notify/notifier.js';
 import { loadDeliverySettings, seedFromEnvironment } from './notify/settings.service.js';
 import { libraryVersion } from './packet/libpcap.js';
 import { stopAllCaptures } from './services/packet-capture.registry.js';
-import { startRetention, stopRetention } from './services/retention.service.js';
+import { retentionIdle, startRetention, stopRetention } from './services/retention.service.js';
 import { flushSuppressionCounters, refreshSuppressions } from './services/suppression.service.js';
 
 const log = componentLogger('server');
@@ -114,6 +114,9 @@ async function main(): Promise<void> {
       // only the interval let a sweep start against a closed pool.
       const cancelledSweeps = stopRetention();
       if (cancelledSweeps > 0) log.debug({ cancelledSweeps }, 'Cancelled scheduled retention sweeps');
+      // stopRetention only cancels what had not started; a sweep already running
+      // keeps querying the pool that closeDb() is about to end.
+      await retentionIdle();
       stopIntel();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await closeDb();

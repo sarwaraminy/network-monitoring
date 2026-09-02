@@ -437,7 +437,11 @@ export async function dashboardData(options: {
   if (options.bucket === 'day') {
     const rolled = await db
       .select({
-        day: alertRollupDaily.day,
+        // Cast explicitly: pg-types parses a DATE into a JS Date at *local*
+        // midnight, and drizzle's PgDateString then reads it back a day early
+        // on any server east of UTC. `expiredDays()` already dodges this the
+        // same way.
+        day: sql<string>`${alertRollupDaily.day}::text`,
         severity: alertRollupDaily.severity,
         total: alertRollupDaily.alerts,
       })

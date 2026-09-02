@@ -87,11 +87,25 @@ export const alertListQuerySchema = z.object({
  * `alert_rollup_daily` sits outside the longest window that can be asked for, and the
  * whole point of aggregating expiring days instead of deleting them is unobservable.
  * Five years is arbitrary; being strictly greater than the retention default is not.
+ *
+ * That widening is scoped to day buckets. `bucket` is independent of `days`, and the
+ * rollup fold-in in `dashboardData` only ever applies to a daily bucket — an hourly
+ * one is served from live rows alone. So `?days=1825&bucket=hour` would otherwise be
+ * a pure live-row scan and grouping over five years with nothing aggregated to
+ * absorb the cost, five times what the old, single 365-day ceiling ever allowed.
+ * `MAX_HOURLY_DAYS` keeps that case at the old ceiling.
  */
-export const alertDashboardQuerySchema = z.object({
-  days: z.coerce.number().int().min(1).max(1825).default(7),
-  bucket: z.enum(['hour', 'day']).optional(),
-});
+const MAX_HOURLY_DAYS = 365;
+
+export const alertDashboardQuerySchema = z
+  .object({
+    days: z.coerce.number().int().min(1).max(1825).default(7),
+    bucket: z.enum(['hour', 'day']).optional(),
+  })
+  .refine((data) => data.bucket !== 'hour' || data.days <= MAX_HOURLY_DAYS, {
+    message: `days must be at most ${MAX_HOURLY_DAYS} when bucket is "hour"`,
+    path: ['days'],
+  });
 
 /**
  * `since`, as either an ISO date or a relative window like `24h`.
