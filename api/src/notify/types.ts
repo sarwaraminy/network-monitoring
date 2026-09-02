@@ -67,6 +67,13 @@ export interface NotificationChannel {
   isConfigured(): boolean;
   /** Resolves to a short description of what happened, for logging. */
   send(notification: Notification): Promise<DeliveryResult>;
+  /**
+   * Releases anything held between sends. Optional, because most channels hold
+   * nothing — the syslog channel opens a socket per send and closes it, and the
+   * webhook channel is a bare `fetch`. `EmailChannel` pools SMTP connections, so
+   * replacing a notifier without calling this leaks a pool per settings change.
+   */
+  close?(): void;
 }
 
 export interface DeliveryResult {

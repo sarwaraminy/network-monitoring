@@ -20,6 +20,7 @@ import type { DeliveryResult, Notification, NotificationChannel } from './types.
 let notify: typeof import('./notifier.js');
 let format: typeof import('./format.js');
 let webhook: typeof import('./webhook.js');
+let settings: typeof import('./settings.js');
 
 before(async () => {
   process.env.JWT_SECRET ??= 'test-secret-not-used-for-signing';
@@ -35,6 +36,7 @@ before(async () => {
   notify = await import('./notifier.js');
   format = await import('./format.js');
   webhook = await import('./webhook.js');
+  settings = await import('./settings.js');
 });
 
 const AT = new Date('2026-07-27T10:00:00Z');
@@ -851,5 +853,246 @@ describe('export channels are never gated', () => {
       exporter.received[0]?.findings.map((entry) => entry.kind),
       ['port_scan', 'host_sweep'],
     );
+  });
+});
+
+describe('settings drive the notifier', () => {
+  /** A full settings object, so each case changes only what it is about. */
+  function settingsWith(overrides: Record<string, unknown> = {}) {
+    return { ...settings.DELIVERY_DEFAULTS, ...overrides };
+  }
+
+  it('gates on the settings it was built with, not on the environment', () => {
+    // The point of holding them: the old code read env.notify at twenty-nine
+    // points, which was consistent only because it could never change. Now it can.
+    const channel = new RecordingChannel();
+    const strict = new notify.Notifier(
+      [channel],
+      undefined,
+      settingsWith({ enabled: true, minSeverity: 'critical' }),
+    );
+
+    assert.equal(strict.consider(finding({ severity: 'high' }), 1, AT, AT), 'below-threshold');
+    assert.equal(strict.consider(finding({ severity: 'critical' }), 1, AT, AT), 'queued');
+  });
+
+  it('reports itself inactive when the settings say disabled', () => {
+    const channel = new RecordingChannel();
+    assert.equal(new notify.Notifier([channel], undefined, settingsWith({ enabled: false })).active, false);
+    assert.equal(new notify.Notifier([channel], undefined, settingsWith({ enabled: true })).active, true);
+  });
+
+  it('applies the hourly ceiling from the settings', async () => {
+    // The ceiling counts DISPATCHES, not queued findings — `sentTimestamps` grows in
+    // the dispatch path — so each one has to be flushed for the window to see it.
+    // Learned by this test failing: the first version considered three in a row and
+    // expected the third to be refused, which is a misreading of what the limit
+    // measures rather than a bug in the limit.
+    let now = Date.parse('2026-08-27T12:00:00Z');
+    const channel = new RecordingChannel();
+    const notifier = new notify.Notifier(
+      [channel],
+      () => now,
+      settingsWith({ enabled: true, maxPerHour: 2 }),
+    );
+
+    for (const key of ['a', 'b']) {
+      assert.equal(notifier.consider(finding({ dedupKey: key }), 1, AT, AT), 'queued');
+      await notifier.flush();
+      now += 1000;
+    }
+
+    assert.equal(channel.sent.length, 2);
+    assert.equal(notifier.consider(finding({ dedupKey: 'c' }), 1, AT, AT), 'rate-limited');
+  });
+
+  it('builds a channel only when the settings could actually deliver through it', () => {
+    // A webhook with no URL or a mail server with no recipients would report itself
+    // unconfigured on every send and clutter every status response.
+    assert.deepEqual(
+      notify.buildChannels(settingsWith({})).map((c) => c.name),
+      [],
+    );
+
+    assert.deepEqual(
+      notify
+        .buildChannels(settingsWith({ webhookUrl: 'https://hooks.slack.com/services/T/B/x' }))
+        .map((c) => c.name),
+      ['webhook'],
+    );
+
+    // Host without recipients is not a channel.
+    assert.deepEqual(
+      notify.buildChannels(settingsWith({ emailHost: 'relay.internal' })).map((c) => c.name),
+      [],
+    );
+    // Nor is host and recipients without a sender: EmailChannel.isConfigured()
+    // requires all three, and a channel built without emailFrom would exist in
+    // this.channels while being permanently unable to send.
+    assert.deepEqual(
+      notify
+        .buildChannels(settingsWith({ emailHost: 'relay.internal', emailTo: ['ops@example.test'] }))
+        .map((c) => c.name),
+      [],
+    );
+    assert.deepEqual(
+      notify
+        .buildChannels(
+          settingsWith({
+            emailHost: 'relay.internal',
+            emailFrom: 'nmt@example.test',
+            emailTo: ['ops@example.test'],
+          }),
+        )
+        .map((c) => c.name),
+      ['email'],
+    );
+
+    assert.deepEqual(
+      notify.buildChannels(settingsWith({ syslogHost: 'siem.internal' })).map((c) => c.name),
+      ['syslog'],
+    );
+  });
+
+  it('passes the webhook format through to the channel', () => {
+    const [channel] = notify.buildChannels(
+      settingsWith({ webhookUrl: 'https://acme.webhook.office.com/webhookb2/x', webhookFormat: 'auto' }),
+    );
+    // `auto` resolves per host, and a connector URL must not get an Adaptive Card.
+    assert.equal((channel as { resolvedFormat?: string }).resolvedFormat, 'teams-connector');
+  });
+});
+
+describe('reloading the notifier', () => {
+  it('flushes what is queued before replacing it', async () => {
+    // A settings change must not discard a digest already accepted for delivery.
+    // "I saved the form" is not an acceptable reason an alert never arrived.
+    const channel = new RecordingChannel();
+    const replaced = new notify.Notifier([channel], undefined, {
+      ...settings.DELIVERY_DEFAULTS,
+      enabled: true,
+      digestSeconds: 3600,
+    });
+    notify.setNotifierForTesting(replaced);
+
+    replaced.consider(finding(), 1, AT, AT);
+    assert.equal(channel.sent.length, 0, 'nothing sent yet: it is sitting in the digest');
+
+    await notify.reloadNotifier();
+    assert.equal(channel.sent.length, 1, 'the queued digest was dropped instead of flushed');
+
+    notify.setNotifierForTesting(null);
+  });
+
+  it('carries the hourly count forward into the notifier that replaces it', async () => {
+    // reloadNotifier rebuilds against currentSettings() and real buildChannels(),
+    // not an injected test channel — so a real (if fake) webhook URL is needed for
+    // the replacement to be `active` at all. NOTIFY_MAX_PER_HOUR is 3 for this
+    // whole file (see the top-level `before`). A bare `new Notifier()` starts
+    // sentTimestamps at zero, which would let three more through right after any
+    // unrelated settings save doubled the ceiling for the rest of the hour.
+    process.env.NOTIFY_WEBHOOK_URL = 'https://example.test/webhook';
+    try {
+      const channel = new RecordingChannel();
+      const original = new notify.Notifier([channel], undefined, {
+        ...settings.DELIVERY_DEFAULTS,
+        enabled: true,
+        maxPerHour: 3,
+      });
+      notify.setNotifierForTesting(original);
+
+      for (const key of ['a', 'b', 'c']) {
+        assert.equal(original.consider(finding({ dedupKey: key }), 1, AT, AT), 'queued');
+        await original.flush();
+      }
+      assert.equal(original.consider(finding({ dedupKey: 'd' }), 1, AT, AT), 'rate-limited');
+
+      await notify.reloadNotifier();
+
+      assert.equal(
+        notify.notifier().consider(finding({ dedupKey: 'e' }), 1, AT, AT),
+        'rate-limited',
+        'the replacement notifier started counting from zero instead of carrying the history forward',
+      );
+
+      notify.setNotifierForTesting(null);
+    } finally {
+      delete process.env.NOTIFY_WEBHOOK_URL;
+    }
+  });
+
+  it('counts a digest flushed during the reload itself against the replacement', async () => {
+    // The queued finding here is never dispatched by consider() — digestSeconds
+    // is long, so it is still sitting in the queue at the moment settings are
+    // saved. It is only sent because reloadNotifier flushes `previous`, and that
+    // dispatch has to land in the count the replacement inherits — a snapshot
+    // taken before the flush runs would miss exactly the send it exists to carry
+    // forward, since flushing `previous` is what causes it.
+    process.env.NOTIFY_WEBHOOK_URL = 'https://example.test/webhook';
+    process.env.NOTIFY_MAX_PER_HOUR = '1';
+    try {
+      const channel = new RecordingChannel();
+      const original = new notify.Notifier([channel], undefined, {
+        ...settings.DELIVERY_DEFAULTS,
+        enabled: true,
+        maxPerHour: 1,
+        digestSeconds: 3600,
+      });
+      notify.setNotifierForTesting(original);
+
+      assert.equal(original.consider(finding(), 1, AT, AT), 'queued');
+      assert.equal(channel.sent.length, 0, 'nothing sent yet: it is sitting in the digest');
+
+      await notify.reloadNotifier();
+
+      assert.equal(channel.sent.length, 1, 'reloadNotifier should have flushed the queued digest');
+      assert.equal(
+        notify.notifier().consider(finding({ dedupKey: 'next' }), 1, AT, AT),
+        'rate-limited',
+        "the flush's own dispatch did not carry into the replacement notifier's count",
+      );
+
+      notify.setNotifierForTesting(null);
+    } finally {
+      delete process.env.NOTIFY_WEBHOOK_URL;
+      process.env.NOTIFY_MAX_PER_HOUR = '3';
+    }
+  });
+
+  it('closes what the old channels held', async () => {
+    // EmailChannel pools SMTP connections. Rebuilding without closing leaks a pool
+    // per save, and a form somebody tunes a few times accumulates them.
+    let closed = 0;
+    const holding = {
+      name: 'holding',
+      isConfigured: () => true,
+      send: async () => ({ channel: 'holding', ok: true, detail: 'ok' }),
+      close: () => {
+        closed += 1;
+      },
+    };
+
+    notify.setNotifierForTesting(new notify.Notifier([holding]));
+    await notify.reloadNotifier();
+
+    assert.equal(closed, 1, 'the old channel was not closed');
+    notify.setNotifierForTesting(null);
+  });
+
+  it('survives a channel that throws on close', async () => {
+    // Never throws: the settings are already stored, and failing the request that
+    // saved them would be a lie about what happened.
+    const angry = {
+      name: 'angry',
+      isConfigured: () => true,
+      send: async () => ({ channel: 'angry', ok: true, detail: 'ok' }),
+      close: () => {
+        throw new Error('socket already gone');
+      },
+    };
+
+    notify.setNotifierForTesting(new notify.Notifier([angry]));
+    await notify.reloadNotifier();
+    notify.setNotifierForTesting(null);
   });
 });

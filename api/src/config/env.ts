@@ -1,8 +1,6 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-// One import, not a second copy of the list: see notify/types.ts.
-import { WEBHOOK_FORMATS, type WebhookFormat } from '../notify/types.js';
 
 // Resolve api/.env from this module rather than from process.cwd(), so the server
 // behaves the same whether it is started from api/ or from the repository root.
@@ -85,66 +83,6 @@ function arpTrustedMappings(): ReadonlyMap<string, string> {
 /** Parses `10.0.0.1,10.0.0.2` into the flow exporter allow-list. */
 function flowExporters(): string[] {
   return optional('FLOW_EXPORTERS', '')
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry !== '');
-}
-
-const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
-type SeverityName = (typeof SEVERITIES)[number];
-
-/** Rejects a typo rather than silently notifying about everything or nothing. */
-function severity(name: string, fallback: SeverityName): SeverityName {
-  const raw = optional(name, fallback).toLowerCase();
-  if (!(SEVERITIES as readonly string[]).includes(raw)) {
-    throw new TypeError(`${name} must be one of ${SEVERITIES.join(', ')}, got "${raw}".`);
-  }
-  return raw as SeverityName;
-}
-
-function webhookFormat(): WebhookFormat {
-  const raw = optional('NOTIFY_WEBHOOK_FORMAT', 'auto').toLowerCase();
-  if (!(WEBHOOK_FORMATS as readonly string[]).includes(raw)) {
-    throw new TypeError(`NOTIFY_WEBHOOK_FORMAT must be one of ${WEBHOOK_FORMATS.join(', ')}, got "${raw}".`);
-  }
-  return raw as WebhookFormat;
-}
-
-const SYSLOG_FORMATS = ['cef', 'json'] as const;
-type SyslogFormatName = (typeof SYSLOG_FORMATS)[number];
-
-function syslogFormat(): SyslogFormatName {
-  const raw = optional('SYSLOG_FORMAT', 'cef').toLowerCase();
-  if (!(SYSLOG_FORMATS as readonly string[]).includes(raw)) {
-    throw new TypeError(`SYSLOG_FORMAT must be one of ${SYSLOG_FORMATS.join(', ')}, got "${raw}".`);
-  }
-  return raw as SyslogFormatName;
-}
-
-const SYSLOG_PROTOCOLS = ['udp', 'tcp'] as const;
-type SyslogProtocolName = (typeof SYSLOG_PROTOCOLS)[number];
-
-function syslogProtocol(): SyslogProtocolName {
-  const raw = optional('SYSLOG_PROTOCOL', 'udp').toLowerCase();
-  if (!(SYSLOG_PROTOCOLS as readonly string[]).includes(raw)) {
-    throw new TypeError(`SYSLOG_PROTOCOL must be one of ${SYSLOG_PROTOCOLS.join(', ')}, got "${raw}".`);
-  }
-  return raw as SyslogProtocolName;
-}
-
-const SYSLOG_RFCS = ['5424', '3164'] as const;
-type SyslogRfcName = (typeof SYSLOG_RFCS)[number];
-
-function syslogRfc(): SyslogRfcName {
-  const raw = optional('SYSLOG_RFC', '5424');
-  if (!(SYSLOG_RFCS as readonly string[]).includes(raw)) {
-    throw new TypeError(`SYSLOG_RFC must be one of ${SYSLOG_RFCS.join(', ')}, got "${raw}".`);
-  }
-  return raw as SyslogRfcName;
-}
-
-function recipients(): string[] {
-  return optional('NOTIFY_EMAIL_TO', '')
     .split(',')
     .map((entry) => entry.trim())
     .filter((entry) => entry !== '');
@@ -257,83 +195,6 @@ export const env = {
      * NetFlow source addresses are spoofable, so this is the only filter available.
      */
     allowedExporters: flowExporters(),
-  },
-
-  /**
-   * Alert delivery. Off by default: a deployment should not start emailing people
-   * because it was upgraded.
-   */
-  notify: {
-    enabled: bool('NOTIFY_ENABLED', false),
-    /**
-     * Notify at this severity and above. `high` by default — critical and high
-     * only. Medium and below belong on the dashboard; putting them in an inbox is
-     * how the channel gets muted, and then the critical one is missed too.
-     */
-    minSeverity: severity('NOTIFY_MIN_SEVERITY', 'high'),
-    /** Findings are batched for this long, so one burst is one message. */
-    digestMs: int('NOTIFY_DIGEST_SECONDS', 60) * 1000,
-    /** The same finding will not notify again inside this period. */
-    throttleMs: int('NOTIFY_THROTTLE_SECONDS', 900) * 1000,
-    /** Hard ceiling on messages per hour, whatever detection does. */
-    maxPerHour: int('NOTIFY_MAX_PER_HOUR', 12),
-    /**
-     * Include structured evidence in the message body.
-     *
-     * Evidence never contains passwords or payloads — the detectors guarantee that
-     * and the tests assert it. It does contain internal IP addresses, MAC
-     * addresses and usernames, and sending those to a third-party chat service
-     * moves them outside the network being protected. Hence a separate switch.
-     */
-    includeEvidence: bool('NOTIFY_INCLUDE_EVIDENCE', true),
-    /** Linked from messages, e.g. https://nmt.example.com/alerts */
-    dashboardUrl: optional('NOTIFY_DASHBOARD_URL', '') || null,
-
-    /** Slack, Teams, Discord or any endpoint accepting JSON. */
-    webhookUrl: optional('NOTIFY_WEBHOOK_URL', ''),
-    webhookFormat: webhookFormat(),
-
-    /**
-     * Syslog / CEF export to a SIEM.
-     *
-     * Deliberately outside the gates above. `minSeverity`, the digest and the
-     * throttle all exist because a person mutes a noisy channel; a SIEM does its
-     * own correlation and needs the complete stream, so it receives every
-     * finding. See notify/syslog.ts for why a digested SIEM feed is a broken one.
-     *
-     * It is also independent of NOTIFY_ENABLED: shipping events to a collector
-     * you already own is a different decision from putting them in someone's
-     * inbox, and plenty of deployments will want exactly one of the two.
-     */
-    syslog: {
-      host: optional('SYSLOG_HOST', ''),
-      port: int('SYSLOG_PORT', 514),
-      protocol: syslogProtocol(),
-      format: syslogFormat(),
-      rfc: syslogRfc(),
-      /** 16-23 are the "local use" facilities; 16 (local0) is the usual choice for an app. */
-      facility: int('SYSLOG_FACILITY', 16),
-      appName: optional('SYSLOG_APP_NAME', 'nmt'),
-      /**
-       * Included by default, unlike the chat channels.
-       *
-       * The disclosure argument that gates evidence for Slack does not apply to a
-       * collector inside the same network, and evidence is most of what makes an
-       * event useful to a correlation rule.
-       */
-      includeEvidence: bool('SYSLOG_INCLUDE_EVIDENCE', true),
-    },
-
-    email: {
-      host: optional('SMTP_HOST', ''),
-      port: int('SMTP_PORT', 587),
-      /** True only for implicit TLS on port 465; 587 uses STARTTLS with this false. */
-      secure: bool('SMTP_SECURE', false),
-      user: optional('SMTP_USER', ''),
-      password: optional('SMTP_PASSWORD', ''),
-      from: optional('NOTIFY_EMAIL_FROM', ''),
-      to: recipients(),
-    },
   },
 
   /** Requests allowed per minute per client IP, by endpoint group. */

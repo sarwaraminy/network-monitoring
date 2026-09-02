@@ -4,6 +4,7 @@ import {
   ADMIN_USER,
   ALERTS,
   DASHBOARD,
+  DELIVERY_SETTINGS,
   IDLE_STATUS,
   INTEL_STATUS,
   INTERFACES,
@@ -50,6 +51,17 @@ export const handlers = [
   http.get('/auth/signup-allowed', () => HttpResponse.json({ allowed: false, mode: 'admin-only' })),
 
   http.get('/api/notify/status', () => HttpResponse.json(NOTIFY_STATUS)),
+
+  http.get('/api/notify/settings', () => HttpResponse.json(DELIVERY_SETTINGS)),
+
+  http.put('/api/notify/settings', async ({ request }) => {
+    const patch = (await request.json()) as Record<string, unknown>;
+    const settings = { ...DELIVERY_SETTINGS.settings };
+    for (const [key, value] of Object.entries(patch)) {
+      settings[key] = value === null ? { source: 'default' } : { source: 'database', value };
+    }
+    return HttpResponse.json({ ...DELIVERY_SETTINGS, settings });
+  }),
 
   http.post('/api/notify/test', () =>
     HttpResponse.json({

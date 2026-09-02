@@ -66,10 +66,17 @@ describe('DeliveryPage', () => {
   it('calls out channels that are configured but switched off', async () => {
     // Confusing on its own: the channel list is populated and the test button
     // works, yet no alert is ever sent.
+    //
+    // The copy used to name NOTIFY_ENABLED, because editing api/.env and restarting
+    // was the only way to change it. It is now a switch on this page, so pointing an
+    // administrator at a file would be worse advice than pointing them at the
+    // control — and telling a non-admin to edit a file they cannot reach was never
+    // useful either.
     server.use(http.get('/api/notify/status', () => HttpResponse.json({ ...NOTIFY_STATUS, enabled: false })));
 
     renderApp(<DeliveryPage />, { authenticated: true });
-    expect(await screen.findByText(/NOTIFY_ENABLED/)).toBeInTheDocument();
+    expect(await screen.findByText(/delivery is switched off/i)).toBeInTheDocument();
+    expect(screen.getByText(/Turn on "Deliver alerts" in Settings above/)).toBeInTheDocument();
     expect(screen.getByText(/Syslog is unaffected/)).toBeInTheDocument();
   });
 

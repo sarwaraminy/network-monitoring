@@ -5,6 +5,8 @@ import { runMigrations } from './db/migrate.js';
 import { startFlowCollector, stopFlowCollector } from './flow/collector.js';
 import { startIntel, stopIntel } from './intel/registry.js';
 import { componentLogger, logger } from './logger.js';
+import { reloadNotifier } from './notify/notifier.js';
+import { loadDeliverySettings, seedFromEnvironment } from './notify/settings.service.js';
 import { libraryVersion } from './packet/libpcap.js';
 import { stopAllCaptures } from './services/packet-capture.registry.js';
 import { flushSuppressionCounters, refreshSuppressions } from './services/suppression.service.js';
@@ -34,6 +36,32 @@ async function main(): Promise<void> {
   // After listen(), so a flow port that is already in use cannot stop the API
   // from serving. startFlowCollector logs and returns rather than rejecting.
   await startFlowCollector();
+
+  /*
+   * Delivery settings, before anything can raise a finding.
+   *
+   * Seeding first, then loading. The order matters on the boot after an upgrade: an
+   * operator who has been running with NOTIFY_MIN_SEVERITY=critical in api/.env for
+   * a year should keep that setting when they eventually delete the line, rather
+   * than silently reverting to the code default and getting alerts they had
+   * deliberately switched off. Seeding writes what the environment currently says
+   * into any field the row has no opinion about; it never overwrites a value saved
+   * through the UI.
+   *
+   * Both fail soft — see notify/settings.service.ts. A database that cannot be read
+   * leaves delivery exactly as the environment describes it, which is what this
+   * process did before the table existed.
+   */
+  const seeded = await seedFromEnvironment();
+  if (seeded.length > 0) log.info({ fields: seeded.length }, 'Delivery settings seeded from the environment');
+  await loadDeliverySettings();
+
+  // listen() and startFlowCollector() above can already have built the notifier
+  // singleton against pre-DB settings (env and code defaults only), and nothing else
+  // ever rebuilds it. Without this, a request or an early finding landing in that
+  // window freezes the notifier there for the process's lifetime, silently ignoring
+  // every stored delivery setting until an admin happens to resave the form.
+  await reloadNotifier();
 
   // Before any capture can be started, so the first findings of the process are
   // filtered by the rules an operator already wrote. It fails open — see

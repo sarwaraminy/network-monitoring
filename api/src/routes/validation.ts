@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { HttpError } from '../middleware/error-handler.js';
 import { parsePrefix } from '../net/prefix.js';
+import { WEBHOOK_FORMATS } from '../notify/types.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
 
 /**
@@ -207,6 +208,155 @@ export const suppressionPreviewSchema = z
     limit: z.coerce.number().int().min(1).max(2_000).default(500),
   })
   .refine(hasSuppressionCriterion, { message: NO_CRITERIA });
+
+// --- Delivery settings ---
+
+/**
+ * A patch to the stored delivery settings.
+ *
+ * Every field is optional and nullable, and the two mean different things: absent
+ * leaves the stored value alone, `null` clears it so the field falls back to the
+ * environment or the code default. That distinction is what lets the form omit a
+ * secret it is not changing — the API never sends the value out, so requiring it
+ * back would mean the form could not save anything else without retyping the
+ * webhook URL.
+ *
+ * Lower bounds here are deliberately the same as the CHECK constraints in
+ * V7__Delivery_settings.sql, and the tests compare a rejection at this layer
+ * against a rejection at that one rather than trusting that they agree.
+ *
+ * The upper bounds on `digestSeconds`, `throttleSeconds` and `maxPerHour` are NOT
+ * shared with a CHECK constraint — the database accepts any value up to its
+ * INTEGER range for those three, only this form caps them. That is a deliberate
+ * sanity ceiling on what a person can type into a box, not a mirrored constraint,
+ * and the gap is real: a legacy environment value above it (`NOTIFY_MAX_PER_HOUR=
+ * 5000`, say) still seeds into the row — env.ts never enforced these fields either
+ * — and stays in force from there, reachable only that way, never through this
+ * schema.
+ */
+const nullableTrimmed = (max: number) => z.string().trim().max(max).nullable().optional();
+
+export const deliverySettingsPatchSchema = z
+  .object({
+    // Gates. These apply to the channels a person reads, never to the SIEM feed.
+    enabled: z.boolean().nullable().optional(),
+    minSeverity: z.enum(SEVERITIES).nullable().optional(),
+    // Zero is meaningful for both windows: no batching, no throttling. Negative is
+    // not, and a `maxPerHour` of zero would mute every channel — which is what
+    // `enabled: false` is for, so it is refused rather than offered as a second
+    // spelling of the same thing.
+    digestSeconds: z.coerce.number().int().min(0).max(3600).nullable().optional(),
+    throttleSeconds: z.coerce.number().int().min(0).max(86_400).nullable().optional(),
+    maxPerHour: z.coerce.number().int().min(1).max(1000).nullable().optional(),
+    includeEvidence: z.boolean().nullable().optional(),
+    dashboardUrl: nullableTrimmed(500),
+
+    /**
+     * The webhook URL: a bearer credential for Slack and Teams, accepted here and
+     * never returned. See notify/settings.ts.
+     *
+     * Shape-checked for the same reason `emailFrom` is. A schemeless paste —
+     * `hooks.slack.com/services/...`, a plausible copy-paste slip — used to store
+     * fine, and then `detectFormat` falls back to `generic` because `new URL()`
+     * throws, and every send burns three delivery attempts with 500ms/1s/2s backoff
+     * before reporting `webhook request failed`. That is the silent-until-someone-
+     * reads-the-logs failure this whole feature exists to remove, so it is refused
+     * at the boundary where the operator is still looking at the field.
+     *
+     * http as well as https: a generic JSON endpoint on an internal network is a
+     * legitimate target, and refusing it would be inventing a policy nobody asked
+     * for. Every other scheme is refused, which also rules out `javascript:` and
+     * `file:` reaching a URL that later gets fetched.
+     */
+    webhookUrl: z
+      .string()
+      .trim()
+      .max(1000)
+      .refine(
+        (value) => {
+          try {
+            return ['http:', 'https:'].includes(new URL(value).protocol);
+          } catch {
+            return false;
+          }
+        },
+        {
+          message:
+            'webhookUrl must be a full URL including the scheme, e.g. https://hooks.slack.com/services/…',
+        },
+      )
+      .nullable()
+      .optional(),
+    webhookFormat: z.enum(WEBHOOK_FORMATS).nullable().optional(),
+
+    syslogHost: nullableTrimmed(255),
+    syslogPort: z.coerce.number().int().min(1).max(65_535).nullable().optional(),
+    syslogProtocol: z.enum(['udp', 'tcp']).nullable().optional(),
+    syslogFormat: z.enum(['cef', 'json']).nullable().optional(),
+    syslogRfc: z.enum(['5424', '3164']).nullable().optional(),
+    // 16-23 are the local-use facilities; the full range is allowed because a
+    // collector may be configured to expect any of them.
+    syslogFacility: z.coerce.number().int().min(0).max(23).nullable().optional(),
+    syslogAppName: nullableTrimmed(64),
+    syslogIncludeEvidence: z.boolean().nullable().optional(),
+
+    emailHost: nullableTrimmed(255),
+    emailPort: z.coerce.number().int().min(1).max(65_535).nullable().optional(),
+    emailSecure: z.boolean().nullable().optional(),
+    // Not validated as an email: this is an SMTP AUTH username, and plenty of
+    // providers hand out one that is not email-shaped at all (an API key, a
+    // plain account name). Only `from` and `to` are addresses in the RFC 5321
+    // sense, so only those get the format check.
+    emailUser: nullableTrimmed(255),
+    // A password. Accepted, never returned.
+    emailPassword: nullableTrimmed(500),
+    // z.email(), not a bare trimmed string: this becomes the From: header, and a
+    // malformed one used to save successfully and only surface later as a
+    // silent SMTP rejection — the same class of failure notify.ts's own
+    // isConfigured() checks exist to catch before it gets that far.
+    emailFrom: z
+      .string()
+      .trim()
+      .pipe(z.email('emailFrom must be a valid email address'))
+      .pipe(z.string().max(255))
+      .nullable()
+      .optional(),
+    /**
+     * Recipients as a list, not a comma-separated string.
+     *
+     * Stored as a Postgres array for the same reason: a recipient containing a comma
+     * cannot corrupt the set. A comma-separated string is still accepted, because
+     * that is what the environment variable looks like and somebody will paste one.
+     */
+    emailTo: z
+      .union([z.array(z.string()), z.string()])
+      .nullable()
+      .optional()
+      .transform((value) => {
+        if (value === null || value === undefined) return value;
+        const list = Array.isArray(value) ? value : value.split(',');
+        return list.map((entry) => entry.trim()).filter((entry) => entry !== '');
+      })
+      .pipe(
+        z
+          .array(
+            z
+              .string()
+              .pipe(z.email('every recipient must be a valid email address'))
+              .pipe(z.string().max(320)),
+          )
+          .max(50)
+          .nullable()
+          .optional(),
+      ),
+  })
+  // Unknown keys are refused rather than ignored: a typo like `minSeverety` would
+  // otherwise return 200 having changed nothing, which is the silent no-op this
+  // whole feature is trying not to be.
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: 'No settings to change. Send at least one field.',
+  });
 
 // --- Packet capture ---
 

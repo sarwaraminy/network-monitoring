@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { DELIVERY_DEFAULTS, DELIVERY_FIELDS, type DeliveryField } from '../notify/settings.js';
 
 /**
  * The example files and Compose must not contradict the code's own defaults.
@@ -20,6 +21,21 @@ import { fileURLToPath } from 'node:url';
  * A reviewer caught all three. This is the check that means the fourth does not
  * need one — and the reason it compares TEXT rather than importing `env` is that
  * importing it reads `process.env`, which is exactly the layer under test.
+ *
+ * Delivery settings (#28) briefly had a second copy of this same shape: env.ts's
+ * own `notify` block duplicated `DELIVERY_DEFAULTS` from notify/settings.ts, and a
+ * test in notify/settings.test.ts compared the two. That block is gone now — it
+ * was dead code that could still crash boot on a malformed value, which was worse
+ * than the duplication it existed to reconcile — and deleting it silently dropped
+ * every delivery setting out of `code` below, since `parseCodeDefaults` only reads
+ * env.ts's source text. A missing entry is invisible to every check in this file:
+ * they all skip a name absent from `code` rather than failing on it.
+ *
+ * So `code` now folds in `DELIVERY_DEFAULTS` directly — the real object, not text
+ * scraped from a second copy of it, because there is no second copy left to scrape.
+ * That keeps every check below covering the delivery fields exactly as it covers
+ * every other setting, with `DELIVERY_DEFAULTS` rather than env.ts as that corner's
+ * source of truth.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -110,6 +126,31 @@ function parseCodeDefaults(text: string): Map<string, string> {
 }
 
 /**
+ * `DELIVERY_DEFAULTS`, keyed by the environment variable that pins each field, in
+ * the same `{name: text}` shape `parseCodeDefaults` produces.
+ *
+ * Read from the real object rather than scraped from source text — unlike env.ts,
+ * there is no `process.env` read to avoid here, `DELIVERY_DEFAULTS` is a plain
+ * literal, so importing it is exact rather than an approximation of it.
+ */
+function deliveryCodeDefaults(): Map<string, string> {
+  const values = new Map<string, string>();
+
+  for (const field of Object.keys(DELIVERY_FIELDS) as DeliveryField[]) {
+    const value = DELIVERY_DEFAULTS[field];
+    // NOTIFY_EMAIL_TO is the one list-shaped field; an empty list is how its
+    // variable spells "unset", the same as every empty-string default here.
+    if (Array.isArray(value)) {
+      values.set(DELIVERY_FIELDS[field].env, "''");
+      continue;
+    }
+    values.set(DELIVERY_FIELDS[field].env, typeof value === 'string' ? `'${value}'` : String(value));
+  }
+
+  return values;
+}
+
+/**
  * Settings an example file may legitimately differ on.
  *
  * Only where the difference is the POINT of the example — never where it merely
@@ -180,7 +221,10 @@ const ALLOWED_TO_DIFFER = new Set([
 ]);
 
 describe('deployment defaults match the code', () => {
-  const code = parseCodeDefaults(read('api/src/config/env.ts'));
+  // env.ts's own defaults, plus the delivery fields' — env.ts no longer declares
+  // those at all, so without this half the settings on the Delivery page would be
+  // invisible to every check below rather than covered by them.
+  const code = new Map([...parseCodeDefaults(read('api/src/config/env.ts')), ...deliveryCodeDefaults()]);
 
   it('excuses only Compose entries that Compose actually has', () => {
     // The same self-check as below, for the third list. It was left out when

@@ -5,6 +5,7 @@ import {
   alertDashboardQuerySchema,
   alertListQuerySchema,
   captureStartSchema,
+  deliverySettingsPatchSchema,
   idSchema,
   ipAddressSchema,
   loginSchema,
@@ -484,5 +485,172 @@ describe('suppression rules', () => {
       // your alerts", which is true, useless, and reassuringly specific.
       assert.equal(suppressionPreviewSchema.safeParse({}).success, false);
     });
+  });
+});
+
+/**
+ * The delivery settings patch.
+ *
+ * The boundary where an IT admin's form post becomes stored configuration that
+ * decides where findings about their network are sent. Two things it must get right,
+ * and both are about saying nothing silently:
+ *
+ *  - absent and null mean different things, because the form cannot round-trip a
+ *    secret the API never sends it;
+ *  - an unknown key is refused rather than dropped, because a typo that returns 200
+ *    having changed nothing is the exact failure this feature exists to remove.
+ */
+describe('delivery settings patch', () => {
+  it('accepts a single field', () => {
+    const parsed = deliverySettingsPatchSchema.parse({ maxPerHour: 6 });
+    assert.deepEqual(parsed, { maxPerHour: 6 });
+  });
+
+  it('keeps absent and null distinct', () => {
+    // Absent leaves the stored value alone; null clears it so the field falls back
+    // to the environment or the default. Collapsing them would mean the form could
+    // not save anything without also retyping the webhook URL.
+    const cleared = deliverySettingsPatchSchema.parse({ webhookUrl: null });
+    assert.equal('webhookUrl' in cleared, true);
+    assert.equal(cleared.webhookUrl, null);
+
+    const untouched = deliverySettingsPatchSchema.parse({ maxPerHour: 6 });
+    assert.equal('webhookUrl' in untouched, false);
+  });
+
+  it('refuses an empty patch', () => {
+    assert.equal(deliverySettingsPatchSchema.safeParse({}).success, false);
+  });
+
+  it('refuses an unknown key rather than ignoring it', () => {
+    // `minSeverety` would otherwise return 200 having changed nothing.
+    assert.equal(deliverySettingsPatchSchema.safeParse({ minSeverety: 'high' }).success, false);
+    assert.equal(deliverySettingsPatchSchema.safeParse({ maxPerHour: 6, nonsense: 1 }).success, false);
+  });
+
+  it('bounds every number the same way the CHECK constraints do', () => {
+    // V7 refuses these too. Two copies of a bound can drift, so both layers are
+    // asserted rather than one being trusted to imply the other.
+    assert.equal(deliverySettingsPatchSchema.safeParse({ maxPerHour: 0 }).success, false);
+    assert.equal(deliverySettingsPatchSchema.safeParse({ digestSeconds: -1 }).success, false);
+    assert.equal(deliverySettingsPatchSchema.safeParse({ throttleSeconds: -1 }).success, false);
+    assert.equal(deliverySettingsPatchSchema.safeParse({ syslogPort: 0 }).success, false);
+    assert.equal(deliverySettingsPatchSchema.safeParse({ syslogPort: 65_536 }).success, false);
+    assert.equal(deliverySettingsPatchSchema.safeParse({ emailPort: 0 }).success, false);
+    assert.equal(deliverySettingsPatchSchema.safeParse({ syslogFacility: 24 }).success, false);
+
+    // And accepts the meaningful edges: no batching, no throttling.
+    assert.equal(deliverySettingsPatchSchema.parse({ digestSeconds: 0 }).digestSeconds, 0);
+    assert.equal(deliverySettingsPatchSchema.parse({ throttleSeconds: 0 }).throttleSeconds, 0);
+    assert.equal(deliverySettingsPatchSchema.parse({ syslogFacility: 0 }).syslogFacility, 0);
+  });
+
+  it('refuses a value outside a closed set', () => {
+    assert.equal(deliverySettingsPatchSchema.safeParse({ minSeverity: 'urgent' }).success, false);
+    assert.equal(deliverySettingsPatchSchema.safeParse({ webhookFormat: 'msteams' }).success, false);
+    assert.equal(deliverySettingsPatchSchema.safeParse({ syslogProtocol: 'sctp' }).success, false);
+    // teams-connector is a real format and must stay reachable.
+    assert.equal(
+      deliverySettingsPatchSchema.parse({ webhookFormat: 'teams-connector' }).webhookFormat,
+      'teams-connector',
+    );
+  });
+
+  it('takes recipients as a list or as the comma string the env variable uses', () => {
+    assert.deepEqual(deliverySettingsPatchSchema.parse({ emailTo: ['a@x.test', ' b@x.test '] }).emailTo, [
+      'a@x.test',
+      'b@x.test',
+    ]);
+    // Somebody will paste the NOTIFY_EMAIL_TO value straight in.
+    assert.deepEqual(deliverySettingsPatchSchema.parse({ emailTo: 'a@x.test, b@x.test,' }).emailTo, [
+      'a@x.test',
+      'b@x.test',
+    ]);
+    // Cleared, rather than an empty list, when the operator means "unset".
+    assert.equal(deliverySettingsPatchSchema.parse({ emailTo: null }).emailTo, null);
+    assert.deepEqual(deliverySettingsPatchSchema.parse({ emailTo: '' }).emailTo, []);
+  });
+
+  it('trims a pasted secret, because trailing whitespace is a silent failure', () => {
+    assert.equal(
+      deliverySettingsPatchSchema.parse({ webhookUrl: '  https://hooks.slack.com/services/T/B/x  ' })
+        .webhookUrl,
+      'https://hooks.slack.com/services/T/B/x',
+    );
+  });
+
+  it('refuses a from-address or recipient that is not a real email address', () => {
+    // Otherwise a typo saves successfully and only surfaces later as a silent
+    // SMTP rejection, on the one field this feature exists to make configurable
+    // without editing a file and finding out at the next incident.
+    assert.equal(deliverySettingsPatchSchema.safeParse({ emailFrom: 'not-an-email' }).success, false);
+    assert.equal(
+      deliverySettingsPatchSchema.safeParse({ emailTo: ['ops@example.test', 'bad'] }).success,
+      false,
+    );
+
+    assert.equal(
+      deliverySettingsPatchSchema.parse({ emailFrom: '  nmt@example.test  ' }).emailFrom,
+      'nmt@example.test',
+    );
+  });
+
+  it('does not hold emailUser to the same standard, since it is a login, not an address', () => {
+    // Plenty of SMTP providers hand out an AUTH username that is not
+    // email-shaped at all — an API key, a plain account name.
+    assert.equal(deliverySettingsPatchSchema.parse({ emailUser: 'apikey' }).emailUser, 'apikey');
+  });
+});
+
+describe('webhook URL shape', () => {
+  it('refuses a URL with no scheme, which is the plausible paste', () => {
+    // It used to store fine. Then `detectFormat` falls back to `generic` because
+    // `new URL()` throws, and every send burns three attempts with 500ms/1s/2s
+    // backoff before reporting `webhook request failed` — visible only to whoever
+    // reads the logs. Refused where the operator is still looking at the field.
+    const parsed = deliverySettingsPatchSchema.safeParse({
+      webhookUrl: 'hooks.slack.com/services/T000/B000/xxx',
+    });
+    assert.equal(parsed.success, false);
+    const message = parsed.success ? '' : parsed.error.issues.map((issue) => issue.message).join(' ');
+    assert.match(message, /including the scheme/i);
+  });
+
+  it('accepts http as well as https', () => {
+    // A generic JSON endpoint on an internal network is a legitimate target, and
+    // refusing it would be inventing a policy nobody asked for.
+    assert.equal(
+      deliverySettingsPatchSchema.parse({ webhookUrl: 'https://hooks.slack.com/services/T/B/x' }).webhookUrl,
+      'https://hooks.slack.com/services/T/B/x',
+    );
+    assert.equal(
+      deliverySettingsPatchSchema.parse({ webhookUrl: 'http://collector.internal/hook' }).webhookUrl,
+      'http://collector.internal/hook',
+    );
+  });
+
+  it('refuses every other scheme', () => {
+    // Which also keeps `javascript:` and `file:` out of a value that later gets
+    // fetched.
+    for (const url of ['javascript:alert(1)', 'file:///etc/passwd', 'ftp://x.test/hook', 'not a url']) {
+      assert.equal(
+        deliverySettingsPatchSchema.safeParse({ webhookUrl: url }).success,
+        false,
+        `expected ${url} to be refused`,
+      );
+    }
+  });
+
+  it('still allows clearing it', () => {
+    // Null is how "fall back to the environment or the default" is expressed, and
+    // a shape check must not take that away.
+    assert.equal(deliverySettingsPatchSchema.parse({ webhookUrl: null }).webhookUrl, null);
+  });
+
+  it('trims before checking, so a pasted URL with whitespace is accepted', () => {
+    assert.equal(
+      deliverySettingsPatchSchema.parse({ webhookUrl: '  https://x.test/hook  ' }).webhookUrl,
+      'https://x.test/hook',
+    );
   });
 });

@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
-import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
 import type { Finding, Severity } from '../packet/detect/types.js';
 import { BoundedMap } from '../packet/detect/types.js';
 import { EmailChannel } from './email.js';
 import { MAX_LISTED_FINDINGS } from './format.js';
+import { type DeliverySettings, isEmailConfigured, isWebhookConfigured } from './settings.js';
+import { currentSettings } from './settings.service.js';
 import { SyslogChannel } from './syslog.js';
 import {
   type DeliveryResult,
@@ -87,6 +88,12 @@ interface QueuedFinding {
   dedupKey: string;
 }
 
+/** A notifier's throttle and hourly-ceiling history, carried across a reload. */
+interface RateLimitState {
+  lastNotifiedAt: Array<[string, number]>;
+  sentTimestamps: number[];
+}
+
 export class Notifier {
   private readonly channels: NotificationChannel[] = [];
   private readonly lastNotifiedAt = new BoundedMap<string, number>(MAX_THROTTLE_KEYS);
@@ -113,14 +120,54 @@ export class Notifier {
    */
   private readonly now: () => number;
 
-  constructor(channels?: NotificationChannel[], nowFn: () => number = Date.now) {
-    this.channels = channels ?? buildChannelsFromEnv();
+  /**
+   * The settings this notifier was built with, held rather than read per call.
+   *
+   * A notifier is now replaced when settings change — see `reloadNotifier` — so a
+   * held copy is also a guarantee: every gate a given notification passes through
+   * is measured against one consistent set of values, rather than against whatever
+   * the store happened to hold at each read. The old code read `env.notify` at
+   * twenty-nine points, which was consistent only because it could never change.
+   */
+  private readonly settings: DeliverySettings;
+
+  constructor(
+    channels?: NotificationChannel[],
+    nowFn: () => number = Date.now,
+    settings: DeliverySettings = currentSettings(),
+    // Carried forward across a reload — see reloadNotifier. Not the throttle
+    // window or the hourly ceiling themselves, which come from `settings` and
+    // may just have changed; only the history measured against whatever the
+    // limits were a moment ago.
+    carried?: RateLimitState,
+  ) {
+    this.settings = settings;
+    this.channels = channels ?? buildChannels(settings);
     this.now = nowFn;
+    if (carried) {
+      for (const [key, value] of carried.lastNotifiedAt) this.lastNotifiedAt.set(key, value);
+      this.sentTimestamps.push(...carried.sentTimestamps);
+    }
+  }
+
+  /**
+   * Throttle and hourly-ceiling history, for `reloadNotifier` to pass to the
+   * notifier replacing this one. Copied out rather than handed over live: this
+   * instance is about to be flushed and discarded, and the replacement must not
+   * keep mutating state through a reference into it.
+   */
+  get rateLimitState(): RateLimitState {
+    return { lastNotifiedAt: [...this.lastNotifiedAt.entries()], sentTimestamps: [...this.sentTimestamps] };
   }
 
   /** True when at least one channel could actually deliver. */
   get active(): boolean {
-    return env.notify.enabled && this.channels.some((channel) => channel.isConfigured());
+    return this.settings.enabled && this.channels.some((channel) => channel.isConfigured());
+  }
+
+  /** For `reloadNotifier`, which has to release what these channels hold. */
+  get channelsForShutdown(): readonly NotificationChannel[] {
+    return this.channels;
   }
 
   get configuredChannels(): string[] {
@@ -156,17 +203,17 @@ export class Notifier {
 
     if (!this.active) return 'disabled';
 
-    if (!meetsThreshold(finding.severity, env.notify.minSeverity)) return 'below-threshold';
+    if (!meetsThreshold(finding.severity, this.settings.minSeverity)) return 'below-threshold';
 
     const throttleKey = finding.dedupKey;
     const last = this.lastNotifiedAt.get(throttleKey);
-    if (last !== undefined && now - last < env.notify.throttleMs) return 'throttled';
+    if (last !== undefined && now - last < this.settings.throttleSeconds * 1000) return 'throttled';
 
-    if (this.hourlyCountAt(now) >= env.notify.maxPerHour) {
+    if (this.hourlyCountAt(now) >= this.settings.maxPerHour) {
       // Logged once per occurrence deliberately: hitting the ceiling means either
       // a real incident or broken detection, and both need to be visible.
       log.warn(
-        { maxPerHour: env.notify.maxPerHour, kind: finding.kind },
+        { maxPerHour: this.settings.maxPerHour, kind: finding.kind },
         'Notification hourly limit reached; suppressing until the window rolls',
       );
       return 'rate-limited';
@@ -179,7 +226,7 @@ export class Notifier {
     } else {
       this.queue.push({
         dedupKey: throttleKey,
-        finding: toNotifiable(finding, occurrences, firstSeen, lastSeen, env.notify.includeEvidence),
+        finding: toNotifiable(finding, occurrences, firstSeen, lastSeen, this.settings.includeEvidence),
       });
     }
 
@@ -245,7 +292,7 @@ export class Notifier {
     }
 
     this.exportQueue.push(
-      toNotifiable(finding, occurrences, firstSeen, lastSeen, env.notify.syslog.includeEvidence),
+      toNotifiable(finding, occurrences, firstSeen, lastSeen, this.settings.syslogIncludeEvidence),
     );
 
     if (this.exportQueue.length >= MAX_EXPORT_BATCH) {
@@ -307,7 +354,7 @@ export class Notifier {
       omittedCount: 0,
       countsBySeverity: counts,
       generatedAt: new Date(this.now()),
-      dashboardUrl: env.notify.dashboardUrl,
+      dashboardUrl: this.settings.dashboardUrl || null,
       isTest: false,
     };
 
@@ -346,7 +393,7 @@ export class Notifier {
       omittedCount: 0,
       countsBySeverity: { info: 1 },
       generatedAt: now,
-      dashboardUrl: env.notify.dashboardUrl,
+      dashboardUrl: this.settings.dashboardUrl || null,
       isTest: true,
     };
 
@@ -393,7 +440,7 @@ export class Notifier {
     this.digestTimer = setTimeout(() => {
       this.digestTimer = null;
       void this.dispatch();
-    }, env.notify.digestMs);
+    }, this.settings.digestSeconds * 1000);
     // The digest timer alone must not keep the process alive.
     this.digestTimer.unref();
   }
@@ -412,7 +459,7 @@ export class Notifier {
     this.omitted = 0;
 
     try {
-      const notification = buildNotification(batch, omittedCount, env.notify.dashboardUrl);
+      const notification = buildNotification(batch, omittedCount, this.settings.dashboardUrl || null);
       this.sentTimestamps.push(this.now());
       const results = await this.deliver(notification);
 
@@ -517,39 +564,51 @@ export function buildNotification(
   };
 }
 
-function buildChannelsFromEnv(): NotificationChannel[] {
+/**
+ * The channels a given set of settings implies.
+ *
+ * A channel exists only when it could actually deliver, which is why the webhook
+ * and email blocks guard on `isWebhookConfigured`/`isEmailConfigured` (settings.ts)
+ * rather than a hand-written condition: those are the same predicates `GET /status`
+ * uses to report the same fields, and a channel built here whose own
+ * `isConfigured()` disagrees is present in `this.channels` — counted by anything
+ * that iterates it — while permanently unable to send. Syslog has no such shared
+ * predicate; its one condition (a non-blank host) is simple enough that a second
+ * copy has not yet been the problem the other two were.
+ */
+export function buildChannels(settings: DeliverySettings): NotificationChannel[] {
   const channels: NotificationChannel[] = [];
 
-  if (env.notify.webhookUrl !== '') {
-    channels.push(new WebhookChannel({ url: env.notify.webhookUrl, format: env.notify.webhookFormat }));
+  if (isWebhookConfigured(settings)) {
+    channels.push(new WebhookChannel({ url: settings.webhookUrl, format: settings.webhookFormat }));
   }
 
-  if (env.notify.syslog.host !== '') {
+  if (settings.syslogHost !== '') {
     channels.push(
       new SyslogChannel({
-        host: env.notify.syslog.host,
-        port: env.notify.syslog.port,
-        protocol: env.notify.syslog.protocol,
-        format: env.notify.syslog.format,
-        rfc: env.notify.syslog.rfc,
-        facility: env.notify.syslog.facility,
-        appName: env.notify.syslog.appName,
+        host: settings.syslogHost,
+        port: settings.syslogPort,
+        protocol: settings.syslogProtocol,
+        format: settings.syslogFormat,
+        rfc: settings.syslogRfc,
+        facility: settings.syslogFacility,
+        appName: settings.syslogAppName,
         hostname: hostname(),
         productVersion: PRODUCT_VERSION,
       }),
     );
   }
 
-  if (env.notify.email.host !== '' && env.notify.email.to.length > 0) {
+  if (isEmailConfigured(settings)) {
     channels.push(
       new EmailChannel({
-        host: env.notify.email.host,
-        port: env.notify.email.port,
-        secure: env.notify.email.secure,
-        user: env.notify.email.user,
-        password: env.notify.email.password,
-        from: env.notify.email.from,
-        to: env.notify.email.to,
+        host: settings.emailHost,
+        port: settings.emailPort,
+        secure: settings.emailSecure,
+        user: settings.emailUser,
+        password: settings.emailPassword,
+        from: settings.emailFrom,
+        to: settings.emailTo,
       }),
     );
   }
@@ -563,6 +622,75 @@ let instance: Notifier | null = null;
 export function notifier(): Notifier {
   instance ??= new Notifier();
   return instance;
+}
+
+/**
+ * Rebuilds the notifier against the settings now in force.
+ *
+ * Replacing it rather than mutating it, and in this order, because three things
+ * matter:
+ *
+ *  - **Flush first.** A settings change must not discard a digest that is already
+ *    queued. Those findings were accepted for delivery under the old settings and
+ *    dropping them would make "I saved the form" a reason an alert never arrived.
+ *  - **Close after.** `EmailChannel` holds a pooled SMTP transport. Building a new
+ *    notifier without closing the old one leaks a connection pool per save, and a
+ *    form somebody tunes a few times would accumulate them.
+ *  - **Carry the rate-limit history forward, read AFTER the flush.** The hourly
+ *    ceiling and the per-finding throttle are instance state, and a bare
+ *    `new Notifier()` starts both at zero. Without carrying it forward, saving
+ *    *any* delivery setting — including one with nothing to do with rate
+ *    limiting, like the syslog app name — reset how many notifications had
+ *    already gone out this hour, silently doubling the ceiling for the rest of
+ *    the window. The snapshot has to come from *after* the flush above, not
+ *    before: a finding already `consider()`-ed and sitting in `previous`'s
+ *    digest queue at the moment settings are saved gets dispatched BY that
+ *    flush, which pushes its send onto `previous`'s own timestamps — a snapshot
+ *    taken earlier would miss exactly the dispatch it exists to carry forward.
+ *    The queue itself is not carried the same way: it is flushed above instead,
+ *    deliberately, because a queued digest must be sent, not replayed against
+ *    new settings.
+ *
+ * The syslog channel needs no closing: it opens a socket per send and closes it,
+ * deliberately, so there is nothing held between sends.
+ *
+ * Never throws. A failure here must not fail the request that saved the settings —
+ * the settings are already stored, and the next call rebuilds anyway.
+ */
+export async function reloadNotifier(): Promise<void> {
+  const previous = instance;
+  if (!previous) return;
+
+  // Cleared before awaiting, so anything arriving during the flush builds a
+  // fresh notifier from the new settings rather than joining the one being
+  // retired. That notifier starts without the carried history below — a narrow,
+  // accepted gap for the rare case of something arriving in the same instant a
+  // save is flushing a queued digest, rather than reading previous.rateLimitState
+  // before the flush, which would miss that same digest's own dispatch every
+  // time, not just in this one overlapping instant.
+  instance = null;
+
+  try {
+    await previous.flush();
+  } catch (error) {
+    log.error({ err: error }, 'Could not flush the notifier before applying new settings');
+  }
+
+  // Only if nothing else already built one during the flush above — that
+  // notifier already reflects the new settings; it is only missing the
+  // rate-limit history this carries forward, which does not warrant discarding
+  // whatever it may have already recorded.
+  if (!instance) {
+    instance = new Notifier(undefined, undefined, currentSettings(), previous.rateLimitState);
+  }
+
+  for (const channel of previous.channelsForShutdown) {
+    try {
+      channel.close?.();
+    } catch (error) {
+      log.error({ channel: channel.name, err: error }, 'Could not close a delivery channel');
+    }
+  }
 }
 
 /** Test seam, so a suite can install a notifier with fake channels. */

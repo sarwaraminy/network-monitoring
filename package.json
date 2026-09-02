@@ -25,7 +25,7 @@
     "build:ui": "tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit && vite build network-monitoring-ui",
     "test": "tsx --test api/src/**/*.test.ts && vitest run --root network-monitoring-ui",
     "typecheck": "tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit",
-    "lint": "biome check",
+    "lint": "biome check && tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit",
     "lint:fix": "biome check --write",
     "format": "biome format --write",
     "ci": "biome ci && tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit && tsx --test api/src/**/*.test.ts && vitest run --root network-monitoring-ui",

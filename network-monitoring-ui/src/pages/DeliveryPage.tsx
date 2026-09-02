@@ -1,12 +1,18 @@
 import ChatOutlinedIcon from '@mui/icons-material/ChatOutlined';
+import CloseIcon from '@mui/icons-material/Close';
 import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Dialog from '@mui/material/Dialog';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
 import Grid from '@mui/material/Grid';
+import IconButton from '@mui/material/IconButton';
 import Skeleton from '@mui/material/Skeleton';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
@@ -15,8 +21,11 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { describeError } from '../api/client';
 import { fetchNotifyStatus, sendNotifyTest } from '../api/notify.api';
+import DeliverySettingsForm from '../components/DeliverySettingsForm';
+import DraggableDialogPaper from '../components/DraggableDialogPaper';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { RADIUS, SURFACE } from '../theme';
 
 /**
  * Alert delivery.
@@ -48,6 +57,7 @@ export default function DeliveryPage() {
   const isAdmin = user?.role === 'ADMIN';
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const status = useQuery({
     queryKey: ['notify', 'status'],
@@ -87,15 +97,25 @@ export default function DeliveryPage() {
         subtitle="Where findings go, and whether they are getting there"
         headerActions={
           isAdmin ? (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<SendOutlinedIcon />}
-              onClick={() => test.mutate()}
-              disabled={test.isPending || (data?.channels.length ?? 0) === 0}
-            >
-              {test.isPending ? 'Sending…' : 'Send test'}
-            </Button>
+            <Stack direction="row" spacing={1}>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<SettingsOutlinedIcon />}
+                onClick={() => setSettingsOpen(true)}
+              >
+                Settings
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<SendOutlinedIcon />}
+                onClick={() => test.mutate()}
+                disabled={test.isPending || (data?.channels.length ?? 0) === 0}
+              >
+                {test.isPending ? 'Sending…' : 'Send test'}
+              </Button>
+            </Stack>
           ) : null
         }
       />
@@ -112,10 +132,10 @@ export default function DeliveryPage() {
 
       {!loading && data && data.channels.length === 0 && (
         <Alert severity="warning">
-          Nothing is configured, so findings are recorded and nobody is told. Set{' '}
-          <Box component="code">SYSLOG_HOST</Box> to feed a SIEM,{' '}
-          <Box component="code">NOTIFY_WEBHOOK_URL</Box> for Slack, Teams or Discord, or{' '}
-          <Box component="code">SMTP_HOST</Box> with <Box component="code">NOTIFY_EMAIL_TO</Box> for email.
+          Nothing is configured, so findings are recorded and nobody is told.
+          {isAdmin
+            ? ' Set a collector host, a webhook URL, or an SMTP host with recipients in Settings above — no file to edit and no restart.'
+            : ' An administrator can configure a webhook, email or a syslog collector on this page.'}
         </Alert>
       )}
 
@@ -126,9 +146,9 @@ export default function DeliveryPage() {
       */}
       {!loading && data && !data.enabled && data.channels.length > 0 && (
         <Alert severity="info">
-          Channels are configured but <Box component="code">NOTIFY_ENABLED</Box> is off, so no alert will be
-          sent. A test send still works — it deliberately bypasses this, since the question it answers is
-          whether delivery reaches you at all.
+          Channels are configured but delivery is switched off, so no alert will be sent.
+          {isAdmin ? ' Turn on "Deliver alerts" in Settings above.' : ''} A test send still works — it
+          deliberately bypasses this, since the question it answers is whether delivery reaches you at all.
           {data.syslog.configured && ' Syslog is unaffected: it is independent of this switch.'}
         </Alert>
       )}
@@ -245,6 +265,68 @@ export default function DeliveryPage() {
           </SurfaceCard>
         </Grid>
       </Grid>
+
+      {/*
+        A dialog rather than inline: the question this page answers is "is anything
+        reaching anyone", and the status above should be what somebody sees first —
+        especially someone who arrived because an alert did not arrive. Settings are
+        one click away, not something to scroll past.
+      */}
+      {isAdmin && (
+        <Dialog
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          fullWidth
+          maxWidth="md"
+          scroll="paper"
+          PaperComponent={DraggableDialogPaper}
+          slotProps={{
+            paper: {
+              // Same flat-surface language as every card on the page — a hairline
+              // and a rounded corner, no drop shadow — rather than the generic
+              // elevated-white-box a bare Dialog otherwise ships with.
+              sx: { borderRadius: `${RADIUS.card}px`, boxShadow: 'none', overflow: 'hidden' },
+            },
+          }}
+          aria-labelledby="delivery-settings-dialog-title"
+        >
+          <DialogTitle
+            id="delivery-settings-dialog-title"
+            data-drag-handle=""
+            sx={(theme) => ({
+              cursor: 'move',
+              userSelect: 'none',
+              pr: 6,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              backgroundColor: SURFACE.light.cardHeader,
+              color: SURFACE.light.cardHeaderInk,
+              borderBottom: '1px solid',
+              borderColor: SURFACE.light.cardBorder,
+              ...theme.applyStyles('dark', {
+                backgroundColor: SURFACE.dark.cardHeader,
+                color: SURFACE.dark.cardHeaderInk,
+                borderColor: SURFACE.dark.cardBorder,
+              }),
+            })}
+          >
+            <SettingsOutlinedIcon fontSize="small" />
+            <span>Delivery settings</span>
+            <IconButton
+              onClick={() => setSettingsOpen(false)}
+              aria-label="Close"
+              size="small"
+              sx={{ position: 'absolute', right: 8, top: 8, color: 'inherit' }}
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent dividers sx={{ p: 0 }}>
+            <DeliverySettingsForm embedded />
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 }

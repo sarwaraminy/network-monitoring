@@ -8,6 +8,8 @@ import {
   jsonb,
   pgTable,
   serial,
+  smallint,
+  text,
   timestamp,
   varchar,
 } from 'drizzle-orm/pg-core';
@@ -139,6 +141,51 @@ export const alertSuppressions = pgTable(
   (table) => [index('alert_suppressions_enabled_idx').on(table.enabled).where(sql`${table.enabled}`)],
 );
 
+/**
+ * Delivery settings — see V7__Delivery_settings.sql and notify/settings.ts.
+ *
+ * One row, every column nullable, because this is the middle layer of
+ * environment → row → default and NULL means "no opinion". The environment still
+ * wins, so a Compose-driven deployment cannot be contradicted by the UI.
+ */
+export const deliverySettings = pgTable('delivery_settings', {
+  id: smallint('id').primaryKey().default(1),
+
+  enabled: boolean('enabled'),
+  minSeverity: varchar('min_severity', { length: 16 }),
+  digestSeconds: integer('digest_seconds'),
+  throttleSeconds: integer('throttle_seconds'),
+  maxPerHour: integer('max_per_hour'),
+  includeEvidence: boolean('include_evidence'),
+  dashboardUrl: varchar('dashboard_url', { length: 500 }),
+
+  /** A bearer credential for Slack and Teams. Never returned by the API. */
+  webhookUrl: varchar('webhook_url', { length: 1000 }),
+  webhookFormat: varchar('webhook_format', { length: 32 }),
+
+  syslogHost: varchar('syslog_host', { length: 255 }),
+  syslogPort: integer('syslog_port'),
+  syslogProtocol: varchar('syslog_protocol', { length: 8 }),
+  syslogFormat: varchar('syslog_format', { length: 8 }),
+  syslogRfc: varchar('syslog_rfc', { length: 8 }),
+  syslogFacility: integer('syslog_facility'),
+  syslogAppName: varchar('syslog_app_name', { length: 64 }),
+  syslogIncludeEvidence: boolean('syslog_include_evidence'),
+
+  emailHost: varchar('email_host', { length: 255 }),
+  emailPort: integer('email_port'),
+  emailSecure: boolean('email_secure'),
+  emailUser: varchar('email_user', { length: 255 }),
+  /** A password. Never returned by the API. */
+  emailPassword: varchar('email_password', { length: 500 }),
+  emailFrom: varchar('email_from', { length: 255 }),
+  /** An array, so a recipient containing a comma cannot corrupt the set. */
+  emailTo: text('email_to').array(),
+
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  updatedBy: varchar('updated_by', { length: 200 }),
+});
+
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 export type LogRow = typeof logs.$inferSelect;
@@ -146,5 +193,7 @@ export type NewLogRow = typeof logs.$inferInsert;
 export type AlertRow = typeof alerts.$inferSelect;
 export type NewAlertRow = typeof alerts.$inferInsert;
 export type KnownDeviceRow = typeof knownDevices.$inferSelect;
+export type DeliverySettingsRow = typeof deliverySettings.$inferSelect;
+export type NewDeliverySettingsRow = typeof deliverySettings.$inferInsert;
 export type SuppressionRow = typeof alertSuppressions.$inferSelect;
 export type NewSuppressionRow = typeof alertSuppressions.$inferInsert;

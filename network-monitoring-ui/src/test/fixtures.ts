@@ -2,6 +2,7 @@ import type {
   Alert,
   AlertDashboard,
   CaptureStatus,
+  DeliverySettingsResponse,
   IntelStatus,
   NetworkInterface,
   NotifyStatus,
@@ -261,6 +262,47 @@ export const NOTIFY_STATUS: NotifyStatus = {
     rfc: '5424',
     includeEvidence: true,
   },
+};
+
+/**
+ * Delivery settings as the API reports them.
+ *
+ * Deliberately mixed: one field pinned by the environment, one secret configured and
+ * one not, and the rest at their defaults. A fixture where everything came from the
+ * database would never exercise the two states that change the form's behaviour.
+ */
+export const DELIVERY_SETTINGS: DeliverySettingsResponse = {
+  settings: {
+    enabled: { source: 'environment', value: true },
+    minSeverity: { source: 'database', value: 'high' },
+    digestSeconds: { source: 'default', value: 60 },
+    throttleSeconds: { source: 'default', value: 900 },
+    maxPerHour: { source: 'database', value: 12 },
+    includeEvidence: { source: 'default', value: true },
+    dashboardUrl: { source: 'database', value: 'https://nmt.example.test/alerts' },
+
+    // Configured, and never sent back: for Slack and Teams the URL is the credential.
+    webhookUrl: { source: 'database', configured: true },
+    webhookFormat: { source: 'default', value: 'auto' },
+
+    syslogHost: { source: 'database', value: 'siem.internal' },
+    syslogPort: { source: 'default', value: 514 },
+    syslogProtocol: { source: 'default', value: 'udp' },
+    syslogFormat: { source: 'default', value: 'cef' },
+    syslogRfc: { source: 'default', value: '5424' },
+    syslogFacility: { source: 'default', value: 16 },
+    syslogAppName: { source: 'default', value: 'nmt' },
+    syslogIncludeEvidence: { source: 'default', value: true },
+
+    emailHost: { source: 'default', value: '' },
+    emailPort: { source: 'default', value: 587 },
+    emailSecure: { source: 'default', value: false },
+    emailUser: { source: 'default', value: '' },
+    emailPassword: { source: 'default', configured: false },
+    emailFrom: { source: 'default', value: '' },
+    emailTo: { source: 'default', value: [] },
+  },
+  pinnedByEnvironment: ['enabled'],
 };
 
 export const INTERFACES: NetworkInterface[] = [
