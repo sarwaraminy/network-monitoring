@@ -170,7 +170,26 @@ async function lockedSweep(now: number): Promise<SweepResult> {
       log.debug(result, 'Retention sweep found nothing to do');
     }
   } catch (error) {
-    log.error({ err: error }, 'Retention sweep failed; nothing was lost and the next one retries');
+    /*
+     * `result` can already hold real, committed counts here: `rollUpExpiredAlerts`
+     * commits one UTC day per transaction, so a throw from `forgetStaleDevices` —
+     * which runs after it — lands here with those days genuinely rolled up and
+     * deleted, not merely attempted. Logging the error alone would tell whoever is
+     * debugging a "failed" sweep that nothing happened, when disk really was
+     * reclaimed; both callers of `sweepRetention` discard its return value, so this
+     * log line is the only place those counts are still visible.
+     *
+     * Safe to retry regardless: the days already committed will not reappear in the
+     * next sweep's `expiredDays()`, since their rows are gone, and `devicesForgotten`
+     * stays at zero here whenever `forgetStaleDevices` is what threw.
+     */
+    const committed = result.alertsDeleted > 0 || result.devicesForgotten > 0 || result.daysProcessed > 0;
+    log.error(
+      { err: error, ...result },
+      committed
+        ? 'Retention sweep failed partway through; the counts above already committed'
+        : 'Retention sweep failed before anything committed; nothing was lost and the next one retries',
+    );
   } finally {
     if (client) {
       if (locked) {
