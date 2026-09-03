@@ -822,14 +822,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 615 tests
-npm run test:api  # 496 API tests
+npm test          # both suites: 619 tests
+npm run test:api  # 500 API tests
 npm run test:ui   # 119 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 496 tests
+### API — 500 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
@@ -921,7 +921,14 @@ The groups worth knowing about:
   delete it, both in one transaction — is verified against a real database rather than a mock.
 - **Repository-configuration guards** compare a config file against the repo it governs, in
   text, because the failure they catch is a comment asserting something the configuration
-  underneath does not do. `env-defaults.test.ts` holds `.env.example` and Compose to env.ts's
+  underneath does not do. `test-glob.test.ts` is the starkest of them: `test:api` passed its
+  `api/src/**/*.test.ts` glob to the shell unquoted, and because npm runs scripts through `sh`
+  on Linux — which has no globstar — `**` collapsed to `*` and the pattern only reached depth
+  two. CI ran **456** of 496 tests, green, for as long as that script existed, and the file it
+  silently dropped was the detector suite: the attack simulations and the false-positive guards
+  described above. It looked correct locally because cmd.exe does not glob at all, so the
+  pattern reached `tsx`, which expands `**` properly. The glob is quoted now and the guard
+  asserts it stays quoted in every script that runs the test runner. `env-defaults.test.ts` holds `.env.example` and Compose to env.ts's
   own defaults; `dependabot-config.test.ts` holds `.github/dependabot.yml` to its own header —
   every ecosystem capped and grouped explicitly, every `0.x` production dependency excluded
   from the production group (a breaking `0.x` bump reads as a *minor* to Dependabot, so it

@@ -175,18 +175,45 @@ function routesOf(router: Router): RouteFact[] {
     const route = layer.route;
     if (!route) return;
 
+    /*
+     * The route's own stack, up to the first entry that can answer the request.
+     *
+     * Position matters here for the same reason it matters between layers, and this
+     * loop had the same false pass one level down: any `requireRole` anywhere in
+     * `route.stack` was credited, including one written *after* the handler —
+     *
+     *     alertsRouter.delete('/:id', asyncHandler(handler), requireRole('ADMIN'));
+     *
+     * where the handler responds, never calls `next`, and the guard never runs. A
+     * more plausible slip than the misordered `router.use` that was fixed first,
+     * because the guard and the handler are arguments to the same call.
+     *
+     * So only the leading run of guards counts. Anything that is neither a role
+     * guard nor `requireAuth` ends it: this file cannot tell a terminal handler
+     * from ordinary middleware, and stopping at the first unknown entry errs toward
+     * reporting the route ungated, which is the direction `covers` sets out.
+     */
     const guards: (readonly string[])[] = [];
+    let ownAuth = false;
     for (const handler of route.stack) {
       const roles = rolesOf(handler.handle);
-      if (roles) guards.push(roles);
+      if (roles) {
+        guards.push(roles);
+        continue;
+      }
+      if (isAuthGuard(handler.handle)) {
+        ownAuth = true;
+        continue;
+      }
+      break;
     }
+
     for (const used of useGuards) {
       if (used.index < index && covers(used.layer, route.path)) guards.push(used.roles);
     }
 
     const authenticated =
-      route.stack.some((handler) => isAuthGuard(handler.handle)) ||
-      useAuth.some((used) => used.index < index && covers(used.layer, route.path));
+      ownAuth || useAuth.some((used) => used.index < index && covers(used.layer, route.path));
 
     for (const method of Object.keys(route.methods)) {
       facts.push({ method, path: route.path, guards, authenticated });
