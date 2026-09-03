@@ -802,6 +802,15 @@ place to read credentials, unprunable and readable by any administrator, would m
 system less safe rather than more accountable. The redaction is a one-line function on
 purpose: exported, so a test can assert the property rather than trust the call site.
 
+### What this does not yet cover
+
+`POST /api/packets/clear` and `/stop` are ADMIN-only and both discard something — captured
+packets, an in-progress observation — but neither is in the audit vocabulary. They operate
+on the capture buffer in memory rather than a database row, which is a different shape of
+action from everything above: there is no transaction for a record to share, so closing
+this gap means deciding how an audit write commits alongside an in-memory action rather
+than reusing the pattern the rest of this trail relies on. Worth doing, not yet done.
+
 ---
 
 ## Flow collection (NetFlow / IPFIX)
@@ -1472,8 +1481,10 @@ packet. See [What it detects](#what-it-detects).
   promiscuous capture on the host.
 - **The IP filter is validated** before being interpolated into a BPF expression.
 - **Destroying evidence is now recorded, not just restricted.** See the audit trail above:
-  every action that removes or redirects something appends an append-only entry naming who
-  did it, in the same transaction that does it.
+  every action that removes or redirects a persisted record — a finding, a device, a
+  suppression rule, the delivery settings, the legacy packet log — appends an append-only
+  entry naming who did it, in the same transaction that does it. Packet capture control
+  (`/clear`, `/stop`) is a deliberate exception; see "What this does not yet cover" above.
 - **Destroying evidence requires ADMIN.** Two routes let any authenticated account remove or
   alter the record of what happened on the network: `DELETE /api/alerts/:id` deleted findings
   one at a time while the bulk `DELETE /api/alerts` beside it required an administrator — so
