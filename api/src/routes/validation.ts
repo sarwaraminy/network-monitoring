@@ -4,7 +4,7 @@ import { HttpError } from '../middleware/error-handler.js';
 import { parsePrefix } from '../net/prefix.js';
 import { WEBHOOK_FORMATS } from '../notify/types.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
-import { AUDIT_ACTIONS, type AuditAction } from '../services/audit.service.js';
+import { AUDIT_ACTIONS, type AuditAction } from '../services/audit-types.js';
 
 /**
  * Every request schema, in one place.

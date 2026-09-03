@@ -1,6 +1,7 @@
 import { desc, eq, lt, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { type AuditEventRow, auditEvents, type UserRow } from '../db/schema.js';
+import { AUDIT_ACTIONS, type AuditAction } from './audit-types.js';
 
 /**
  * The audit trail: who did what, and when.
@@ -38,27 +39,12 @@ import { type AuditEventRow, auditEvents, type UserRow } from '../db/schema.js';
  * later, which is when someone first needs to.
  */
 
-/**
- * Every action the trail records, with what to show a reader.
- *
- * Adding an entry here is the deliberate act; the type below makes an unlisted
- * action a compile error rather than a row nobody can interpret.
- */
-export const AUDIT_ACTIONS = {
-  'alert.delete': 'Deleted a finding',
-  'alert.unacknowledge': 'Reopened a finding, clearing who had acknowledged it',
-  'alerts.clear': 'Cleared every finding',
-  'device.forget': 'Forgot a device',
-  'suppression.create': 'Created a suppression rule',
-  'suppression.update': 'Changed a suppression rule',
-  'suppression.delete': 'Deleted a suppression rule',
-  'delivery_settings.update': 'Changed where findings are delivered',
-  'log.create': 'Added a legacy packet-log record',
-  'log.update': 'Changed a legacy packet-log record',
-  'log.delete': 'Deleted a legacy packet-log record',
-} as const;
-
-export type AuditAction = keyof typeof AUDIT_ACTIONS;
+// Defined in audit-types.ts, not here, and re-exported so every existing importer
+// of these two names from this module — audit.routes.ts, audit.test.ts — keeps
+// working unchanged. See that file for why: this module imports `db`, which
+// constructs the connection pool at load, and validation.ts needs only the
+// vocabulary, not the pool.
+export { AUDIT_ACTIONS, type AuditAction };
 
 export interface AuditEvent {
   /** From `actorOf`. */
