@@ -1633,6 +1633,72 @@ finding within a few seconds.
 
 ## Roadmap
 
+Kept here rather than in a tracker so that what shipped, what is next and what was
+deliberately refused are all readable from the repository itself.
+
+### Shipped
+
+Newest first. Each of these has a merged pull request with the reasoning in it.
+
+| What | Where |
+| --- | --- |
+| **Audit trail** — who deleted, changed or redirected something; append-only, enforced by a trigger, written in the same transaction as the act it records | #49 |
+| **Route-level auth tests** — every authenticated route swept over real HTTP with seven credentials; found `DELETE /api/alerts/:id` and the legacy log writes ungated, and a CI glob that had been running 456 of 496 tests | #48 |
+| **Retention with daily rollup** — detail expires, the shape does not: expiring days are aggregated into `alert_rollup_daily` in the same transaction that deletes them | #45 |
+| **`npm audit` clean** — a scoped override forcing `@esbuild-kit/core-utils` onto esbuild ^0.25, closing the last four moderates | #44 |
+| **Delivery settings in the UI** — three layers per field (environment → stored row → default) with the *environment winning*, and provenance in the API contract so a pinned field renders disabled | #39 |
+| **Teams Adaptive Card** — the retired Office 365 connector schema replaced; `*.logic.azure.com` detected as Power Automate Workflows | #37 |
+| **Dependabot security updates** — they were switched *off* on this repository while alerts were on, so two high-severity advisories could never produce a PR | #31, #35 |
+| **Suppression rules** — a conjunction of kind, source/target CIDR and port, with a mandatory reason and optional expiry, evaluated once so storage, webhook, email and SIEM all agree | #30 |
+| **Signup escalation closed, syslog/CEF export, Delivery page, capture control gated, seeded admin removed** | #14 |
+
+### Next, in order
+
+1. **Postgres in CI** (~1–2 d). Every SQL-level claim in this repository is currently
+   verified by a probe run by hand once and then trusted, and retention alone had four
+   real SQL bugs found in review rather than by tests — timezone bucketing, partial-day
+   over-deletion, the rollup filter, sweep concurrency. A service container would turn
+   those probes into standing tests, and would also allow the one authorisation case that
+   needs a user row: a valid token for a non-admin getting 403 over HTTP.
+2. **SMTP that modern mailboxes accept** ([#27](https://github.com/sarwaraminy/network-monitoring/issues/27), ~1 wk).
+   Microsoft 365 and Google both disable basic SMTP auth by default, so email delivery does
+   not work with the two most common providers. An internal relay already works with no
+   credentials and a 535 is already legible; what is missing is OAuth2/XOAUTH2.
+3. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
+   each other's findings. Cheap now and expensive once anyone has data.
+4. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
+   type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
+   `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
+   `.bin`.
+5. **Small, and each independently useful:**
+   - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
+     `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
+     the table; removing them removes the surface instead of protecting it. The `GET` stays,
+     because the history is why the table is kept.
+   - Read the test counts in this file from the suite instead of typing them. They have gone
+     stale three times in three pull requests.
+   - A coarser bucket for multi-year trend windows, which currently plot 1,095 daily bars.
+   - A marker on the trend chart for where the retention boundary falls, so a shorter bar
+     reads as "rolled up" rather than "quiet".
+   - "Suppress this" from an alert row — left out of the suppression PR to keep it
+     reviewable, and the obvious next touch on that page.
+
+### Known gaps, named rather than left to be discovered
+
+- **`SlidingWindow` does not slide.** It sets `expiresAt` once when a bucket is created and
+  discards the whole bucket when that passes, which is a *tumbling* window. An attacker who
+  probes just under the threshold, waits for the boundary and repeats is never detected, and
+  nothing about the failure is visible.
+- **`isStructuralAddress` tests the multicast bit but not the locally-administered bit**, so
+  every modern phone using MAC-address randomisation raises a new-device alert.
+- **Delivery settings have no history** beyond `updated_by` and the audit entry naming which
+  fields changed. Reconstructing a past configuration is not possible.
+- **This has never run against real hostile traffic for a sustained period.** Running it on
+  one real network for a month and writing down exactly what it said is worth more than the
+  next three features on this list.
+
+### Later
+
 **Detection**
 
 - Track SYN responses, so a scan against closed ports is separated from one that found a
@@ -1663,9 +1729,8 @@ capture, since nothing else sees payload.
 **Product**
 
 - Stream over WebSocket/SSE instead of polling once a second.
-- Retention and rollup, so the alerts table stays bounded over months.
+- Alert enrichment at write time; server-side pagination and CSV export.
 - pcap export, so a finding can be opened in Wireshark for deeper analysis.
-- Docker Compose, so the whole stack starts with one command.
 - Traffic visualisation over time: top talkers, protocol mix, alerts per hour.
 
 **Deployment**
@@ -1673,6 +1738,12 @@ capture, since nothing else sees payload.
 - Document the SPAN port / network TAP setup. Running on a workstation only sees that
   workstation's own traffic plus broadcasts, which is the most common reason the tool appears
   to find nothing.
+
+### Deliberately out of scope
+
+Listed so the same proposals are not re-litigated: case management and ticketing, additional
+RBAC roles beyond USER and ADMIN, PCAP retention and indexing, a rule language, and IDS
+signature compatibility.
 
 ## Contributing
 
