@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { recentAlertsForMatching } from '../services/alert.service.js';
-import { actorName } from '../services/audit.service.js';
+import { actorOf } from '../services/audit.service.js';
 import {
   createSuppression,
   deleteSuppression,
@@ -124,7 +124,7 @@ suppressionsRouter.post(
         enabled: body.enabled,
         expiresAt: body.expiresAt ?? null,
       },
-      actorName(req.user),
+      actorOf(req.user),
     );
 
     res.status(201).json(created);
@@ -164,7 +164,7 @@ suppressionsRouter.patch(
 
     if (!hasSuppressionCriterion(merged)) throw new HttpError(400, NO_CRITERIA);
 
-    const updated = await updateSuppression(id, merged, actorName(req.user));
+    const updated = await updateSuppression(id, merged, actorOf(req.user));
     if (!updated) throw new HttpError(404, `No suppression rule with id ${id}`);
     res.json(updated);
   }),
@@ -182,7 +182,7 @@ suppressionsRouter.delete(
   requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const id = parseId(req.params.id);
-    if (!(await deleteSuppression(id, actorName(req.user)))) {
+    if (!(await deleteSuppression(id, actorOf(req.user)))) {
       throw new HttpError(404, `No suppression rule with id ${id}`);
     }
     res.status(204).send();

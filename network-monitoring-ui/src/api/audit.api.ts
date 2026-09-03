@@ -10,7 +10,7 @@ import { api } from './client';
 export async function fetchAuditEvents(params: {
   limit?: number;
   action?: string;
-  before?: string;
+  before?: number;
 }): Promise<AuditPage> {
   const { data } = await api.get<AuditPage>('/api/audit', { params });
   return data;

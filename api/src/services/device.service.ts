@@ -1,7 +1,7 @@
 import { desc, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { type KnownDeviceRow, knownDevices } from '../db/schema.js';
-import { recordAudit } from './audit.service.js';
+import { type Actor, recordAudit } from './audit.service.js';
 
 /**
  * Persists the MAC addresses seen on the network, so "new device" means new to
@@ -42,7 +42,7 @@ export async function recordDevice(macAddress: string, ipAddress: string | null)
  * when it was first and last seen are the whole of what the row held, and after the
  * delete this entry is the only place they survive.
  */
-export async function forgetDevice(macAddress: string, actor: string): Promise<boolean> {
+export async function forgetDevice(macAddress: string, actor: Actor): Promise<boolean> {
   const mac = macAddress.toLowerCase();
 
   return db.transaction(async (tx) => {
@@ -60,7 +60,8 @@ export async function forgetDevice(macAddress: string, actor: string): Promise<b
     if (!deleted) return false;
 
     await recordAudit(tx, {
-      actor,
+      actor: actor.name,
+      actorId: actor.id,
       action: 'device.forget',
       subject: deleted.mac,
       detail: {

@@ -84,8 +84,16 @@ export default function AuditPage() {
   const { user } = useAuth();
   const [action, setAction] = useState<string>('');
 
-  const actions = useAuditActions();
-  const trail = useAuditEvents(action === '' ? undefined : action);
+  /*
+   * Gated here as well as at the render below, because a hook cannot be conditional:
+   * the early return further down suppresses the *render*, not the fetches. Without
+   * this a non-admin opening /activity sends two requests the server correctly
+   * refuses, putting failed authorisation attempts into the records this page exists
+   * to make readable — for a user who did nothing wrong.
+   */
+  const isAdmin = user?.role === 'ADMIN';
+  const actions = useAuditActions({ enabled: isAdmin });
+  const trail = useAuditEvents(action === '' ? undefined : action, { enabled: isAdmin });
 
   const labels = useMemo(
     () => new Map((actions.data ?? []).map((option) => [option.action, option.label])),
@@ -145,7 +153,7 @@ export default function AuditPage() {
   // else, so this is the third layer rather than the first. It exists because a
   // pasted URL should explain itself rather than render an error from a failed
   // fetch.
-  if (user?.role !== 'ADMIN') {
+  if (!isAdmin) {
     return (
       <SurfaceCard title="Activity" titleComponent="h1" titleVariant="h5">
         <Alert severity="info">

@@ -413,8 +413,11 @@ export interface AuditEvent {
 
 export interface AuditPage {
   events: AuditEvent[];
-  /** Cursor for the next, older page. Absent on the last one. */
-  nextBefore?: string;
+  /**
+   * Cursor for the next, older page — an `id`, not a timestamp. Absent on the last
+   * one. See `listAuditEvents` on the server for why a timestamp cursor loses rows.
+   */
+  nextBefore?: number;
 }
 
 /** An action and the label to show for it, served so the filter cannot drift. */

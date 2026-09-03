@@ -110,8 +110,14 @@ const MAX_TREND_DAYS = Math.max(1825, env.retention.alertDays + 1);
 export const auditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   action: z.enum(Object.keys(AUDIT_ACTIONS) as [AuditAction, ...AuditAction[]]).optional(),
-  /** Keyset cursor: only events strictly older than this instant. */
-  before: z.coerce.date().optional(),
+  /**
+   * Keyset cursor: only events with an id below this one.
+   *
+   * An id rather than a timestamp, because the driver truncates the column's
+   * microseconds and a lossy cursor drops rows rather than merely reordering them —
+   * see `listAuditEvents`.
+   */
+  before: z.coerce.number().int().positive().optional(),
 });
 
 export const alertDashboardQuerySchema = z

@@ -103,21 +103,28 @@ describe('AuditPage', () => {
     await waitFor(() => expect(asked).toContain('alerts.clear'));
   });
 
-  it('offers to load older entries only when there are some', async () => {
-    // The server answers with a cursor when a further page exists and omits it on
-    // the last one, so the button follows the cursor rather than guessing from the
-    // row count.
+  it('does not offer to load older entries on the last page', async () => {
+    // The server omits the cursor on the last page, so the button follows the cursor
+    // rather than guessing from the row count.
     await renderAudit();
-    expect(screen.queryByRole('button', { name: /load older/i })).not.toBeInTheDocument();
 
-    server.use(
-      http.get('/api/audit', () =>
-        HttpResponse.json({ events: AUDIT_EVENTS, nextBefore: '2026-09-02T18:00:00.000Z' }),
-      ),
-    );
+    expect(screen.queryByRole('button', { name: /load older/i })).not.toBeInTheDocument();
+  });
+
+  it('offers to load older entries when the server sends a cursor', async () => {
+    /*
+     * Its own render rather than a second one inside the test above: two pages
+     * mounted in one document, with the button distinguished only by the second
+     * one's query having resolved, passed alone and failed under full-suite load.
+     * The lesson this repository has already learned twice — a test whose result
+     * depends on how busy the machine is will eventually be muted.
+     */
+    server.use(http.get('/api/audit', () => HttpResponse.json({ events: AUDIT_EVENTS, nextBefore: 1 })));
     renderApp(<AuditPage />, { authenticated: true });
 
-    expect(await screen.findByRole('button', { name: /load older/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /load older/i }, { timeout: 10_000 }),
+    ).toBeInTheDocument();
   });
 
   it('explains an empty trail rather than looking broken', async () => {
@@ -142,6 +149,57 @@ describe('AuditPage', () => {
     // The server's own message, not the fallback: `describeError` prefers it, and
     // an operator needs to know *why* the record could not be read.
     expect(await screen.findByText(/database is down/i, {}, { timeout: 10_000 })).toBeInTheDocument();
+  });
+
+  it('pages with the id the server handed back, not a timestamp', async () => {
+    /*
+     * The cursor is an `id` because a timestamp one loses rows: node-postgres
+     * truncates the column's microseconds, so a page ending part-way through a group
+     * that shares a millisecond gets a cursor equal to it, and the next page's
+     * `at < before` then excludes the whole group — including the entries never
+     * returned.
+     */
+    const asked: (string | null)[] = [];
+    server.use(
+      http.get('/api/audit', ({ request }) => {
+        const before = new URL(request.url).searchParams.get('before');
+        asked.push(before);
+        return HttpResponse.json(before ? { events: [] } : { events: AUDIT_EVENTS, nextBefore: 7 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<AuditPage />, { authenticated: true });
+    await user.click(await screen.findByRole('button', { name: /load older/i }));
+
+    await waitFor(() => expect(asked).toEqual([null, '7']));
+  });
+
+  it('sends nothing at all for a non-admin', async () => {
+    /*
+     * The role check in the component cannot stop the fetches — hooks are not
+     * conditional, so an early return suppresses the render and not the requests.
+     * Without `enabled`, opening this URL as a non-admin put two refused
+     * authorisation attempts into the very records this page exists to make
+     * readable, for somebody who did nothing wrong.
+     */
+    let requests = 0;
+    server.use(
+      http.get('/api/audit', () => {
+        requests += 1;
+        return HttpResponse.json({ events: [] });
+      }),
+      http.get('/api/audit/actions', () => {
+        requests += 1;
+        return HttpResponse.json([]);
+      }),
+    );
+
+    asNonAdmin();
+    renderApp(<AuditPage />, { authenticated: true });
+    await screen.findByText(/visible to administrators/i);
+
+    expect(requests).toBe(0);
   });
 
   it('tells a non-admin why the page is empty for them', async () => {

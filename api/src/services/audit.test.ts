@@ -103,30 +103,42 @@ describe('the action vocabulary', () => {
 });
 
 describe('who is recorded', () => {
-  it('uses the email, which is what a reader recognises', () => {
-    const user = { id: 7, email: 'sam@example.com', role: 'ADMIN' } as Parameters<typeof audit.actorName>[0];
+  const asUser = (fields: Record<string, unknown>) =>
+    fields as unknown as Parameters<typeof audit.actorOf>[0];
 
-    assert.equal(audit.actorName(user), 'sam@example.com');
+  it('uses the email, which is what a reader recognises', () => {
+    assert.deepEqual(audit.actorOf(asUser({ id: 7, email: 'sam@example.com', role: 'ADMIN' })), {
+      name: 'sam@example.com',
+      id: 7,
+    });
+  });
+
+  it('records the account id as well as the email', () => {
+    /*
+     * Both columns, because they answer different questions: `actor` survives the
+     * account being renamed or deleted, and `actor_id` is what tells two accounts
+     * apart when an address is reused. The first version returned only the string,
+     * so `actor_id` was NULL on every row — the disambiguator the migration argues
+     * for, never written, and invisible because the UI fixture supplied one.
+     */
+    assert.equal(audit.actorOf(asUser({ id: 42, email: 'sam@example.com' })).id, 42);
   });
 
   it('falls back to the id rather than producing a blank', () => {
     // `actor` is NOT NULL with a non-blank CHECK, so an undefined here would be a
     // constraint violation on the deletion path. Unreachable behind requireAuth,
     // which is exactly why it is spelled out instead of left to chance.
-    const user = { id: 7, email: null, role: 'ADMIN' } as unknown as Parameters<typeof audit.actorName>[0];
-
-    assert.equal(audit.actorName(user), 'user:7');
+    assert.equal(audit.actorOf(asUser({ id: 7, email: null })).name, 'user:7');
   });
 
   it('says something even with no user at all', () => {
-    assert.equal(audit.actorName(undefined), 'user:unknown');
+    assert.deepEqual(audit.actorOf(undefined), { name: 'user:unknown', id: null });
   });
 
-  it('never returns a blank string, whatever it is handed', () => {
-    for (const user of [undefined, {}, { id: null }, { email: '' }] as unknown as Parameters<
-      typeof audit.actorName
-    >[0][]) {
-      assert.notEqual(audit.actorName(user).trim(), '', `blank actor for ${JSON.stringify(user)}`);
+  it('never returns a blank name, whatever it is handed', () => {
+    for (const user of [undefined, {}, { id: null }, { email: '' }, { email: '   ' }]) {
+      const actor = audit.actorOf(user === undefined ? undefined : asUser(user));
+      assert.notEqual(actor.name.trim(), '', `blank actor for ${JSON.stringify(user)}`);
     }
   });
 });

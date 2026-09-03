@@ -6,7 +6,7 @@ import { componentLogger } from '../logger.js';
 import { notifier } from '../notify/notifier.js';
 import { type Finding, SEVERITY_RANK, type Severity } from '../packet/detect/types.js';
 import { firstWholeUtcDay, utcTrunc } from './alert-buckets.js';
-import { recordAudit } from './audit.service.js';
+import { type Actor, recordAudit } from './audit.service.js';
 import {
   countSuppressed,
   flushSuppressionCounters,
@@ -541,10 +541,17 @@ export async function summarizeAlerts(): Promise<AlertSummary> {
   };
 }
 
-export async function acknowledgeAlert(id: number, acknowledgedBy: string): Promise<AlertRow | null> {
+/**
+ * Marks a finding as handled.
+ *
+ * Takes the whole `Actor` rather than a string even though it stores only the name:
+ * every mutating function here takes the same parameter, so acknowledging cannot be
+ * the one that quietly has less identity available if it is ever audited.
+ */
+export async function acknowledgeAlert(id: number, acknowledgedBy: Actor): Promise<AlertRow | null> {
   const [updated] = await db
     .update(alerts)
-    .set({ acknowledgedAt: new Date(), acknowledgedBy: acknowledgedBy.slice(0, 200) })
+    .set({ acknowledgedAt: new Date(), acknowledgedBy: acknowledgedBy.name.slice(0, 200) })
     .where(eq(alerts.id, id))
     .returning();
   return updated ?? null;
@@ -570,7 +577,7 @@ export async function unacknowledgeAlert(id: number): Promise<AlertRow | null> {
  * Once the row is gone this entry is the only surviving description of what was
  * removed, and "alert 412 was deleted" answers almost nothing a year later.
  */
-export async function deleteAlert(id: number, actor: string): Promise<boolean> {
+export async function deleteAlert(id: number, actor: Actor): Promise<boolean> {
   return db.transaction(async (tx) => {
     const [deleted] = await tx
       .delete(alerts)
@@ -580,7 +587,8 @@ export async function deleteAlert(id: number, actor: string): Promise<boolean> {
     if (!deleted) return false;
 
     await recordAudit(tx, {
-      actor,
+      actor: actor.name,
+      actorId: actor.id,
       action: 'alert.delete',
       subject: String(deleted.id),
       detail: { kind: deleted.kind, severity: deleted.severity, title: deleted.title },
@@ -599,7 +607,7 @@ export async function deleteAlert(id: number, actor: string): Promise<boolean> {
  * deliberately not recorded — a bulk clear would put thousands of rows of evidence
  * into a table that cannot be pruned.
  */
-export async function deleteAllAlerts(actor: string): Promise<number> {
+export async function deleteAllAlerts(actor: Actor): Promise<number> {
   return db.transaction(async (tx) => {
     const deleted = await tx.delete(alerts).returning({ id: alerts.id, severity: alerts.severity });
 
@@ -609,7 +617,8 @@ export async function deleteAllAlerts(actor: string): Promise<number> {
     }
 
     await recordAudit(tx, {
-      actor,
+      actor: actor.name,
+      actorId: actor.id,
       action: 'alerts.clear',
       detail: { deleted: deleted.length, bySeverity },
     });

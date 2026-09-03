@@ -2,7 +2,7 @@ import { asc, eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { alertSuppressions, type SuppressionRow } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
-import { recordAudit } from './audit.service.js';
+import { type Actor, recordAudit } from './audit.service.js';
 import { NO_SUPPRESSIONS, SuppressionSet, type UnusableRule } from './suppression-rules.js';
 
 const log = componentLogger('suppression');
@@ -377,15 +377,16 @@ export function ruleChanges(before: SuppressionRow, after: SuppressionInput): Re
   return changed;
 }
 
-export async function createSuppression(input: SuppressionInput, createdBy: string): Promise<SuppressionRow> {
+export async function createSuppression(input: SuppressionInput, createdBy: Actor): Promise<SuppressionRow> {
   const row = await db.transaction(async (tx) => {
     const [created] = await tx
       .insert(alertSuppressions)
-      .values({ ...input, createdBy: createdBy.slice(0, 200) })
+      .values({ ...input, createdBy: createdBy.name.slice(0, 200) })
       .returning();
 
     await recordAudit(tx, {
-      actor: createdBy,
+      actor: createdBy.name,
+      actorId: createdBy.id,
       action: 'suppression.create',
       subject: String(created!.id),
       detail: ruleDetail(created!),
@@ -406,12 +407,25 @@ export async function createSuppression(input: SuppressionInput, createdBy: stri
 export async function updateSuppression(
   id: number,
   input: SuppressionInput,
-  actor: string,
+  actor: Actor,
 ): Promise<SuppressionRow | null> {
   const row = await db.transaction(async (tx) => {
-    // Read inside the transaction so the recorded "from" values are the ones this
-    // update actually replaced, not whatever a concurrent write left behind.
-    const [before] = await tx.select().from(alertSuppressions).where(eq(alertSuppressions.id, id)).limit(1);
+    /*
+     * `FOR UPDATE`, and the lock is the point rather than the transaction.
+     *
+     * Postgres defaults to READ COMMITTED, where a plain SELECT takes no row lock —
+     * so two concurrent PATCHes both read the pre-first-update row, the second
+     * blocks only when it reaches its own UPDATE, and both audit entries then claim
+     * the same starting values. The trail shows two edits from one origin and the
+     * intermediate state appears in no record at all. Atomicity was never the
+     * property needed here; serialising this read against the write it describes is.
+     */
+    const [before] = await tx
+      .select()
+      .from(alertSuppressions)
+      .where(eq(alertSuppressions.id, id))
+      .limit(1)
+      .for('update');
     if (!before) return null;
 
     const [updated] = await tx
@@ -423,7 +437,8 @@ export async function updateSuppression(
     if (!updated) return null;
 
     await recordAudit(tx, {
-      actor,
+      actor: actor.name,
+      actorId: actor.id,
       action: 'suppression.update',
       subject: String(id),
       detail: { changed: ruleChanges(before, input) },
@@ -437,13 +452,14 @@ export async function updateSuppression(
   return row;
 }
 
-export async function deleteSuppression(id: number, actor: string): Promise<boolean> {
+export async function deleteSuppression(id: number, actor: Actor): Promise<boolean> {
   const removed = await db.transaction(async (tx) => {
     const [deleted] = await tx.delete(alertSuppressions).where(eq(alertSuppressions.id, id)).returning();
     if (!deleted) return false;
 
     await recordAudit(tx, {
-      actor,
+      actor: actor.name,
+      actorId: actor.id,
       action: 'suppression.delete',
       subject: String(id),
       // Including the match count: a rule that had quietly hidden nine thousand

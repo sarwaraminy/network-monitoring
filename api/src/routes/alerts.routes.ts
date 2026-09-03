@@ -10,7 +10,7 @@ import {
   summarizeAlerts,
   unacknowledgeAlert,
 } from '../services/alert.service.js';
-import { actorName } from '../services/audit.service.js';
+import { actorOf } from '../services/audit.service.js';
 import { forgetDevice, listKnownDevices } from '../services/device.service.js';
 import { alertDashboardQuerySchema, alertListQuerySchema, idSchema, parseSince } from './validation.js';
 
@@ -88,7 +88,7 @@ alertsRouter.delete(
     if (!/^[0-9a-fA-F:]{11,32}$/.test(mac)) {
       throw new HttpError(400, 'mac must be a MAC address');
     }
-    if (!(await forgetDevice(mac, actorName(req.user)))) throw new HttpError(404, `No known device ${mac}`);
+    if (!(await forgetDevice(mac, actorOf(req.user)))) throw new HttpError(404, `No known device ${mac}`);
     res.status(204).send();
   }),
 );
@@ -100,7 +100,7 @@ alertsRouter.post(
     const id = idSchema.safeParse(req.params.id);
     if (!id.success) throw new HttpError(400, 'id must be a positive integer');
 
-    const updated = await acknowledgeAlert(id.data, actorName(req.user));
+    const updated = await acknowledgeAlert(id.data, actorOf(req.user));
     if (!updated) throw new HttpError(404, `No alert with id ${id.data}`);
     res.json(updated);
   }),
@@ -136,7 +136,7 @@ alertsRouter.delete(
     const id = idSchema.safeParse(req.params.id);
     if (!id.success) throw new HttpError(400, 'id must be a positive integer');
 
-    if (!(await deleteAlert(id.data, actorName(req.user)))) {
+    if (!(await deleteAlert(id.data, actorOf(req.user)))) {
       throw new HttpError(404, `No alert with id ${id.data}`);
     }
     res.status(204).send();
@@ -148,6 +148,6 @@ alertsRouter.delete(
   '/',
   requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
-    res.json({ deleted: await deleteAllAlerts(actorName(req.user)) });
+    res.json({ deleted: await deleteAllAlerts(actorOf(req.user)) });
   }),
 );

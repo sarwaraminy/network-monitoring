@@ -918,14 +918,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 649 tests
-npm run test:api  # 518 API tests
-npm run test:ui   # 131 UI tests
+npm test          # both suites: 653 tests
+npm run test:api  # 519 API tests
+npm run test:ui   # 134 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 518 tests
+### API — 519 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
@@ -1056,7 +1056,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 131 tests
+### UI — 134 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —
@@ -1205,7 +1205,7 @@ table refuses `UPDATE`, `DELETE` and `TRUNCATE` at the database level.
 
 | Method | Path       | Purpose                                                          |
 | ------ | ---------- | ---------------------------------------------------------------- |
-| `GET`  | `/`        | Entries, newest first. `action` filters, `before` pages (keyset), `limit` up to 200 |
+| `GET`  | `/`        | Entries, newest first. `action` filters, `before` pages (keyset on `id`), `limit` up to 200 |
 | `GET`  | `/actions` | The action vocabulary and its labels, so the filter cannot drift from the server |
 
 ### Suppression rules — `/api/suppressions`

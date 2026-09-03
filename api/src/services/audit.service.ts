@@ -26,9 +26,11 @@ import { type AuditEventRow, auditEvents, type UserRow } from '../db/schema.js';
  * also disposes of the usual "should a failed audit write fail the action?" debate,
  * which has no good answer.
  *
- * **Identity is resolved in exactly one place.** `actorName` is the only copy now,
- * and the three routers call it. A second form of the same string would eventually
- * mean two spellings of one person in the trail.
+ * **Identity is resolved in exactly one place.** `actorOf` is the only copy now, and
+ * the three routers call it. A second form of the same string would eventually mean
+ * two spellings of one person in the trail. It returns the account id alongside the
+ * display name, because `actor` and `actor_id` answer different questions and the
+ * first version only wrote one of them — see `Actor`.
  *
  * **The vocabulary is closed.** `AUDIT_ACTIONS` is the list, the type is derived
  * from it, and the database enforces the `domain.verb` shape independently. An audit
@@ -58,7 +60,7 @@ export const AUDIT_ACTIONS = {
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
 
 export interface AuditEvent {
-  /** From `actorName`. */
+  /** From `actorOf`. */
   actor: string;
   actorId?: number | null;
   action: AuditAction;
@@ -85,12 +87,33 @@ export interface AuditEvent {
 export type AuditWriter = Pick<typeof db, 'insert'>;
 
 /**
- * The identity to record, in the one form every column and the trail agree on.
+ * Who did something, in the one form every column and the trail agree on.
  *
- * The email, because that is what an operator recognises and what survives being
- * read a year later. `user:<id>` only where there is no email to use — a state that
- * should be unreachable behind `requireAuth`, which is exactly why it is spelled
- * rather than left to produce `undefined` in a column that must never be blank.
+ * Both halves, because they answer different questions and V9 adds both columns for
+ * that reason. `name` is a denormalised email, copied in so the row stays true after
+ * the account is renamed or deleted; `id` is what tells two accounts apart when an
+ * address is reused, which is precisely the case the email cannot resolve.
+ *
+ * The first version of this returned only the string, so `actor_id` was NULL on
+ * every row — the disambiguator the migration argues for, never written, and the UI
+ * fixture set it to 1 so nothing looked wrong. Returning the pair is what makes the
+ * call sites unable to record half an identity.
+ */
+export interface Actor {
+  /**
+   * The email, because that is what an operator recognises and what survives being
+   * read a year later. `user:<id>` only where there is no email to use — a state
+   * that should be unreachable behind `requireAuth`, which is exactly why it is
+   * spelled rather than left to produce `undefined` in a column that must never be
+   * blank.
+   */
+  name: string;
+  /** The account id at the time, or null where the identity had no row behind it. */
+  id: number | null;
+}
+
+/**
+ * Resolves an authenticated user to the identity to record.
  *
  * A blank email counts as no email, matching how `env.ts` and the delivery-settings
  * resolver treat a blank value everywhere else in this codebase. The first version
@@ -100,9 +123,13 @@ export type AuditWriter = Pick<typeof db, 'insert'>;
  * shown up as a bad audit row: it would have aborted the deletion, and reported a
  * database constraint to somebody trying to delete a finding.
  */
-export function actorName(user: UserRow | undefined): string {
+export function actorOf(user: UserRow | undefined): Actor {
   const email = user?.email?.trim();
-  return email && email !== '' ? email : `user:${user?.id ?? 'unknown'}`;
+
+  return {
+    name: email && email !== '' ? email : `user:${user?.id ?? 'unknown'}`,
+    id: user?.id ?? null,
+  };
 }
 
 /**
@@ -125,32 +152,50 @@ export async function recordAudit(writer: AuditWriter, event: AuditEvent): Promi
 
 export interface AuditPage {
   events: AuditEventRow[];
-  /** The `at` of the oldest row returned, to page from. Absent when the page is the last. */
-  nextBefore?: string;
+  /** The `id` of the oldest row returned, to page from. Absent when this is the last page. */
+  nextBefore?: number;
 }
 
 /**
- * Most recent first, optionally filtered by action and paged by timestamp.
+ * Most recent first, optionally filtered by action, paged by `id`.
  *
- * Keyset paging on `at` rather than OFFSET: the trail only ever grows at the head,
- * so an offset walks further and further through rows it has already returned, and
- * a row appended mid-read shifts the window under the reader.
+ * Keyset paging rather than OFFSET: the trail only ever grows at the head, so an
+ * offset walks further and further through rows it has already returned, and a row
+ * appended mid-read shifts the window under the reader.
+ *
+ * Ordered and paged on `id`, not on `at`, and that is the whole of the correctness
+ * here. The first version ordered by `(at DESC, id DESC)` and handed back a cursor
+ * of `at` alone, which loses rows rather than merely reordering them: a page that
+ * ends part-way through a group sharing one timestamp gets a cursor equal to that
+ * timestamp, and the next page's `at < before` then excludes the entire group,
+ * including the entries never returned. They vanish from the trail with nothing in
+ * the response to say so, and the acts most likely to share a timestamp are the bulk
+ * ones — clearing alerts, a settings save touching several fields — which is exactly
+ * when somebody is reading it.
+ *
+ * Carrying `(at, id)` as a pair would still not be exact, because node-postgres
+ * parses `TIMESTAMPTZ` into a JavaScript `Date` and so truncates the column's
+ * microseconds to milliseconds before a cursor can be built from it — verified
+ * against this database. `id` has no such problem: it is a monotonic BIGSERIAL with
+ * no ties, on a table that is only ever appended to, which makes insertion order both
+ * exactly resumable and the more honest reading of "newest first" for a record of
+ * events.
  */
 export async function listAuditEvents(options: {
   limit: number;
   action?: AuditAction;
-  before?: Date;
+  before?: number;
 }): Promise<AuditPage> {
   const conditions = [
     ...(options.action ? [eq(auditEvents.action, options.action)] : []),
-    ...(options.before ? [lt(auditEvents.at, options.before)] : []),
+    ...(options.before === undefined ? [] : [lt(auditEvents.id, options.before)]),
   ];
 
   const rows = await db
     .select()
     .from(auditEvents)
     .where(conditions.length > 0 ? sql.join(conditions, sql` AND `) : undefined)
-    .orderBy(desc(auditEvents.at), desc(auditEvents.id))
+    .orderBy(desc(auditEvents.id))
     .limit(options.limit + 1);
 
   // One more than asked for, so "is there another page" is answered without a
@@ -160,6 +205,6 @@ export async function listAuditEvents(options: {
 
   return {
     events,
-    ...(rows.length > options.limit && oldest ? { nextBefore: oldest.at.toISOString() } : {}),
+    ...(rows.length > options.limit && oldest ? { nextBefore: oldest.id } : {}),
   };
 }

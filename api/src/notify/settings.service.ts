@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { type DeliverySettingsRow, deliverySettings, type NewDeliverySettingsRow } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
-import { recordAudit } from '../services/audit.service.js';
+import { type Actor, recordAudit } from '../services/audit.service.js';
 import {
   DELIVERY_FIELDS,
   type DeliveryField,
@@ -243,9 +243,9 @@ export function settingsAuditDetail(patch: Partial<NewDeliverySettingsRow>): Rec
 
 export async function saveDeliverySettings(
   patch: Partial<NewDeliverySettingsRow>,
-  updatedBy: string,
+  updatedBy: Actor,
 ): Promise<DeliverySettings> {
-  const values = { ...patch, updatedAt: new Date(), updatedBy: updatedBy.slice(0, 200) };
+  const values = { ...patch, updatedAt: new Date(), updatedBy: updatedBy.name.slice(0, 200) };
 
   await db.transaction(async (tx) => {
     await tx
@@ -263,7 +263,8 @@ export async function saveDeliverySettings(
      * the accountable fact; their contents are not.
      */
     await recordAudit(tx, {
-      actor: updatedBy,
+      actor: updatedBy.name,
+      actorId: updatedBy.id,
       action: 'delivery_settings.update',
       detail: settingsAuditDetail(patch),
     });
