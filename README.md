@@ -927,8 +927,13 @@ The groups worth knowing about:
   two. CI ran **456** of 496 tests, green, for as long as that script existed, and the file it
   silently dropped was the detector suite: the attack simulations and the false-positive guards
   described above. It looked correct locally because cmd.exe does not glob at all, so the
-  pattern reached `tsx`, which expands `**` properly. The glob is quoted now and the guard
-  asserts it stays quoted in every script that runs the test runner. `env-defaults.test.ts` holds `.env.example` and Compose to env.ts's
+  pattern reached the test runner intact — and it is `node --test` that understands `**`, not
+  `tsx`, which merely forwards to it. That makes the fix a Node-version dependency: on Node 20
+  the quoted pattern arrives as a literal path, matches nothing, and the runner exits **0**, so
+  `engines` now requires 22. The guard asserts the glob stays quoted in every script that runs
+  the runner, and that each pattern still reaches every test file — its first version compared
+  only the text to the left of `**`, so a `*.spec.ts` typo in the other half passed it.
+  `env-defaults.test.ts` holds `.env.example` and Compose to env.ts's
   own defaults; `dependabot-config.test.ts` holds `.github/dependabot.yml` to its own header —
   every ecosystem capped and grouped explicitly, every `0.x` production dependency excluded
   from the production group (a breaking `0.x` bump reads as a *minor* to Dependabot, so it

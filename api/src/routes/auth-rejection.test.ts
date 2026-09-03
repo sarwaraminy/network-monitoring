@@ -332,6 +332,34 @@ const EXPECTED: readonly string[] = [
 ];
 
 describe('protected routes over HTTP', () => {
+  it('declares every router the app mounts', () => {
+    /*
+     * `mounts` is hand-maintained, and without this nothing notices when it falls
+     * behind `app.ts`.
+     *
+     * A router mounted there but missing here contributes no targets, and because
+     * every assertion below is per-target rather than against a total, the suite
+     * goes green having swept strictly less than before. That is the failure the
+     * `EXPECTED` docblock argues against — and `mounts` is the more load-bearing of
+     * the two lists, since `EXPECTED` only ever describes what `mounts` produced.
+     *
+     * Counted rather than named: express 5 does not expose a layer's mount path
+     * (`regexp` is gone, `matchers` are opaque functions), so the count is what can
+     * be compared. A router layer is one carrying its own `stack`, which is what
+     * separates it from middleware like the rate limiter and the body parser.
+     */
+    const layers = (app as unknown as { router: { stack: { handle?: { stack?: unknown[] } }[] } }).router
+      .stack;
+    const mounted = layers.filter((layer) => Array.isArray(layer.handle?.stack)).length;
+
+    assert.equal(
+      mounted,
+      mounts.length,
+      `app.ts mounts ${mounted} routers and this file declares ${mounts.length} — an undeclared ` +
+        'router is never swept, so add it to `mounts` and to EXPECTED',
+    );
+  });
+
   it('finds exactly the routes it expects to have to authenticate for', () => {
     const found = authenticatedTargets()
       .map((target) => target.where)

@@ -39,8 +39,15 @@ import type { Router } from 'express';
 /**
  * Express's internal layer shapes. Not in @types/express, so described here.
  *
- * `stack` and `Layer.match` are internal but stable across the 4.x line, and
- * reading them is the only way to ask a router what it is actually wired to do.
+ * `stack` and `Layer.match` are internal, and reading them is the only way to ask
+ * a router what it is actually wired to do.
+ *
+ * They are express 5 shapes — 5.2.1 is what this repo runs. That is worth stating
+ * rather than assuming: this file previously claimed the shapes were "stable across
+ * the 4.x line" while also testing `layer.regexp.fast_slash`, an express 4 field
+ * that express 5 does not have, so the check silently never fired. `Layer.match`
+ * and `slash` are the ones that carry the behaviour here; an upgrade should start
+ * by re-reading `covers` and `routesOf`.
  */
 interface RouteLayer {
   route?: {
@@ -531,11 +538,13 @@ describe('every router, declared', () => {
     describe(posture.file, () => {
       it('lets nothing through unauthenticated except the routes named here', () => {
         const anonymous = new Set(posture.anonymous ?? []);
+        const claimed = new Set<string>();
 
         for (const route of routesOf(posture.router())) {
           const where = `${route.method.toUpperCase()} ${route.path}`;
 
           if (anonymous.has(where)) {
+            claimed.add(where);
             assert.ok(
               !route.authenticated,
               `${where} is listed as anonymous but is behind requireAuth — remove it from the ` +
@@ -546,6 +555,19 @@ describe('every router, declared', () => {
 
           assert.ok(route.authenticated, `${where} is reachable without a token`);
         }
+
+        // The same staleness check `assertRouterGuards` makes about its exemptions,
+        // and for the same reason: an entry that stops corresponding to any route
+        // survives silently, and a future route registered at that path is then
+        // exempted from the authentication assertion without anyone choosing it.
+        // This list is the more dangerous of the two to leave stale — the other
+        // waives a role, this one waives having a token at all.
+        assert.deepEqual(
+          [...anonymous].filter((entry) => !claimed.has(entry)).sort(),
+          [],
+          'these anonymous exemptions match no route on this router — delete them, or fix the ' +
+            'method and path',
+        );
       });
 
       it(`requires ${posture.role} for everything that changes state`, () => {

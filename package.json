@@ -8,7 +8,7 @@
     "network-monitoring-ui"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "comments": {
     "scripts": "Commands are spelled out rather than nesting `npm run`, because npm puts every ancestor node_modules/.bin on PATH and an older npm found there would be used for the inner call.",
