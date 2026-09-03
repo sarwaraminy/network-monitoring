@@ -358,8 +358,14 @@ function ruleDetail(rule: SuppressionRow | SuppressionInput): Record<string, unk
   };
 }
 
-/** Field-by-field, so a change reads as a change rather than as a new rule. */
-function ruleChanges(before: SuppressionRow, after: SuppressionInput): Record<string, unknown> {
+/**
+ * Field-by-field, so a change reads as a change rather than as a new rule.
+ *
+ * Exported for the test: "only what changed" is the property that makes an update
+ * entry readable, and a diff that quietly recorded every field would turn every
+ * edit into a wall of unchanged values.
+ */
+export function ruleChanges(before: SuppressionRow, after: SuppressionInput): Record<string, unknown> {
   const from = ruleDetail(before);
   const to = ruleDetail(after);
   const changed: Record<string, unknown> = {};

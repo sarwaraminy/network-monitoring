@@ -91,9 +91,18 @@ export type AuditWriter = Pick<typeof db, 'insert'>;
  * read a year later. `user:<id>` only where there is no email to use — a state that
  * should be unreachable behind `requireAuth`, which is exactly why it is spelled
  * rather than left to produce `undefined` in a column that must never be blank.
+ *
+ * A blank email counts as no email, matching how `env.ts` and the delivery-settings
+ * resolver treat a blank value everywhere else in this codebase. The first version
+ * used `??`, which only falls back on null — so an account with an empty email
+ * produced `''`, and `actor` is NOT NULL with a non-blank CHECK. Because the audit
+ * insert shares the caller's transaction, that constraint violation would not have
+ * shown up as a bad audit row: it would have aborted the deletion, and reported a
+ * database constraint to somebody trying to delete a finding.
  */
 export function actorName(user: UserRow | undefined): string {
-  return user?.email ?? `user:${user?.id ?? 'unknown'}`;
+  const email = user?.email?.trim();
+  return email && email !== '' ? email : `user:${user?.id ?? 'unknown'}`;
 }
 
 /**

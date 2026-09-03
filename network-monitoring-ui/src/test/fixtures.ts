@@ -351,3 +351,45 @@ export const PACKET: Packet = {
   frameLength: 60,
   payloadRedacted: false,
 };
+
+/**
+ * Audit entries.
+ *
+ * One of each interesting shape: a deletion carrying what was deleted, a settings
+ * change carrying field *names* only, and a bulk clear with no single subject.
+ */
+export const AUDIT_ACTIONS = [
+  { action: 'alert.delete', label: 'Deleted a finding' },
+  { action: 'alerts.clear', label: 'Cleared every finding' },
+  { action: 'delivery_settings.update', label: 'Changed where findings are delivered' },
+];
+
+export const AUDIT_EVENTS = [
+  {
+    id: 3,
+    at: '2026-09-03T10:15:00.000Z',
+    actor: 'admin@example.com',
+    actorId: 1,
+    action: 'alert.delete',
+    subject: '412',
+    detail: { kind: 'port_scan', severity: 'high', title: 'Port scan from 10.0.0.90' },
+  },
+  {
+    id: 2,
+    at: '2026-09-03T09:40:00.000Z',
+    actor: 'admin@example.com',
+    actorId: 1,
+    action: 'delivery_settings.update',
+    subject: null,
+    detail: { fields: ['webhookUrl', 'emailPassword'] },
+  },
+  {
+    id: 1,
+    at: '2026-09-02T18:00:00.000Z',
+    actor: 'user:9',
+    actorId: 9,
+    action: 'alerts.clear',
+    subject: null,
+    detail: { deleted: 1204, bySeverity: { critical: 3, high: 40 } },
+  },
+];

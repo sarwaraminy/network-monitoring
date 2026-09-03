@@ -228,6 +228,19 @@ export async function seedFromEnvironment(): Promise<DeliveryField[]> {
  * lets the form omit a secret it is not changing, rather than having to round-trip a
  * value the API deliberately never sends it.
  */
+/**
+ * What a settings change records: which fields, never their values.
+ *
+ * Its own exported function for one reason — so a test can assert the property
+ * rather than trust the call site. These settings hold the webhook URL and the SMTP
+ * password, and a trail that recorded them would be a second place to read
+ * credentials: one that cannot be pruned, and that any administrator can read in
+ * full. The API redacts them for the same reason.
+ */
+export function settingsAuditDetail(patch: Partial<NewDeliverySettingsRow>): Record<string, unknown> {
+  return { fields: Object.keys(patch).sort() };
+}
+
 export async function saveDeliverySettings(
   patch: Partial<NewDeliverySettingsRow>,
   updatedBy: string,
@@ -252,7 +265,7 @@ export async function saveDeliverySettings(
     await recordAudit(tx, {
       actor: updatedBy,
       action: 'delivery_settings.update',
-      detail: { fields: Object.keys(patch).sort() },
+      detail: settingsAuditDetail(patch),
     });
   });
 

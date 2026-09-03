@@ -57,7 +57,8 @@ asserts that **zero** alerts are produced.
 
 ## Prerequisites
 
-- **Node.js 20 or newer** and npm
+- **Node.js 22 or newer** and npm — 22 rather than 20 because `node --test` only expands the
+  `**` in the test scripts' glob from 22 onwards; on 20 it matches nothing and exits 0
 - **PostgreSQL 14 or newer**
 - **Npcap** — <https://npcap.com/#download> (Windows) or `libpcap` (Linux/macOS)
 
@@ -707,6 +708,101 @@ say `AT TIME ZONE 'UTC'`.
 
 ---
 
+## Audit trail
+
+Who deleted the finding.
+
+The application already recorded identity where somebody had thought of it — who
+acknowledged an alert, who wrote a suppression rule, who last changed the delivery
+settings — with three copies of the same helper in three routers, one of them commented
+*"Same form the alert acknowledgement uses"*. What none of them covered was any action that
+**removes or redirects** something:
+
+| Action | Recorded who, before |
+| --- | --- |
+| Acknowledge a finding | yes |
+| Write a suppression rule | yes |
+| Change the delivery settings | yes |
+| Delete a finding | **no** |
+| Clear every finding | **no** |
+| Forget a device | **no** |
+| Delete a suppression rule | **no** |
+| Write to the legacy packet log | **no** |
+
+That gap matters more here than in most applications, because the thing being deleted is
+evidence. "Who removed this finding, and when" is the first question asked after an
+incident, and the answer was unavailable *permanently* — the row was gone and nothing else
+knew it had existed. A tool that watches a network and cannot say who told it to stop
+watching part of one is answering the easier half of the question.
+
+`GET /api/audit` reads the trail; **Activity** in the sidebar shows it. Both are ADMIN.
+
+### Append-only, enforced by the database
+
+Not by convention. A trigger refuses `UPDATE`, `DELETE` and `TRUNCATE` on `audit_events`,
+so tampering requires dropping the trigger — an act that is itself visible in the schema.
+There is no code path that modifies a row, and the database would refuse one if there were:
+
+```
+UPDATE                    → refused: audit_events is append-only; UPDATE is not permitted
+DELETE (matching rows)    → refused: audit_events is append-only; DELETE is not permitted
+DELETE (matching nothing) → refused
+TRUNCATE                  → refused
+```
+
+The third line is the interesting one — a `DELETE` that would remove nothing is still
+refused, because the intent is what is being rejected and a row-level trigger would let it
+through silently having done nothing.
+
+Retention never prunes it either. The sweep names the tables it works on and this is not
+one of them: a record of a deletion that expires alongside the thing deleted is the same
+hole in slower motion.
+
+### The record and the act commit together
+
+`recordAudit` takes the writer to use, so a caller inside `db.transaction` passes its `tx`
+and the deletion and its record land atomically. This is the argument the retention sweep
+makes about rolling up and deleting — doing the work and recording the work are one thing,
+and every way of splitting them is wrong in one direction:
+
+- record first, and you can log a deletion that never happened;
+- record after, and you can delete without a trace.
+
+It also disposes of the question every audit implementation otherwise has to answer badly:
+*should a failed audit write fail the action?* Sharing a transaction means the question
+cannot arise.
+
+### Identity is required, not remembered
+
+Every mutating service function takes an `actor`. That is a type signature, so the compiler
+asks the question at each call site rather than leaving it to whoever remembers — the gap
+above existed precisely because nothing asked. `actorName` is the single copy of the
+identity form, and the three duplicates are gone.
+
+A blank email counts as no email, matching how `env.ts` treats a blank value everywhere
+else. The first version used `??`, which only falls back on null, so an account with an
+empty email produced `''` — and because `actor` is `NOT NULL` with a non-blank CHECK inside
+the caller's transaction, that would not have surfaced as a bad audit row. It would have
+aborted the deletion and reported a database constraint to somebody trying to delete a
+finding. A test found it before a user did.
+
+### What an entry carries, and what it must not
+
+A deletion records what was deleted, not just its id. "Alert 412 was deleted" answers
+almost nothing a year later, so the entry holds the finding's kind, severity and title —
+once the row is gone this is the only surviving description of it. A bulk clear records
+counts by severity instead: putting thousands of titles into a table that cannot be pruned
+is a different mistake.
+
+**No entry ever holds a credential.** The delivery settings include a webhook URL — which
+is a bearer token in a query string — and an SMTP password, so a settings change records
+*which fields* changed and never their values. An audit trail that quietly became a second
+place to read credentials, unprunable and readable by any administrator, would make the
+system less safe rather than more accountable. The redaction is a one-line function on
+purpose: exported, so a test can assert the property rather than trust the call site.
+
+---
+
 ## Flow collection (NetFlow / IPFIX)
 
 Instead of capturing packets ourselves, let the switch, router or firewall do the observing and
@@ -822,14 +918,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 619 tests
-npm run test:api  # 500 API tests
-npm run test:ui   # 119 UI tests
+npm test          # both suites: 649 tests
+npm run test:api  # 518 API tests
+npm run test:ui   # 131 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 500 tests
+### API — 518 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
@@ -911,6 +1007,15 @@ The groups worth knowing about:
   add a fabricated record of network traffic, rewrite one, or delete one. On a tool whose
   output is evidence, both are a different kind of act from acknowledging a finding. All four
   are ADMIN now; reading stays open, which is the point of keeping the table.
+- **The audit trail** (`src/services/audit.test.ts`) pins the parts that fail quietly. The
+  action vocabulary is checked against the CHECK constraint *read out of the migration* rather
+  than a second copy of the pattern — an action the database would reject fails at the moment
+  somebody deletes a finding, on the path where the exception aborts the deletion too. And a
+  settings entry is asserted to carry field names and no values, for every field: the trail
+  cannot be pruned, so anything that leaks into it is there for the life of the installation.
+  The transaction half — delete the row, append the record, both or neither — is verified
+  against a real database, including that the append-only trigger refuses a `DELETE` matching
+  no rows.
 - **Retention** (`src/services/retention.test.ts`, `src/config/retention-floor.test.ts`) covers the
   parts that do not need Postgres, which is where the failures that would hurt live: a disabled
   sweep must report that it *skipped* rather than that it found nothing, must delete nothing when
@@ -951,7 +1056,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 119 tests
+### UI — 131 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —
@@ -1092,6 +1197,16 @@ All `/api/*` routes require an `Authorization: Bearer <token>` header.
 | `DELETE` | `/:id`                  | Delete one finding (ADMIN)                              |
 | `DELETE` | `/`                     | Clear all findings (ADMIN)                              |
 | `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN) |
+
+### Audit trail — `/api/audit`
+
+Append-only and ADMIN-only. There is no write endpoint, and there should never be one: the
+table refuses `UPDATE`, `DELETE` and `TRUNCATE` at the database level.
+
+| Method | Path       | Purpose                                                          |
+| ------ | ---------- | ---------------------------------------------------------------- |
+| `GET`  | `/`        | Entries, newest first. `action` filters, `before` pages (keyset), `limit` up to 200 |
+| `GET`  | `/actions` | The action vocabulary and its labels, so the filter cannot drift from the server |
 
 ### Suppression rules — `/api/suppressions`
 
@@ -1350,6 +1465,9 @@ packet. See [What it detects](#what-it-detects).
 - **Capture endpoints require a token.** They were unauthenticated, which let any caller start
   promiscuous capture on the host.
 - **The IP filter is validated** before being interpolated into a BPF expression.
+- **Destroying evidence is now recorded, not just restricted.** See the audit trail above:
+  every action that removes or redirects something appends an append-only entry naming who
+  did it, in the same transaction that does it.
 - **Destroying evidence requires ADMIN.** Two routes let any authenticated account remove or
   alter the record of what happened on the network: `DELETE /api/alerts/:id` deleted findings
   one at a time while the bulk `DELETE /api/alerts` beside it required an administrator — so
