@@ -221,14 +221,6 @@ export async function seedFromEnvironment(): Promise<DeliveryField[]> {
 }
 
 /**
- * Applies a patch to the row and reloads the cache.
- *
- * A field set to null clears it, which is how "fall back to the environment or the
- * default" is expressed. A field absent from the patch is left alone — that is what
- * lets the form omit a secret it is not changing, rather than having to round-trip a
- * value the API deliberately never sends it.
- */
-/**
  * What a settings change records: which fields, never their values.
  *
  * Its own exported function for one reason — so a test can assert the property
@@ -241,6 +233,14 @@ export function settingsAuditDetail(patch: Partial<NewDeliverySettingsRow>): Rec
   return { fields: Object.keys(patch).sort() };
 }
 
+/**
+ * Applies a patch to the row and reloads the cache.
+ *
+ * A field set to null clears it, which is how "fall back to the environment or the
+ * default" is expressed. A field absent from the patch is left alone — that is what
+ * lets the form omit a secret it is not changing, rather than having to round-trip a
+ * value the API deliberately never sends it.
+ */
 export async function saveDeliverySettings(
   patch: Partial<NewDeliverySettingsRow>,
   updatedBy: Actor,
@@ -253,15 +253,6 @@ export async function saveDeliverySettings(
       .values({ id: ROW_ID, ...values })
       .onConflictDoUpdate({ target: deliverySettings.id, set: values });
 
-    /*
-     * Field *names*, never values.
-     *
-     * These settings hold the webhook URL and the SMTP password, and an audit trail
-     * that recorded them would be a second place to read credentials — one that
-     * cannot be pruned, and that an administrator can read in full. The API redacts
-     * them for the same reason. "Changed notify_webhook_url and smtp_password" is
-     * the accountable fact; their contents are not.
-     */
     /*
      * Only when a field actually moved.
      *
