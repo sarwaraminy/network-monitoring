@@ -8,7 +8,7 @@
     "network-monitoring-ui"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "comments": {
     "scripts": "Commands are spelled out rather than nesting `npm run`, because npm puts every ancestor node_modules/.bin on PATH and an older npm found there would be used for the inner call.",
@@ -23,19 +23,19 @@
     "build": "tsc -p api/tsconfig.json && node api/scripts/copy-migrations.mjs && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit && vite build network-monitoring-ui",
     "build:api": "tsc -p api/tsconfig.json && node api/scripts/copy-migrations.mjs",
     "build:ui": "tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit && vite build network-monitoring-ui",
-    "test": "tsx --test api/src/**/*.test.ts && vitest run --root network-monitoring-ui",
+    "test": "tsx --test \"api/src/**/*.test.ts\" && vitest run --root network-monitoring-ui",
     "typecheck": "tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit",
     "lint": "biome check && tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit",
     "lint:fix": "biome check --write",
     "format": "biome format --write",
-    "ci": "biome ci && tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit && tsx --test api/src/**/*.test.ts && vitest run --root network-monitoring-ui",
+    "ci": "biome ci && tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit && tsx --test \"api/src/**/*.test.ts\" && vitest run --root network-monitoring-ui",
     "prepare": "husky || true",
     "postinstall": "node scripts/setup-env.mjs",
     "start": "node api/dist/index.js",
     "migrate": "tsx api/src/db/migrate.ts",
     "preview": "vite preview network-monitoring-ui",
     "user": "tsx api/src/cli/manage-user.ts",
-    "test:api": "tsx --test api/src/**/*.test.ts",
+    "test:api": "tsx --test \"api/src/**/*.test.ts\"",
     "test:ui": "vitest run --root network-monitoring-ui"
   },
   "devDependencies": {

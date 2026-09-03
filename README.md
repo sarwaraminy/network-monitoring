@@ -822,14 +822,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 569 tests
-npm run test:api  # 453 API tests
-npm run test:ui   # 116 UI tests
+npm test          # both suites: 619 tests
+npm run test:api  # 500 API tests
+npm run test:ui   # 119 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 453 tests
+### API — 500 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
@@ -837,7 +837,7 @@ parsers, indicator matching and feed loading, the notification gate, request val
 the FFI binding. They use Node's built-in test runner, so there
 is no framework to install. The FFI tests skip themselves when no pcap library is present.
 
-Three groups are worth knowing about:
+The groups worth knowing about:
 
 - **Attack simulations** build real frames — ARP poisoning, port scans, host sweeps, SYN
   floods, cleartext logins over five protocols, DNS tunnels using base32 labels — and assert
@@ -860,15 +860,57 @@ Three groups are worth knowing about:
   raises must all be refused rather than treated as "any"; and the expiry has to be re-read per
   finding, so a cached rule set stops suppressing at the right moment. Several of those guards
   were verified by reintroducing the bug and watching them fail.
-- **Route guards** (`src/routes/route-guards.test.ts`) assert the shape of a router's guards —
-  auth on everything, and a role gate on everything that changes state, with an exemption list
-  that has to be typed out next to its reason. The recurring mistake in this codebase is the fix
-  that stops one step short, and it is invisible to a unit test of the guard itself, which
-  passes either way. Two subtleties it has to get right: a guard can be installed away from the
-  route it protects (`router.use(['/start', '/stop'], requireRole('ADMIN'))`, which is how the
-  capture router gates), and admitting ADMIN is not the same as requiring it — a guard that also
-  admits USER is not an admin gate, so the check asks whether a covering guard admits that role
-  and nothing else.
+- **Authorisation, three ways.** Each catches something the other two cannot, and the gaps
+  between them are where the two real holes described below were living.
+
+  1. **The routing table** (`src/routes/route-guards.test.ts`) asks whether a guard is
+     *installed*: auth on everything, and a role gate on everything that changes state, with an
+     exemption list that has to be typed out next to its reason. The recurring mistake in this
+     codebase is the fix that stops one step short, and it is invisible to a unit test of the
+     guard itself, which passes either way. Three subtleties it has to get right: a guard can be
+     installed away from the route it protects (`router.use(['/start', '/stop'],
+     requireRole('ADMIN'))`, which is how the capture router gates); admitting ADMIN is not the
+     same as requiring it, so the check asks whether a covering guard admits that role *and
+     nothing else*; and authentication is asserted per route rather than per router, because
+     `authRouter` cannot use `router.use(requireAuth)` — login has to stay reachable — so it
+     names the middleware on the individual routes that need it.
+
+     It also reads its own directory. Every `*.routes.ts` file has to appear in the posture
+     table with the exemptions it claims, so adding a router means declaring what it lets
+     through instead of quietly going unchecked. That check is what turned up the two holes:
+     the file had grown one router at a time and five of the eight had no coverage at all.
+
+  2. **Real HTTP** (`src/routes/auth-rejection.test.ts`) asks whether the installed guard
+     *works*. A `requireAuth` that accepted an expired token, or one signed by somebody else,
+     or an unsigned one, would leave the table check entirely green — the middleware is present
+     everywhere it is supposed to be. So this starts the app on a real port and sweeps all 42
+     authenticated routes with seven credentials that must each come back 401: no header, the
+     wrong scheme, a token that is not a JWT, one signed with a different secret, an expired
+     one, an unsigned `alg: none` token, and one signed with HS256 instead of the HS512 this
+     server pins. It needs no database, because none of the seven ever reaches a handler.
+
+     The route list is pinned rather than derived, and that is the interesting part. Deriving
+     the targets from the routing table means a router that *loses* `requireAuth` stops being a
+     target and the suite still passes — which is what the first version did: deleting
+     `alertsRouter.use(requireAuth)` left all eleven tests green while nine routes went open.
+     A suite that shrinks silently when the thing it guards is removed reports success at the
+     moment it stops looking.
+
+  3. **The guard itself** (`src/middleware/role-guard.test.ts`) covers the case neither of the
+     others can reach: a caller who *is* authenticated and simply is not allowed. Getting past
+     `requireAuth` means a user row and therefore a database, so `requireRole` is driven
+     directly. Three outcomes, and they have to stay distinct — 401 for nobody, 403 for the
+     wrong somebody, `next()` for the right one. Answering 403 to an anonymous caller tells
+     them a credential would get them further; answering 401 to a signed-in user sends the UI
+     to the login screen and makes a permissions problem look like an expired session.
+
+  **What this found.** `DELETE /api/alerts/:id` deleted a finding for any signed-in account
+  while `DELETE /api/alerts` beside it required ADMIN — so the gate on the bulk route bought
+  nothing, since the same account could delete the same rows one at a time. And the legacy
+  `logs` CRUD (`POST /log/add`, `PUT /log/:id`, `DELETE /log/:id`) let any authenticated user
+  add a fabricated record of network traffic, rewrite one, or delete one. On a tool whose
+  output is evidence, both are a different kind of act from acknowledging a finding. All four
+  are ADMIN now; reading stays open, which is the point of keeping the table.
 - **Retention** (`src/services/retention.test.ts`, `src/config/retention-floor.test.ts`) covers the
   parts that do not need Postgres, which is where the failures that would hurt live: a disabled
   sweep must report that it *skipped* rather than that it found nothing, must delete nothing when
@@ -879,7 +921,19 @@ Three groups are worth knowing about:
   delete it, both in one transaction — is verified against a real database rather than a mock.
 - **Repository-configuration guards** compare a config file against the repo it governs, in
   text, because the failure they catch is a comment asserting something the configuration
-  underneath does not do. `env-defaults.test.ts` holds `.env.example` and Compose to env.ts's
+  underneath does not do. `test-glob.test.ts` is the starkest of them: `test:api` passed its
+  `api/src/**/*.test.ts` glob to the shell unquoted, and because npm runs scripts through `sh`
+  on Linux — which has no globstar — `**` collapsed to `*` and the pattern only reached depth
+  two. CI ran **456** of 496 tests, green, for as long as that script existed, and the file it
+  silently dropped was the detector suite: the attack simulations and the false-positive guards
+  described above. It looked correct locally because cmd.exe does not glob at all, so the
+  pattern reached the test runner intact — and it is `node --test` that understands `**`, not
+  `tsx`, which merely forwards to it. That makes the fix a Node-version dependency: on Node 20
+  the quoted pattern arrives as a literal path, matches nothing, and the runner exits **0**, so
+  `engines` now requires 22. The guard asserts the glob stays quoted in every script that runs
+  the runner, and that each pattern still reaches every test file — its first version compared
+  only the text to the left of `**`, so a `*.spec.ts` typo in the other half passed it.
+  `env-defaults.test.ts` holds `.env.example` and Compose to env.ts's
   own defaults; `dependabot-config.test.ts` holds `.github/dependabot.yml` to its own header —
   every ecosystem capped and grouped explicitly, every `0.x` production dependency excluded
   from the production group (a breaking `0.x` bump reads as a *minor* to Dependabot, so it
@@ -897,7 +951,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 116 tests
+### UI — 119 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —
@@ -1035,7 +1089,7 @@ All `/api/*` routes require an `Authorization: Bearer <token>` header.
 | `GET`    | `/devices`              | MAC addresses seen on the network                       |
 | `POST`   | `/:id/acknowledge`      | Mark a finding as handled                               |
 | `POST`   | `/:id/unacknowledge`    | Reopen it                                               |
-| `DELETE` | `/:id`                  | Delete one finding                                      |
+| `DELETE` | `/:id`                  | Delete one finding (ADMIN)                              |
 | `DELETE` | `/`                     | Clear all findings (ADMIN)                              |
 | `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN) |
 
@@ -1068,9 +1122,9 @@ endpoints remain so existing history stays reachable.
 | -------- | --------------- | -------------------------------------- |
 | `GET`    | `/logs`         | All historical records                 |
 | `POST`   | `/logs`         | Same as `GET` (kept for compatibility) |
-| `POST`   | `/log/add`      | Create a record                        |
-| `PUT`    | `/log/:id`      | Update a record                        |
-| `DELETE` | `/log/:id`      | Delete a record                        |
+| `POST`   | `/log/add`      | Create a record (ADMIN)                |
+| `PUT`    | `/log/:id`      | Update a record (ADMIN)                |
+| `DELETE` | `/log/:id`      | Delete a record (ADMIN)                |
 
 ### Packet capture — `/api/packets` and `/api/ip/packets`
 
@@ -1296,6 +1350,14 @@ packet. See [What it detects](#what-it-detects).
 - **Capture endpoints require a token.** They were unauthenticated, which let any caller start
   promiscuous capture on the host.
 - **The IP filter is validated** before being interpolated into a BPF expression.
+- **Destroying evidence requires ADMIN.** Two routes let any authenticated account remove or
+  alter the record of what happened on the network: `DELETE /api/alerts/:id` deleted findings
+  one at a time while the bulk `DELETE /api/alerts` beside it required an administrator — so
+  the gate on the bulk route bought nothing — and the legacy `logs` CRUD let a signed-in user
+  add a fabricated traffic record, rewrite one, or delete one. Both predate this port's
+  authorisation work rather than being introduced by it; they surfaced when the route-guard
+  check was extended to cover every router instead of the three it had grown to cover. Reading
+  the log stays open to any account, which is the point of keeping it.
 
 ### Bugs fixed
 

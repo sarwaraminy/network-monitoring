@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { createLog, deleteLog, getAllLogs, getLogById, updateLog } from '../services/log.service.js';
 import { logSchema, parseId, parseOrThrow } from './validation.js';
@@ -19,9 +19,20 @@ const listLogs = asyncHandler(async (_req, res) => {
 logsRouter.post('/logs', listLogs);
 logsRouter.get('/logs', listLogs);
 
+/*
+ * The three writes below are ADMIN.
+ *
+ * `logs` is the pre-`alerts` table: one row per suspicious packet, kept for the
+ * views that still read it. Rows in it are a record of what was observed on the
+ * network, and until this gate existed any authenticated account could add a
+ * fabricated one, rewrite one, or delete one — a signed-in user could edit the
+ * evidence. Reading stays open to everyone, which is the point of keeping it.
+ */
+
 /** POST /api/log/add */
 logsRouter.post(
   '/log/add',
+  requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const created = await createLog(parseBody(req.body));
     res.status(201).json(created);
@@ -31,6 +42,7 @@ logsRouter.post(
 /** PUT /api/log/:id */
 logsRouter.put(
   '/log/:id',
+  requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const id = parseId(req.params.id);
     if (!(await getLogById(id))) {
@@ -46,6 +58,7 @@ logsRouter.put(
 /** DELETE /api/log/:id */
 logsRouter.delete(
   '/log/:id',
+  requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const id = parseId(req.params.id);
     if (!(await getLogById(id))) {

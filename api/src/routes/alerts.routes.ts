@@ -119,9 +119,19 @@ alertsRouter.post(
   }),
 );
 
-/** DELETE /api/alerts/:id */
+/**
+ * DELETE /api/alerts/:id
+ *
+ * ADMIN, like the two deletes around it. This was the odd one out: clearing the
+ * whole table required an administrator and forgetting a device required one, while
+ * deleting findings individually was open to any signed-in account — so the gate on
+ * the bulk route bought nothing, since the same account could delete the same rows
+ * one at a time. On a tool whose output is evidence, removing a finding is not the
+ * same kind of act as acknowledging one.
+ */
 alertsRouter.delete(
   '/:id',
+  requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const id = idSchema.safeParse(req.params.id);
     if (!id.success) throw new HttpError(400, 'id must be a positive integer');

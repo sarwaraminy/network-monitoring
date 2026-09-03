@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readdir } from 'node:fs/promises';
+import path from 'node:path';
 import { before, describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import type { Router } from 'express';
 
 /**
@@ -36,8 +39,15 @@ import type { Router } from 'express';
 /**
  * Express's internal layer shapes. Not in @types/express, so described here.
  *
- * `stack` and `Layer.match` are internal but stable across the 4.x line, and
- * reading them is the only way to ask a router what it is actually wired to do.
+ * `stack` and `Layer.match` are internal, and reading them is the only way to ask
+ * a router what it is actually wired to do.
+ *
+ * They are express 5 shapes — 5.2.1 is what this repo runs. That is worth stating
+ * rather than assuming: this file previously claimed the shapes were "stable across
+ * the 4.x line" while also testing `layer.regexp.fast_slash`, an express 4 field
+ * that express 5 does not have, so the check silently never fired. `Layer.match`
+ * and `slash` are the ones that carry the behaviour here; an upgrade should start
+ * by re-reading `covers` and `routesOf`.
  */
 interface RouteLayer {
   route?: {
@@ -48,7 +58,15 @@ interface RouteLayer {
   handle?: unknown;
   /** Present on every layer. Returns whether this layer covers a path. */
   match?: (path: string) => boolean;
-  regexp?: RegExp & { fast_slash?: boolean };
+  /**
+   * True for a `router.use(fn)` with no path — the mount-everything case.
+   *
+   * Named here only to record where it lives. Nothing below reads it, because
+   * `Layer.match` consults it already; an earlier version of this file tested
+   * `regexp.fast_slash` instead, which is an express 4 internal that express 5
+   * does not have at all. See `covers`.
+   */
+  slash?: boolean;
   name: string;
 }
 
@@ -70,7 +88,16 @@ function rolesOf(handle: unknown): readonly string[] | null {
  *
  * `Layer.match` is Express's own answer, so an array of paths, a prefix and a
  * bare `router.use(fn)` are all handled by the code that will handle them at
- * runtime rather than by a second guess here.
+ * runtime rather than by a second guess here. That includes the mount-everything
+ * case: a pathless `router.use(fn)` gets `slash: true` and its `match` returns
+ * true for anything.
+ *
+ * This used to test `layer.regexp.fast_slash` before falling back to `match`, and
+ * that line never once executed — `regexp` is an express 4 internal, and the
+ * express 5 layer has no such field, so the optional chain yielded `undefined`
+ * every time. The behaviour was right for a reason the comment did not give, which
+ * in a file that documents its reliance on Express internals is the part that
+ * matters: an upgrade would have gone looking at the wrong one.
  *
  * The limitation, stated because it decides which way this errs: the route's
  * *pattern* is matched, not a concrete URL, so a `use('/start')` guard is not
@@ -79,9 +106,11 @@ function rolesOf(handle: unknown): readonly string[] | null {
  * credited when its own pattern covers the route's pattern, or when it covers
  * everything. Erring toward "report it ungated" is the only safe direction for a
  * check like this.
+ *
+ * Path coverage is only half of whether a guard runs, though; see `routesOf` for
+ * the other half, which this function deliberately knows nothing about.
  */
 function covers(layer: RouteLayer, routePath: string): boolean {
-  if (layer.regexp?.fast_slash) return true;
   return layer.match?.(routePath) ?? false;
 }
 
@@ -93,35 +122,110 @@ interface RouteFact {
    * handler stack and from `router.use` layers alike. Empty means no role guard.
    */
   guards: readonly (readonly string[])[];
+  /**
+   * Whether `requireAuth` covers this route, from either place.
+   *
+   * Per route as well as per router, because the two are not interchangeable:
+   * most routers here call `router.use(requireAuth)`, but `authRouter` cannot —
+   * login and signup have to stay reachable — so it names the middleware on the
+   * individual routes that need it. A check that only looked for the `use` layer
+   * would report every authenticated route on that router as open.
+   */
+  authenticated: boolean;
 }
 
+/** Whether a handler is the `requireAuth` middleware. */
+function isAuthGuard(handle: unknown): boolean {
+  return (handle as { name?: string } | undefined)?.name === 'requireAuth';
+}
+
+/**
+ * Every route on a router, with the guards that actually cover it.
+ *
+ * *Actually* is the whole of the work here, and position is half of it. Express
+ * runs a router's layers in registration order, so a `router.use(requireRole(…))`
+ * written **below** the route it is meant to protect never executes for that
+ * route — the route's own handler has already answered. The guard is installed,
+ * reads correctly, and does nothing.
+ *
+ * The first version of this file collected the `use` layers from the whole stack
+ * and matched them to routes by path alone, so it reported that route as gated:
+ * a false pass, in the file whose `covers` docblock calls erring toward "report it
+ * ungated" the only safe direction. Each `use` layer therefore keeps its index and
+ * is credited only to routes registered after it.
+ *
+ * The asymmetry that makes this worth the extra bookkeeping: a misordered
+ * `requireAuth` would be caught anyway, because `auth-rejection.test.ts` fires
+ * real requests and would get something other than a 401. A misordered *role*
+ * guard is caught by nothing else — `role-guard.test.ts` drives the middleware
+ * directly, and this file is what stands in for an integration check that would
+ * need a database.
+ */
 function routesOf(router: Router): RouteFact[] {
   const all = layers(router);
 
   // Guards installed with `router.use(path, guard)`, which never appear in any
-  // route's own stack. Collected once rather than per route.
-  const useGuards = all
-    .filter((layer) => !layer.route && rolesOf(layer.handle))
-    .map((layer) => ({ layer, roles: rolesOf(layer.handle)! }));
+  // route's own stack. Collected once rather than per route, with the position
+  // that decides whether Express reaches them.
+  const useGuards: { layer: RouteLayer; index: number; roles: readonly string[] }[] = [];
+  const useAuth: { layer: RouteLayer; index: number }[] = [];
+
+  all.forEach((layer, index) => {
+    if (layer.route) return;
+    const roles = rolesOf(layer.handle);
+    if (roles) useGuards.push({ layer, index, roles });
+    if (isAuthGuard(layer.handle)) useAuth.push({ layer, index });
+  });
 
   const facts: RouteFact[] = [];
-  for (const layer of all) {
+  all.forEach((layer, index) => {
     const route = layer.route;
-    if (!route) continue;
+    if (!route) return;
 
+    /*
+     * The route's own stack, up to the first entry that can answer the request.
+     *
+     * Position matters here for the same reason it matters between layers, and this
+     * loop had the same false pass one level down: any `requireRole` anywhere in
+     * `route.stack` was credited, including one written *after* the handler —
+     *
+     *     alertsRouter.delete('/:id', asyncHandler(handler), requireRole('ADMIN'));
+     *
+     * where the handler responds, never calls `next`, and the guard never runs. A
+     * more plausible slip than the misordered `router.use` that was fixed first,
+     * because the guard and the handler are arguments to the same call.
+     *
+     * So only the leading run of guards counts. Anything that is neither a role
+     * guard nor `requireAuth` ends it: this file cannot tell a terminal handler
+     * from ordinary middleware, and stopping at the first unknown entry errs toward
+     * reporting the route ungated, which is the direction `covers` sets out.
+     */
     const guards: (readonly string[])[] = [];
+    let ownAuth = false;
     for (const handler of route.stack) {
       const roles = rolesOf(handler.handle);
-      if (roles) guards.push(roles);
-    }
-    for (const { layer: useLayer, roles } of useGuards) {
-      if (covers(useLayer, route.path)) guards.push(roles);
+      if (roles) {
+        guards.push(roles);
+        continue;
+      }
+      if (isAuthGuard(handler.handle)) {
+        ownAuth = true;
+        continue;
+      }
+      break;
     }
 
-    for (const method of Object.keys(route.methods)) {
-      facts.push({ method, path: route.path, guards });
+    for (const used of useGuards) {
+      if (used.index < index && covers(used.layer, route.path)) guards.push(used.roles);
     }
-  }
+
+    const authenticated =
+      ownAuth || useAuth.some((used) => used.index < index && covers(used.layer, route.path));
+
+    for (const method of Object.keys(route.methods)) {
+      facts.push({ method, path: route.path, guards, authenticated });
+    }
+  });
 
   return facts;
 }
@@ -149,22 +253,34 @@ function requiresAuth(router: Router): boolean {
 }
 
 /**
- * Every mutating route on `router` is role-gated, except the paths named.
+ * Every mutating route on `router` is role-gated, except the ones named.
  *
  * The exemption list is the point of the signature: an exemption has to be typed
  * out, next to the reason it is safe, rather than being the default for a route
  * somebody forgot.
+ *
+ * Entries are `'METHOD /path'`, not a bare path, and the difference is not
+ * cosmetic. Keyed on the path alone, the `'POST /logs'` entry — which exists
+ * because the legacy list endpoint is a read exposed as a POST — silently excused
+ * *any* future mutating verb on `/logs`, so an ungated `DELETE /logs` added later
+ * would have passed without comment. That is the exact omission this file exists
+ * to catch. It also made "POST is exempt, DELETE must be gated" inexpressible, and
+ * would have failed a correctly gated `DELETE /logs` with a message telling the
+ * author to take the guard off.
  */
 function assertRouterGuards(router: Router, options: { role: string; ungatedMutations?: string[] }): void {
-  assert.ok(requiresAuth(router), 'router does not apply requireAuth');
-
+  // Authentication is asserted per route rather than here — see `RouteFact.authenticated`
+  // for why a router-wide check cannot cover `authRouter`. The suites below that do
+  // apply `requireAuth` with `router.use` still assert it directly.
   const exempt = new Set(options.ungatedMutations ?? []);
+  const claimed = new Set<string>();
 
   for (const route of routesOf(router)) {
     if (!MUTATING.has(route.method)) continue;
     const where = `${route.method.toUpperCase()} ${route.path}`;
 
-    if (exempt.has(route.path)) {
+    if (exempt.has(where)) {
+      claimed.add(where);
       assert.ok(
         !isGated(route),
         `${where} is listed as ungated but carries a role guard — remove it from the ` +
@@ -179,11 +295,24 @@ function assertRouterGuards(router: Router, options: { role: string; ungatedMuta
         `(guards found: ${JSON.stringify(route.guards)})`,
     );
   }
+
+  // An exemption for a route that no longer exists is a hole waiting for the path
+  // to be reused, and it is invisible: nothing fails while the route is absent.
+  assert.deepEqual(
+    [...exempt].filter((entry) => !claimed.has(entry)).sort(),
+    [],
+    'these exemptions match no mutating route on this router — delete them, or fix the method and path',
+  );
 }
 
 let suppressionsRouter: Router;
 let packetRouter: Router;
 let notifyRouter: Router;
+let alertsRouter: Router;
+let authRouter: Router;
+let flowRouter: Router;
+let intelRouter: Router;
+let logsRouter: Router;
 
 before(async () => {
   // These routers pull in the services, which construct a connection pool at
@@ -192,6 +321,11 @@ before(async () => {
   process.env.JWT_SECRET ??= 'test-secret-not-used-for-signing';
   ({ suppressionsRouter } = await import('./suppressions.routes.js'));
   ({ notifyRouter } = await import('./notify.routes.js'));
+  ({ alertsRouter } = await import('./alerts.routes.js'));
+  ({ authRouter } = await import('./auth.routes.js'));
+  ({ flowRouter } = await import('./flow.routes.js'));
+  ({ intelRouter } = await import('./intel.routes.js'));
+  ({ logsRouter } = await import('./logs.routes.js'));
 
   const { createPacketRouter } = await import('./packets.routes.js');
   const { interfaceCapture } = await import('../services/packet-capture.registry.js');
@@ -210,7 +344,7 @@ describe('suppression router guards', () => {
       role: 'admin',
       // Preview writes nothing. It is a POST only because the rule being tried
       // out is a body rather than a query string.
-      ungatedMutations: ['/preview'],
+      ungatedMutations: ['POST /preview'],
     });
   });
 
@@ -315,5 +449,155 @@ describe('delivery router guards', () => {
       .map((route) => `${route.method.toUpperCase()} ${route.path}`)
       .sort();
     assert.deepEqual(surface, ['GET /settings', 'GET /status', 'POST /test', 'PUT /settings']);
+  });
+});
+
+/**
+ * Every router in the directory, and the posture each one is meant to have.
+ *
+ * The three suites above were written one router at a time, as each one grew a
+ * route worth arguing about — which left five routers with no check at all, and the
+ * gaps were where you would expect: `DELETE /api/alerts/:id` deleted a finding for
+ * any signed-in account while `DELETE /api/alerts/` next to it required ADMIN, and
+ * the legacy `logs` CRUD let anyone rewrite the record of observed traffic.
+ *
+ * So the coverage is declared here rather than accumulated. `ROUTERS` has to name
+ * every `*.routes.ts` file in this directory, and the last test in this file reads
+ * the directory and fails if one is missing. Adding a router now means declaring
+ * what it lets through.
+ */
+
+interface RouterPosture {
+  /** The file, so the directory check can match it. */
+  file: string;
+  router: () => Router;
+  /** Role required by everything that changes state. */
+  role: string;
+  /**
+   * Mutating routes deliberately open to any authenticated caller, each with the
+   * reason. Typed out one path at a time: an exemption is a decision, and the
+   * default for a route nobody thought about has to be "gated".
+   */
+  ungatedMutations?: string[];
+  /**
+   * Routes reachable without a token at all, for the same reason, as
+   * `'METHOD /path'`. Keyed the same way as `ungatedMutations` and for the same
+   * argument: a bare `/signup-allowed` would also have excused a `POST` to it.
+   */
+  anonymous?: string[];
+}
+
+const ROUTERS: RouterPosture[] = [
+  {
+    file: 'alerts.routes.ts',
+    router: () => alertsRouter,
+    role: 'admin',
+    // Acknowledging is what an operator does all day: it records that a human has
+    // looked at a finding, changes nothing about the finding itself, and is
+    // reversible by the route next to it. Requiring an administrator for it would
+    // mean the people actually watching the network could not mark their own work.
+    ungatedMutations: ['POST /:id/acknowledge', 'POST /:id/unacknowledge'],
+  },
+  {
+    file: 'auth.routes.ts',
+    router: () => authRouter,
+    role: 'admin',
+    // Signing up and signing in cannot require a token, and `/signup-allowed` is
+    // what the UI asks before drawing the form. Who may sign up is decided inside
+    // the handler by `authorizeSignup` — see auth.routes.ts, where an open signup
+    // endpoint was a privilege-escalation hole once already.
+    anonymous: ['GET /signup-allowed', 'POST /login', 'POST /signup'],
+    ungatedMutations: ['POST /login', 'POST /signup'],
+  },
+  { file: 'flow.routes.ts', router: () => flowRouter, role: 'admin' },
+  { file: 'intel.routes.ts', router: () => intelRouter, role: 'admin' },
+  {
+    file: 'logs.routes.ts',
+    router: () => logsRouter,
+    role: 'admin',
+    // `POST /logs` is a read. It exists because the Java controller it replaces
+    // exposed the list that way, and the GET beside it is the same data for new
+    // callers; the method is legacy, not a mutation. Named with its verb, so a
+    // `DELETE /logs` added later is not excused by it.
+    ungatedMutations: ['POST /logs'],
+  },
+  { file: 'notify.routes.ts', router: () => notifyRouter, role: 'admin' },
+  { file: 'packets.routes.ts', router: () => packetRouter, role: 'admin' },
+  {
+    file: 'suppressions.routes.ts',
+    router: () => suppressionsRouter,
+    role: 'admin',
+    // Preview writes nothing; it is a POST because the rule being tried out is a
+    // body rather than a query string.
+    ungatedMutations: ['POST /preview'],
+  },
+];
+
+describe('every router, declared', () => {
+  for (const posture of ROUTERS) {
+    describe(posture.file, () => {
+      it('lets nothing through unauthenticated except the routes named here', () => {
+        const anonymous = new Set(posture.anonymous ?? []);
+        const claimed = new Set<string>();
+
+        for (const route of routesOf(posture.router())) {
+          const where = `${route.method.toUpperCase()} ${route.path}`;
+
+          if (anonymous.has(where)) {
+            claimed.add(where);
+            assert.ok(
+              !route.authenticated,
+              `${where} is listed as anonymous but is behind requireAuth — remove it from the ` +
+                'list rather than leaving the two disagreeing',
+            );
+            continue;
+          }
+
+          assert.ok(route.authenticated, `${where} is reachable without a token`);
+        }
+
+        // The same staleness check `assertRouterGuards` makes about its exemptions,
+        // and for the same reason: an entry that stops corresponding to any route
+        // survives silently, and a future route registered at that path is then
+        // exempted from the authentication assertion without anyone choosing it.
+        // This list is the more dangerous of the two to leave stale — the other
+        // waives a role, this one waives having a token at all.
+        assert.deepEqual(
+          [...anonymous].filter((entry) => !claimed.has(entry)).sort(),
+          [],
+          'these anonymous exemptions match no route on this router — delete them, or fix the ' +
+            'method and path',
+        );
+      });
+
+      it(`requires ${posture.role} for everything that changes state`, () => {
+        assertRouterGuards(posture.router(), {
+          role: posture.role,
+          ...(posture.ungatedMutations ? { ungatedMutations: posture.ungatedMutations } : {}),
+        });
+      });
+    });
+  }
+
+  it('names every router file in this directory', async () => {
+    /*
+     * The check that makes the rest of this file hold up over time.
+     *
+     * Every suite here was added by hand after the router it covers already
+     * existed, which is why five of them went uncovered — a guard check that has
+     * to be remembered is a guard check that will not be. Reading the directory
+     * turns "you forgot to test the new router" into a failing build instead of a
+     * gap nobody can see.
+     */
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const onDisk = (await readdir(here)).filter((name) => name.endsWith('.routes.ts')).sort();
+    const declared = ROUTERS.map((posture) => posture.file).sort();
+
+    assert.deepEqual(
+      onDisk,
+      declared,
+      'a router file is not declared in ROUTERS (or is declared and no longer exists): ' +
+        'add it, with the posture it is meant to have',
+    );
   });
 });

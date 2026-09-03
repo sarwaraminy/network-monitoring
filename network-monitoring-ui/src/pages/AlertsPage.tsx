@@ -26,6 +26,7 @@ import DataGrid from '../components/DataGrid';
 import IpInfoDialog from '../components/IpInfoDialog';
 import { KIND_DESCRIPTION, KIND_LABEL, SeverityChip } from '../components/SeverityChip';
 import SurfaceCard from '../components/SurfaceCard';
+import { useAuth } from '../contexts/AuthContext';
 import { useAcknowledgeAlert, useAlertSummary, useAlerts, useDeleteAlert } from '../hooks/useAlerts';
 import { useIpInfo } from '../hooks/useIpInfo';
 import { monoSx } from '../theme';
@@ -53,6 +54,19 @@ export default function AlertsPage() {
   const [hideAcknowledged, setHideAcknowledged] = useState(true);
   const [actionError, setActionError] = useState('');
   const ipInfo = useIpInfo();
+  const { user } = useAuth();
+  /*
+   * Deleting a finding requires ADMIN on the server, so the button does not exist
+   * for anyone else. Acknowledging beside it stays available to everybody: it is
+   * what an operator does all day, and it is the reason this row keeps an actions
+   * column at all rather than dropping it wholesale the way `SuppressionsPage`
+   * does for a non-admin.
+   *
+   * The server is what enforces this. Hiding the control only stops offering
+   * somebody an action that would come back 403 — see AppLayout, where the same
+   * convention is stated for the account menu.
+   */
+  const isAdmin = user?.role === 'ADMIN';
 
   // The filter values are part of the query key, so changing one refetches and
   // caches independently — no manual reload, and going back to a previous filter
@@ -149,11 +163,18 @@ export default function AlertsPage() {
             )}
           </IconButton>
         </Tooltip>
-        <Tooltip title="Delete">
-          <IconButton size="small" color="error" onClick={() => handleDelete(row.original.id)}>
-            <DeleteOutlineIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
+        {isAdmin && (
+          <Tooltip title="Delete — the finding and its evidence go with it">
+            <IconButton
+              size="small"
+              color="error"
+              aria-label={`Delete finding ${row.original.id}`}
+              onClick={() => handleDelete(row.original.id)}
+            >
+              <DeleteOutlineIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
       </Stack>
     ),
     renderTopToolbarCustomActions: () => (
