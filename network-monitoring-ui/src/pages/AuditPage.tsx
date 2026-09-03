@@ -210,12 +210,38 @@ export default function AuditPage() {
           {describeError(trail.error, 'Could not load the audit trail')}
         </Alert>
       )}
+      {/*
+       * Independent of the trail alert above, and checked even though the trail
+       * itself can be loading fine: when this query fails, `labels` is an empty
+       * Map, so the dropdown silently collapses to "All actions" and every row
+       * falls back to its raw slug. Without this the page reads as working —
+       * filter present, rows present — while the filter cannot actually filter.
+       */}
+      {!trail.isError && actions.isError && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {describeError(
+            actions.error,
+            'Could not load the list of actions — filtering by action is unavailable',
+          )}
+        </Alert>
+      )}
 
       <DataGrid
         columns={columns}
         data={events}
         isLoading={trail.isPending}
         emptyMessage={emptyMessage(action, trail.isError)}
+        tableOptions={{
+          // `data` is only the pages fetched so far, not the whole trail — MRT's
+          // global search box and column sorting both operate client-side on that
+          // slice. A search matching nothing in the loaded pages would render the
+          // "nothing has happened yet" empty state, the same false reassurance
+          // `emptyMessage` exists to prevent for a failed fetch, reached by a
+          // different route. Off until the search term (like `action` already
+          // does) or a sort routes through the API instead of filtering locally.
+          enableGlobalFilter: false,
+          enableSorting: false,
+        }}
       />
 
       {trail.hasNextPage && (
