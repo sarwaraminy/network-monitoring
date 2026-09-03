@@ -822,9 +822,9 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 612 tests
+npm test          # both suites: 615 tests
 npm run test:api  # 496 API tests
-npm run test:ui   # 116 UI tests
+npm run test:ui   # 119 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
@@ -837,13 +837,11 @@ parsers, indicator matching and feed loading, the notification gate, request val
 the FFI binding. They use Node's built-in test runner, so there
 is no framework to install. The FFI tests skip themselves when no pcap library is present.
 
-Four groups are worth knowing about:
+The groups worth knowing about:
 
 - **Attack simulations** build real frames — ARP poisoning, port scans, host sweeps, SYN
   floods, cleartext logins over five protocols, DNS tunnels using base32 labels — and assert
   they are caught.
-- **Authorisation**, asserted three ways, because no one of them is sufficient. The three are
-  described below.
 - **False-positive guards** replay ordinary traffic and assert silence. This is the suite that
   matters most: the rules these detectors replaced flagged every TCP ACK and every new
   connection, so every alert in the database was a false positive. The flow detector has the
@@ -941,7 +939,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 116 tests
+### UI — 119 tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —

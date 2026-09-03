@@ -15,13 +15,17 @@ import jwt from 'jsonwebtoken';
  * middleware is present on every route it is supposed to be present on.
  *
  * So this file starts the real app on a real port and asks the questions from
- * outside, with real tokens: no header, the wrong scheme, a token signed by
- * somebody else, an expired one, and an unsigned `alg: none` token carrying
- * perfectly good claims. Each must come back 401 from every authenticated route.
+ * outside, with real tokens. `REJECTED` below is the list, and it is the list
+ * rather than a prose summary because a count in a comment goes stale the moment
+ * a case is added — which this one already did: no header, the wrong scheme, a
+ * string that is not a JWT at all, a token signed by somebody else, an expired
+ * one, an unsigned `alg: none` token carrying perfectly good claims, and one
+ * signed with HS256 against the HS512 this server pins. Each must come back 401
+ * from every authenticated route.
  *
  * Two properties make this safe to run with no database:
  *
- *  - **No handler executes.** All six attempts are refused by `requireAuth` before
+ *  - **No handler executes.** Every attempt is refused by `requireAuth` before
  *    it looks a user up, so nothing reaches a query, a capture, or an outbound
  *    webhook. That is also why the positive case — a valid token being admitted —
  *    is not here: it would need a real user row, and firing authorised requests at

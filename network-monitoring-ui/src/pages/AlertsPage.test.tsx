@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
+import { ADMIN_USER } from '../test/fixtures';
 import { renderApp } from '../test/render';
 import { server } from '../test/server';
 import AlertsPage from './AlertsPage';
@@ -22,6 +23,11 @@ async function renderAlerts() {
     timeout: 10_000,
   });
   return result;
+}
+
+/** Signs in as a plain user instead of the default admin. */
+function asNonAdmin() {
+  server.use(http.get('/auth/me', () => HttpResponse.json({ ...ADMIN_USER, role: 'USER' })));
 }
 
 describe('AlertsPage', () => {
@@ -138,6 +144,47 @@ describe('AlertsPage', () => {
 
     await user.click(screen.getAllByRole('button', { name: /^acknowledge$/i })[0]!);
     await waitFor(() => expect(acknowledged).toBe(1));
+  });
+
+  it('offers an administrator the per-row delete', async () => {
+    await renderAlerts();
+
+    // The control the two tests below are about. Asserted from the admin side
+    // first, so "absent for a user" cannot pass because the button moved, was
+    // renamed, or stopped rendering for everybody. Plural, because there is one
+    // per row and the singular query throws on more than one match — which is
+    // how the first version of this test failed while the code was correct.
+    expect(await screen.findAllByRole('button', { name: /delete finding/i })).not.toHaveLength(0);
+  });
+
+  it('does not offer a plain user a delete it would be refused', async () => {
+    /*
+     * `DELETE /api/alerts/:id` requires ADMIN on the server. Before this gate
+     * existed the button was rendered for every signed-in account, and once the
+     * route was gated a USER clicking it got a 403 banner every time — an action
+     * offered and then refused, which reads as a broken product rather than as a
+     * permission.
+     *
+     * Every other page here already works this way (`SuppressionsPage`,
+     * `DeliveryPage`, `ThreatIntelPage`, and the account menu in `AppLayout`), so
+     * this was the outlier. The server is still what enforces it; hiding the
+     * control only stops offering somebody something it would refuse.
+     */
+    asNonAdmin();
+    await renderAlerts();
+
+    expect(screen.queryAllByRole('button', { name: /delete finding/i })).toHaveLength(0);
+  });
+
+  it('still lets a plain user acknowledge', async () => {
+    // The other half, and the reason the row keeps an actions column instead of
+    // dropping it wholesale for a non-admin the way the rules table does.
+    // Acknowledging is what an operator does all day; gating it would mean the
+    // people watching the network could not mark their own work.
+    asNonAdmin();
+    await renderAlerts();
+
+    expect(await screen.findAllByRole('button', { name: /^acknowledge$|^reopen$/i })).not.toHaveLength(0);
   });
 
   it('reports a load failure instead of showing an empty table', async () => {
