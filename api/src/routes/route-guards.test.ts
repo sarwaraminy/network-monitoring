@@ -476,6 +476,27 @@ interface RouterPosture {
   /** Role required by everything that changes state. */
   role: string;
   /**
+   * A role every route must require, reads included.
+   *
+   * `role` covers mutating routes only, because `assertRouterGuards` filters on
+   * `MUTATING` before it looks at anything else — which meant the audit router's
+   * posture asserted nothing at all. That router is GET-only, so every iteration was
+   * skipped and `role: 'admin'` passed vacuously: deleting `requireRole('ADMIN')`
+   * from it left the whole suite green while making the trail — the record of who
+   * deleted what, which by design cannot be pruned — readable by every authenticated
+   * account. A guard on a read-only router looks removable to anyone who has not
+   * read this file, which is precisely why the file has to say so.
+   */
+  readRole?: string;
+  /**
+   * Acknowledges a router that has no mutating routes and whose reads are meant to
+   * be open to any authenticated account.
+   *
+   * Required in that case, so that "this posture cannot fail" is a sentence someone
+   * had to write rather than a property nobody noticed.
+   */
+  readsAreOpen?: boolean;
+  /**
    * Mutating routes deliberately open to any authenticated caller, each with the
    * reason. Typed out one path at a time: an exemption is a decision, and the
    * default for a route nobody thought about has to be "gated".
@@ -494,10 +515,18 @@ const ROUTERS: RouterPosture[] = [
     file: 'alerts.routes.ts',
     router: () => alertsRouter,
     role: 'admin',
-    // Acknowledging is what an operator does all day: it records that a human has
-    // looked at a finding, changes nothing about the finding itself, and is
-    // reversible by the route next to it. Requiring an administrator for it would
-    // mean the people actually watching the network could not mark their own work.
+    /*
+     * Acknowledging is what an operator does all day: it records that a human has
+     * looked at a finding, changes nothing about the finding itself, and is
+     * reversible by the route next to it. Requiring an administrator for it would
+     * mean the people actually watching the network could not mark their own work.
+     *
+     * Reopening stays open for the same reason, but it is no longer *unaccounted*
+     * for: it clears somebody else's attribution, so it appends an
+     * `alert.unacknowledge` entry carrying whose acknowledgement it removed. The
+     * objection to it was never that these people may reopen a finding, it was that
+     * nothing recorded that they had.
+     */
     ungatedMutations: ['POST /:id/acknowledge', 'POST /:id/unacknowledge'],
   },
   {
@@ -505,8 +534,11 @@ const ROUTERS: RouterPosture[] = [
     router: () => auditRouter,
     role: 'admin',
     // Nothing to exempt: the table refuses UPDATE, DELETE and TRUNCATE at the
-    // database level, so this router has no mutating route to gate and cannot
-    // grow one that would do anything.
+    // database level, so this router has no mutating route to gate and cannot grow
+    // one that would do anything. `readRole` is what actually holds it — the trail
+    // names accounts, says which delivery fields were changed, and describes
+    // findings that were deleted, so reading it is an administrator's privilege.
+    readRole: 'admin',
   },
   {
     file: 'auth.routes.ts',
@@ -519,7 +551,9 @@ const ROUTERS: RouterPosture[] = [
     anonymous: ['GET /signup-allowed', 'POST /login', 'POST /signup'],
     ungatedMutations: ['POST /login', 'POST /signup'],
   },
-  { file: 'flow.routes.ts', router: () => flowRouter, role: 'admin' },
+  // One route, `GET /status`, and it is a read every account should see: whether the
+  // collector is listening is not privileged information.
+  { file: 'flow.routes.ts', router: () => flowRouter, role: 'admin', readsAreOpen: true },
   { file: 'intel.routes.ts', router: () => intelRouter, role: 'admin' },
   {
     file: 'logs.routes.ts',
@@ -586,6 +620,49 @@ describe('every router, declared', () => {
           ...(posture.ungatedMutations ? { ungatedMutations: posture.ungatedMutations } : {}),
         });
       });
+
+      it('has a posture that is capable of failing', () => {
+        /*
+         * The check on the checks.
+         *
+         * `role` is only asserted against mutating routes, so on a GET-only router
+         * the entry above passes no matter what the router does. That was true of
+         * `audit.routes.ts` and is true of `flow.routes.ts`, and in the first case
+         * it hid a real hole: the ADMIN gate on the audit reads could have been
+         * deleted without a single test noticing.
+         *
+         * So a router with nothing mutating has to say which of the two situations
+         * it is in — `readRole` if its reads are privileged, `readsAreOpen` if they
+         * are deliberately not.
+         */
+        const routes = routesOf(posture.router());
+        assert.ok(routes.length > 0, `${posture.file} exposes no routes`);
+
+        if (routes.some((route) => MUTATING.has(route.method))) return;
+
+        assert.ok(
+          posture.readRole !== undefined || posture.readsAreOpen === true,
+          `${posture.file} has no mutating route, so \`role\` asserts nothing about it. Add ` +
+            '`readRole` if its reads are privileged, or `readsAreOpen: true` if they are not',
+        );
+      });
+
+      if (posture.readRole) {
+        const readRole = posture.readRole;
+
+        it(`requires ${readRole} to read as well as to write`, () => {
+          const routes = routesOf(posture.router());
+          assert.ok(routes.length > 0, `${posture.file} exposes no routes`);
+
+          for (const route of routes) {
+            assert.ok(
+              requiresRole(route, readRole),
+              `${route.method.toUpperCase()} ${route.path} does not require ${readRole} ` +
+                `(guards found: ${JSON.stringify(route.guards)})`,
+            );
+          }
+        });
+      }
     });
   }
 

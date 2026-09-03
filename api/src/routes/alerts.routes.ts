@@ -113,7 +113,7 @@ alertsRouter.post(
     const id = idSchema.safeParse(req.params.id);
     if (!id.success) throw new HttpError(400, 'id must be a positive integer');
 
-    const updated = await unacknowledgeAlert(id.data);
+    const updated = await unacknowledgeAlert(id.data, actorOf(req.user));
     if (!updated) throw new HttpError(404, `No alert with id ${id.data}`);
     res.json(updated);
   }),

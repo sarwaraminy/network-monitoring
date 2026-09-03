@@ -557,13 +557,61 @@ export async function acknowledgeAlert(id: number, acknowledgedBy: Actor): Promi
   return updated ?? null;
 }
 
-export async function unacknowledgeAlert(id: number): Promise<AlertRow | null> {
-  const [updated] = await db
-    .update(alerts)
-    .set({ acknowledgedAt: null, acknowledgedBy: null })
-    .where(eq(alerts.id, id))
-    .returning();
-  return updated ?? null;
+/**
+ * Reopens a finding, and records whose acknowledgement was cleared.
+ *
+ * This is a destructive write to recorded identity, which makes it the one kind of
+ * write this whole feature exists to account for — and it was the last mutating
+ * alert route with neither an audit entry nor a role guard. Analyst A acknowledges
+ * finding 412; any authenticated account reopens it; `acknowledged_by` is NULL and
+ * "who removed A's acknowledgement" was exactly as unanswerable as "who deleted
+ * this finding" used to be. The README's own table claimed acknowledgement was
+ * attributed, which was true right up until somebody reopened one.
+ *
+ * Left open to any authenticated account rather than gated on ADMIN, because
+ * reopening is the reverse of a workflow action the same people perform all day —
+ * the objection was never that they may do it, it was that nothing said they had.
+ * The attribution is not lost now, it moves into the trail.
+ */
+export async function unacknowledgeAlert(id: number, actor: Actor): Promise<AlertRow | null> {
+  return db.transaction(async (tx) => {
+    // `FOR UPDATE`, for the reason `updateSuppression` gives: the attribution being
+    // recorded has to be the one this statement actually clears, and under READ
+    // COMMITTED an unlocked read lets two concurrent reopens record the same one.
+    const [before] = await tx.select().from(alerts).where(eq(alerts.id, id)).limit(1).for('update');
+    if (!before) return null;
+
+    const [updated] = await tx
+      .update(alerts)
+      .set({ acknowledgedAt: null, acknowledgedBy: null })
+      .where(eq(alerts.id, id))
+      .returning();
+
+    if (!updated) return null;
+
+    // Only when there was an acknowledgement to clear. Reopening something already
+    // open destroys no attribution, and a row saying so is one an auditor reads
+    // past — the same rule as the settings save and the bulk clear.
+    if (before.acknowledgedBy !== null || before.acknowledgedAt !== null) {
+      await recordAudit(tx, {
+        actor: actor.name,
+        actorId: actor.id,
+        action: 'alert.unacknowledge',
+        subject: String(id),
+        // Whose acknowledgement this cleared, and when it had been made: the whole
+        // of what the two columns held, so the trail carries what the row no longer
+        // does.
+        detail: {
+          was: before.acknowledgedBy,
+          at: before.acknowledgedAt?.toISOString() ?? null,
+          kind: before.kind,
+          title: before.title,
+        },
+      });
+    }
+
+    return updated;
+  });
 }
 
 /**
@@ -609,26 +657,47 @@ export async function deleteAlert(id: number, actor: Actor): Promise<boolean> {
  */
 export async function deleteAllAlerts(actor: Actor): Promise<number> {
   return db.transaction(async (tx) => {
-    const deleted = await tx.delete(alerts).returning({ id: alerts.id, severity: alerts.severity });
+    /*
+     * The delete and its histogram in one statement, counted by Postgres.
+     *
+     * `RETURNING` on an unqualified DELETE builds one JavaScript object per row in
+     * the driver before anything is counted — inside a transaction already holding a
+     * lock on every row of the table. On an installation near the retention ceiling
+     * that is where clearing findings becomes heap exhaustion, and the operator
+     * watches a delete hang and then roll back. Wrapping the DELETE in a CTE and
+     * grouping its output keeps the rows server-side and returns one row per
+     * severity, which is also exactly the shape the audit entry wants.
+     *
+     * Counted from the same statement rather than by a SELECT beforehand, so the
+     * total cannot drift: a prior count would miss anything another transaction
+     * committed in between, and the entry would then describe a different number of
+     * rows than the delete removed.
+     */
+    const counted = await tx.execute<{ severity: string; n: number }>(sql`
+      WITH deleted AS (DELETE FROM ${alerts} RETURNING ${alerts.severity})
+      SELECT severity, count(*)::int AS n FROM deleted GROUP BY 1
+    `);
 
     const bySeverity: Record<string, number> = {};
-    for (const row of deleted) {
-      bySeverity[row.severity] = (bySeverity[row.severity] ?? 0) + 1;
+    let total = 0;
+    for (const row of counted.rows ?? []) {
+      bySeverity[row.severity] = Number(row.n);
+      total += Number(row.n);
     }
 
     // Only when something was actually cleared, matching every other audited path
     // here. Recording a no-op would append `{ deleted: 0 }` every time somebody
     // clicked Clear on an empty table — permanently, since nothing prunes this
     // table — into the record an auditor reads to find the acts that mattered.
-    if (deleted.length > 0) {
+    if (total > 0) {
       await recordAudit(tx, {
         actor: actor.name,
         actorId: actor.id,
         action: 'alerts.clear',
-        detail: { deleted: deleted.length, bySeverity },
+        detail: { deleted: total, bySeverity },
       });
     }
 
-    return deleted.length;
+    return total;
   });
 }

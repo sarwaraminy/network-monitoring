@@ -46,6 +46,7 @@ import { type AuditEventRow, auditEvents, type UserRow } from '../db/schema.js';
  */
 export const AUDIT_ACTIONS = {
   'alert.delete': 'Deleted a finding',
+  'alert.unacknowledge': 'Reopened a finding, clearing who had acknowledged it',
   'alerts.clear': 'Cleared every finding',
   'device.forget': 'Forgot a device',
   'suppression.create': 'Created a suppression rule',

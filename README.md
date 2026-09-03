@@ -721,6 +721,7 @@ settings — with three copies of the same helper in three routers, one of them 
 | Action | Recorded who, before |
 | --- | --- |
 | Acknowledge a finding | yes |
+| Reopen a finding, clearing who acknowledged it | **no** |
 | Write a suppression rule | yes |
 | Change the delivery settings | yes |
 | Delete a finding | **no** |
@@ -918,14 +919,19 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 663 tests
-npm run test:api  # 529 API tests
-npm run test:ui   # 134 UI tests
+npm test          # both suites
+npm run test:api  # the API suite, several hundred cases
+npm run test:ui   # the UI suite
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 529 tests
+Exact counts are deliberately not printed here. They were, and they went stale in four
+consecutive pull requests — the last time hiding a dropped file, since the number was the only
+evidence anything was missing. A figure nobody can keep true is worse than no figure: run the
+suite, which prints its own.
+
+### API tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX
@@ -1056,7 +1062,7 @@ base64 form.
 The IPv4/TCP fixture is rebuilt byte-for-byte from a row the Java app wrote to the `logs`
 table, so the expectations are Pcap4J's own output rather than this implementation's.
 
-### UI — 134 tests
+### UI tests
 
 Vitest + React Testing Library + MSW in jsdom. Requests go through MSW rather than a mocked
 axios, so the tests exercise the real client — interceptors, bearer header, error unwrapping —
@@ -1675,8 +1681,6 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,
      because the history is why the table is kept.
-   - Read the test counts in this file from the suite instead of typing them. They have gone
-     stale three times in three pull requests.
    - A coarser bucket for multi-year trend windows, which currently plot 1,095 daily bars.
    - A marker on the trend chart for where the retention boundary falls, so a shorter bar
      reads as "rolled up" rather than "quiet".

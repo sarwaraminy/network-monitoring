@@ -262,12 +262,24 @@ export async function saveDeliverySettings(
      * them for the same reason. "Changed notify_webhook_url and smtp_password" is
      * the accountable fact; their contents are not.
      */
-    await recordAudit(tx, {
-      actor: updatedBy.name,
-      actorId: updatedBy.id,
-      action: 'delivery_settings.update',
-      detail: settingsAuditDetail(patch),
-    });
+    /*
+     * Only when a field actually moved.
+     *
+     * Every field of the patch schema is optional, so `PUT /api/notify/settings`
+     * with `{}` parses and would otherwise append "Changed where findings are
+     * delivered" carrying no field that changed — permanently, since nothing prunes
+     * this table. That is the case `deleteAllAlerts` refuses a few files away, with
+     * the same reasoning: an audit trail that fills with non-events is harder to
+     * read, and being readable is the only thing it has to be.
+     */
+    if (Object.keys(patch).length > 0) {
+      await recordAudit(tx, {
+        actor: updatedBy.name,
+        actorId: updatedBy.id,
+        action: 'delivery_settings.update',
+        detail: settingsAuditDetail(patch),
+      });
+    }
   });
 
   return loadDeliverySettings();

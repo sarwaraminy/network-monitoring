@@ -436,13 +436,19 @@ export async function updateSuppression(
 
     if (!updated) return null;
 
-    await recordAudit(tx, {
-      actor: actor.name,
-      actorId: actor.id,
-      action: 'suppression.update',
-      subject: String(id),
-      detail: { changed: ruleChanges(before, input) },
-    });
+    // Same rule as the settings save: a form re-submitted with nothing altered is
+    // not an edit, and `{ changed: {} }` in a table that cannot be pruned is a row
+    // an auditor has to read past to reach the ones that mattered.
+    const changed = ruleChanges(before, input);
+    if (Object.keys(changed).length > 0) {
+      await recordAudit(tx, {
+        actor: actor.name,
+        actorId: actor.id,
+        action: 'suppression.update',
+        subject: String(id),
+        detail: { changed },
+      });
+    }
 
     return updated;
   });
