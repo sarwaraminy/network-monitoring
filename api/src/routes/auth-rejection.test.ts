@@ -117,8 +117,14 @@ after(async () => {
 interface RouteLayer {
   route?: { path: string; methods: Record<string, boolean>; stack: { handle: unknown }[] };
   handle?: unknown;
+  /**
+   * Express's own answer to "does this layer cover that path", including the
+   * pathless `router.use(fn)` case — such a layer carries `slash: true` and
+   * matches anything. `regexp.fast_slash` is *not* the internal to reach for
+   * here: it belonged to express 4 and the express 5 layer has no `regexp` at
+   * all, so a check on it silently never fires. See route-guards.test.ts.
+   */
   match?: (path: string) => boolean;
-  regexp?: RegExp & { fast_slash?: boolean };
   name: string;
 }
 
@@ -158,16 +164,22 @@ function authenticatedTargets(): Target[] {
   for (const mount of mounts) {
     const router = mount.router();
     const all = (router as unknown as { stack: RouteLayer[] }).stack;
-    const useAuth = all.filter((layer) => !layer.route && isAuthGuard(layer.handle));
+    const useAuth = all
+      .map((layer, index) => ({ layer, index }))
+      .filter((entry) => !entry.layer.route && isAuthGuard(entry.layer.handle));
 
-    for (const layer of all) {
+    all.forEach((layer, index) => {
       const route = layer.route;
-      if (!route) continue;
+      if (!route) return;
 
+      // `used.index < index` because Express runs layers in registration order: a
+      // `router.use(requireAuth)` written below a route never executes for it. The
+      // same rule as route-guards.test.ts, stated the same way, so the two files
+      // cannot come to different conclusions about the same router.
       const authenticated =
         route.stack.some((handler) => isAuthGuard(handler.handle)) ||
-        useAuth.some((used) => used.regexp?.fast_slash || (used.match?.(route.path) ?? false));
-      if (!authenticated) continue;
+        useAuth.some((used) => used.index < index && (used.layer.match?.(route.path) ?? false));
+      if (!authenticated) return;
 
       const suffix = fillParams(route.path);
       const url = `${mount.at}${suffix === '/' ? '' : suffix}` || '/';
@@ -175,7 +187,7 @@ function authenticatedTargets(): Target[] {
       for (const method of Object.keys(route.methods)) {
         targets.push({ method: method.toUpperCase(), url, where: `${method.toUpperCase()} ${url}` });
       }
-    }
+    });
   }
 
   return targets;
