@@ -776,7 +776,7 @@ cannot arise.
 
 Every mutating service function takes an `actor`. That is a type signature, so the compiler
 asks the question at each call site rather than leaving it to whoever remembers — the gap
-above existed precisely because nothing asked. `actorName` is the single copy of the
+above existed precisely because nothing asked. `actorOf` is the single copy of the
 identity form, and the three duplicates are gone.
 
 A blank email counts as no email, matching how `env.ts` treats a blank value everywhere
@@ -918,14 +918,14 @@ acquire just by upgrading.
 ## Tests
 
 ```bash
-npm test          # both suites: 653 tests
-npm run test:api  # 519 API tests
+npm test          # both suites: 663 tests
+npm run test:api  # 529 API tests
 npm run test:ui   # 134 UI tests
 ```
 
 Neither suite needs a database, a browser or a running server.
 
-### API — 519 tests
+### API — 529 tests
 
 Over `api/src/packet/`, `api/src/flow/`, `api/src/intel/`, `api/src/notify/` and
 `api/src/routes/`, covering the hand-written decoders, every detector, the NetFlow/IPFIX

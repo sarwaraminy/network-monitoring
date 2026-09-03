@@ -80,6 +80,22 @@ function DetailCell({ detail }: { detail: Record<string, unknown> }) {
   );
 }
 
+/**
+ * What to say when there are no rows.
+ *
+ * The error case is the point. `events` is empty both when the trail is genuinely
+ * empty and when it could not be read, and the first version rendered the reassuring
+ * message underneath the error alert — telling an operator checking whether
+ * something was deleted that nothing had been, next to a message saying the check
+ * failed. Of the two ways for this page to be wrong, that is the worse one.
+ */
+function emptyMessage(action: string, failed: boolean): string {
+  if (failed) return 'The trail could not be read, so this is not a statement that nothing happened.';
+  return action === ''
+    ? 'Nothing has been deleted, changed or redirected yet. Entries appear here as soon as something is.'
+    : 'No entries for this action.';
+}
+
 export default function AuditPage() {
   const { user } = useAuth();
   const [action, setAction] = useState<string>('');
@@ -199,11 +215,7 @@ export default function AuditPage() {
         columns={columns}
         data={events}
         isLoading={trail.isPending}
-        emptyMessage={
-          action === ''
-            ? 'Nothing has been deleted, changed or redirected yet. Entries appear here as soon as something is.'
-            : 'No entries for this action.'
-        }
+        emptyMessage={emptyMessage(action, trail.isError)}
       />
 
       {trail.hasNextPage && (

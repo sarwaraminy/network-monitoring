@@ -616,12 +616,18 @@ export async function deleteAllAlerts(actor: Actor): Promise<number> {
       bySeverity[row.severity] = (bySeverity[row.severity] ?? 0) + 1;
     }
 
-    await recordAudit(tx, {
-      actor: actor.name,
-      actorId: actor.id,
-      action: 'alerts.clear',
-      detail: { deleted: deleted.length, bySeverity },
-    });
+    // Only when something was actually cleared, matching every other audited path
+    // here. Recording a no-op would append `{ deleted: 0 }` every time somebody
+    // clicked Clear on an empty table — permanently, since nothing prunes this
+    // table — into the record an auditor reads to find the acts that mattered.
+    if (deleted.length > 0) {
+      await recordAudit(tx, {
+        actor: actor.name,
+        actorId: actor.id,
+        action: 'alerts.clear',
+        detail: { deleted: deleted.length, bySeverity },
+      });
+    }
 
     return deleted.length;
   });

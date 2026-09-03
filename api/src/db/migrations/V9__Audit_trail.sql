@@ -76,12 +76,25 @@ CREATE TABLE audit_events (
     CONSTRAINT audit_events_detail_is_object  CHECK (jsonb_typeof(detail) = 'object')
 );
 
--- The listing is "most recent first", always, so the index carries the order.
-CREATE INDEX audit_events_at_idx ON audit_events (at DESC);
-
--- And filtered by action, which is how the question is usually asked: "show me
--- every deletion", not "show me everything and let me read".
-CREATE INDEX audit_events_action_at_idx ON audit_events (action, at DESC);
+-- One index, on what is actually queried.
+--
+-- The listing is "most recent first, optionally filtered by action", and it reads
+-- `WHERE action = $1 AND id < $2 ORDER BY id DESC` — paged on the id rather than on
+-- `at`, because a timestamp cursor loses rows once two entries share a millisecond
+-- (see `listAuditEvents`). So `(action, id DESC)` serves the filtered listing end to
+-- end, and the primary key already serves the unfiltered one with a backward scan.
+--
+-- An earlier draft indexed `(at DESC)` and `(action, at DESC)`, which was right for
+-- the query it was written against and wrong the moment the sort moved to `id`: the
+-- first became dead weight and the second could satisfy the equality but not the
+-- order, so every page sorted the whole matching set. That is worth getting right
+-- here rather than later, because nothing shrinks this table — the trigger refuses
+-- DELETE and TRUNCATE, and retention does not name it — so a scan that grows
+-- monotonically has no maintenance path back.
+--
+-- No index on `at` alone: nothing filters or orders by it. It is displayed, and
+-- displaying a column costs nothing.
+CREATE INDEX audit_events_action_id_idx ON audit_events (action, id DESC);
 
 -- Append-only, enforced.
 --

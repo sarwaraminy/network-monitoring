@@ -149,6 +149,18 @@ describe('AuditPage', () => {
     // The server's own message, not the fallback: `describeError` prefers it, and
     // an operator needs to know *why* the record could not be read.
     expect(await screen.findByText(/database is down/i, {}, { timeout: 10_000 })).toBeInTheDocument();
+
+    /*
+     * And it must not also claim the trail is empty. `events` is empty in both
+     * cases, so the first version rendered the reassuring message underneath the
+     * error — telling somebody checking whether a finding was deleted that nothing
+     * had been, next to a message saying the check failed. Asserting the error
+     * appears is not enough; the opposite reading has to be absent.
+     */
+    expect(
+      screen.queryByText(/Nothing has been deleted, changed or redirected yet/i),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/not a statement that nothing happened/i)).toBeInTheDocument();
   });
 
   it('pages with the id the server handed back, not a timestamp', async () => {

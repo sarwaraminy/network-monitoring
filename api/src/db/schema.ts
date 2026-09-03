@@ -242,10 +242,10 @@ export const auditEvents = pgTable(
     /** Always an object. Never a credential — see the column comment in V9. */
     detail: jsonb('detail').notNull().default({}),
   },
-  (table) => [
-    index('audit_events_at_idx').on(table.at),
-    index('audit_events_action_at_idx').on(table.action, table.at),
-  ],
+  // `(action, id DESC)` — see V9__Audit_trail.sql for why the order is on `id` and
+  // why there is no index on `at`. Kept identical to the migration on purpose: the
+  // pair drifted once already, with this mirror also dropping the DESC.
+  (table) => [index('audit_events_action_id_idx').on(table.action, table.id.desc())],
 );
 
 export type UserRow = typeof users.$inferSelect;
