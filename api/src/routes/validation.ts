@@ -4,6 +4,7 @@ import { HttpError } from '../middleware/error-handler.js';
 import { parsePrefix } from '../net/prefix.js';
 import { WEBHOOK_FORMATS } from '../notify/types.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
+import { AUDIT_ACTIONS, type AuditAction } from '../services/audit.service.js';
 
 /**
  * Every request schema, in one place.
@@ -98,6 +99,20 @@ export const alertListQuerySchema = z.object({
  */
 const MAX_HOURLY_DAYS = 365;
 const MAX_TREND_DAYS = Math.max(1825, env.retention.alertDays + 1);
+
+/**
+ * The audit listing.
+ *
+ * `action` is validated against the same vocabulary the service exports, so a typo
+ * is a 400 rather than a silently empty page — and adding an action in one place
+ * cannot leave the filter rejecting it.
+ */
+export const auditQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  action: z.enum(Object.keys(AUDIT_ACTIONS) as [AuditAction, ...AuditAction[]]).optional(),
+  /** Keyset cursor: only events strictly older than this instant. */
+  before: z.coerce.date().optional(),
+});
 
 export const alertDashboardQuerySchema = z
   .object({

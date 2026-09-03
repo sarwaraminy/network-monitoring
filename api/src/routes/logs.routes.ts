@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
+import { actorName } from '../services/audit.service.js';
 import { createLog, deleteLog, getAllLogs, getLogById, updateLog } from '../services/log.service.js';
 import { logSchema, parseId, parseOrThrow } from './validation.js';
 
@@ -34,7 +35,7 @@ logsRouter.post(
   '/log/add',
   requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
-    const created = await createLog(parseBody(req.body));
+    const created = await createLog(parseBody(req.body), actorName(req.user));
     res.status(201).json(created);
   }),
 );
@@ -50,7 +51,7 @@ logsRouter.put(
     }
     // The Java version passed the body straight to save(), so a mismatched body id
     // could overwrite a different row. The path id wins here.
-    const updated = await updateLog(id, parseBody(req.body));
+    const updated = await updateLog(id, parseBody(req.body), actorName(req.user));
     res.json(updated);
   }),
 );
@@ -64,7 +65,7 @@ logsRouter.delete(
     if (!(await getLogById(id))) {
       throw new HttpError(404, `No log with id ${id}`);
     }
-    await deleteLog(id);
+    await deleteLog(id, actorName(req.user));
     res.status(204).send();
   }),
 );

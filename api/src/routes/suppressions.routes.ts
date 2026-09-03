@@ -1,8 +1,8 @@
-import type { Request } from 'express';
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { recentAlertsForMatching } from '../services/alert.service.js';
+import { actorName } from '../services/audit.service.js';
 import {
   createSuppression,
   deleteSuppression,
@@ -39,11 +39,6 @@ import {
 export const suppressionsRouter = Router();
 
 suppressionsRouter.use(requireAuth);
-
-/** Who to record against a rule. Same form the alert acknowledgement uses. */
-function actor(req: Request): string {
-  return req.user?.email ?? `user:${req.user?.id ?? 'unknown'}`;
-}
 
 /** GET /api/suppressions — every rule, with the ones that cannot work flagged. */
 suppressionsRouter.get(
@@ -129,7 +124,7 @@ suppressionsRouter.post(
         enabled: body.enabled,
         expiresAt: body.expiresAt ?? null,
       },
-      actor(req),
+      actorName(req.user),
     );
 
     res.status(201).json(created);
@@ -169,7 +164,7 @@ suppressionsRouter.patch(
 
     if (!hasSuppressionCriterion(merged)) throw new HttpError(400, NO_CRITERIA);
 
-    const updated = await updateSuppression(id, merged);
+    const updated = await updateSuppression(id, merged, actorName(req.user));
     if (!updated) throw new HttpError(404, `No suppression rule with id ${id}`);
     res.json(updated);
   }),
@@ -187,7 +182,9 @@ suppressionsRouter.delete(
   requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const id = parseId(req.params.id);
-    if (!(await deleteSuppression(id))) throw new HttpError(404, `No suppression rule with id ${id}`);
+    if (!(await deleteSuppression(id, actorName(req.user)))) {
+      throw new HttpError(404, `No suppression rule with id ${id}`);
+    }
     res.status(204).send();
   }),
 );

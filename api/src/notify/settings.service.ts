@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { type DeliverySettingsRow, deliverySettings, type NewDeliverySettingsRow } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
+import { recordAudit } from '../services/audit.service.js';
 import {
   DELIVERY_FIELDS,
   type DeliveryField,
@@ -233,10 +234,27 @@ export async function saveDeliverySettings(
 ): Promise<DeliverySettings> {
   const values = { ...patch, updatedAt: new Date(), updatedBy: updatedBy.slice(0, 200) };
 
-  await db
-    .insert(deliverySettings)
-    .values({ id: ROW_ID, ...values })
-    .onConflictDoUpdate({ target: deliverySettings.id, set: values });
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(deliverySettings)
+      .values({ id: ROW_ID, ...values })
+      .onConflictDoUpdate({ target: deliverySettings.id, set: values });
+
+    /*
+     * Field *names*, never values.
+     *
+     * These settings hold the webhook URL and the SMTP password, and an audit trail
+     * that recorded them would be a second place to read credentials — one that
+     * cannot be pruned, and that an administrator can read in full. The API redacts
+     * them for the same reason. "Changed notify_webhook_url and smtp_password" is
+     * the accountable fact; their contents are not.
+     */
+    await recordAudit(tx, {
+      actor: updatedBy,
+      action: 'delivery_settings.update',
+      detail: { fields: Object.keys(patch).sort() },
+    });
+  });
 
   return loadDeliverySettings();
 }

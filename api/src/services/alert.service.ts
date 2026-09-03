@@ -6,6 +6,7 @@ import { componentLogger } from '../logger.js';
 import { notifier } from '../notify/notifier.js';
 import { type Finding, SEVERITY_RANK, type Severity } from '../packet/detect/types.js';
 import { firstWholeUtcDay, utcTrunc } from './alert-buckets.js';
+import { recordAudit } from './audit.service.js';
 import {
   countSuppressed,
   flushSuppressionCounters,
@@ -558,12 +559,61 @@ export async function unacknowledgeAlert(id: number): Promise<AlertRow | null> {
   return updated ?? null;
 }
 
-export async function deleteAlert(id: number): Promise<boolean> {
-  const deleted = await db.delete(alerts).where(eq(alerts.id, id)).returning({ id: alerts.id });
-  return deleted.length > 0;
+/**
+ * Deletes one finding, recording who did it in the same transaction.
+ *
+ * `actor` is required rather than optional, and that is the point: a mutating
+ * service function that can be called without saying who is calling it is how the
+ * gap this closes came about. The compiler now asks the question at every call site.
+ *
+ * The audit detail carries the finding's kind, severity and title, not just its id.
+ * Once the row is gone this entry is the only surviving description of what was
+ * removed, and "alert 412 was deleted" answers almost nothing a year later.
+ */
+export async function deleteAlert(id: number, actor: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [deleted] = await tx
+      .delete(alerts)
+      .where(eq(alerts.id, id))
+      .returning({ id: alerts.id, kind: alerts.kind, severity: alerts.severity, title: alerts.title });
+
+    if (!deleted) return false;
+
+    await recordAudit(tx, {
+      actor,
+      action: 'alert.delete',
+      subject: String(deleted.id),
+      detail: { kind: deleted.kind, severity: deleted.severity, title: deleted.title },
+    });
+
+    return true;
+  });
 }
 
-export async function deleteAllAlerts(): Promise<number> {
-  const deleted = await db.delete(alerts).returning({ id: alerts.id });
-  return deleted.length;
+/**
+ * Clears the table.
+ *
+ * The count and a breakdown by severity, because that is what makes the entry
+ * legible: "cleared 1,204 findings, 3 of them critical" is an event worth noticing,
+ * and "cleared every finding" on an empty table is not. Individual titles are
+ * deliberately not recorded — a bulk clear would put thousands of rows of evidence
+ * into a table that cannot be pruned.
+ */
+export async function deleteAllAlerts(actor: string): Promise<number> {
+  return db.transaction(async (tx) => {
+    const deleted = await tx.delete(alerts).returning({ id: alerts.id, severity: alerts.severity });
+
+    const bySeverity: Record<string, number> = {};
+    for (const row of deleted) {
+      bySeverity[row.severity] = (bySeverity[row.severity] ?? 0) + 1;
+    }
+
+    await recordAudit(tx, {
+      actor,
+      action: 'alerts.clear',
+      detail: { deleted: deleted.length, bySeverity },
+    });
+
+    return deleted.length;
+  });
 }

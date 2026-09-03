@@ -2,6 +2,7 @@ import { asc, eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { alertSuppressions, type SuppressionRow } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
+import { recordAudit } from './audit.service.js';
 import { NO_SUPPRESSIONS, SuppressionSet, type UnusableRule } from './suppression-rules.js';
 
 const log = componentLogger('suppression');
@@ -338,39 +339,117 @@ export interface SuppressionInput {
   expiresAt: Date | null;
 }
 
+/**
+ * The parts of a rule worth putting in the audit trail.
+ *
+ * A suppression rule is the one piece of configuration that can make this tool stop
+ * reporting, so "somebody changed a rule" is not a useful entry on its own — what
+ * it covered is the whole substance. Nothing here is a credential.
+ */
+function ruleDetail(rule: SuppressionRow | SuppressionInput): Record<string, unknown> {
+  return {
+    kind: rule.kind,
+    sourceCidr: rule.sourceCidr,
+    targetCidr: rule.targetCidr,
+    port: rule.port,
+    reason: rule.reason,
+    enabled: rule.enabled,
+    expiresAt: rule.expiresAt?.toISOString() ?? null,
+  };
+}
+
+/** Field-by-field, so a change reads as a change rather than as a new rule. */
+function ruleChanges(before: SuppressionRow, after: SuppressionInput): Record<string, unknown> {
+  const from = ruleDetail(before);
+  const to = ruleDetail(after);
+  const changed: Record<string, unknown> = {};
+
+  for (const field of Object.keys(to)) {
+    if (from[field] !== to[field]) changed[field] = { from: from[field], to: to[field] };
+  }
+
+  return changed;
+}
+
 export async function createSuppression(input: SuppressionInput, createdBy: string): Promise<SuppressionRow> {
-  const [row] = await db
-    .insert(alertSuppressions)
-    .values({ ...input, createdBy: createdBy.slice(0, 200) })
-    .returning();
+  const row = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(alertSuppressions)
+      .values({ ...input, createdBy: createdBy.slice(0, 200) })
+      .returning();
+
+    await recordAudit(tx, {
+      actor: createdBy,
+      action: 'suppression.create',
+      subject: String(created!.id),
+      detail: ruleDetail(created!),
+    });
+
+    return created!;
+  });
 
   // Reload before answering, so the rule is in force by the time the caller sees
   // its 201. Without this an operator watching the alert list would see findings
   // they had just suppressed keep arriving for up to the refresh interval, and
-  // conclude the feature does not work.
+  // conclude the feature does not work. Outside the transaction, because it reads
+  // on its own connection and would not see the rule before it commits.
   await reloadAfterWrite();
-  return row!;
+  return row;
 }
 
-export async function updateSuppression(id: number, input: SuppressionInput): Promise<SuppressionRow | null> {
-  const [row] = await db
-    .update(alertSuppressions)
-    .set({ ...input, updatedAt: new Date() })
-    .where(eq(alertSuppressions.id, id))
-    .returning();
+export async function updateSuppression(
+  id: number,
+  input: SuppressionInput,
+  actor: string,
+): Promise<SuppressionRow | null> {
+  const row = await db.transaction(async (tx) => {
+    // Read inside the transaction so the recorded "from" values are the ones this
+    // update actually replaced, not whatever a concurrent write left behind.
+    const [before] = await tx.select().from(alertSuppressions).where(eq(alertSuppressions.id, id)).limit(1);
+    if (!before) return null;
+
+    const [updated] = await tx
+      .update(alertSuppressions)
+      .set({ ...input, updatedAt: new Date() })
+      .where(eq(alertSuppressions.id, id))
+      .returning();
+
+    if (!updated) return null;
+
+    await recordAudit(tx, {
+      actor,
+      action: 'suppression.update',
+      subject: String(id),
+      detail: { changed: ruleChanges(before, input) },
+    });
+
+    return updated;
+  });
 
   if (!row) return null;
   await reloadAfterWrite();
   return row;
 }
 
-export async function deleteSuppression(id: number): Promise<boolean> {
-  const deleted = await db
-    .delete(alertSuppressions)
-    .where(eq(alertSuppressions.id, id))
-    .returning({ id: alertSuppressions.id });
+export async function deleteSuppression(id: number, actor: string): Promise<boolean> {
+  const removed = await db.transaction(async (tx) => {
+    const [deleted] = await tx.delete(alertSuppressions).where(eq(alertSuppressions.id, id)).returning();
+    if (!deleted) return false;
 
-  if (deleted.length === 0) return false;
+    await recordAudit(tx, {
+      actor,
+      action: 'suppression.delete',
+      subject: String(id),
+      // Including the match count: a rule that had quietly hidden nine thousand
+      // findings and was then deleted is a different event from one that never
+      // matched, and the counter goes with the row.
+      detail: { ...ruleDetail(deleted), matchCount: deleted.matchCount },
+    });
+
+    return true;
+  });
+
+  if (!removed) return false;
   await reloadAfterWrite();
   return true;
 }

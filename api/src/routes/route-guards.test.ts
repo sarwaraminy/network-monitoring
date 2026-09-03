@@ -313,6 +313,7 @@ let authRouter: Router;
 let flowRouter: Router;
 let intelRouter: Router;
 let logsRouter: Router;
+let auditRouter: Router;
 
 before(async () => {
   // These routers pull in the services, which construct a connection pool at
@@ -326,6 +327,7 @@ before(async () => {
   ({ flowRouter } = await import('./flow.routes.js'));
   ({ intelRouter } = await import('./intel.routes.js'));
   ({ logsRouter } = await import('./logs.routes.js'));
+  ({ auditRouter } = await import('./audit.routes.js'));
 
   const { createPacketRouter } = await import('./packets.routes.js');
   const { interfaceCapture } = await import('../services/packet-capture.registry.js');
@@ -497,6 +499,14 @@ const ROUTERS: RouterPosture[] = [
     // reversible by the route next to it. Requiring an administrator for it would
     // mean the people actually watching the network could not mark their own work.
     ungatedMutations: ['POST /:id/acknowledge', 'POST /:id/unacknowledge'],
+  },
+  {
+    file: 'audit.routes.ts',
+    router: () => auditRouter,
+    role: 'admin',
+    // Nothing to exempt: the table refuses UPDATE, DELETE and TRUNCATE at the
+    // database level, so this router has no mutating route to gate and cannot
+    // grow one that would do anything.
   },
   {
     file: 'auth.routes.ts',

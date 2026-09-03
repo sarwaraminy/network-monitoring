@@ -9,6 +9,7 @@ import { logger } from './logger.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { apiLimiter, authLimiter } from './middleware/rate-limit.js';
 import { alertsRouter } from './routes/alerts.routes.js';
+import { auditRouter } from './routes/audit.routes.js';
 import { authRouter } from './routes/auth.routes.js';
 import { flowRouter } from './routes/flow.routes.js';
 import { intelRouter } from './routes/intel.routes.js';
@@ -118,6 +119,7 @@ export function createApp(): Express {
   app.use('/auth', authLimiter, authRouter);
   app.use('/api', apiLimiter);
   app.use('/api/alerts', alertsRouter);
+  app.use('/api/audit', auditRouter);
   app.use('/api/flow', flowRouter);
   app.use('/api/intel', intelRouter);
   app.use('/api/notify', notifyRouter);

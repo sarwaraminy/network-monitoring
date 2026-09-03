@@ -218,6 +218,36 @@ export const alertRollupDaily = pgTable(
   ],
 );
 
+/**
+ * Who did what — see V9__Audit_trail.sql for why this exists and what it protects.
+ *
+ * Append-only, enforced by a trigger rather than by convention: there is no
+ * `update` or `delete` anywhere in this codebase for this table, and the database
+ * would refuse one if there were. Nothing here prunes it either — retention names
+ * the tables it sweeps and this is not one of them, because a record of a deletion
+ * that expires with the thing deleted is the same hole in slower motion.
+ */
+export const auditEvents = pgTable(
+  'audit_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    at: timestamp('at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    /** The actor's email, copied in rather than joined: an audit row stays true after the account changes. */
+    actor: varchar('actor', { length: 320 }).notNull(),
+    actorId: integer('actor_id'),
+    /** `domain.verb` — the shape is a CHECK constraint, so the vocabulary cannot drift into prose. */
+    action: varchar('action', { length: 64 }).notNull(),
+    /** The thing acted on, where there is one. NULL for an action with no single subject. */
+    subject: varchar('subject', { length: 200 }),
+    /** Always an object. Never a credential — see the column comment in V9. */
+    detail: jsonb('detail').notNull().default({}),
+  },
+  (table) => [
+    index('audit_events_at_idx').on(table.at),
+    index('audit_events_action_at_idx').on(table.action, table.at),
+  ],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 export type LogRow = typeof logs.$inferSelect;
@@ -230,3 +260,4 @@ export type DeliverySettingsRow = typeof deliverySettings.$inferSelect;
 export type NewDeliverySettingsRow = typeof deliverySettings.$inferInsert;
 export type SuppressionRow = typeof alertSuppressions.$inferSelect;
 export type NewSuppressionRow = typeof alertSuppressions.$inferInsert;
+export type AuditEventRow = typeof auditEvents.$inferSelect;
