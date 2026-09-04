@@ -63,34 +63,50 @@ const TEST_DB_SUFFIX = '_test';
 /**
  * Where the tests connect — and, more importantly, where they refuse to.
  *
- * `truncateAll` empties every application table, so pointing this at a
- * developer's dev database would delete their data on the next `npm test`. An
- * explicit `TEST_DATABASE_URL` is used as given; otherwise the URL is DERIVED
- * from `DATABASE_URL` by suffixing the database NAME, reusing credentials that
- * already work locally without ever reusing the database itself.
+ * `truncateAll` empties every application table, so this must never be a
+ * database anyone wants. Two paths, and they are deliberately different:
  *
- * Either way the name must end in `_test`. That rail is worth more than the
- * convenience: the cost of getting this wrong is somebody else's data, and a
- * suffix check is the one thing that cannot be talked past by a misconfigured
- * environment.
+ *  - **`TEST_DATABASE_URL` is honoured EXACTLY as given.** An explicit setting is
+ *    somebody saying "this database", and quietly connecting somewhere else is
+ *    both surprising and a real failure: the previous version rewrote it into a
+ *    per-suite name that the workflow had not provisioned, so CI went looking for
+ *    a database nobody had created. Isolation between suites is then the
+ *    operator's problem, which is the honest trade for "use exactly this".
+ *  - **Otherwise the name is DERIVED** from `DATABASE_URL` — reusing credentials
+ *    that already work locally without ever reusing the database — with a
+ *    per-suite `_<id>_test` name so parallel files cannot truncate each other.
+ *    That derivation is why CI supplies `DATABASE_URL` rather than
+ *    `TEST_DATABASE_URL`; see the workflow.
  *
- * The `id` gives every suite a database of its OWN, and that is not tidiness.
- * `node:test` runs test FILES in parallel, and each suite here truncates every
- * table between its own tests — so sharing one database means one file wiping
- * another's fixtures mid-run, which surfaces as a retention assertion failing on
- * a row count that was right when it was written. Two files migrating the same
- * empty database at once is available too, since `migrate.ts` takes no lock.
- * Separate databases remove both without giving up the parallelism.
+ * The name must end in `_test` either way, and where that check has teeth is the
+ * explicit path: a pasted production URL is refused there rather than truncated.
+ * On the derived path the suffix is added by construction, so the check cannot
+ * fail — what protects that path instead is that the configured database is
+ * never itself touched, only a new sibling beside it. Worth being plain about
+ * the limit: a production `DATABASE_URL` still results in a stray empty database
+ * created on that server, and no name check can tell prod from dev.
+ *
+ * Per-suite isolation is not tidiness. `node:test` runs test FILES in parallel,
+ * and each suite truncates every table between its own tests — so sharing one
+ * database means one file wiping another's fixtures mid-run, surfacing as a
+ * retention assertion failing on a row count that was right when it was written.
+ * Two files migrating the same empty database at once is available too, since
+ * `migrate.ts` takes no lock.
  */
-function resolveTestUrl(id: string): string {
-  // `_<id>_test`, so every name still ends in the suffix the rail below insists
-  // on while each suite gets a database of its own.
+function resolveTestUrl(id: string): { url: string; derived: boolean } {
+  const explicit = process.env.TEST_DATABASE_URL?.trim();
+  if (explicit) return { url: explicit, derived: false };
+
+  // `_<id>_test`, so each suite gets its own and every name still carries the
+  // suffix the rail insists on.
   const own = (name: string) =>
     `${name.replace(new RegExp(`${TEST_DB_SUFFIX}$`), '')}_${id}${TEST_DB_SUFFIX}`;
-  const fallback = `postgres://postgres:postgres@127.0.0.1:5432/${own('netmonitoring')}`;
+  const fallback = {
+    url: `postgres://postgres:postgres@127.0.0.1:5432/${own('netmonitoring')}`,
+    derived: true,
+  };
 
-  const explicit = process.env.TEST_DATABASE_URL?.trim();
-  const configured = explicit ?? process.env.DATABASE_URL?.trim();
+  const configured = process.env.DATABASE_URL?.trim();
   if (!configured) return fallback;
 
   try {
@@ -98,7 +114,7 @@ function resolveTestUrl(id: string): string {
     // pathname is `/name`; an empty one means the server's default database,
     // which is somebody else's too.
     url.pathname = `/${own(url.pathname.replace(/^\//, '') || 'netmonitoring')}`;
-    return url.toString();
+    return { url: url.toString(), derived: true };
   } catch {
     return fallback;
   }
@@ -137,6 +153,46 @@ export interface TestDatabase {
  * `RESTART IDENTITY CASCADE` so sequences restart too: a test asserting on an id
  * it just inserted should not depend on how many tests ran before it.
  */
+/**
+ * Rows the migrations put there, captured once before any test runs.
+ *
+ * `TRUNCATE` removes them and `runMigrations` will not put them back — V7 stays
+ * recorded as applied, so its `delivery_settings` row is gone for the rest of the
+ * process. A suite touching delivery settings then exercises the "no row to
+ * update" branch, which cannot occur in production where the migration
+ * guarantees the row. A test passing against that is asserting the wrong
+ * behaviour; one failing against it is chasing a state that does not exist.
+ *
+ * Captured rather than listed, so a future migration that seeds a row is
+ * restored without anyone remembering to come here — the same reason the table
+ * list itself is discovered.
+ */
+const seededRows = new Map<pg.Pool, Map<string, Record<string, unknown>[]>>();
+
+async function captureSeed(pool: pg.Pool, tables: string[]): Promise<void> {
+  const captured = new Map<string, Record<string, unknown>[]>();
+  for (const table of tables) {
+    const { rows } = await pool.query(`SELECT * FROM ${table}`);
+    if (rows.length > 0) captured.set(table, rows);
+  }
+  seededRows.set(pool, captured);
+}
+
+/** Re-inserts what `captureSeed` saw, leaving the database as migrations left it. */
+async function restoreSeed(pool: pg.Pool): Promise<void> {
+  for (const [table, rows] of seededRows.get(pool) ?? []) {
+    for (const row of rows) {
+      const columns = Object.keys(row);
+      const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
+      await pool.query(
+        `INSERT INTO ${table} (${columns.map((column) => `"${column}"`).join(', ')})
+         VALUES (${placeholders})`,
+        columns.map((column) => row[column]),
+      );
+    }
+  }
+}
+
 export async function truncateAll(pool: pg.Pool): Promise<void> {
   const { rows } = await pool.query<{ name: string }>(
     `SELECT quote_ident(tablename) AS name
@@ -186,6 +242,7 @@ export async function truncateAll(pool: pg.Pool): Promise<void> {
       await pool.query(`ALTER TABLE ${blocker.table} DISABLE TRIGGER ${blocker.trigger}`);
     }
     await pool.query(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
+    await restoreSeed(pool);
   } finally {
     // In a `finally`, because leaving a guarantee switched off after a failed
     // truncate would let a later suite "prove" the audit trail is append-only
@@ -236,7 +293,7 @@ export interface OpenOptions {
 
 export async function openTestDatabase(options: OpenOptions): Promise<TestDatabase> {
   process.env.JWT_SECRET ??= 'db-test-secret-not-used-for-signing';
-  const TEST_DATABASE_URL = resolveTestUrl(options.id);
+  const { url: TEST_DATABASE_URL, derived } = resolveTestUrl(options.id);
 
   /*
    * The rail, checked before anything connects.
@@ -259,6 +316,22 @@ export async function openTestDatabase(options: OpenOptions): Promise<TestDataba
     : TEST_DATABASE_URL;
   process.env.DATABASE_URL = url;
 
+  /*
+   * A derived database is dropped and recreated, not reused.
+   *
+   * It persists between runs, so whatever the last run left behind is still
+   * there — and `captureSeed` below would then capture THAT as the state
+   * migrations produce, re-inserting a previous run's rows after every truncate.
+   * That is not hypothetical: it collided on `users_pkey` the first time, because
+   * `RESTART IDENTITY` sets the sequence back to 1 while the restored row still
+   * held id 1.
+   *
+   * Only when the name was derived. An explicit `TEST_DATABASE_URL` is somebody
+   * else's provisioning decision, and dropping a database we were pointed at
+   * rather than one we invented is not ours to make.
+   */
+  if (derived) await recreateDatabase(TEST_DATABASE_URL, name);
+
   const pool = new pg.Pool({
     connectionString: url,
     max: 4,
@@ -278,11 +351,16 @@ export async function openTestDatabase(options: OpenOptions): Promise<TestDataba
     // anyone's. `ensure-db.mjs` provisions the dev database on the same
     // reasoning; asking a contributor to run a CREATE DATABASE by hand before
     // the suite will speak to them is a step that only exists to be forgotten.
-    if ((error as { code?: string }).code === '3D000' && (await createDatabase(TEST_DATABASE_URL, name))) {
-      return finishOpening(pool);
+    let createFailure: string | undefined;
+    if ((error as { code?: string }).code === '3D000') {
+      const created = await createDatabase(TEST_DATABASE_URL, name);
+      if (created.ok) return finishOpening(pool);
+      createFailure = created.why;
     }
     await pool.end().catch(() => {});
-    const why = `no Postgres at ${redact(TEST_DATABASE_URL)}: ${(error as Error).message}`;
+    const why =
+      `no Postgres at ${redact(TEST_DATABASE_URL)}: ${(error as Error).message}` +
+      (createFailure ? ` (and creating it failed: ${createFailure})` : '');
     if (REQUIRED) {
       // REQUIRE_DB_TESTS is a promise that these ran. Breaking it loudly is the
       // entire point — see the docblock.
@@ -306,6 +384,20 @@ export async function openTestDatabase(options: OpenOptions): Promise<TestDataba
 async function finishOpening(pool: pg.Pool): Promise<TestDatabase> {
   const { runMigrations } = await import('../db/migrate.js');
   await runMigrations();
+
+  // Before the first truncate, so what migrations seeded is what gets restored
+  // after every one of them.
+  const { rows } = await pool.query<{ name: string }>(
+    `SELECT quote_ident(tablename) AS name
+       FROM pg_tables
+      WHERE schemaname = 'public'
+        AND tablename NOT IN ('schema_migrations', 'flyway_schema_history')`,
+  );
+  await captureSeed(
+    pool,
+    rows.map((row) => row.name),
+  );
+
   await truncateAll(pool);
   return { skip: false, pool };
 }
@@ -313,12 +405,38 @@ async function finishOpening(pool: pg.Pool): Promise<TestDatabase> {
 /**
  * Creates the test database through the server's maintenance database.
  *
- * Returns false rather than throwing when it cannot — the caller then reports
- * the ORIGINAL connection failure, which is the more useful of the two: "no
- * Postgres at ..." tells a contributor what to start, where "permission denied
- * to create database" would send them off fixing a role grant they may not need.
+ * Returns false when it cannot, and SAYS WHY. The previous version swallowed the
+ * error on the reasoning that the original connection failure was the more useful
+ * of the two — which is wrong for the case that actually happens: a role without
+ * CREATEDB got "no Postgres at ...: database does not exist. Start Postgres", a
+ * diagnosis pointing at the wrong problem entirely. The real error is appended to
+ * the caller's message instead of replacing it, so both are available.
  */
-async function createDatabase(url: string, name: string): Promise<boolean> {
+async function recreateDatabase(url: string, name: string): Promise<void> {
+  const maintenance = new URL(url);
+  maintenance.pathname = '/postgres';
+  const admin = new pg.Pool({
+    connectionString: maintenance.toString(),
+    max: 1,
+    connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+  });
+  admin.on('error', () => {});
+  try {
+    const { rows } = await admin.query<{ quoted: string }>('SELECT quote_ident($1) AS quoted', [name]);
+    // FORCE so a connection left open by a crashed previous run does not block
+    // the drop; without it the failure is "database is being accessed by other
+    // users", which reads as a permissions problem.
+    await admin.query(`DROP DATABASE IF EXISTS ${rows[0]!.quoted} WITH (FORCE)`);
+    await admin.query(`CREATE DATABASE ${rows[0]!.quoted}`);
+  } catch {
+    // Best effort. If this fails the connection below fails too, with an error
+    // that describes the actual problem rather than this one.
+  } finally {
+    await admin.end().catch(() => {});
+  }
+}
+
+async function createDatabase(url: string, name: string): Promise<{ ok: boolean; why?: string }> {
   const maintenance = new URL(url);
   maintenance.pathname = '/postgres';
 
@@ -336,9 +454,9 @@ async function createDatabase(url: string, name: string): Promise<boolean> {
     // in `_test`, but quoting it is what makes that reasoning unnecessary.
     const { rows } = await admin.query<{ quoted: string }>('SELECT quote_ident($1) AS quoted', [name]);
     await admin.query(`CREATE DATABASE ${rows[0]!.quoted}`);
-    return true;
-  } catch {
-    return false;
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, why: (error as Error).message };
   } finally {
     await admin.end().catch(() => {});
   }

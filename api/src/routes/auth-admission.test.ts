@@ -101,7 +101,12 @@ describe('authenticated admission', { skip: database.skip }, () => {
   });
 
   after(async () => {
-    await new Promise<void>((resolve) => server?.close(() => resolve()));
+    // Guarded, because `server?.close(cb)` short-circuits when `server` is
+    // undefined and the callback never runs — so this promise never settles and
+    // the hook hangs for ever. node:test applies no default hook timeout, so a
+    // `before` that threw before `listen` turned a red test into a job that
+    // hangs until CI kills it, with the actual cause nowhere in the output.
+    if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
     await database.pool?.end();
     // The APPLICATION's pool too. `db/index.ts` does not set `allowExitOnIdle`,
     // so `pg-pool` keeps its idle clients referenced and the process lingers

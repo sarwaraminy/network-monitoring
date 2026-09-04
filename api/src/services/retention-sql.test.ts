@@ -102,7 +102,10 @@ describe('retention against a real Postgres', { skip: database.skip }, () => {
   });
 
   after(async () => {
-    await retention.retentionIdle();
+    // `retention` is only assigned in `before`, so a `before` that threw would
+    // raise a TypeError here and report THAT as the failure, burying the real
+    // one underneath it. Same guard as the `?.` on the pool below.
+    await retention?.retentionIdle();
     await database.pool?.end();
     // See auth-admission.test.ts: without this the process lingers for the
     // application pool's 30s idle timeout after the last assertion.

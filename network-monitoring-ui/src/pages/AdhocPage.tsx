@@ -4,6 +4,8 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import Collapse from '@mui/material/Collapse';
+import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
@@ -13,6 +15,7 @@ import { useMemo, useState } from 'react';
 import { type AdhocResult, fetchAdhocAvailability, isNumericOid, runAdhocQuery } from '../api/adhoc.api';
 import { describeError } from '../api/client';
 import DataGrid from '../components/DataGrid';
+import { DisclosureCaret } from '../components/DisclosureCaret';
 import SurfaceCard from '../components/SurfaceCard';
 import { monoSx } from '../theme';
 
@@ -36,6 +39,9 @@ import { monoSx } from '../theme';
  * first job is asking whether it is available rather than assuming.
  */
 
+/** So the header toggle's `aria-controls` has something real to point at. */
+const EDITOR_REGION = 'adhoc-editor';
+
 /** Postgres renders these itself; anything else is shown as JSON. */
 function renderCell(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -49,6 +55,16 @@ export default function AdhocPage() {
   const [result, setResult] = useState<AdhocResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  /*
+   * The editor folds away once a query has run, so the result gets the room —
+   * the same move `professional`'s Ad Hoc Request makes, and for the same
+   * reason: on this page the question is short and the answer is a table.
+   *
+   * Re-openable from the header, and it only ever collapses ITSELF. The Run
+   * button stays outside the fold so a collapsed query can still be re-run, which
+   * is the common thing to want after reading a result.
+   */
+  const [showEditor, setShowEditor] = useState(true);
 
   const availability = useQuery({
     queryKey: ['adhoc', 'availability'],
@@ -61,11 +77,15 @@ export default function AdhocPage() {
     setError(null);
     try {
       setResult(await runAdhocQuery(sql));
+      setShowEditor(false);
     } catch (caught) {
       // The result is cleared, not left in place: a stale grid beside a fresh
       // error reads as though the error were a warning about the rows shown.
       setResult(null);
       setError(describeError(caught));
+      // Stays open on failure: the query is what needs editing, and folding it
+      // away would hide the thing the error is about.
+      setShowEditor(true);
     } finally {
       setRunning(false);
     }
@@ -133,27 +153,48 @@ export default function AdhocPage() {
         titleComponent="h1"
         titleVariant="h5"
         subtitle="Read-only SQL against this system's database. Every query is recorded in the audit trail."
+        headerActions={
+          <IconButton
+            size="small"
+            onClick={() => setShowEditor((open) => !open)}
+            aria-label={showEditor ? 'Hide the query' : 'Show the query'}
+            aria-expanded={showEditor}
+            // Points at what it opens, so the state it announces describes
+            // something real — the rule the sidebar's rail button is held to.
+            aria-controls={EDITOR_REGION}
+            sx={{ color: 'text.secondary' }}
+          >
+            <DisclosureCaret expanded={showEditor} />
+          </IconButton>
+        }
       >
         <Stack spacing={1.5}>
-          <TextField
-            label="SQL"
-            value={sql}
-            onChange={(event) => setSql(event.target.value)}
-            multiline
-            minRows={5}
-            fullWidth
-            placeholder="SELECT kind, count(*) FROM alerts GROUP BY kind ORDER BY 2 DESC"
-            slotProps={{ htmlInput: { sx: monoSx, spellCheck: false } }}
-            // Ctrl/Cmd+Enter runs. Plain Enter has to keep inserting a newline:
-            // this is a multi-line editor, and a query is routinely more than one.
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && sql.trim() !== '') {
-                event.preventDefault();
-                void run();
-              }
-            }}
-          />
+          <Collapse in={showEditor} id={EDITOR_REGION} timeout={250}>
+            <TextField
+              label="SQL"
+              value={sql}
+              onChange={(event) => setSql(event.target.value)}
+              multiline
+              minRows={5}
+              fullWidth
+              placeholder="SELECT kind, count(*) FROM alerts GROUP BY kind ORDER BY 2 DESC"
+              slotProps={{ htmlInput: { sx: monoSx, spellCheck: false } }}
+              // Ctrl/Cmd+Enter runs. Plain Enter has to keep inserting a newline:
+              // this is a multi-line editor, and a query is routinely more than one.
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && sql.trim() !== '') {
+                  event.preventDefault();
+                  void run();
+                }
+              }}
+            />
+          </Collapse>
 
+          {/*
+            Outside the fold on purpose: re-running a query you have just read the
+            result of is the common thing to want, and having to re-open the
+            editor first would make the collapse a cost rather than a help.
+          */}
           <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
             <Button
               variant="contained"

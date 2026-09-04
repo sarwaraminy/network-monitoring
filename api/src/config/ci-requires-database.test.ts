@@ -75,10 +75,24 @@ describe('CI runs the database-backed suites for real', () => {
   it('gives that step a database to reach', () => {
     // The flag alone would turn a missing service into a hard failure rather
     // than silence, which is better — but the point is that the tests RUN.
+    //
+    // `DATABASE_URL` specifically, not `TEST_DATABASE_URL`: the harness honours
+    // an explicit test URL exactly as given, so setting that one would put both
+    // database suites back in a single database truncating each other. The base
+    // URL is what lets it derive a per-suite name. Asserting the right variable
+    // is the whole value of this check.
+    // This pattern also matches `TEST_DATABASE_URL:`, which is why the second
+    // assertion is not optional: together they say "a base URL, and not the
+    // verbatim one". Either alone would pass on the wrong variable.
     assert.match(
       apiTestStep(),
-      /TEST_DATABASE_URL:\s*\S+/,
-      'the API test step must point TEST_DATABASE_URL at the service container',
+      /DATABASE_URL:\s*\S+/,
+      'the API test step must set DATABASE_URL so the harness can derive per-suite databases',
+    );
+    assert.doesNotMatch(
+      apiTestStep(),
+      /TEST_DATABASE_URL:/,
+      'TEST_DATABASE_URL is honoured verbatim, which would share one database between the suites',
     );
   });
 
