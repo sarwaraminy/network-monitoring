@@ -6,15 +6,11 @@ import { actorOf } from '../services/audit.service.js';
 import {
   createSuppression,
   deleteSuppression,
-  getSuppression,
   listSuppressions,
-  type SuppressionInput,
   updateSuppression,
 } from '../services/suppression.service.js';
 import { SuppressionSet } from '../services/suppression-rules.js';
 import {
-  hasSuppressionCriterion,
-  NO_CRITERIA,
   parseId,
   parseOrThrow,
   suppressionCreateSchema,
@@ -134,11 +130,12 @@ suppressionsRouter.post(
 /**
  * PATCH /api/suppressions/:id — partial update.
  *
- * The patch is merged over the stored row and the *result* is checked, which is
- * the only place the "at least one criterion" rule can be enforced: clearing the
- * only criterion of a rule must fail, clearing one of two must not, and the patch
- * on its own cannot tell those apart. Omitting a field leaves it; sending null
- * clears it.
+ * The merge and the "at least one criterion" check both happen inside
+ * `updateSuppression`, against the row it locks, not here: computing the merged
+ * row from an unlocked read taken before the transaction opened is a lost-update
+ * race a lock inside the transaction cannot close, since the write still lands
+ * whatever was merged from the stale read. Omitting a field leaves it; sending
+ * null clears it.
  */
 suppressionsRouter.patch(
   '/:id',
@@ -147,24 +144,7 @@ suppressionsRouter.patch(
     const id = parseId(req.params.id);
     const patch = parseOrThrow(suppressionUpdateSchema, req.body);
 
-    const existing = await getSuppression(id);
-    if (!existing) throw new HttpError(404, `No suppression rule with id ${id}`);
-
-    const merged: SuppressionInput = {
-      kind: patch.kind === undefined ? existing.kind : patch.kind,
-      sourceCidr: patch.sourceCidr === undefined ? existing.sourceCidr : patch.sourceCidr,
-      targetCidr: patch.targetCidr === undefined ? existing.targetCidr : patch.targetCidr,
-      port: patch.port === undefined ? existing.port : patch.port,
-      reason: patch.reason ?? existing.reason,
-      // `??`, not `||`: switching a rule off sends `false`, which is exactly the
-      // value a truthiness check would discard.
-      enabled: patch.enabled ?? existing.enabled,
-      expiresAt: patch.expiresAt === undefined ? existing.expiresAt : patch.expiresAt,
-    };
-
-    if (!hasSuppressionCriterion(merged)) throw new HttpError(400, NO_CRITERIA);
-
-    const updated = await updateSuppression(id, merged, actorOf(req.user));
+    const updated = await updateSuppression(id, patch, actorOf(req.user));
     if (!updated) throw new HttpError(404, `No suppression rule with id ${id}`);
     res.json(updated);
   }),

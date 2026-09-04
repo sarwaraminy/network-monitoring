@@ -184,6 +184,53 @@ describe('a delivery-settings change', () => {
   });
 });
 
+describe('whether a settings PATCH actually changed anything', () => {
+  /*
+   * `changedFields` is what saveDeliverySettings diffs the patch against before
+   * deciding whether to write an audit entry at all, and what it passes to
+   * settingsAuditDetail when it does. A non-empty patch resubmitting the same
+   * values — a form saved with nothing edited — must not count, the same
+   * distinction ruleChanges draws for a suppression-rule PATCH.
+   */
+  const current = {
+    emailPort: 587,
+    webhookUrl: 'https://hooks.example.com/abc',
+    emailTo: ['a@example.com', 'b@example.com'],
+  } as Parameters<typeof settings.changedFields>[0];
+
+  it('is empty when the patch resubmits the stored values', () => {
+    assert.deepEqual(
+      settings.changedFields(current, { emailPort: 587, webhookUrl: 'https://hooks.example.com/abc' }),
+      {},
+    );
+  });
+
+  it('keeps only the field that actually moved', () => {
+    assert.deepEqual(
+      settings.changedFields(current, { emailPort: 587, webhookUrl: 'https://hooks.new.com/x' }),
+      {
+        webhookUrl: 'https://hooks.new.com/x',
+      },
+    );
+  });
+
+  it('compares an array field by contents, not by reference', () => {
+    // A fresh array with the same two addresses in the same order is not a
+    // change — comparing with `!==` would say otherwise for any new array.
+    assert.deepEqual(settings.changedFields(current, { emailTo: ['a@example.com', 'b@example.com'] }), {});
+    assert.deepEqual(settings.changedFields(current, { emailTo: ['a@example.com'] }), {
+      emailTo: ['a@example.com'],
+    });
+  });
+
+  it('treats every field of the patch as changed when no row exists yet', () => {
+    // The very first save: there is nothing stored to compare against, so
+    // nothing in the patch could be a resubmit of an existing value.
+    const patch = { emailPort: 587, webhookUrl: 'https://hooks.example.com/abc' };
+    assert.deepEqual(settings.changedFields(undefined, patch), patch);
+  });
+});
+
 describe('a suppression rule change', () => {
   const rule = {
     kind: 'port_scan',
@@ -235,5 +282,56 @@ describe('a suppression rule change', () => {
     );
 
     assert.deepEqual(changed, { sourceCidr: { from: '10.0.0.0/8', to: null } });
+  });
+});
+
+describe('merging a PATCH onto a locked row', () => {
+  /*
+   * Pinned separately from `updateSuppression` itself, which needs a real
+   * transaction and lock to mean anything — see that function's own comment for
+   * why the merge has to run against the row it locks, not a snapshot read
+   * beforehand. What is checkable without a database is the merge arithmetic on
+   * its own: omitting a field leaves it, null clears it, and `enabled: false`
+   * survives a `??` rather than being discarded by a truthiness check.
+   */
+  const before = {
+    kind: 'port_scan',
+    sourceCidr: '10.0.0.0/8',
+    targetCidr: null,
+    port: null,
+    reason: 'the vulnerability scanner',
+    enabled: true,
+    expiresAt: null,
+  } as Parameters<typeof suppression.mergeSuppressionPatch>[0];
+
+  it('leaves a field alone when the patch omits it', () => {
+    const merged = suppression.mergeSuppressionPatch(before, { reason: 'the new scanner' });
+    assert.equal(merged.kind, 'port_scan');
+    assert.equal(merged.sourceCidr, '10.0.0.0/8');
+    assert.equal(merged.reason, 'the new scanner');
+  });
+
+  it('clears a field the patch sets to null', () => {
+    const merged = suppression.mergeSuppressionPatch(before, { sourceCidr: null });
+    assert.equal(merged.sourceCidr, null);
+    // Untouched fields still come from `before`, not from the patch's absence.
+    assert.equal(merged.kind, 'port_scan');
+  });
+
+  it('does not lose enabled: false to a truthiness check', () => {
+    const merged = suppression.mergeSuppressionPatch(before, { enabled: false });
+    assert.equal(merged.enabled, false);
+  });
+
+  it('applies several fields at once and leaves the rest alone', () => {
+    const merged = suppression.mergeSuppressionPatch(before, { enabled: false, port: 445 });
+    assert.equal(merged.enabled, false);
+    assert.equal(merged.port, 445);
+    assert.equal(merged.reason, 'the vulnerability scanner');
+    assert.equal(merged.targetCidr, null);
+  });
+
+  it('reproduces every field of `before` when the patch is empty', () => {
+    assert.deepEqual(suppression.mergeSuppressionPatch(before, {}), before);
   });
 });
