@@ -10,11 +10,6 @@ export async function getAllLogs(): Promise<LogRow[]> {
   return db.select().from(logs).orderBy(desc(logs.id));
 }
 
-export async function getLogById(id: number): Promise<LogRow | null> {
-  const rows = await db.select().from(logs).where(eq(logs.id, id)).limit(1);
-  return rows[0] ?? null;
-}
-
 /*
  * The three writes below are audited, and it is worth saying why for a table
  * nothing writes any more.
