@@ -181,6 +181,14 @@ function deliveryCodeDefaults(): Map<string, string> {
  * now fails this test until it is either passed through to Compose or explicitly
  * excused here, and excusing it is the act that has to be conscious.
  */
+/**
+ * Settings deliberately absent from `api/.env.example`.
+ *
+ * Kept as a list with reasons rather than a loose match, so "not documented" is
+ * always a decision somebody made rather than something that fell out.
+ */
+const NOT_IN_HOST_EXAMPLE = new Set<string>([]);
+
 const NOT_IN_COMPOSE = new Set([
   // Set by the Compose file itself or by the container, not by an operator.
   'PORT',
@@ -296,6 +304,38 @@ describe('deployment defaults match the code', () => {
       }
     });
   }
+
+  it('offers every setting env.ts reads in api/.env.example', () => {
+    /*
+     * The host-install example, checked for COMPLETENESS rather than only for
+     * contradiction.
+     *
+     * Nothing compared this file against `env.ts` before, and the gap showed:
+     * `ADHOC_MAX_QUERY_LENGTH` reached Compose and `.env.docker.example` and was
+     * missing here alone, so somebody configuring a host install had no
+     * indication the setting existed. That is the second ad hoc setting to land
+     * in some examples and not others, which is the sort of drift a person
+     * cannot be relied on to catch by eye.
+     *
+     * Commented-out lines count. An example's job is to name the setting and its
+     * default, and `# NAME=value` does that without changing anyone's
+     * configuration — which is the right form for anything optional.
+     */
+    const example = read('api/.env.example');
+    const named = new Set(
+      [...example.matchAll(/^\s*#?\s*([A-Z][A-Z0-9_]*)\s*=/gm)].map((match) => match[1]!),
+    );
+
+    const missing = [...code.keys()].filter((name) => !named.has(name) && !NOT_IN_HOST_EXAMPLE.has(name));
+
+    assert.deepEqual(
+      missing,
+      [],
+      'read by env.ts but absent from api/.env.example: ' +
+        `${missing.join(', ')}. Add them there (commented out, with the default), ` +
+        'or add them to NOT_IN_HOST_EXAMPLE with a reason.',
+    );
+  });
 
   it('passes every setting env.ts reads through to Compose', () => {
     /*

@@ -67,7 +67,31 @@ BEGIN
         -- written for. Verified against a real cluster: two concurrent
         -- `CREATE ROLE` statements return `ok` and `23505`.
         WHEN duplicate_object OR unique_violation THEN NULL;
+        -- And `insufficient_privilege`, which is a different problem with the
+        -- same right answer: CREATE ROLE needs SUPERUSER or CREATEROLE, and a
+        -- hardened install's database owner has neither. Letting 42501 out of
+        -- this block fails `runMigrations()`, which fails `main()`, which exits
+        -- 1 — so an existing deployment could not START after pulling this
+        -- release, blocked by a migration for a feature that is off by default
+        -- and that it may never enable. An optional feature must not be able to
+        -- stop an upgrade.
+        --
+        -- Not silent: the NOTICE says what did not happen, and the console's own
+        -- startup check then reports `role ... does not exist; has V11 run on
+        -- this database?`, which is accurate about the state it finds.
+        WHEN insufficient_privilege THEN
+            RAISE NOTICE 'Skipping the ad hoc console role: this database owner may not CREATE ROLE. '
+                         'The console will stay off until a role with CREATEROLE runs this migration.';
     END;
+
+    -- Same reason as V10: the handler above tolerates an owner that cannot
+    -- CREATE ROLE, and every statement below needs the role to exist. Without
+    -- this the next line fails with `undefined_object` and takes the migration
+    -- down anyway.
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+        RAISE NOTICE 'Ad hoc console role absent; skipping its grants.';
+        RETURN;
+    END IF;
 
     -- Explicit, though a fresh role has none of this: the point is that the file
     -- can be read as the whole of what this role may do.

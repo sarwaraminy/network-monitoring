@@ -74,6 +74,21 @@ BEGIN
         -- written for. Verified against a real cluster: two concurrent
         -- `CREATE ROLE` statements return `ok` and `23505`.
         WHEN duplicate_object OR unique_violation THEN NULL;
+        -- And `insufficient_privilege`, which is a different problem with the
+        -- same right answer: CREATE ROLE needs SUPERUSER or CREATEROLE, and a
+        -- hardened install's database owner has neither. Letting 42501 out of
+        -- this block fails `runMigrations()`, which fails `main()`, which exits
+        -- 1 — so an existing deployment could not START after pulling this
+        -- release, blocked by a migration for a feature that is off by default
+        -- and that it may never enable. An optional feature must not be able to
+        -- stop an upgrade.
+        --
+        -- Not silent: the NOTICE says what did not happen, and the console's own
+        -- startup check then reports `role ... does not exist; has V11 run on
+        -- this database?`, which is accurate about the state it finds.
+        WHEN insufficient_privilege THEN
+            RAISE NOTICE 'Skipping the ad hoc console role: this database owner may not CREATE ROLE. '
+                         'The console will stay off until a role with CREATEROLE runs this migration.';
     END;
 END
 $$;
@@ -82,42 +97,55 @@ $$;
 -- file is to be readable as the whole of what this role may do, and "it inherits
 -- nothing by default" is a fact about Postgres that a reader should not have to
 -- know to audit it.
-REVOKE ALL ON SCHEMA public FROM nm_adhoc;
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM nm_adhoc;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM nm_adhoc;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM nm_adhoc;
+DO $$
+BEGIN
+    -- Everything below needs the role to exist, and it may not: the block above
+    -- tolerates an owner without CREATEROLE so that an optional feature cannot
+    -- block an upgrade. Without this guard those grants would fail with
+    -- `undefined_object` and undo that tolerance one statement later.
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nm_adhoc') THEN
+        RAISE NOTICE 'Ad hoc console role absent; skipping its grants.';
+        RETURN;
+    END IF;
 
--- USAGE lets it resolve names in `public`. It does not grant CREATE, so this role
--- cannot make a table of its own to write into.
-GRANT USAGE ON SCHEMA public TO nm_adhoc;
+    REVOKE ALL ON SCHEMA public FROM nm_adhoc;
+    REVOKE ALL ON ALL TABLES IN SCHEMA public FROM nm_adhoc;
+    REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM nm_adhoc;
+    REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM nm_adhoc;
 
--- The tables with nothing to hide.
-GRANT SELECT ON alerts               TO nm_adhoc;
-GRANT SELECT ON alert_rollup_daily   TO nm_adhoc;
-GRANT SELECT ON alert_suppressions   TO nm_adhoc;
-GRANT SELECT ON audit_events         TO nm_adhoc;
-GRANT SELECT ON known_devices        TO nm_adhoc;
-GRANT SELECT ON logs                 TO nm_adhoc;
+    -- USAGE lets it resolve names in `public`. It does not grant CREATE, so this role
+    -- cannot make a table of its own to write into.
+    GRANT USAGE ON SCHEMA public TO nm_adhoc;
 
--- And the two that do, column by column. Adding a column to either of these
--- tables leaves it unreadable here until someone adds it below, which is the
--- right way round: a new column is invisible to the console until a human has
--- decided it is not a secret.
-GRANT SELECT (id, email, role, lang_code, firstname, lastname, created_at)
-    ON users TO nm_adhoc;
+    -- The tables with nothing to hide.
+    GRANT SELECT ON alerts               TO nm_adhoc;
+    GRANT SELECT ON alert_rollup_daily   TO nm_adhoc;
+    GRANT SELECT ON alert_suppressions   TO nm_adhoc;
+    GRANT SELECT ON audit_events         TO nm_adhoc;
+    GRANT SELECT ON known_devices        TO nm_adhoc;
+    GRANT SELECT ON logs                 TO nm_adhoc;
 
-GRANT SELECT (
-    id, enabled, min_severity, digest_seconds, throttle_seconds, max_per_hour,
-    include_evidence, dashboard_url, webhook_format,
-    syslog_host, syslog_port, syslog_protocol, syslog_format, syslog_rfc,
-    syslog_facility, syslog_app_name, syslog_include_evidence,
-    email_host, email_port, email_secure, email_user, email_from, email_to,
-    updated_at, updated_by
-) ON delivery_settings TO nm_adhoc;
+    -- And the two that do, column by column. Adding a column to either of these
+    -- tables leaves it unreadable here until someone adds it below, which is the
+    -- right way round: a new column is invisible to the console until a human has
+    -- decided it is not a secret.
+    GRANT SELECT (id, email, role, lang_code, firstname, lastname, created_at)
+        ON users TO nm_adhoc;
 
--- The migration ledger is machinery, not data anyone should be querying, and
--- `schema_migrations` is not granted above. Left unreadable on purpose.
+    GRANT SELECT (
+        id, enabled, min_severity, digest_seconds, throttle_seconds, max_per_hour,
+        include_evidence, dashboard_url, webhook_format,
+        syslog_host, syslog_port, syslog_protocol, syslog_format, syslog_rfc,
+        syslog_facility, syslog_app_name, syslog_include_evidence,
+        email_host, email_port, email_secure, email_user, email_from, email_to,
+        updated_at, updated_by
+    ) ON delivery_settings TO nm_adhoc;
 
-COMMENT ON ROLE nm_adhoc IS
-    'Read-only role for the Ad Hoc Query console. SELECT only, secrets excluded at the column level. '
-    'See V10__Adhoc_query_role.sql for why enforcement lives here rather than in application code.';
+    -- The migration ledger is machinery, not data anyone should be querying, and
+    -- `schema_migrations` is not granted above. Left unreadable on purpose.
+
+    COMMENT ON ROLE nm_adhoc IS
+        'Read-only role for the Ad Hoc Query console. SELECT only, secrets excluded at the column level. '
+        'See V10__Adhoc_query_role.sql for why enforcement lives here rather than in application code.';
+END
+$$;

@@ -225,87 +225,113 @@ export default function CaptureToolbar({
               fullWidth
             />
           </Grid>
-
-          <Grid size={{ xs: 12, md: showIpFilter ? 12 : 3 }}>
-            <Stack
-              direction="row"
-              spacing={1}
-              useFlexGap
-              sx={{
-                flexWrap: 'wrap',
-                pt: { md: 0.25 },
-              }}
-            >
-              <Button
-                variant="contained"
-                startIcon={<PlayArrowIcon />}
-                onClick={start}
-                disabled={!canStart || captureUnavailable}
-              >
-                Start capture
-              </Button>
-              <Button
-                variant="outlined"
-                color="warning"
-                startIcon={<StopIcon />}
-                onClick={stop}
-                disabled={!capturing || busy}
-              >
-                Stop
-              </Button>
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<DeleteSweepIcon />}
-                onClick={clear}
-                disabled={busy}
-              >
-                Clear
-              </Button>
-            </Stack>
-          </Grid>
         </Grid>
       </Collapse>
+
+      {/*
+        One row: what the capture IS on the left, what you can DO to it on the
+        right. They were stacked, which spent a second line of the card on two
+        short rows that never fill their width — and this card sits above a table
+        that wants every pixel of height it can get.
+
+        `space-between` rather than a spacer, so the two groups keep their ends
+        as the middle stretches. Both wrap internally, and the row itself wraps
+        at narrow widths, which puts the actions under the status rather than
+        squeezing either.
+
+        The actions are OUTSIDE the fold above, deliberately — the same call
+        `AdhocPage` makes about its Run button. The workflow this collapse exists
+        for is "hide the settings so the packet table has room while packets
+        stream in", and that is exactly when a capture is RUNNING and Stop is the
+        control most likely to be wanted. Folding it away would take the only
+        means of ending a live capture with it, at the moment of wanting to.
+      */}
       <Stack
         direction="row"
-        spacing={1}
+        spacing={2}
         useFlexGap
         sx={{
           alignItems: 'center',
+          justifyContent: 'space-between',
           flexWrap: 'wrap',
           mt: 2,
         }}
       >
-        <Chip
-          size="small"
-          icon={<FiberManualRecordIcon sx={{ fontSize: 12 }} />}
-          color={capturing ? 'success' : 'default'}
-          variant={capturing ? 'filled' : 'outlined'}
-          label={capturing ? 'Capturing' : 'Idle'}
-        />
-        {status?.linkType && <Chip size="small" variant="outlined" label={`Link: ${status.linkType}`} />}
-        {status?.filter && <Chip size="small" variant="outlined" label={`Filter: ${status.filter}`} />}
-        {status && status.findingCount > 0 && (
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          sx={{
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
           <Chip
             size="small"
-            color="warning"
-            variant="outlined"
-            component={RouterLink}
-            to="/alerts"
-            clickable
-            label={`${status.findingCount} finding${status.findingCount === 1 ? '' : 's'} — view alerts`}
+            icon={<FiberManualRecordIcon sx={{ fontSize: 12 }} />}
+            color={capturing ? 'success' : 'default'}
+            variant={capturing ? 'filled' : 'outlined'}
+            label={capturing ? 'Capturing' : 'Idle'}
           />
-        )}
-        {status && status.droppedPackets > 0 && (
-          <Typography
-            variant="caption"
-            sx={{
-              color: 'text.secondary',
-            }}
+          {status?.linkType && <Chip size="small" variant="outlined" label={`Link: ${status.linkType}`} />}
+          {status?.filter && <Chip size="small" variant="outlined" label={`Filter: ${status.filter}`} />}
+          {status && status.findingCount > 0 && (
+            <Chip
+              size="small"
+              color="warning"
+              variant="outlined"
+              component={RouterLink}
+              to="/alerts"
+              clickable
+              label={`${status.findingCount} finding${status.findingCount === 1 ? '' : 's'} — view alerts`}
+            />
+          )}
+          {status && status.droppedPackets > 0 && (
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+              }}
+            >
+              {status.droppedPackets.toLocaleString()} older packet(s) dropped from the buffer
+            </Typography>
+          )}
+        </Stack>
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          sx={{
+            flexWrap: 'wrap',
+          }}
+        >
+          <Button
+            variant="contained"
+            startIcon={<PlayArrowIcon />}
+            onClick={start}
+            disabled={!canStart || captureUnavailable}
           >
-            {status.droppedPackets.toLocaleString()} older packet(s) dropped from the buffer
-          </Typography>
-        )}
+            Start capture
+          </Button>
+          <Button
+            variant="outlined"
+            color="warning"
+            startIcon={<StopIcon />}
+            onClick={stop}
+            disabled={!capturing || busy}
+          >
+            Stop
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<DeleteSweepIcon />}
+            onClick={clear}
+            disabled={busy}
+          >
+            Clear
+          </Button>
+        </Stack>
       </Stack>
     </SurfaceCard>
   );

@@ -142,10 +142,30 @@ const ROLE_PREFIX = 'nm_adhoc_';
 /** Hex characters of md5 kept. 9 + 16 = 25 bytes, comfortably inside the limit. */
 const HASH_LENGTH = 16;
 
-function adhocConnectionString(role: string, password: string): string {
+export function adhocConnectionString(role: string, password: string): string {
   const url = new URL(env.databaseUrl);
-  url.username = role;
-  url.password = password;
+  /*
+   * Pre-encoded, both of them.
+   *
+   * `url.password = value` percent-encodes SOME characters and leaves an
+   * existing `%` alone, while `pg-connection-string` runs `decodeURIComponent`
+   * on the way back out — so a password containing `%` plus two hex digits comes
+   * back as a different string. Measured: `p%41ss#w rd` round-trips to
+   * `pAss#w rd`. The `#` and the space survive; the `%41` does not.
+   *
+   * The consequence is nastier than the bug: `ALTER ROLE … PASSWORD` sets one
+   * string and the pool then authenticates with another, so the console fails
+   * its own sandbox proof and logs "failed its safety checks and stays off" —
+   * pointing the operator at the proof rather than at a password the two halves
+   * of this file disagree about. Generated passwords are exactly where stray
+   * `%`-plus-hex sequences come from.
+   *
+   * `env.ts`'s own `databaseUrl()` encodes for this reason; this now matches it.
+   * Exported so the round-trip can be asserted rather than reasoned about, since
+   * this is the third round for it.
+   */
+  url.username = encodeURIComponent(role);
+  url.password = encodeURIComponent(password);
   return url.toString();
 }
 
@@ -240,11 +260,40 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
      * the note in `env.ts` telling an operator this password reaches the server
      * log if their role cannot suppress it.
      */
+    /*
+     * Whether the suppression is even possible, asked BEFORE trying it.
+     *
+     * `log_statement` and `log_min_error_statement` are SUSET — superuser only.
+     * A `.catch()` around the failed `SET LOCAL` swallows the JS rejection but
+     * not the Postgres one: the transaction is already aborted, so the very
+     * `ALTER ROLE` this block exists to protect fails with 25P02. The console
+     * then could not start AT ALL on an install whose owner is a scoped role —
+     * the configuration `env.ts` documents as supported — and it reported it as
+     * a failed safety check, pointing the operator at the sandbox proof rather
+     * than at a permission on a logging setting.
+     *
+     * So it degrades instead: suppress where we can, and where we cannot, say
+     * which trade-off the operator is getting rather than silently taking it.
+     */
+    const { rows: privilege } = await owner.query<{ superuser: string }>(
+      `SELECT current_setting('is_superuser') AS superuser`,
+    );
+    const canSuppressLogging = privilege[0]?.superuser === 'on';
+    if (!canSuppressLogging) {
+      log.warn(
+        { role },
+        'Cannot suppress statement logging (the database owner is not a superuser); ' +
+          'ADHOC_DB_PASSWORD may be written to the Postgres log in cleartext',
+      );
+    }
+
     const client = await owner.connect();
     try {
       await client.query('BEGIN');
-      await client.query(`SET LOCAL log_statement = 'none'`).catch(() => {});
-      await client.query(`SET LOCAL log_min_error_statement = 'panic'`).catch(() => {});
+      if (canSuppressLogging) {
+        await client.query(`SET LOCAL log_statement = 'none'`);
+        await client.query(`SET LOCAL log_min_error_statement = 'panic'`);
+      }
       await client.query(rows[0]!.statement);
       await client.query('COMMIT');
     } catch (error) {
