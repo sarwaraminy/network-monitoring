@@ -25,6 +25,12 @@ import pg from 'pg';
  * 40 it dropped were the attack simulations. "Nothing failed" and "nothing ran"
  * look identical from the outside.
  *
+ * And the runner gives no hint either. A skipped `describe` never registers its
+ * tests, so the summary reports `skipped 0` and simply counts lower — 543 rather
+ * than 555 here, a difference nobody has a second source for. That is the same
+ * shape as the glob bug exactly: a number that looks fine unless you already knew
+ * what it should be.
+ *
  * So the skip is conditional on nobody having said it matters. Set
  * `REQUIRE_DB_TESTS=1` — CI does — and an unreachable database is a hard error
  * naming what it could not reach, rather than a suite that quietly evaporates.
