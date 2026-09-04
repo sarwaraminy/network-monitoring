@@ -36,7 +36,22 @@ const ADMIN_ONLY = '/api/audit';
 /** Authenticated, no role guard — see `route-guards.test.ts` for the table. */
 const ANY_ROLE = '/api/alerts';
 
-const database = await openTestDatabase();
+/*
+ * Set BEFORE the database is opened, not in a hook.
+ *
+ * The top-level `openTestDatabase` below imports the config chain, and `env.ts`
+ * parses `process.env` once at module load — so a hook setting these runs after
+ * they have been read and changes nothing. That made the old comment here
+ * exactly inverted: rate limiting was LIVE for this suite rather than disabled,
+ * and it passed only because the request volume stayed under the backstop
+ * limiter. Add cases and the assertions start being about the limiter. The
+ * signing secret agreed with the verifying secret by coincidence of
+ * configuration rather than by construction, too.
+ */
+process.env.JWT_SECRET = SECRET;
+process.env.NODE_ENV = 'test';
+
+const database = await openTestDatabase({ id: 'auth-admission' });
 
 let app: Express;
 let server: Server;
@@ -68,21 +83,14 @@ const authorised = (token: string) => ({ headers: { authorization: `Bearer ${tok
 
 describe('authenticated admission', { skip: database.skip }, () => {
   before(async () => {
-    process.env.JWT_SECRET = SECRET;
-    // Rate limits are disabled under `test`; without it the backstop limiter
-    // would start answering 429 and the assertions would be about the limiter.
-    process.env.NODE_ENV = 'test';
-
     ({ signAccessToken } = await import('../services/jwt.service.js'));
-    const [{ createApp }, alerts, audit] = await Promise.all([
-      import('../app.js'),
-      import('./alerts.routes.js'),
-      import('./audit.routes.js'),
-    ]);
+    const { createApp } = await import('../app.js');
 
+    // `createApp` mounts every router itself and finishes by installing the 404
+    // handler, so mounting them again here registered them AFTER that handler,
+    // where nothing can reach them. Every request below is served by the mounts
+    // inside `createApp` — which is what this suite should be exercising anyway.
     app = createApp();
-    app.use('/api/alerts', alerts.alertsRouter);
-    app.use('/api/audit', audit.auditRouter);
 
     await new Promise<void>((resolve) => {
       server = app.listen(0, '127.0.0.1', resolve);
@@ -95,6 +103,12 @@ describe('authenticated admission', { skip: database.skip }, () => {
   after(async () => {
     await new Promise<void>((resolve) => server?.close(() => resolve()));
     await database.pool?.end();
+    // The APPLICATION's pool too. `db/index.ts` does not set `allowExitOnIdle`,
+    // so `pg-pool` keeps its idle clients referenced and the process lingers
+    // until the 30s idle timeout — half a minute added to every run of every
+    // database file, which node:test reports as nothing at all.
+    const { closeDb } = await import('../db/index.js');
+    await closeDb();
   });
 
   it('refuses a plain user an admin route with 403, not 401', async () => {

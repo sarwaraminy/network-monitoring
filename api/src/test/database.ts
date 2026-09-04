@@ -1,4 +1,24 @@
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 import pg from 'pg';
+
+/*
+ * `api/.env` before anything reads `process.env`.
+ *
+ * This is where the repository actually keeps `DATABASE_URL`, with a generated
+ * password — so without this the derivation below had nothing to derive from,
+ * the hardcoded `postgres:postgres` fallback could not stand in for it, and on a
+ * developer machine set up exactly as CONTRIBUTING describes every suite here
+ * skipped. Green, and nothing had run: the precise failure this file's own
+ * docblock is about.
+ *
+ * `env.ts` does the same thing, and is not reused for it: it also constructs the
+ * pool, and importing it here would build a connection to the application's own
+ * database before the `_test` rail below has had a chance to refuse anything.
+ */
+dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '.env') });
+dotenv.config();
 
 /**
  * A real Postgres, for the tests whose subject IS the SQL.
@@ -53,27 +73,36 @@ const TEST_DB_SUFFIX = '_test';
  * convenience: the cost of getting this wrong is somebody else's data, and a
  * suffix check is the one thing that cannot be talked past by a misconfigured
  * environment.
+ *
+ * The `id` gives every suite a database of its OWN, and that is not tidiness.
+ * `node:test` runs test FILES in parallel, and each suite here truncates every
+ * table between its own tests — so sharing one database means one file wiping
+ * another's fixtures mid-run, which surfaces as a retention assertion failing on
+ * a row count that was right when it was written. Two files migrating the same
+ * empty database at once is available too, since `migrate.ts` takes no lock.
+ * Separate databases remove both without giving up the parallelism.
  */
-function resolveTestUrl(): string {
-  const explicit = process.env.TEST_DATABASE_URL?.trim();
-  if (explicit) return explicit;
+function resolveTestUrl(id: string): string {
+  // `_<id>_test`, so every name still ends in the suffix the rail below insists
+  // on while each suite gets a database of its own.
+  const own = (name: string) =>
+    `${name.replace(new RegExp(`${TEST_DB_SUFFIX}$`), '')}_${id}${TEST_DB_SUFFIX}`;
+  const fallback = `postgres://postgres:postgres@127.0.0.1:5432/${own('netmonitoring')}`;
 
-  const configured = process.env.DATABASE_URL?.trim();
-  if (!configured) return `postgres://postgres:postgres@127.0.0.1:5432/netmonitoring${TEST_DB_SUFFIX}`;
+  const explicit = process.env.TEST_DATABASE_URL?.trim();
+  const configured = explicit ?? process.env.DATABASE_URL?.trim();
+  if (!configured) return fallback;
 
   try {
     const url = new URL(configured);
     // pathname is `/name`; an empty one means the server's default database,
     // which is somebody else's too.
-    const name = url.pathname.replace(/^\//, '') || 'netmonitoring';
-    url.pathname = `/${name.endsWith(TEST_DB_SUFFIX) ? name : `${name}${TEST_DB_SUFFIX}`}`;
+    url.pathname = `/${own(url.pathname.replace(/^\//, '') || 'netmonitoring')}`;
     return url.toString();
   } catch {
-    return `postgres://postgres:postgres@127.0.0.1:5432/netmonitoring${TEST_DB_SUFFIX}`;
+    return fallback;
   }
 }
-
-const TEST_DATABASE_URL = resolveTestUrl();
 
 /** The database name in a connection string, or null if it has none. */
 function databaseName(url: string): string | null {
@@ -146,15 +175,23 @@ export async function truncateAll(pool: pg.Pool): Promise<void> {
   );
 
   const list = rows.map((row) => row.name).join(', ');
-  for (const blocker of truncateBlockers) {
-    await pool.query(`ALTER TABLE ${blocker.table} DISABLE TRIGGER ${blocker.trigger}`);
-  }
   try {
+    // INSIDE the try, not before it. Outside, a second `ALTER TABLE` that threw
+    // left the first trigger disabled and skipped the `finally` entirely — the
+    // connection went back to the pool with the audit trail's append-only
+    // guarantee switched off for every later test in the process. That is
+    // precisely what the comment below says must not happen, and the guard did
+    // not cover the window in which the triggers are taken down.
+    for (const blocker of truncateBlockers) {
+      await pool.query(`ALTER TABLE ${blocker.table} DISABLE TRIGGER ${blocker.trigger}`);
+    }
     await pool.query(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
   } finally {
     // In a `finally`, because leaving a guarantee switched off after a failed
     // truncate would let a later suite "prove" the audit trail is append-only
-    // against a table where nothing is enforcing it.
+    // against a table where nothing is enforcing it. Re-enabling a trigger that
+    // was never disabled is a no-op, so this is safe however far the loop above
+    // got.
     for (const blocker of truncateBlockers) {
       await pool.query(`ALTER TABLE ${blocker.table} ENABLE TRIGGER ${blocker.trigger}`);
     }
@@ -174,6 +211,14 @@ export async function truncateAll(pool: pg.Pool): Promise<void> {
  */
 export interface OpenOptions {
   /**
+   * Names this suite's own database, e.g. `retention` -> `..._retention_test`.
+   *
+   * Required rather than defaulted, because a default would silently put two
+   * suites back in one database — the failure this exists to prevent, returning
+   * as a flake nobody attributes to the harness.
+   */
+  id: string;
+  /**
    * A session `TimeZone` for every connection, including the application's own.
    *
    * The reason this exists rather than being a `SET` a test could issue: the
@@ -189,8 +234,9 @@ export interface OpenOptions {
   sessionTimeZone?: string;
 }
 
-export async function openTestDatabase(options: OpenOptions = {}): Promise<TestDatabase> {
+export async function openTestDatabase(options: OpenOptions): Promise<TestDatabase> {
   process.env.JWT_SECRET ??= 'db-test-secret-not-used-for-signing';
+  const TEST_DATABASE_URL = resolveTestUrl(options.id);
 
   /*
    * The rail, checked before anything connects.
@@ -232,7 +278,7 @@ export async function openTestDatabase(options: OpenOptions = {}): Promise<TestD
     // anyone's. `ensure-db.mjs` provisions the dev database on the same
     // reasoning; asking a contributor to run a CREATE DATABASE by hand before
     // the suite will speak to them is a step that only exists to be forgotten.
-    if ((error as { code?: string }).code === '3D000' && (await createDatabase(name))) {
+    if ((error as { code?: string }).code === '3D000' && (await createDatabase(TEST_DATABASE_URL, name))) {
       return finishOpening(pool);
     }
     await pool.end().catch(() => {});
@@ -272,8 +318,8 @@ async function finishOpening(pool: pg.Pool): Promise<TestDatabase> {
  * Postgres at ..." tells a contributor what to start, where "permission denied
  * to create database" would send them off fixing a role grant they may not need.
  */
-async function createDatabase(name: string): Promise<boolean> {
-  const maintenance = new URL(TEST_DATABASE_URL);
+async function createDatabase(url: string, name: string): Promise<boolean> {
+  const maintenance = new URL(url);
   maintenance.pathname = '/postgres';
 
   const admin = new pg.Pool({

@@ -27,11 +27,36 @@ const WORKFLOW = join(REPO, '.github', 'workflows', 'ci.yml');
 
 const ci = readFileSync(WORKFLOW, 'utf8');
 
+/**
+ * One job's block, from its `  <name>:` line to the next job at that indent.
+ *
+ * Scoped rather than searched, and that is the whole correction this file needed:
+ * the first version matched `services:`, `image: postgres:` and the health check
+ * ANYWHERE in `ci.yml`, and the pre-existing `docker` job already declares a
+ * Postgres service carrying all three. Deleting the entire service block from the
+ * `test` job left this suite green — a standing check that did not check the
+ * thing it was named for.
+ *
+ * Extracted by indentation rather than parsed, because there is no YAML parser in
+ * this project's dependencies and adding one to read five keys would be the
+ * heavier mistake. The family this file belongs to — `test-glob.test.ts`,
+ * `env-defaults.test.ts` — is text in, no library, on purpose.
+ */
+function job(name: string): string {
+  const start = ci.indexOf(`\n  ${name}:\n`);
+  assert.notEqual(start, -1, `ci.yml has no "${name}" job; this guard is now blind`);
+  const rest = ci.slice(start + 1);
+  // The next line at exactly two spaces of indent is the next job.
+  const end = rest.search(/\n {2}\S[^\n]*:\n/);
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
 /** The step that runs the API suite, from its `- name:` to the next step's. */
 function apiTestStep(): string {
-  const start = ci.indexOf('- name: Test (API)');
-  assert.notEqual(start, -1, 'ci.yml no longer has a "Test (API)" step; this guard is now blind');
-  const rest = ci.slice(start + 1);
+  const block = job('test');
+  const start = block.indexOf('- name: Test (API)');
+  assert.notEqual(start, -1, 'the "test" job no longer has a "Test (API)" step; this guard is now blind');
+  const rest = block.slice(start + 1);
   const end = rest.indexOf('\n      - name:');
   return end === -1 ? rest : rest.slice(0, end);
 }
@@ -58,11 +83,15 @@ describe('CI runs the database-backed suites for real', () => {
   });
 
   it('declares a Postgres service on the job that runs them', () => {
-    assert.match(ci, /services:/, 'ci.yml declares no services');
+    // On the `test` job specifically. Another job's database is not one these
+    // suites can reach, and matching the file as a whole is how this assertion
+    // used to pass on the `docker` job's service while the `test` job had none.
+    const block = job('test');
+    assert.match(block, /services:/, 'the "test" job declares no services');
     assert.match(
-      ci,
+      block,
       /image:\s*postgres:/,
-      'ci.yml must run a Postgres service container for the database-backed suites',
+      'the "test" job must run a Postgres service container for the database-backed suites',
     );
   });
 
@@ -70,7 +99,11 @@ describe('CI runs the database-backed suites for real', () => {
     // A container that has accepted a TCP connection may still be initialising.
     // Without a health check the job races it, and the failure is intermittent —
     // the worst kind to debug and the easiest to re-run until it passes.
-    assert.match(ci, /--health-cmd/, 'the Postgres service needs a health check, or the job races it');
+    assert.match(
+      job('test'),
+      /--health-cmd/,
+      'the "test" job needs a health check on its Postgres service, or the job races it',
+    );
   });
 
   it('runs the same major version as docker-compose', () => {
@@ -79,6 +112,10 @@ describe('CI runs the database-backed suites for real', () => {
     const compose = readFileSync(join(REPO, 'docker-compose.yml'), 'utf8');
     const major = (text: string) => /image:\s*postgres:(\d+)/.exec(text)?.[1];
 
-    assert.equal(major(ci), major(compose), 'CI and docker-compose must run the same Postgres major');
+    assert.equal(
+      major(job('test')),
+      major(compose),
+      'CI and docker-compose must run the same Postgres major',
+    );
   });
 });

@@ -54,7 +54,7 @@ process.env.RETENTION_ENABLED = 'true';
 process.env.ALERT_RETENTION_DAYS = String(RETENTION_DAYS);
 process.env.DEVICE_RETENTION_DAYS = String(RETENTION_DAYS);
 
-const database = await openTestDatabase({ sessionTimeZone: 'Asia/Kabul' });
+const database = await openTestDatabase({ id: 'retention', sessionTimeZone: 'Asia/Kabul' });
 
 let retention: typeof import('./retention.service.js');
 
@@ -104,6 +104,10 @@ describe('retention against a real Postgres', { skip: database.skip }, () => {
   after(async () => {
     await retention.retentionIdle();
     await database.pool?.end();
+    // See auth-admission.test.ts: without this the process lingers for the
+    // application pool's 30s idle timeout after the last assertion.
+    const { closeDb } = await import('../db/index.js');
+    await closeDb();
   });
 
   it('buckets by UTC day even when the session is not UTC', async () => {
