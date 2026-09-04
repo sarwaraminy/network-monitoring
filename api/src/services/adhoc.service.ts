@@ -28,8 +28,23 @@ const log = componentLogger('adhoc');
  *  - a **boot-time self-test**, below, which is the part worth reading twice.
  */
 
-/** The role V10 creates. A constant, and not configurable — see `startAdhoc`. */
-const ADHOC_ROLE = 'nm_adhoc';
+/**
+ * The console's role, named for the database it belongs to.
+ *
+ * DERIVED, never configured — that is the property `env.ts` argues for, and it
+ * survives here: there is no setting that can point this at a superuser.
+ *
+ * Per DATABASE rather than one for the cluster, because roles are cluster-wide
+ * while grants are not. V10 shared a single `nm_adhoc`, so its PASSWORD was
+ * shared too — and the console sets that at boot. Whichever process started last
+ * owned it, and every other one began failing with "password authentication
+ * failed". On a developer machine that meant running the test suite, which
+ * creates a database per suite and boots the console in each, logged the running
+ * app out of its own query console. See V11.
+ */
+function adhocRole(database: string): string {
+  return `nm_adhoc_${database}`;
+}
 
 export interface AdhocColumn {
   name: string;
@@ -80,9 +95,9 @@ export function adhocReady(): boolean {
  * every control here off while the feature still appeared to work. There is no
  * spelling of the configuration that reaches a superuser.
  */
-function adhocConnectionString(password: string): string {
+function adhocConnectionString(role: string, password: string): string {
   const url = new URL(env.databaseUrl);
-  url.username = ADHOC_ROLE;
+  url.username = role;
   url.password = password;
   return url.toString();
 }
@@ -113,6 +128,11 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     return false;
   }
 
+  // Asked of the connection rather than parsed out of the URL, so the role
+  // always matches the database the migrations actually ran against.
+  const { rows: current } = await owner.query<{ name: string }>('SELECT current_database() AS name');
+  const role = adhocRole(current[0]!.name);
+
   try {
     /*
      * The superuser check comes FIRST, before this role is given a way to log in.
@@ -125,28 +145,28 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
      * credentials. This one is answerable through the owner's connection without
      * the role being able to log in at all.
      */
-    await assertNotSuperuser(owner);
+    await assertNotSuperuser(owner, role);
 
     // As the owner, because the role cannot set its own password before it can
     // log in. `format(%L)` rather than interpolation: the password comes from
     // the environment, but a password containing a quote should change nothing.
     const { rows } = await owner.query<{ statement: string }>(
       `SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', $1::text, $2::text) AS statement`,
-      [ADHOC_ROLE, password],
+      [role, password],
     );
     await owner.query(rows[0]!.statement);
 
     const candidate = new pg.Pool({
-      connectionString: adhocConnectionString(password),
+      connectionString: adhocConnectionString(role, password),
       max: 2,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
     });
     candidate.on('error', (error) => log.error({ err: error }, 'Idle ad hoc client error'));
 
-    await proveSandbox(candidate);
+    await proveSandbox(candidate, role);
     pool = candidate;
-    log.info({ role: ADHOC_ROLE }, 'Ad hoc query console enabled');
+    log.info({ role }, 'Ad hoc query console enabled');
     return true;
   } catch (error) {
     log.error({ err: error }, 'Ad hoc query console failed its safety checks and stays off');
@@ -159,10 +179,10 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
      * process can do about it.
      */
     await owner
-      .query('SELECT format($$ALTER ROLE %I NOLOGIN$$, $1::text) AS statement', [ADHOC_ROLE])
+      .query('SELECT format($$ALTER ROLE %I NOLOGIN$$, $1::text) AS statement', [role])
       .then((result) => owner.query(result.rows[0]!.statement))
       .catch((revertError) =>
-        log.error({ err: revertError }, `Could not revoke LOGIN from ${ADHOC_ROLE}; do it by hand`),
+        log.error({ err: revertError }, `Could not revoke LOGIN from ${role}; do it by hand`),
       );
     return false;
   }
@@ -175,14 +195,14 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
  * — see `startAdhoc`. A superuser bypasses every grant in V10 with no error to
  * notice, so this is the one check that must never be reached late.
  */
-async function assertNotSuperuser(owner: pg.Pool): Promise<void> {
+async function assertNotSuperuser(owner: pg.Pool, role: string): Promise<void> {
   const { rows } = await owner.query<{ superuser: boolean }>(
     'SELECT rolsuper AS superuser FROM pg_roles WHERE rolname = $1',
-    [ADHOC_ROLE],
+    [role],
   );
-  if (rows.length === 0) throw new Error(`role ${ADHOC_ROLE} does not exist; has V10 run?`);
+  if (rows.length === 0) throw new Error(`role ${role} does not exist; has V11 run on this database?`);
   if (rows[0]!.superuser) {
-    throw new Error(`"${ADHOC_ROLE}" is a superuser; every restriction on the console is void`);
+    throw new Error(`"${role}" is a superuser; every restriction on the console is void`);
   }
 }
 
@@ -194,17 +214,17 @@ async function assertNotSuperuser(owner: pg.Pool): Promise<void> {
  * V10 without any error to notice, and a role that can write is one an operator
  * has re-granted since.
  */
-async function proveSandbox(candidate: pg.Pool): Promise<void> {
+async function proveSandbox(candidate: pg.Pool, role: string): Promise<void> {
   const { rows } = await candidate.query<{ superuser: boolean; who: string }>(
     'SELECT rolsuper AS superuser, current_user AS who FROM pg_roles WHERE rolname = current_user',
   );
   const identity = rows[0];
   if (!identity) throw new Error('could not read the ad hoc role from pg_roles');
-  if (identity.who !== ADHOC_ROLE) {
-    throw new Error(`connected as "${identity.who}", expected "${ADHOC_ROLE}"`);
+  if (identity.who !== role) {
+    throw new Error(`connected as "${identity.who}", expected "${role}"`);
   }
   if (identity.superuser) {
-    throw new Error(`"${ADHOC_ROLE}" is a superuser; every restriction on the console is void`);
+    throw new Error(`"${role}" is a superuser; every restriction on the console is void`);
   }
 
   /*

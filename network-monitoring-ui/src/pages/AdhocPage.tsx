@@ -65,6 +65,17 @@ export default function AdhocPage() {
    * is the common thing to want after reading a result.
    */
   const [showEditor, setShowEditor] = useState(true);
+  /*
+   * Bumped when the editor's collapse animation FINISHES.
+   *
+   * `showEditor` flipping is not enough on its own: the grid re-measures during
+   * the same render, while `Collapse` is still animating, so it reads a
+   * half-collapsed editor and settles on a height that is wrong by whatever was
+   * left of the transition. Measuring again once the layout has stopped moving
+   * is the only reading that is true.
+   */
+  const [layoutSettled, setLayoutSettled] = useState(0);
+  const onLayoutSettled = () => setLayoutSettled((tick) => tick + 1);
 
   const availability = useQuery({
     queryKey: ['adhoc', 'availability'],
@@ -169,7 +180,13 @@ export default function AdhocPage() {
         }
       >
         <Stack spacing={1.5}>
-          <Collapse in={showEditor} id={EDITOR_REGION} timeout={250}>
+          <Collapse
+            in={showEditor}
+            id={EDITOR_REGION}
+            timeout={250}
+            onEntered={onLayoutSettled}
+            onExited={onLayoutSettled}
+          >
             <TextField
               label="SQL"
               value={sql}
@@ -251,7 +268,18 @@ export default function AdhocPage() {
               </Typography>
             </Box>
           ) : (
-            <DataGrid columns={columns} data={result.rows} />
+            <DataGrid
+              columns={columns}
+              data={result.rows}
+              /*
+               * Folding the editor away moves this table UP without changing its
+               * size, and the height measurement watches for resizes — so
+               * without this the grid keeps the height it was given while the
+               * editor was open and leaves a gap beneath it. Collapsing to give
+               * the result more room has to actually give it the room.
+               */
+              fitHeightDeps={[showEditor, layoutSettled]}
+            />
           )}
         </SurfaceCard>
       )}

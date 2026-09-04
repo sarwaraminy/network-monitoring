@@ -1,0 +1,87 @@
+-- Ad Hoc Query: give each DATABASE its own console role.
+--
+-- V10 created one `nm_adhoc` for the whole cluster, and that is wrong in a way
+-- that only shows up when more than one database on a server runs these
+-- migrations — which is every developer machine, because the test harness
+-- creates a database per suite and each one boots the console.
+--
+-- Roles are cluster-wide; grants are per-database. So the grants were correctly
+-- separate while the ROLE and, fatally, its PASSWORD were shared. The console
+-- sets that password at boot from `ADHOC_DB_PASSWORD`, so whichever process
+-- started last owned it and every other one began failing with "password
+-- authentication failed for user nm_adhoc". Running the test suite logged the
+-- developer's own running app out of its query console.
+--
+-- The fix is a role per database, named from `current_database()`. That keeps
+-- the property V10 was protecting — the name is derived, never configured, so no
+-- setting can point the console at a superuser — while making two databases on
+-- one cluster independent.
+--
+-- Dynamic SQL because a migration cannot know the database name at the time it
+-- is written. `format(%I)` quotes the identifier, which matters here: the
+-- harness's database names contain hyphens.
+--
+-- V10 is left in place rather than rewritten. It has already been applied on
+-- machines that ran this branch, and editing an applied migration only produces
+-- a checksum mismatch and a database nobody updates. What this does instead is
+-- take the old role's access away in THIS database, so the shared role is inert
+-- everywhere V11 has run.
+
+DO $$
+DECLARE
+    role_name text := 'nm_adhoc_' || current_database();
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+        EXECUTE format('CREATE ROLE %I NOLOGIN', role_name);
+    END IF;
+
+    -- Explicit, though a fresh role has none of this: the point is that the file
+    -- can be read as the whole of what this role may do.
+    EXECUTE format('REVOKE ALL ON SCHEMA public FROM %I', role_name);
+    EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA public FROM %I', role_name);
+    EXECUTE format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM %I', role_name);
+    EXECUTE format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM %I', role_name);
+
+    -- USAGE resolves names in `public`. Not CREATE: this role cannot make a
+    -- table of its own to write into.
+    EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', role_name);
+
+    -- The tables with nothing to hide.
+    EXECUTE format('GRANT SELECT ON alerts             TO %I', role_name);
+    EXECUTE format('GRANT SELECT ON alert_rollup_daily TO %I', role_name);
+    EXECUTE format('GRANT SELECT ON alert_suppressions TO %I', role_name);
+    EXECUTE format('GRANT SELECT ON audit_events       TO %I', role_name);
+    EXECUTE format('GRANT SELECT ON known_devices      TO %I', role_name);
+    EXECUTE format('GRANT SELECT ON logs               TO %I', role_name);
+
+    -- And the two that do, column by column. A column added to either of these
+    -- tables is unreadable here until somebody lists it, which is the right way
+    -- round: new columns are invisible until a human has decided they are not a
+    -- secret. `users.password`, `delivery_settings.email_password` and
+    -- `webhook_url` are the exclusions — hashes, the SMTP password in use, and a
+    -- webhook URL, which is a bearer credential.
+    EXECUTE format(
+        'GRANT SELECT (id, email, role, lang_code, firstname, lastname, created_at) ON users TO %I',
+        role_name);
+    EXECUTE format(
+        'GRANT SELECT (id, enabled, min_severity, digest_seconds, throttle_seconds, max_per_hour, '
+        'include_evidence, dashboard_url, webhook_format, syslog_host, syslog_port, syslog_protocol, '
+        'syslog_format, syslog_rfc, syslog_facility, syslog_app_name, syslog_include_evidence, '
+        'email_host, email_port, email_secure, email_user, email_from, email_to, updated_at, updated_by) '
+        'ON delivery_settings TO %I',
+        role_name);
+
+    EXECUTE format(
+        'COMMENT ON ROLE %I IS %L', role_name,
+        'Read-only role for the Ad Hoc Query console on database ' || current_database() ||
+        '. SELECT only, secrets excluded at the column level. See V11__Adhoc_role_per_database.sql.');
+
+    -- Retire V10's shared role in this database. It keeps existing, because
+    -- dropping a cluster-wide role from a per-database migration would break any
+    -- database that has not run V11 yet; it simply has no access here any more.
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nm_adhoc') THEN
+        EXECUTE 'REVOKE ALL ON SCHEMA public FROM nm_adhoc';
+        EXECUTE 'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM nm_adhoc';
+    END IF;
+END
+$$;
