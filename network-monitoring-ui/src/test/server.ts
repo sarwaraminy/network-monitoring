@@ -3,6 +3,8 @@ import { setupServer } from 'msw/node';
 import {
   ADMIN_USER,
   ALERTS,
+  AUDIT_ACTIONS,
+  AUDIT_EVENTS,
   DASHBOARD,
   DELIVERY_SETTINGS,
   IDLE_STATUS,
@@ -159,6 +161,15 @@ export const handlers = [
   http.post('*/packets/start', () => HttpResponse.json(IDLE_STATUS)),
   http.post('*/packets/stop', () => HttpResponse.json(IDLE_STATUS)),
   http.post('*/packets/clear', () => new HttpResponse(null, { status: 204 })),
+  http.get('/api/audit/actions', () => HttpResponse.json(AUDIT_ACTIONS)),
+  // Filtering and paging are the server's job; the handler honours the filter so a
+  // test can assert the page asked for it, and returns no cursor so "load older"
+  // stays hidden unless a test overrides this.
+  http.get('/api/audit', ({ request }) => {
+    const action = new URL(request.url).searchParams.get('action');
+    const events = action ? AUDIT_EVENTS.filter((event) => event.action === action) : AUDIT_EVENTS;
+    return HttpResponse.json({ events });
+  }),
   http.get('*/packets/ip-info', ({ request }) => {
     const ipAddress = new URL(request.url).searchParams.get('ipAddress') ?? '';
     return HttpResponse.json({

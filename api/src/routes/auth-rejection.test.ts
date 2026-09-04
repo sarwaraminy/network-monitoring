@@ -64,10 +64,11 @@ before(async () => {
   // silent read of whatever database the developer had configured.
   process.env.DATABASE_URL = 'postgres://nobody:nothing@127.0.0.1:1/should-never-connect';
 
-  const [{ createApp }, alerts, auth, flow, intel, notify, suppressions, packets, logs, registry] =
+  const [{ createApp }, alerts, audit, auth, flow, intel, notify, suppressions, packets, logs, registry] =
     await Promise.all([
       import('../app.js'),
       import('./alerts.routes.js'),
+      import('./audit.routes.js'),
       import('./auth.routes.js'),
       import('./flow.routes.js'),
       import('./intel.routes.js'),
@@ -81,6 +82,7 @@ before(async () => {
   mounts = [
     { at: '/auth', router: () => auth.authRouter },
     { at: '/api/alerts', router: () => alerts.alertsRouter },
+    { at: '/api/audit', router: () => audit.auditRouter },
     { at: '/api/flow', router: () => flow.flowRouter },
     { at: '/api/intel', router: () => intel.intelRouter },
     { at: '/api/notify', router: () => notify.notifyRouter },
@@ -296,6 +298,8 @@ const EXPECTED: readonly string[] = [
   'GET /api/alerts/dashboard',
   'GET /api/alerts/devices',
   'GET /api/alerts/summary',
+  'GET /api/audit',
+  'GET /api/audit/actions',
   'GET /api/flow/status',
   'GET /api/intel/status',
   'GET /api/ip/packets',
@@ -347,6 +351,10 @@ describe('protected routes over HTTP', () => {
      * (`regexp` is gone, `matchers` are opaque functions), so the count is what can
      * be compared. A router layer is one carrying its own `stack`, which is what
      * separates it from middleware like the rate limiter and the body parser.
+     *
+     * It has already earned itself: `audit.routes.ts` was written, exported and
+     * declared in `route-guards.test.ts` — and never mounted here at all. Every
+     * test in this file stayed green while two routes did not exist.
      */
     const layers = (app as unknown as { router: { stack: { handle?: { stack?: unknown[] } }[] } }).router
       .stack;

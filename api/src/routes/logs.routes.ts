@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
-import { createLog, deleteLog, getAllLogs, getLogById, updateLog } from '../services/log.service.js';
+import { actorOf } from '../services/audit.service.js';
+import { createLog, deleteLog, getAllLogs, updateLog } from '../services/log.service.js';
 import { logSchema, parseId, parseOrThrow } from './validation.js';
 
 /** Replaces cyber.wissen.controller.LogController. Mounted at /api. */
@@ -34,37 +35,44 @@ logsRouter.post(
   '/log/add',
   requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
-    const created = await createLog(parseBody(req.body));
+    const created = await createLog(parseBody(req.body), actorOf(req.user));
     res.status(201).json(created);
   }),
 );
 
-/** PUT /api/log/:id */
+/**
+ * PUT /api/log/:id
+ *
+ * `updateLog`'s own return is the existence check, not a `getLogById` call
+ * beforehand — that would only narrow the race, not close it: `updateLog` locks
+ * the row and can still find it gone (deleted between the two), returning `null`
+ * for exactly that case. Checking a pre-fetch instead of this return value would
+ * report success — and, since this PR added it, an audited change — for a write
+ * that never happened, the same gap `alerts.routes.ts` and `suppressions.routes.ts`
+ * already close by checking their own service calls' return values directly.
+ */
 logsRouter.put(
   '/log/:id',
   requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const id = parseId(req.params.id);
-    if (!(await getLogById(id))) {
-      throw new HttpError(404, `No log with id ${id}`);
-    }
     // The Java version passed the body straight to save(), so a mismatched body id
     // could overwrite a different row. The path id wins here.
-    const updated = await updateLog(id, parseBody(req.body));
+    const updated = await updateLog(id, parseBody(req.body), actorOf(req.user));
+    if (!updated) throw new HttpError(404, `No log with id ${id}`);
     res.json(updated);
   }),
 );
 
-/** DELETE /api/log/:id */
+/** DELETE /api/log/:id — see the PUT handler above for why this checks `deleteLog`'s own return rather than pre-fetching. */
 logsRouter.delete(
   '/log/:id',
   requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const id = parseId(req.params.id);
-    if (!(await getLogById(id))) {
+    if (!(await deleteLog(id, actorOf(req.user)))) {
       throw new HttpError(404, `No log with id ${id}`);
     }
-    await deleteLog(id);
     res.status(204).send();
   }),
 );

@@ -4,6 +4,8 @@ import { HttpError } from '../middleware/error-handler.js';
 import { parsePrefix } from '../net/prefix.js';
 import { WEBHOOK_FORMATS } from '../notify/types.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
+import { AUDIT_ACTIONS, type AuditAction } from '../services/audit-types.js';
+import { hasSuppressionCriterion, NO_CRITERIA } from '../services/suppression-rules.js';
 
 /**
  * Every request schema, in one place.
@@ -20,8 +22,11 @@ import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
  * and CI would pass either way. With these tests, the upgrade becomes a change
  * that either keeps them green or does not.
  *
- * Deliberately free of service and database imports, so the tests exercise the
- * schemas without opening a connection pool.
+ * Deliberately free of anything that opens a database connection, so the tests
+ * exercise the schemas without opening a pool. `audit-types.ts` and
+ * `suppression-rules.ts` are imported for shared vocabulary/logic and are
+ * themselves dependency-free for the same reason — see either for why living
+ * under `services/` does not by itself make a module pull in `db/index.js`.
  */
 
 // --- Shared ---
@@ -99,6 +104,26 @@ export const alertListQuerySchema = z.object({
 const MAX_HOURLY_DAYS = 365;
 const MAX_TREND_DAYS = Math.max(1825, env.retention.alertDays + 1);
 
+/**
+ * The audit listing.
+ *
+ * `action` is validated against the same vocabulary the service exports, so a typo
+ * is a 400 rather than a silently empty page — and adding an action in one place
+ * cannot leave the filter rejecting it.
+ */
+export const auditQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  action: z.enum(Object.keys(AUDIT_ACTIONS) as [AuditAction, ...AuditAction[]]).optional(),
+  /**
+   * Keyset cursor: only events with an id below this one.
+   *
+   * An id rather than a timestamp, because the driver truncates the column's
+   * microseconds and a lossy cursor drops rows rather than merely reordering them —
+   * see `listAuditEvents`.
+   */
+  before: z.coerce.number().int().positive().optional(),
+});
+
 export const alertDashboardQuerySchema = z
   .object({
     days: z.coerce.number().int().min(1).max(MAX_TREND_DAYS).default(7),
@@ -172,25 +197,6 @@ const suppressionCriteria = {
   port: z.coerce.number().int().min(1).max(65_535).nullish(),
 };
 
-/** Any criterion at all. A rule with none matches every finding on the network. */
-export function hasSuppressionCriterion(values: {
-  kind?: string | null;
-  sourceCidr?: string | null;
-  targetCidr?: string | null;
-  port?: number | null;
-}): boolean {
-  return (
-    (values.kind ?? null) !== null ||
-    (values.sourceCidr ?? null) !== null ||
-    (values.targetCidr ?? null) !== null ||
-    (values.port ?? null) !== null
-  );
-}
-
-export const NO_CRITERIA =
-  'A suppression rule needs at least one of kind, source, target or port. ' +
-  'A rule with none would drop every finding on the network.';
-
 /**
  * `expiresAt` is accepted even when it is already in the past.
  *
@@ -215,8 +221,8 @@ export const suppressionCreateSchema = z
  *
  * The check cannot run on the patch alone: clearing the only criterion of a rule
  * is invalid, and clearing one of two is fine, and the patch does not know which
- * case it is in. The route merges the patch over the stored row and checks the
- * result — see `hasSuppressionCriterion`.
+ * case it is in. `suppression.service.ts`'s `updateSuppression` merges the patch
+ * over the row it locks and checks the result — see `hasSuppressionCriterion`.
  */
 export const suppressionUpdateSchema = z.object({
   ...suppressionCriteria,

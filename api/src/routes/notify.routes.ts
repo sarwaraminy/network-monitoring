@@ -16,6 +16,7 @@ import {
   saveDeliverySettings,
 } from '../notify/settings.service.js';
 import { detectFormat } from '../notify/webhook.js';
+import { actorOf } from '../services/audit.service.js';
 import { deliverySettingsPatchSchema, parseOrThrow } from './validation.js';
 
 /**
@@ -170,8 +171,7 @@ notifyRouter.put(
       );
     }
 
-    const who = req.user?.email ?? `user:${req.user?.id ?? 'unknown'}`;
-    await saveDeliverySettings(patch, who);
+    await saveDeliverySettings(patch, actorOf(req.user));
 
     // Rebuild against the new settings: flushes anything queued, then releases what
     // the old channels held. Done here rather than inside the settings service to

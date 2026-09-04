@@ -2,7 +2,15 @@ import { asc, eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { alertSuppressions, type SuppressionRow } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
-import { NO_SUPPRESSIONS, SuppressionSet, type UnusableRule } from './suppression-rules.js';
+import { HttpError } from '../middleware/error-handler.js';
+import { type Actor, recordAudit } from './audit.service.js';
+import {
+  hasSuppressionCriterion,
+  NO_CRITERIA,
+  NO_SUPPRESSIONS,
+  SuppressionSet,
+  type UnusableRule,
+} from './suppression-rules.js';
 
 const log = componentLogger('suppression');
 
@@ -338,39 +346,192 @@ export interface SuppressionInput {
   expiresAt: Date | null;
 }
 
-export async function createSuppression(input: SuppressionInput, createdBy: string): Promise<SuppressionRow> {
-  const [row] = await db
-    .insert(alertSuppressions)
-    .values({ ...input, createdBy: createdBy.slice(0, 200) })
-    .returning();
+/**
+ * Merges a partial patch onto a row, field by field. Omitting a field leaves it;
+ * sending `null` clears it (where the column allows null).
+ *
+ * Its own exported function so the merge — the part a test can check without a
+ * database — is verifiable on its own. What it cannot verify is the property that
+ * actually matters: `updateSuppression` must call this only after locking `before`
+ * inside its transaction, not against a snapshot read beforehand. A test of this
+ * function in isolation would pass identically whether that were true or not; see
+ * `updateSuppression` for why the ordering, not this merge, is what closes the
+ * lost-update race.
+ */
+export function mergeSuppressionPatch(
+  before: SuppressionRow,
+  patch: Partial<SuppressionInput>,
+): SuppressionInput {
+  return {
+    kind: patch.kind === undefined ? before.kind : patch.kind,
+    sourceCidr: patch.sourceCidr === undefined ? before.sourceCidr : patch.sourceCidr,
+    targetCidr: patch.targetCidr === undefined ? before.targetCidr : patch.targetCidr,
+    port: patch.port === undefined ? before.port : patch.port,
+    reason: patch.reason ?? before.reason,
+    // `??`, not `||`: switching a rule off sends `false`, which is exactly the
+    // value a truthiness check would discard.
+    enabled: patch.enabled ?? before.enabled,
+    expiresAt: patch.expiresAt === undefined ? before.expiresAt : patch.expiresAt,
+  };
+}
+
+/**
+ * The parts of a rule worth putting in the audit trail.
+ *
+ * A suppression rule is the one piece of configuration that can make this tool stop
+ * reporting, so "somebody changed a rule" is not a useful entry on its own — what
+ * it covered is the whole substance. Nothing here is a credential.
+ */
+function ruleDetail(rule: SuppressionRow | SuppressionInput): Record<string, unknown> {
+  return {
+    kind: rule.kind,
+    sourceCidr: rule.sourceCidr,
+    targetCidr: rule.targetCidr,
+    port: rule.port,
+    reason: rule.reason,
+    enabled: rule.enabled,
+    expiresAt: rule.expiresAt?.toISOString() ?? null,
+  };
+}
+
+/**
+ * Field-by-field, so a change reads as a change rather than as a new rule.
+ *
+ * Exported for the test: "only what changed" is the property that makes an update
+ * entry readable, and a diff that quietly recorded every field would turn every
+ * edit into a wall of unchanged values.
+ */
+export function ruleChanges(before: SuppressionRow, after: SuppressionInput): Record<string, unknown> {
+  const from = ruleDetail(before);
+  const to = ruleDetail(after);
+  const changed: Record<string, unknown> = {};
+
+  for (const field of Object.keys(to)) {
+    if (from[field] !== to[field]) changed[field] = { from: from[field], to: to[field] };
+  }
+
+  return changed;
+}
+
+export async function createSuppression(input: SuppressionInput, createdBy: Actor): Promise<SuppressionRow> {
+  const row = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(alertSuppressions)
+      .values({ ...input, createdBy: createdBy.name.slice(0, 200) })
+      .returning();
+
+    await recordAudit(tx, {
+      actor: createdBy.name,
+      actorId: createdBy.id,
+      action: 'suppression.create',
+      subject: String(created!.id),
+      detail: ruleDetail(created!),
+    });
+
+    return created!;
+  });
 
   // Reload before answering, so the rule is in force by the time the caller sees
   // its 201. Without this an operator watching the alert list would see findings
   // they had just suppressed keep arriving for up to the refresh interval, and
-  // conclude the feature does not work.
+  // conclude the feature does not work. Outside the transaction, because it reads
+  // on its own connection and would not see the rule before it commits.
   await reloadAfterWrite();
-  return row!;
+  return row;
 }
 
-export async function updateSuppression(id: number, input: SuppressionInput): Promise<SuppressionRow | null> {
-  const [row] = await db
-    .update(alertSuppressions)
-    .set({ ...input, updatedAt: new Date() })
-    .where(eq(alertSuppressions.id, id))
-    .returning();
+export async function updateSuppression(
+  id: number,
+  patch: Partial<SuppressionInput>,
+  actor: Actor,
+): Promise<SuppressionRow | null> {
+  const row = await db.transaction(async (tx) => {
+    /*
+     * `FOR UPDATE`, and the lock is the point rather than the transaction.
+     *
+     * Postgres defaults to READ COMMITTED, where a plain SELECT takes no row lock —
+     * so two concurrent PATCHes both read the pre-first-update row, the second
+     * blocks only when it reaches its own UPDATE, and both audit entries then claim
+     * the same starting values. The trail shows two edits from one origin and the
+     * intermediate state appears in no record at all. Atomicity was never the
+     * property needed here; serialising this read against the write it describes is.
+     *
+     * The merge below has to run against THIS row, locked, rather than a snapshot
+     * read before the transaction opened. The first version took a fully-merged
+     * `input` computed by the route from an earlier, unlocked read: the lock then
+     * only serialised the audit-diff read, not the write, so a concurrent PATCH that
+     * committed in the gap between the route's read and this transaction was
+     * silently overwritten by the stale merge — and misattributed, since the audit
+     * entry recorded this actor as the one who changed the field the other admin
+     * had just set. Locking has to happen before the merge to close that, not just
+     * before the diff.
+     */
+    const [before] = await tx
+      .select()
+      .from(alertSuppressions)
+      .where(eq(alertSuppressions.id, id))
+      .limit(1)
+      .for('update');
+    if (!before) return null;
+
+    const merged = mergeSuppressionPatch(before, patch);
+
+    // Checked against the locked row, not the pre-patch snapshot the route no
+    // longer has: clearing the only criterion of a rule is invalid, and clearing
+    // one of two is fine, and only the merge against the current row can tell them
+    // apart.
+    if (!hasSuppressionCriterion(merged)) throw new HttpError(400, NO_CRITERIA);
+
+    const [updated] = await tx
+      .update(alertSuppressions)
+      .set({ ...merged, updatedAt: new Date() })
+      .where(eq(alertSuppressions.id, id))
+      .returning();
+
+    if (!updated) return null;
+
+    // Same rule as the settings save: a form re-submitted with nothing altered is
+    // not an edit, and `{ changed: {} }` in a table that cannot be pruned is a row
+    // an auditor has to read past to reach the ones that mattered.
+    const changed = ruleChanges(before, merged);
+    if (Object.keys(changed).length > 0) {
+      await recordAudit(tx, {
+        actor: actor.name,
+        actorId: actor.id,
+        action: 'suppression.update',
+        subject: String(id),
+        detail: { changed },
+      });
+    }
+
+    return updated;
+  });
 
   if (!row) return null;
   await reloadAfterWrite();
   return row;
 }
 
-export async function deleteSuppression(id: number): Promise<boolean> {
-  const deleted = await db
-    .delete(alertSuppressions)
-    .where(eq(alertSuppressions.id, id))
-    .returning({ id: alertSuppressions.id });
+export async function deleteSuppression(id: number, actor: Actor): Promise<boolean> {
+  const removed = await db.transaction(async (tx) => {
+    const [deleted] = await tx.delete(alertSuppressions).where(eq(alertSuppressions.id, id)).returning();
+    if (!deleted) return false;
 
-  if (deleted.length === 0) return false;
+    await recordAudit(tx, {
+      actor: actor.name,
+      actorId: actor.id,
+      action: 'suppression.delete',
+      subject: String(id),
+      // Including the match count: a rule that had quietly hidden nine thousand
+      // findings and was then deleted is a different event from one that never
+      // matched, and the counter goes with the row.
+      detail: { ...ruleDetail(deleted), matchCount: deleted.matchCount },
+    });
+
+    return true;
+  });
+
+  if (!removed) return false;
   await reloadAfterWrite();
   return true;
 }

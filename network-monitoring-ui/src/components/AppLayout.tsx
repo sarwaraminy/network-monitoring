@@ -1,5 +1,6 @@
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import GppMaybeOutlinedIcon from '@mui/icons-material/GppMaybeOutlined';
+import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
@@ -28,7 +29,7 @@ import Toolbar from '@mui/material/Toolbar';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { type ReactElement, useState } from 'react';
+import { type ReactElement, useMemo, useState } from 'react';
 import { NavLink, Outlet, Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { CARD_METRICS, HEADER, NAV } from '../theme';
@@ -36,6 +37,15 @@ import ColorSchemeToggle from './ColorSchemeToggle';
 
 interface NavItem {
   label: string;
+  /**
+   * Hidden from anyone who is not an ADMIN.
+   *
+   * The convention already applied to controls inside pages — see the account menu
+   * below, and the delete button on the alerts table — and the nav had no way to
+   * express it, so an ADMIN-only page would have advertised itself to everybody and
+   * answered with a 403.
+   */
+  adminOnly?: boolean;
   to: string;
   icon: ReactElement;
 }
@@ -47,6 +57,7 @@ const NAV_ITEMS: NavItem[] = [
   // Next to the alerts, because it is read as part of triaging them: the
   // question "why am I seeing this every night" and the answer live together.
   { label: 'Suppressions', to: '/suppressions', icon: <RuleFolderOutlinedIcon /> },
+  { label: 'Activity', to: '/activity', icon: <HistoryOutlinedIcon />, adminOnly: true },
   { label: 'Threat Intel', to: '/threat-intel', icon: <GppMaybeOutlinedIcon /> },
   { label: 'Delivery', to: '/delivery', icon: <SendOutlinedIcon /> },
   { label: 'Capture by Interface', to: '/capture-packets', icon: <SettingsEthernetIcon /> },
@@ -60,6 +71,18 @@ export default function AppLayout() {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
 
   const { user, logout } = useAuth();
+  /*
+   * Admin-only entries are not rendered for anyone else.
+   *
+   * The server refuses the route regardless — this only stops offering a link that
+   * would answer 403, which is the convention the account menu below and the
+   * alerts table's delete button already follow. Filtered once and used by both
+   * the drawer and the rail, so the two cannot disagree about what is on offer.
+   */
+  const navItems = useMemo(
+    () => NAV_ITEMS.filter((item) => item.adminOnly !== true || user?.role === 'ADMIN'),
+    [user?.role],
+  );
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -145,7 +168,7 @@ export default function AppLayout() {
                */
               sx={{ flexGrow: 1, alignItems: 'stretch', marginTop: '6px' }}
             >
-              {NAV_ITEMS.map((item) => (
+              {navItems.map((item) => (
                 <Button
                   key={item.to}
                   component={NavLink}
@@ -280,7 +303,7 @@ export default function AppLayout() {
       </AppBar>
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <Box sx={{ width: 268, pt: 1 }} onClick={() => setDrawerOpen(false)}>
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <ListItemButton
               key={item.to}
               component={NavLink}

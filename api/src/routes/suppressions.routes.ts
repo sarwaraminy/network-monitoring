@@ -1,20 +1,16 @@
-import type { Request } from 'express';
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { recentAlertsForMatching } from '../services/alert.service.js';
+import { actorOf } from '../services/audit.service.js';
 import {
   createSuppression,
   deleteSuppression,
-  getSuppression,
   listSuppressions,
-  type SuppressionInput,
   updateSuppression,
 } from '../services/suppression.service.js';
 import { SuppressionSet } from '../services/suppression-rules.js';
 import {
-  hasSuppressionCriterion,
-  NO_CRITERIA,
   parseId,
   parseOrThrow,
   suppressionCreateSchema,
@@ -39,11 +35,6 @@ import {
 export const suppressionsRouter = Router();
 
 suppressionsRouter.use(requireAuth);
-
-/** Who to record against a rule. Same form the alert acknowledgement uses. */
-function actor(req: Request): string {
-  return req.user?.email ?? `user:${req.user?.id ?? 'unknown'}`;
-}
 
 /** GET /api/suppressions — every rule, with the ones that cannot work flagged. */
 suppressionsRouter.get(
@@ -129,7 +120,7 @@ suppressionsRouter.post(
         enabled: body.enabled,
         expiresAt: body.expiresAt ?? null,
       },
-      actor(req),
+      actorOf(req.user),
     );
 
     res.status(201).json(created);
@@ -139,11 +130,12 @@ suppressionsRouter.post(
 /**
  * PATCH /api/suppressions/:id — partial update.
  *
- * The patch is merged over the stored row and the *result* is checked, which is
- * the only place the "at least one criterion" rule can be enforced: clearing the
- * only criterion of a rule must fail, clearing one of two must not, and the patch
- * on its own cannot tell those apart. Omitting a field leaves it; sending null
- * clears it.
+ * The merge and the "at least one criterion" check both happen inside
+ * `updateSuppression`, against the row it locks, not here: computing the merged
+ * row from an unlocked read taken before the transaction opened is a lost-update
+ * race a lock inside the transaction cannot close, since the write still lands
+ * whatever was merged from the stale read. Omitting a field leaves it; sending
+ * null clears it.
  */
 suppressionsRouter.patch(
   '/:id',
@@ -152,24 +144,7 @@ suppressionsRouter.patch(
     const id = parseId(req.params.id);
     const patch = parseOrThrow(suppressionUpdateSchema, req.body);
 
-    const existing = await getSuppression(id);
-    if (!existing) throw new HttpError(404, `No suppression rule with id ${id}`);
-
-    const merged: SuppressionInput = {
-      kind: patch.kind === undefined ? existing.kind : patch.kind,
-      sourceCidr: patch.sourceCidr === undefined ? existing.sourceCidr : patch.sourceCidr,
-      targetCidr: patch.targetCidr === undefined ? existing.targetCidr : patch.targetCidr,
-      port: patch.port === undefined ? existing.port : patch.port,
-      reason: patch.reason ?? existing.reason,
-      // `??`, not `||`: switching a rule off sends `false`, which is exactly the
-      // value a truthiness check would discard.
-      enabled: patch.enabled ?? existing.enabled,
-      expiresAt: patch.expiresAt === undefined ? existing.expiresAt : patch.expiresAt,
-    };
-
-    if (!hasSuppressionCriterion(merged)) throw new HttpError(400, NO_CRITERIA);
-
-    const updated = await updateSuppression(id, merged);
+    const updated = await updateSuppression(id, patch, actorOf(req.user));
     if (!updated) throw new HttpError(404, `No suppression rule with id ${id}`);
     res.json(updated);
   }),
@@ -187,7 +162,9 @@ suppressionsRouter.delete(
   requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const id = parseId(req.params.id);
-    if (!(await deleteSuppression(id))) throw new HttpError(404, `No suppression rule with id ${id}`);
+    if (!(await deleteSuppression(id, actorOf(req.user)))) {
+      throw new HttpError(404, `No suppression rule with id ${id}`);
+    }
     res.status(204).send();
   }),
 );

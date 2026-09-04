@@ -386,3 +386,42 @@ export interface NotifyTestResult {
   delivered: number;
   results: { channel: string; ok: boolean; detail: string }[];
 }
+
+/**
+ * One entry in the audit trail.
+ *
+ * Append-only on the server — the table refuses UPDATE, DELETE and TRUNCATE — so
+ * there is no draft, patch or delete counterpart to this type, and there should
+ * never be one.
+ */
+export interface AuditEvent {
+  id: number;
+  at: string;
+  /** The actor's email, or `user:<id>` where there was none. */
+  actor: string;
+  actorId: number | null;
+  /** `domain.verb`, from a closed vocabulary the server validates against. */
+  action: string;
+  /** The thing acted on, where the action had a single subject. */
+  subject: string | null;
+  /**
+   * What changed. Shape varies by action, and deliberately never holds a
+   * credential — a settings change records which fields moved, not their values.
+   */
+  detail: Record<string, unknown>;
+}
+
+export interface AuditPage {
+  events: AuditEvent[];
+  /**
+   * Cursor for the next, older page — an `id`, not a timestamp. Absent on the last
+   * one. See `listAuditEvents` on the server for why a timestamp cursor loses rows.
+   */
+  nextBefore?: number;
+}
+
+/** An action and the label to show for it, served so the filter cannot drift. */
+export interface AuditActionOption {
+  action: string;
+  label: string;
+}

@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { type DeliverySettingsRow, deliverySettings, type NewDeliverySettingsRow } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
+import { type Actor, recordAudit } from '../services/audit.service.js';
 import {
   DELIVERY_FIELDS,
   type DeliveryField,
@@ -220,6 +221,62 @@ export async function seedFromEnvironment(): Promise<DeliveryField[]> {
 }
 
 /**
+ * What a settings change records: which fields, never their values.
+ *
+ * Its own exported function for one reason — so a test can assert the property
+ * rather than trust the call site. These settings hold the webhook URL and the SMTP
+ * password, and a trail that recorded them would be a second place to read
+ * credentials: one that cannot be pruned, and that any administrator can read in
+ * full. The API redacts them for the same reason.
+ */
+export function settingsAuditDetail(patch: Partial<NewDeliverySettingsRow>): Record<string, unknown> {
+  return { fields: Object.keys(patch).sort() };
+}
+
+/** `emailTo` is the one array-valued column; every other comparison is `===`. */
+function columnUnchanged(before: unknown, after: unknown): boolean {
+  if (Array.isArray(before) || Array.isArray(after)) {
+    const a = Array.isArray(before) ? before : [];
+    const b = Array.isArray(after) ? after : [];
+    return a.length === b.length && a.every((value, i) => value === b[i]);
+  }
+  return before === after;
+}
+
+/**
+ * The subset of `patch` whose value actually differs from what is stored.
+ *
+ * `Object.keys(patch).length > 0` is not this: a `PUT` resubmitting values that
+ * already match — a form saved with nothing edited — has a non-empty patch and no
+ * real change, the same distinction `ruleChanges` in suppression.service.ts draws
+ * for a suppression-rule PATCH. `current` is `undefined` on the very first save,
+ * before any row exists; every field of the patch is new against nothing, so the
+ * whole patch counts as changed.
+ *
+ * Exported for the same reason as `settingsAuditDetail`: so a test can check the
+ * diff itself without a database, rather than trusting `saveDeliverySettings`'s
+ * call site to get it right.
+ */
+export function changedFields(
+  current: DeliverySettingsRow | undefined,
+  patch: Partial<NewDeliverySettingsRow>,
+): Partial<NewDeliverySettingsRow> {
+  if (!current) return patch;
+
+  // Built as a loose record and narrowed once at return, the same shape
+  // `seedFromEnvironment` uses above for the same reason: each value comes
+  // straight from `patch`, which already is a `NewDeliverySettingsRow`, so the
+  // cast is sound in a way the loop cannot express key by key.
+  const changed: Record<string, unknown> = {};
+  for (const key of Object.keys(patch)) {
+    const before = current[key as keyof DeliverySettingsRow];
+    const after = patch[key as keyof NewDeliverySettingsRow];
+    if (!columnUnchanged(before, after)) changed[key] = after;
+  }
+  return changed as Partial<NewDeliverySettingsRow>;
+}
+
+/**
  * Applies a patch to the row and reloads the cache.
  *
  * A field set to null clears it, which is how "fall back to the environment or the
@@ -229,14 +286,57 @@ export async function seedFromEnvironment(): Promise<DeliveryField[]> {
  */
 export async function saveDeliverySettings(
   patch: Partial<NewDeliverySettingsRow>,
-  updatedBy: string,
+  updatedBy: Actor,
 ): Promise<DeliverySettings> {
-  const values = { ...patch, updatedAt: new Date(), updatedBy: updatedBy.slice(0, 200) };
+  const values = { ...patch, updatedAt: new Date(), updatedBy: updatedBy.name.slice(0, 200) };
 
-  await db
-    .insert(deliverySettings)
-    .values({ id: ROW_ID, ...values })
-    .onConflictDoUpdate({ target: deliverySettings.id, set: values });
+  await db.transaction(async (tx) => {
+    /*
+     * Locked before the upsert, so the comparison below is against the row this
+     * write is actually about to replace rather than a snapshot that could be
+     * stale by the time it commits — the same reasoning `updateSuppression` in
+     * suppression.service.ts applies to its own lock. There is only ever one row
+     * here, so the cost of locking it is not a concern; `undefined` on the very
+     * first save, before the migration's seed insert or this row otherwise exists.
+     */
+    const [current] = await tx
+      .select()
+      .from(deliverySettings)
+      .where(eq(deliverySettings.id, ROW_ID))
+      .limit(1)
+      .for('update');
+
+    await tx
+      .insert(deliverySettings)
+      .values({ id: ROW_ID, ...values })
+      .onConflictDoUpdate({ target: deliverySettings.id, set: values });
+
+    /*
+     * Only when a field actually moved.
+     *
+     * Every field of the patch schema is optional, so `PUT /api/notify/settings`
+     * with `{}` parses and would otherwise append "Changed where findings are
+     * delivered" carrying no field that changed — permanently, since nothing prunes
+     * this table. That is the case `deleteAllAlerts` refuses a few files away, with
+     * the same reasoning: an audit trail that fills with non-events is harder to
+     * read, and being readable is the only thing it has to be.
+     *
+     * `Object.keys(patch).length > 0` alone is not this check: a PUT resubmitting
+     * values that already match what is stored — a form re-saved with no edits —
+     * has a non-empty patch and nothing that actually changed. `changedFields`
+     * diffs against `current` the same way `ruleChanges` does for a suppression
+     * rule, and only those fields, not the whole patch, go into the audit entry.
+     */
+    const changed = changedFields(current, patch);
+    if (Object.keys(changed).length > 0) {
+      await recordAudit(tx, {
+        actor: updatedBy.name,
+        actorId: updatedBy.id,
+        action: 'delivery_settings.update',
+        detail: settingsAuditDetail(changed),
+      });
+    }
+  });
 
   return loadDeliverySettings();
 }

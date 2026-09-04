@@ -211,3 +211,30 @@ export class SuppressionSet {
 
 /** The set in force before any load, and the one a failed load leaves untouched. */
 export const NO_SUPPRESSIONS = new SuppressionSet([]);
+
+/**
+ * Any criterion at all. A rule with none matches every finding on the network.
+ *
+ * Lives here, not in validation.ts, because the check cannot run on a create
+ * payload alone either: `suppression.service.ts`'s `updateSuppression` has to
+ * run it against a patch merged onto the row it just locked, inside the same
+ * transaction — a merge validation.ts has no business doing. Both the create
+ * schema's `.refine` and the service import this one definition.
+ */
+export function hasSuppressionCriterion(values: {
+  kind?: string | null;
+  sourceCidr?: string | null;
+  targetCidr?: string | null;
+  port?: number | null;
+}): boolean {
+  return (
+    (values.kind ?? null) !== null ||
+    (values.sourceCidr ?? null) !== null ||
+    (values.targetCidr ?? null) !== null ||
+    (values.port ?? null) !== null
+  );
+}
+
+export const NO_CRITERIA =
+  'A suppression rule needs at least one of kind, source, target or port. ' +
+  'A rule with none would drop every finding on the network.';
