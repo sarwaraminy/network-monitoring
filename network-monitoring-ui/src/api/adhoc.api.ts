@@ -8,7 +8,14 @@ export interface AdhocColumn {
 
 export interface AdhocResult {
   columns: AdhocColumn[];
-  rows: Record<string, unknown>[];
+  /**
+   * POSITIONAL, lining up one-to-one with `columns`.
+   *
+   * Not keyed by column name, because two columns can share one — a join where
+   * both tables have `id` — and an object row silently keeps only the last. The
+   * grid would then show that value under both headers with nothing saying so.
+   */
+  rows: unknown[][];
   /** The row cap stopped the read. The grid must say so rather than imply completeness. */
   truncated: boolean;
   durationMs: number;

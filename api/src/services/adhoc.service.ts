@@ -83,7 +83,19 @@ export interface AdhocColumn {
 
 export interface AdhocResult {
   columns: AdhocColumn[];
-  rows: Record<string, unknown>[];
+  /**
+   * POSITIONAL rows, lining up one-to-one with `columns`.
+   *
+   * Not objects keyed by column name, and the difference is a correctness one
+   * rather than a preference. node-postgres builds object rows keyed on field
+   * name, so two columns called `id` — `SELECT * FROM alerts JOIN known_devices`,
+   * about as ordinary as ad hoc SQL gets — collapse into one property holding
+   * whichever came last. The header row still shows both, so the grid renders
+   * `id` twice, each showing the SECOND table's value, with the first table's
+   * gone and nothing saying so. For a console whose entire value is that you can
+   * trust what it prints, a wrong-but-plausible number is worse than an error.
+   */
+  rows: unknown[][];
   /** True when the cap stopped the read, so the UI can say so rather than imply completeness. */
   truncated: boolean;
   durationMs: number;
@@ -109,9 +121,6 @@ export class AdhocError extends HttpError {
 }
 
 let pool: pg.Pool | null = null;
-/** Held so `stopAdhoc` can revoke the login it granted. Cleared with the pool. */
-let ownerPool: pg.Pool | null = null;
-let activeRole = '';
 
 /** True once `startAdhoc` has proved the sandbox holds. */
 export function adhocReady(): boolean {
@@ -174,6 +183,18 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
   // `main()`'s catch and `process.exit(1)`. The entire API taken down over an
   // optional feature that is off by default.
   let role = '';
+  /*
+   * Whether the LOGIN was actually granted, which `role !== ''` does NOT say.
+   *
+   * `role` is assigned before `assertNotSuperuser` runs, so every failure after
+   * the lookup and before the ALTER reached the revert with a non-empty role —
+   * and both outcomes were wrong in the superuser case this exists for. Either
+   * the role does not exist and the revert fails too, reporting "do it by hand"
+   * about a role that was never there; or it exists, is a superuser, and the
+   * code correctly declines to provision it and then strips LOGIN from it
+   * anyway. Refusing to touch somebody else's role was the entire point.
+   */
+  let granted = false;
 
   try {
     // Asked of the connection rather than parsed out of the URL, so the role
@@ -201,7 +222,38 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
       `SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', $1::text, $2::text) AS statement`,
       [role, password],
     );
-    await owner.query(rows[0]!.statement);
+
+    /*
+     * Run with statement logging off for the duration, because the password is
+     * in the statement TEXT.
+     *
+     * `ALTER ROLE` has no parameterised form — the value has to be part of the
+     * statement — so under `log_statement = 'ddl'` or `'all'`, both ordinary on
+     * a server anyone is watching, the password would be written to the Postgres
+     * log verbatim. `log_min_error_statement` catches it on failure too, and its
+     * default is low enough to do so. Quoting it correctly, which `%L` does, is
+     * a different problem from keeping it out of the log.
+     *
+     * `SET LOCAL` so it lasts exactly this transaction. Best effort: the setting
+     * is superuser-only, and an owner without that privilege should still get a
+     * working console rather than a hard failure — hence the swallow, and hence
+     * the note in `env.ts` telling an operator this password reaches the server
+     * log if their role cannot suppress it.
+     */
+    const client = await owner.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`SET LOCAL log_statement = 'none'`).catch(() => {});
+      await client.query(`SET LOCAL log_min_error_statement = 'panic'`).catch(() => {});
+      await client.query(rows[0]!.statement);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+    granted = true;
 
     const candidate = new pg.Pool({
       connectionString: adhocConnectionString(role, password),
@@ -223,8 +275,6 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
       throw error;
     }
     pool = candidate;
-    ownerPool = owner;
-    activeRole = role;
     log.info({ role }, 'Ad hoc query console enabled');
     return true;
   } catch (error) {
@@ -239,7 +289,7 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
      */
     // `role` is empty only if the lookup above was what failed, in which case
     // nothing was granted and there is nothing to take back.
-    if (role !== '') await revokeLogin(owner, role);
+    if (granted) await revokeLogin(owner, role);
     return false;
   }
 }
@@ -327,27 +377,43 @@ async function mustBeRefused(candidate: pg.Pool, sql: string, complaint: string)
 }
 
 /**
- * Closes the console AND takes its login away again.
+ * Closes this process's console. Deliberately does NOT revoke the login.
  *
- * Closing the pool was not enough, and the gap mattered most where it was least
- * visible: the test suite boots the console with a committed password, so after
- * one `npm test` the developer's cluster held a login-able role carrying it.
- * PUBLIC has CONNECT by default, so that role could reach their real database —
- * where V10 has also run and granted it the same SELECTs.
+ * The last round's fix put a NOLOGIN here, and that was wrong for the reason
+ * that only shows up with more than one instance: the role is per DATABASE, not
+ * per process, and `ALTER ROLE … NOLOGIN` takes effect immediately for everyone.
+ * Two API instances against one database — a rolling deploy, or an HA pair — and
+ * the one shutting down would disable the other's console mid-flight. Worse, the
+ * survivor cannot tell: its pool object is intact, so `adhocReady()` still says
+ * yes and the page keeps offering a console whose every query fails to
+ * authenticate.
  *
- * The same statement the failure path already issues. Best effort and logged,
- * because this runs during shutdown and there is nothing further to do about it.
+ * Nothing this process knows can distinguish "the last instance" from "one of
+ * several", so it does not guess. The login is revoked where that IS knowable:
+ * at boot when the feature is switched off, and on the failure path, which is
+ * this process undoing something it just did.
+ *
+ * That leaves the test suite, whose need to leave the cluster as it found it is
+ * real — it boots the console with a password committed in the repository. It
+ * calls `revokeAdhocLogin` directly in its teardown, which is the honest place
+ * for cleanup that is a test's concern rather than a shutdown's.
  */
 export async function stopAdhoc(): Promise<void> {
   const closing = pool;
-  const role = activeRole;
-  const owner = ownerPool;
   pool = null;
-  activeRole = '';
-  ownerPool = null;
-
   await closing?.end().catch(() => {});
-  if (owner && role !== '') await revokeLogin(owner, role);
+}
+
+/**
+ * Takes the console role's login away. For teardown that owns the whole cluster.
+ *
+ * Exported for the test suite — see `stopAdhoc` for why a production shutdown
+ * must not do this. Resolves the role from the connection, so a caller does not
+ * have to reproduce the naming rule.
+ */
+export async function revokeAdhocLogin(owner: pg.Pool): Promise<void> {
+  const { rows } = await owner.query<{ name: string }>('SELECT current_database() AS name');
+  await revokeLogin(owner, adhocRole(rows[0]!.name));
 }
 
 /** `ALTER ROLE … NOLOGIN`, the one statement both teardown paths need. */
@@ -436,7 +502,12 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
     }
     // One more than the cap, so "there were more" is knowable without counting
     // the whole result — which is the thing the cap exists to avoid doing.
-    const result = await client.query(`FETCH ${env.adhoc.maxRows + 1} FROM adhoc_result`);
+    // `rowMode: 'array'` for the reason in `AdhocResult.rows`: positional rows
+    // cannot collide on a repeated column name.
+    const result = await client.query({
+      text: `FETCH ${env.adhoc.maxRows + 1} FROM adhoc_result`,
+      rowMode: 'array',
+    });
 
     const truncated = result.rows.length > env.adhoc.maxRows;
     return {

@@ -62,7 +62,18 @@ BEGIN
     BEGIN
         CREATE ROLE nm_adhoc NOLOGIN;
     EXCEPTION
-        WHEN duplicate_object THEN NULL;
+        -- BOTH codes, and the second is the one that matters. `duplicate_object`
+        -- (42710) is what CreateRole raises from its own pre-check, which is the
+        -- SEQUENTIAL case: the role was already committed before this session
+        -- looked. The CONCURRENT case never reaches that check — both sessions
+        -- look, both find nothing, and the loser fails at `pg_authid_rolname_index`
+        -- with `unique_violation` (23505), because nothing serialises the two
+        -- between the check and the insert.
+        --
+        -- Catching only 42710 therefore missed the exact race this handler was
+        -- written for. Verified against a real cluster: two concurrent
+        -- `CREATE ROLE` statements return `ok` and `23505`.
+        WHEN duplicate_object OR unique_violation THEN NULL;
     END;
 END
 $$;

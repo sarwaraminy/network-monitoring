@@ -42,6 +42,19 @@ import { monoSx } from '../theme';
 /** So the header toggle's `aria-controls` has something real to point at. */
 const EDITOR_REGION = 'adhoc-editor';
 
+/**
+ * A numeric column's sort key.
+ *
+ * Postgres sends `bigint` and `numeric` as strings to avoid losing precision in
+ * JavaScript, so a numeric column arrives as text and would sort as text. `NaN`
+ * for anything unparseable — including null — keeps those together at one end
+ * rather than scattering them.
+ */
+function toSortableNumber(value: unknown): number {
+  if (value === null || value === undefined) return Number.NaN;
+  return Number(value);
+}
+
 /** Postgres renders these itself; anything else is shown as JSON. */
 function renderCell(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -111,17 +124,31 @@ export default function AdhocPage() {
    * anything Postgres allows — including a dot, which the key form reads as a
    * path into a nested object and would silently render blank.
    */
-  const columns = useMemo<MRT_ColumnDef<Record<string, unknown>>[]>(
+  const columns = useMemo<MRT_ColumnDef<unknown[]>[]>(
     () =>
-      (result?.columns ?? []).map((column, index) => ({
-        id: `${index}:${column.name}`,
-        header: column.name,
-        accessorFn: (row) => renderCell(row[column.name]),
-        muiTableBodyCellProps: {
-          align: isNumericOid(column.dataTypeId) ? ('right' as const) : ('left' as const),
-          sx: monoSx,
-        },
-      })),
+      (result?.columns ?? []).map((column, index) => {
+        const numeric = isNumericOid(column.dataTypeId);
+        return {
+          id: `${index}:${column.name}`,
+          header: column.name,
+          /*
+           * By POSITION, and returning the RAW value.
+           *
+           * Position, because two columns can share a name and a lookup by name
+           * would read the same cell twice. Raw, because handing the sorter a
+           * string makes a column of integers sort lexicographically — 10, 100,
+           * 2 — which is exactly the column already being right-aligned for
+           * looking like a number. `Cell` below does the formatting, so what is
+           * displayed is unchanged.
+           */
+          accessorFn: (row) => (numeric ? toSortableNumber(row[index]) : renderCell(row[index])),
+          Cell: ({ row }) => renderCell(row.original[index]),
+          muiTableBodyCellProps: {
+            align: numeric ? ('right' as const) : ('left' as const),
+            sx: monoSx,
+          },
+        };
+      }),
     [result],
   );
 
@@ -223,7 +250,17 @@ export default function AdhocPage() {
               // Ctrl/Cmd+Enter runs. Plain Enter has to keep inserting a newline:
               // this is a multi-line editor, and a query is routinely more than one.
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && sql.trim() !== '') {
+                // `!running` too, matching the button. Without it, holding
+                // Ctrl+Enter — or pressing it again because a query with a
+                // ten-second timeout feels stuck — fires overlapping requests,
+                // each writing its own audit row for a query the operator believes
+                // they ran once, against a pool of two connections.
+                if (
+                  event.key === 'Enter' &&
+                  (event.metaKey || event.ctrlKey) &&
+                  !running &&
+                  sql.trim() !== ''
+                ) {
                   event.preventDefault();
                   void run();
                 }

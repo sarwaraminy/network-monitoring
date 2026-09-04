@@ -345,7 +345,17 @@ export const env = {
    */
   adhoc: {
     enabled: bool('ADHOC_ENABLED', false),
-    /** Set on the `nm_adhoc` role at boot. Empty leaves the console off. */
+    /**
+     * Set on the console's role at boot. Empty leaves the console off.
+     *
+     * Worth knowing before choosing one: `ALTER ROLE … PASSWORD` has no
+     * parameterised form, so this value is part of the statement text. The app
+     * runs it with `SET LOCAL log_statement = 'none'`, but that setting is
+     * superuser-only — so if the database owner is not a superuser, the
+     * suppression is skipped and this password is written to the Postgres log in
+     * cleartext under `log_statement = 'ddl'` or `'all'`. Treat it as a
+     * credential the database server may record, and not as one reused anywhere.
+     */
     password: process.env.ADHOC_DB_PASSWORD ?? '',
     /**
      * A query stops here rather than running until somebody notices. Ten seconds

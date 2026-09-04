@@ -63,6 +63,12 @@ describe('ad hoc query console', { skip: database.skip }, () => {
 
   after(async () => {
     await adhoc.stopAdhoc();
+    // The suite's password is committed in this file, so leaving the role able
+    // to log in would leave the developer's cluster holding a credential anyone
+    // reading the repository knows — and PUBLIC has CONNECT, so it would reach
+    // their real database. A production shutdown must NOT do this (see
+    // `stopAdhoc`); a test that owns the whole cluster should.
+    await adhoc.revokeAdhocLogin(database.pool!);
     await database.pool?.end();
     const { closeDb } = await import('../db/index.js');
     await closeDb();
@@ -145,9 +151,26 @@ describe('ad hoc query console', { skip: database.skip }, () => {
       `SELECT email, role FROM users WHERE email = 'adhoc@example.test'`,
     );
 
+    // Positional, matching `columns` — see `AdhocResult.rows`.
     assert.equal(result.rows.length, 1);
-    assert.equal((result.rows[0] as { email: string }).email, 'adhoc@example.test');
-    assert.equal((result.rows[0] as { role: string }).role, 'ADMIN');
+    assert.deepEqual(result.rows[0], ['adhoc@example.test', 'ADMIN']);
+  });
+
+  it('keeps both columns when a query selects the same name twice', async () => {
+    /*
+     * The case object-keyed rows silently got wrong: a join whose two tables
+     * both have `id`. Keyed by name, the second overwrites the first and the
+     * grid shows the same value under both headers, with nothing indicating it.
+     * A console is only worth having if what it prints is what the database
+     * said.
+     */
+    const result = await adhoc.runAdhocQuery(
+      `SELECT a.id, b.id FROM alerts a JOIN alerts b ON b.id = a.id ORDER BY a.id LIMIT 1`,
+    );
+
+    assert.equal(result.columns.length, 2, 'both columns must survive');
+    assert.equal(result.rows[0]!.length, 2, 'the row lost a column to a name collision');
+    assert.deepEqual(result.rows[0], [result.rows[0]![1], result.rows[0]![0]]);
   });
 
   it('refuses to reach outside the database', async () => {
