@@ -119,9 +119,20 @@ export const NAV = {
      * active row. Both are deliberately weaker than the ink they sit under — the
      * subtitle is the quieter half of the row and must read as smaller and
      * lower-contrast than the name above it.
+     *
+     * DARKENED from the source's #9AA0AA / #4D8BB0, which measure 2.63:1 on the
+     * white panel and 3.28:1 on the active tint. Both are under the 4.5:1 that
+     * 11px text needs, and "quieter" has a floor: past it the subtitle is not
+     * quiet, it is unreadable. These measure 5.17:1 and 5.01:1 on the surfaces
+     * they actually sit on, and both stay weaker than the ink above them —
+     * `itemInk` is 8.8:1 and `activeInk` 7.9:1 — so the relationship the source
+     * is expressing survives the correction.
+     *
+     * Dark needs no such change: those values were derived against the dark
+     * panel and already clear AA.
      */
-    itemCodeInk: '#9AA0AA',
-    activeCodeInk: '#4D8BB0',
+    itemCodeInk: '#656E79',
+    activeCodeInk: '#2E6C93',
     divider: '#EDF3F7',
     /** Search-field placeholder ink. */
     placeholder: '#68747C',
@@ -209,16 +220,16 @@ export const SIDEBAR_METRICS = {
   itemRowHeight: 34,
   itemFontSize: 13,
   /**
-   * Item indent, and the indent an active row drops to so its 2px rule lands
-   * flush and the label stays on the same optical line as its neighbours.
+   * Item indent.
    *
-   * Both are kept, because both variants below need the pair. The single-line
-   * row reaches the same geometry by drawing a transparent rule on every row —
-   * one indent, no pair to drift — but the two-line row's own inset is a
-   * different number, so the rule has to be stated rather than inferred.
+   * The source carries a second constant here, `itemActiveIndent: 20`, for the
+   * active row — 2px less, so its rule lands flush and the label stays on the
+   * same optical line as its neighbours. That constant is not copied: the rule
+   * here is drawn on every row and merely coloured when active, so `SideNav`
+   * derives the same 20px as `itemIndent - activeRuleWidth`. Restating it would
+   * be a value nothing reads, which this file argues against a few lines up.
    */
   itemIndent: 22,
-  itemActiveIndent: 20,
   activeRuleWidth: 2,
 
   /*

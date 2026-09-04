@@ -123,10 +123,8 @@ interface SidebarItemProps {
  *
  * The source spends two constants on that, 22px at rest and 20px active. Here
  * the rule is drawn on every row and merely COLOURED when active, so the width
- * comes off once, for everybody: same geometry, and no second value that can
- * drift out of step with the rule. The subtraction is still written out rather
- * than folded into a constant, because the two-line row insets from a different
- * number and the relationship has to survive that.
+ * comes off once, for everybody — which is why only the resting indent is a
+ * token and the active one is this subtraction.
  */
 const itemPaddingLeft = (hasSubtitle: boolean) => {
   const inset = hasSubtitle ? SIDEBAR_METRICS.itemTwoLinePaddingX : SIDEBAR_METRICS.itemIndent;
@@ -311,17 +309,6 @@ interface SidebarSectionProps {
   icon: ReactNode;
   /** Opens the panel from the rail. See `openFromRail` below. */
   onExpandPanel?: () => void;
-  /**
-   * A section whose items carry no group label: the rows render bare, with no
-   * 38px header and no chevron, but STILL through this component — everything
-   * else a section does, in the rail especially, it must do here too. Short-
-   * circuiting to a bare fragment is how the source ended up rendering
-   * full-width text rows squeezed into a 56px rail.
-   *
-   * Unreachable today: every group here has a name. It cannot rot silently,
-   * because the spec exercises both sides of it.
-   */
-  hideHeader?: boolean;
   children: ReactNode;
 }
 
@@ -338,7 +325,6 @@ function SidebarSection({
   collapsed,
   icon,
   onExpandPanel,
-  hideHeader = false,
   children,
 }: Readonly<SidebarSectionProps>) {
   const autoId = useId();
@@ -375,13 +361,6 @@ function SidebarSection({
     borderBottom: `1px solid ${NAV.light.divider}`,
     ...theme.applyStyles('dark', { borderBottom: `1px solid ${NAV.dark.divider}` }),
   });
-
-  // No label means no header ROW — but it is still a section, so it still closes
-  // with a divider. Returning a bare fragment leaves a header-less section
-  // running straight into the next section's header with no gap.
-  if (hideHeader) {
-    return <Box sx={dividerSx}>{children}</Box>;
-  }
 
   return (
     <Box sx={dividerSx}>
@@ -506,10 +485,46 @@ export default function SideNav({
    * choice rather than a chore.
    */
   const [closedIds, setClosedIds] = useState<ReadonlySet<string>>(() => new Set());
+  /*
+   * What the user has closed DURING a search, kept apart from `closedIds`.
+   *
+   * A search opens every surviving section, which is right — a result nobody can
+   * see is not a result. But it must not make the header rows lie: forcing
+   * `expanded` open while still routing the click into `closedIds` gave a header
+   * that visibly did nothing, silently recorded the toggle, and collapsed the
+   * section later when the field was cleared. Whether it ended up open depended
+   * on a click parity the user had no way to see.
+   *
+   * So a search gets its own, empty disclosure state. Closing a section during
+   * one closes it there and then; clearing the field discards that state and
+   * hands back exactly what the user had before searching.
+   */
+  const [searchClosedIds, setSearchClosedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [searchTerm, setSearchTerm] = useState('');
 
   const searching = searchTerm.trim() !== '';
   const shownGroups = useMemo(() => filterGroups(groups, searchTerm), [groups, searchTerm]);
+
+  const changeSearch = (next: string) => {
+    setSearchTerm(next);
+    // Cleared: the search's own disclosure state goes with it, so the next
+    // search starts open rather than inheriting the last one's closures.
+    if (next.trim() === '') setSearchClosedIds(new Set());
+  };
+
+  /*
+   * Collapsing to the rail clears the search.
+   *
+   * The field unmounts with the panel but the term did not, so the rail went on
+   * being filtered by something no longer on screen: a short or empty strip of
+   * section icons, and — when nothing matched — the "No pages match" paragraph
+   * wrapped inside 56px, with no field and no clear button left to undo it.
+   */
+  useEffect(() => {
+    if (!collapsed) return;
+    setSearchTerm('');
+    setSearchClosedIds(new Set());
+  }, [collapsed]);
 
   /*
    * Whatever else is closed, the section holding the CURRENT page is open.
@@ -530,12 +545,18 @@ export default function SideNav({
     });
   }, [activeGroupId]);
 
+  // Whichever disclosure state is the live one. A click always moves the set the
+  // header row is currently reading, so the row can never record a change it did
+  // not also show.
+  const setClosedFor = searching ? setSearchClosedIds : setClosedIds;
   const toggleSection = (id: string) =>
-    setClosedIds((closed) => {
+    setClosedFor((closed) => {
       const next = new Set(closed);
       if (!next.delete(id)) next.add(id);
       return next;
     });
+
+  const isExpanded = (id: string) => (searching ? !searchClosedIds.has(id) : !closedIds.has(id));
 
   return (
     <Box
@@ -649,7 +670,7 @@ export default function SideNav({
             ...theme.applyStyles('dark', { borderColor: SURFACE.dark.cardBorder }),
           })}
         >
-          <SidebarSearchField placeholder={SEARCH_PLACEHOLDER} value={searchTerm} onChange={setSearchTerm} />
+          <SidebarSearchField placeholder={SEARCH_PLACEHOLDER} value={searchTerm} onChange={changeSearch} />
         </Box>
       )}
 
@@ -686,13 +707,11 @@ export default function SideNav({
             label={group.label}
             icon={group.icon}
             /*
-             * While a search is running every surviving section is open. A
-             * result the user cannot see is not a result, and a search that
-             * leaves matches folded away reads as a search that found nothing.
-             * Closing a section by hand is remembered underneath and comes back
-             * the moment the field is cleared.
+             * A search starts every surviving section open — a result the user
+             * cannot see is not a result — but closing one still works, and
+             * still shows. See `searchClosedIds`.
              */
-            expanded={searching || !closedIds.has(group.id)}
+            expanded={isExpanded(group.id)}
             onToggle={() => toggleSection(group.id)}
             collapsed={collapsed}
             onExpandPanel={onToggleCollapsed}

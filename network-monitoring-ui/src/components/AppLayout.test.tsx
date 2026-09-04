@@ -155,6 +155,34 @@ describe('AppLayout panel search', () => {
     expect(screen.getByText(/no pages match/i)).toBeInTheDocument();
   });
 
+  it('lets a section be closed during a search, and shows that it closed', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'capture');
+    await user.click(screen.getByRole('button', { name: /^capture$/i }));
+
+    // The header row must not record a change it does not also show. Forcing
+    // `expanded` open while still routing the click into the persistent set gave
+    // a header that did nothing visible and collapsed the section later, on a
+    // click parity the user could not see.
+    expect(screen.getByRole('button', { name: /^capture$/i })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('does not carry a search closure back into the list once the field is cleared', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'capture');
+    await user.click(screen.getByRole('button', { name: /^capture$/i }));
+    await user.click(screen.getByRole('button', { name: /clear search/i }));
+
+    // A search borrows the disclosure state; it does not write to it.
+    expect(screen.getByRole('button', { name: /^capture$/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('restores the full list, and the sections the user had closed, on clear', async () => {
     const user = userEvent.setup();
     renderApp(<AppLayout />, { authenticated: true });
@@ -193,6 +221,26 @@ describe('AppLayout panel collapse', () => {
     expect(screen.getByRole('button', { name: /^security$/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: ALWAYS })).toBeNull();
     expect(screen.getByRole('button', { name: /expand navigation/i })).toBeInTheDocument();
+  });
+
+  it('does not strand a search term behind the rail', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    // A term matching nothing is the worst case: the rail has no field and no
+    // clear button, so a surviving filter left the strip empty but for the
+    // "No pages match" paragraph wrapped inside 56px.
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'zzzz');
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+
+    expect(screen.queryByText(/no pages match/i)).toBeNull();
+    expect(screen.getByRole('button', { name: /^security$/i })).toBeInTheDocument();
+
+    // And it does not come back when the panel does.
+    await user.click(screen.getByRole('button', { name: /expand navigation/i }));
+    expect(screen.getByRole('textbox', { name: /search navigation/i })).toHaveValue('');
+    expect(await screen.findByRole('link', { name: ALWAYS })).toBeInTheDocument();
   });
 
   it('opens the panel AND the section when a rail icon is clicked', async () => {
