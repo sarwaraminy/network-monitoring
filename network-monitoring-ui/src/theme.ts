@@ -242,7 +242,11 @@ export const SIDEBAR_METRICS = {
    * that needs a second line gets the treatment for free.
    */
   itemTwoLinePaddingY: 8,
-  itemTwoLinePaddingX: 12,
+  // No `itemTwoLinePaddingX`. The source insets a two-line row by its own 12px
+  // rather than the 22px indent, which suits a panel where every row has a
+  // subtitle; here almost none would, and a subtitled row 10px to the left of
+  // its neighbours breaks the indent that carries the hierarchy. `SideNav`
+  // insets both variants by `itemIndent`.
   itemNameFontSize: 13.5,
   itemNameLineHeight: 1.3,
   itemCodeFontSize: 11,

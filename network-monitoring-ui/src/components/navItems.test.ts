@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { NAV_GROUPS, visibleNavGroups } from './navItems';
+import type { NavGroup } from './navItems';
+import { NAV_GROUPS, visibleGroupsFor, visibleNavGroups } from './navItems';
 
 /**
  * The navigation model, tested apart from the shell that renders it.
@@ -13,6 +14,9 @@ import { NAV_GROUPS, visibleNavGroups } from './navItems';
 
 const labelsOf = (groups: ReturnType<typeof visibleNavGroups>) =>
   groups.flatMap((group) => group.items.map((item) => item.label));
+
+/** Stand-in for a group's rail icon; nothing here renders. */
+const ICON = null as unknown as NavGroup['icon'];
 
 describe('visibleNavGroups', () => {
   it('offers an administrator every entry', () => {
@@ -41,12 +45,27 @@ describe('visibleNavGroups', () => {
   });
 
   it('drops a group left empty by the filtering, rather than leaving a bare heading', () => {
-    // A heading standing over nothing reads as a section that failed to load.
-    // No group empties out today, so this is asserted against a constructed one
-    // — the rule has to hold the day an entry does become admin-only.
-    const groups = visibleNavGroups('USER');
-    expect(groups.every((group) => group.items.length > 0)).toBe(true);
-    expect(groups.map((group) => group.id)).not.toContain('nonexistent');
+    /*
+     * A heading standing over nothing reads as a section that failed to load.
+     *
+     * Asserted against a CONSTRUCTED group, because no group in `NAV_GROUPS` can
+     * empty out today — so the same assertion made over the real navigation is
+     * one that passes with the rule deleted. That is what the earlier version of
+     * this test did, and it covered nothing at all.
+     */
+    const groups: NavGroup[] = [
+      { id: 'kept', label: 'Kept', icon: ICON, items: [{ label: 'Open', to: '/open' }] },
+      {
+        id: 'emptied',
+        label: 'Emptied',
+        icon: ICON,
+        items: [{ label: 'Restricted', to: '/restricted', adminOnly: true }],
+      },
+    ];
+
+    expect(visibleGroupsFor(groups, 'USER').map((group) => group.id)).toEqual(['kept']);
+    // And it is only the emptying that drops it — an admin still gets both.
+    expect(visibleGroupsFor(groups, 'ADMIN').map((group) => group.id)).toEqual(['kept', 'emptied']);
   });
 
   it('does not mutate the source groups', () => {

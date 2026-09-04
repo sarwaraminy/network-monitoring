@@ -99,23 +99,36 @@ export const NAV_GROUPS: NavGroup[] = [
 ];
 
 /**
- * The groups this role should be offered, with admin-only entries removed and
- * any group thereby emptied dropped with them.
+ * The groups `role` should be offered, out of the ones given, with admin-only
+ * entries removed and any group thereby emptied dropped with them.
  *
  * That last part is the reason this is a function rather than a `filter` inlined
  * at the call site: filtering items alone leaves a heading standing over nothing,
  * which reads as a section that failed to load rather than as one that does not
- * apply. Today only Administration could empty out, and only if Delivery ever
- * became admin-only — the rule is here so that change stays a one-line change.
+ * apply. Today no group in `NAV_GROUPS` can empty out — only Administration
+ * could, and only if Delivery ever became admin-only — so the rule is here to
+ * keep that a one-line change rather than a redesign.
+ *
+ * Takes the groups as an argument for exactly that reason: the rule cannot be
+ * pinned down against a list where no group is ever empty, and a test asserting
+ * it over `NAV_GROUPS` is a test that passes with the rule deleted. Callers in
+ * the app want `visibleNavGroups` below.
  *
  * The server still enforces the access. This only stops offering a link that
  * would answer 403.
  */
+export function visibleGroupsFor(groups: NavGroup[], role: string | undefined): NavGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.adminOnly !== true || role === 'ADMIN'),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+/** The application's own navigation, filtered for `role`. */
 export function visibleNavGroups(role: string | undefined): NavGroup[] {
-  return NAV_GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((item) => item.adminOnly !== true || role === 'ADMIN'),
-  })).filter((group) => group.items.length > 0);
+  return visibleGroupsFor(NAV_GROUPS, role);
 }
 
 /** The group holding a route, or undefined for a page not in the navigation. */

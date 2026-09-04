@@ -115,21 +115,23 @@ interface SidebarItemProps {
 }
 
 /**
- * Left inset for an item row.
+ * Left inset for an item row. ONE value, for both variants.
  *
- * In both variants the active row gives up the rule's width from its inset, so
- * the text sits on the same optical line whether or not the row is active —
- * that is what stops the label jogging right as the user navigates.
+ * The active row gives up the rule's width from its inset, so the text sits on
+ * the same optical line whether or not the row is active — that is what stops
+ * the label jogging right as the user navigates. The source spends two constants
+ * on that, 22px at rest and 20px active; here the rule is drawn on every row and
+ * merely COLOURED when active, so the width comes off once, for everybody, and
+ * only the resting indent needs to be a token.
  *
- * The source spends two constants on that, 22px at rest and 20px active. Here
- * the rule is drawn on every row and merely COLOURED when active, so the width
- * comes off once, for everybody — which is why only the resting indent is a
- * token and the active one is this subtraction.
+ * A two-line row insets the SAME 22px as a one-line one. The source uses its own
+ * 12px horizontal padding here instead, which is right for a panel where every
+ * row has a subtitle and wrong for this one, where almost none would: a
+ * subtitled row would have sat 10px to the left of its neighbours, breaking the
+ * indent that rule 3 relies on to carry the hierarchy. `itemTwoLinePaddingX` is
+ * a padding token, not an indent, and is not copied for that reason.
  */
-const itemPaddingLeft = (hasSubtitle: boolean) => {
-  const inset = hasSubtitle ? SIDEBAR_METRICS.itemTwoLinePaddingX : SIDEBAR_METRICS.itemIndent;
-  return `${inset - SIDEBAR_METRICS.activeRuleWidth}px`;
-};
+const itemPaddingLeft = () => `${SIDEBAR_METRICS.itemIndent - SIDEBAR_METRICS.activeRuleWidth}px`;
 
 /**
  * The two stacked lines — the label, then its subtitle.
@@ -204,7 +206,7 @@ function SidebarItem({ label, to, subtitle, onNavigate }: Readonly<SidebarItemPr
         lineHeight: hasSubtitle ? SIDEBAR_METRICS.itemNameLineHeight : 1.35,
         pr: 1,
         py: hasSubtitle ? `${SIDEBAR_METRICS.itemTwoLinePaddingY}px` : 0.5,
-        pl: itemPaddingLeft(hasSubtitle),
+        pl: itemPaddingLeft(),
         borderLeft: `${SIDEBAR_METRICS.activeRuleWidth}px solid transparent`,
         color: NAV.light.itemInk,
         // Long labels WRAP; they are not ellipsised. An ellipsis hides the very
@@ -545,23 +547,47 @@ export default function SideNav({
   const [searchClosedIds, setSearchClosedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [searchTerm, setSearchTerm] = useState('');
 
-  const searching = searchTerm.trim() !== '';
-  const shownGroups = useMemo(() => filterGroups(groups, searchTerm), [groups, searchTerm]);
+  /*
+   * The term actually in force, derived during RENDER rather than left to the
+   * effect below.
+   *
+   * A rail has no search field, so it must not be filtered by one. Clearing the
+   * term in an effect alone still let the rail paint one frame with the old term
+   * applied — long enough to show the "No pages match" paragraph wrapped inside
+   * 56px, which is the exact symptom that clearing exists to prevent. Deriving
+   * it here closes the window: there is no frame in which a collapsed panel is
+   * filtered. The effect still runs, so the term is genuinely gone when the panel
+   * comes back rather than reappearing with it.
+   *
+   * Note that no test can catch the regression — RTL flushes effects, so the bad
+   * frame never reaches an assertion. Only a browser shows it.
+   */
+  const effectiveTerm = collapsed ? '' : searchTerm;
+  const searching = effectiveTerm.trim() !== '';
+  const shownGroups = useMemo(() => filterGroups(groups, effectiveTerm), [groups, effectiveTerm]);
 
   const changeSearch = (next: string) => {
     setSearchTerm(next);
-    // Cleared: the search's own disclosure state goes with it, so the next
-    // search starts open rather than inheriting the last one's closures.
-    if (next.trim() === '') setSearchClosedIds(new Set());
+    /*
+     * Every change, not only a clear.
+     *
+     * Resetting only on empty meant a term REPLACED in place — select all,
+     * type over it — never passed through `''` and so inherited the previous
+     * search's closures. The one match could then render inside a section the
+     * user had closed two searches ago: "a result nobody can see is not a
+     * result", which is the failure this pair of sets exists to prevent, coming
+     * back through the door the test did not cover.
+     *
+     * Each search is its own disclosure scope. That does mean typing another
+     * character reopens a section closed a moment earlier, which is the right
+     * trade: the results have changed, and no match may be left hidden.
+     */
+    setSearchClosedIds(new Set());
   };
 
   /*
-   * Collapsing to the rail clears the search.
-   *
-   * The field unmounts with the panel but the term did not, so the rail went on
-   * being filtered by something no longer on screen: a short or empty strip of
-   * section icons, and — when nothing matched — the "No pages match" paragraph
-   * wrapped inside 56px, with no field and no clear button left to undo it.
+   * Collapsing to the rail clears the search state for when the panel returns.
+   * What the rail RENDERS is already handled by `effectiveTerm` above.
    */
   useEffect(() => {
     if (!collapsed) return;
@@ -576,16 +602,26 @@ export default function SideNav({
    * browser's back button can land on a page whose row is folded away, and the
    * panel shows no indication of where you are. Only ever opens: it does not
    * re-close anything the user opened by hand.
+   *
+   * BOTH sets, because either can be the one in force when the route changes.
+   * Reaching only into `closedIds` left the invariant unhonoured for exactly the
+   * case a search is running — close a section, navigate into it, and the
+   * current page stayed folded away. Clearing both needs no branch on the mode
+   * and cannot go stale if that mode is read a render late: an entry removed
+   * from the set that is not in force costs nothing, since `searchClosedIds` is
+   * discarded at the next keystroke anyway.
    */
   const activeGroupId = groupContaining(groups, pathname)?.id;
   useEffect(() => {
     if (activeGroupId === undefined) return;
-    setClosedIds((closed) => {
+    const open = (closed: ReadonlySet<string>) => {
       if (!closed.has(activeGroupId)) return closed;
       const next = new Set(closed);
       next.delete(activeGroupId);
       return next;
-    });
+    };
+    setClosedIds(open);
+    setSearchClosedIds(open);
   }, [activeGroupId]);
 
   /*
@@ -803,7 +839,7 @@ export default function SideNav({
               ...theme.applyStyles('dark', { color: NAV.dark.itemCodeInk }),
             })}
           >
-            No pages match “{searchTerm.trim()}”.
+            No pages match “{effectiveTerm.trim()}”.
           </Box>
         )}
       </Box>

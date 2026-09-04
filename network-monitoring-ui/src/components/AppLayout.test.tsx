@@ -198,6 +198,51 @@ describe('AppLayout panel search', () => {
     expect(screen.getByRole('button', { name: /^capture$/i })).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('does not inherit the previous search’s closed sections when a term is replaced in place', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    const field = screen.getByRole('textbox', { name: /search navigation/i });
+    await user.type(field, 'suppress');
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+
+    // Select the whole field and type over it. This never passes through an
+    // empty value, so a reset keyed on "cleared" missed it entirely and the next
+    // search began with the last one's closures — leaving its only match inside
+    // a section folded shut two searches ago. Each search is its own scope.
+    //
+    // The selection is stated rather than performed with a triple click: jsdom
+    // does not derive a text selection from click events, so the click would
+    // leave the caret at the end and the typing would append.
+    await user.type(field, 'threat', {
+      initialSelectionStart: 0,
+      initialSelectionEnd: (field as HTMLInputElement).value.length,
+    });
+
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: /threat intel/i })).toBeInTheDocument();
+  });
+
+  it('keeps the current page’s section open when a search is running', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true, route: '/dashboard' });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    // Match both groups, so navigating between them does not change what the
+    // filter shows — only which section holds the current page.
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'a');
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(screen.getByRole('link', { name: ALWAYS }));
+
+    // The invariant has to hold in whichever disclosure state is in force.
+    // Reaching only into the non-search set left the current page folded away
+    // for exactly the case a search was running.
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('restores the full list, and the sections the user had closed, on clear', async () => {
     const user = userEvent.setup();
     renderApp(<AppLayout />, { authenticated: true });
