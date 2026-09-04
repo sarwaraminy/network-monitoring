@@ -1,4 +1,5 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { ADMIN_USER } from '../test/fixtures';
@@ -7,16 +8,16 @@ import { server } from '../test/server';
 import AppLayout from './AppLayout';
 
 /**
- * The navigation, and who is offered what.
+ * The navigation panel: who is offered what, and how the panel behaves.
  *
- * `NAV_ITEMS` had no notion of a role until the audit trail needed one: every entry
- * was shown to every account. That was harmless while every page was reachable by
- * everybody, and stopped being harmless the moment one was not — an ADMIN-only page
- * advertised in the sidebar is a link that answers 403, which reads as a broken
- * product rather than as a permission. The same argument as the per-row delete on
- * the alerts table, one layer out.
+ * `jsdom`'s `matchMedia` always answers false (see test/setup.ts), so
+ * `useMediaQuery(down('md'))` is false and these render the DESKTOP mounting —
+ * the permanent panel rather than the temporary drawer. That is the mounting
+ * worth pinning: the drawer renders the same `SideNav` over the same filtered
+ * groups, so the only thing untested here is which of the two is chosen.
  *
- * The server is still what enforces it. This only stops offering the link.
+ * Role filtering itself is asserted in navItems.test.ts against plain data. What
+ * is left for this file is what only exists once it is rendered.
  */
 
 function asNonAdmin() {
@@ -32,7 +33,7 @@ describe('AppLayout navigation', () => {
 
     // Asserted from the admin side first, so the absence test below cannot pass
     // because the entry was renamed or dropped for everybody.
-    expect(await screen.findAllByRole('link', { name: /activity/i })).not.toHaveLength(0);
+    expect(await screen.findAllByRole('link', { name: /audit trail/i })).not.toHaveLength(0);
   });
 
   it('does not offer a plain user a page the server would refuse', async () => {
@@ -44,17 +45,450 @@ describe('AppLayout navigation', () => {
     // on the pending state rather than on the role.
     await screen.findAllByRole('link', { name: ALWAYS });
 
-    expect(screen.queryAllByRole('link', { name: /activity/i })).toHaveLength(0);
+    expect(screen.queryAllByRole('link', { name: /audit trail/i })).toHaveLength(0);
   });
 
   it('still offers a plain user everything that is not admin-only', async () => {
-    // The other half: filtering by role must not quietly remove the rest of the
-    // navigation from a non-admin.
     asNonAdmin();
     renderApp(<AppLayout />, { authenticated: true });
 
     for (const label of [/dashboard/i, /security alerts/i, /suppressions/i, /threat intel/i, /delivery/i]) {
       expect(await screen.findAllByRole('link', { name: label })).not.toHaveLength(0);
     }
+  });
+
+  it('mounts one navigation, not one per breakpoint', async () => {
+    // The desktop panel and the mobile drawer are alternatives. Rendering both
+    // and hiding one puts every link in the document twice, which reads as a
+    // duplicate to a screen reader and gives the keyboard a panel to tab through
+    // that nobody can see.
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findAllByRole('link', { name: ALWAYS });
+
+    expect(screen.getAllByRole('navigation', { name: /main/i })).toHaveLength(1);
+    expect(screen.getAllByRole('link', { name: ALWAYS })).toHaveLength(1);
+  });
+
+  it('files each entry under its own section heading', async () => {
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findAllByRole('link', { name: ALWAYS });
+
+    // The section header is the button that expands it, so that button is what
+    // identifies the section — asserting on the label alone would pass even if
+    // the grouping rendered every link under the first heading.
+    const security = screen.getByRole('button', { name: /^security$/i });
+    const section = security.parentElement;
+    expect(section).not.toBeNull();
+    expect(within(section!).getByRole('link', { name: /suppressions/i })).toBeInTheDocument();
+    expect(within(section!).queryByRole('link', { name: /dashboard/i })).toBeNull();
+  });
+
+  it('marks the current page, and only the current page', async () => {
+    renderApp(<AppLayout />, { authenticated: true, route: '/alerts' });
+
+    const current = await screen.findByRole('link', { name: ALWAYS });
+    expect(current).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /suppressions/i })).not.toHaveAttribute('aria-current');
+  });
+});
+
+describe('AppLayout section disclosure', () => {
+  it('starts with every section open', async () => {
+    // Eight entries all fit at once, so the state needing no interaction to be
+    // useful is the open one.
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('closes a section from its header row', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'false');
+    // Its neighbours are untouched — closing one section is not closing the list.
+    expect(screen.getByRole('button', { name: /^capture$/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('keeps the current section open when moving WITHIN a group', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true, route: '/alerts' });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    /*
+     * The invariant's narrow case, and the one that has now broken twice.
+     *
+     * The neighbouring test crosses a group boundary, so the active GROUP
+     * changes and an effect keyed on the group id runs. Moving between two pages
+     * inside one section does not change it — and that is precisely the path
+     * where a search hands back to a `closedIds` that still holds the section:
+     * close it by hand, search, click the result, and the panel returns with the
+     * current page folded away. Keyed on the route, both cases are one rule.
+     */
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'suppress');
+    await user.click(screen.getByRole('link', { name: /suppressions/i }));
+
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: /suppressions/i })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('opens the section holding the current page, whatever else is closed', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true, route: '/dashboard' });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'false');
+
+    // Navigating into the closed section must not leave the current page folded
+    // away with nothing on screen saying where you are.
+    await user.click(screen.getByRole('link', { name: ALWAYS }));
+
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('AppLayout panel search', () => {
+  it('reduces the panel to matching entries', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'capture');
+
+    expect(screen.getByRole('link', { name: /capture by ip/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /^dashboard$/i })).toBeNull();
+    // A section left with nothing in it goes too, rather than standing as an
+    // empty heading.
+    expect(screen.queryByRole('button', { name: /^overview$/i })).toBeNull();
+  });
+
+  it('finds a group by the heading the user is looking at', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    // The headings are on screen while the user types. A search that cannot find
+    // one reads as broken, not as a rule about what is searchable.
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'administr');
+
+    // A heading match keeps its items whole — the match is the group.
+    expect(screen.getByRole('button', { name: /^administration$/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /delivery/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^security$/i })).toBeNull();
+  });
+
+  it('says so when nothing matches, rather than showing an empty panel', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'zzzz');
+
+    expect(screen.getByText(/no pages match/i)).toBeInTheDocument();
+  });
+
+  it('lets a section be closed during a search, and shows that it closed', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'capture');
+    await user.click(screen.getByRole('button', { name: /^capture$/i }));
+
+    // The header row must not record a change it does not also show. Forcing
+    // `expanded` open while still routing the click into the persistent set gave
+    // a header that did nothing visible and collapsed the section later, on a
+    // click parity the user could not see.
+    expect(screen.getByRole('button', { name: /^capture$/i })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('does not carry a search closure back into the list once the field is cleared', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'capture');
+    await user.click(screen.getByRole('button', { name: /^capture$/i }));
+    await user.click(screen.getByRole('button', { name: /clear search/i }));
+
+    // A search borrows the disclosure state; it does not write to it.
+    expect(screen.getByRole('button', { name: /^capture$/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('does not inherit the previous search’s closed sections when a term is replaced in place', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    const field = screen.getByRole('textbox', { name: /search navigation/i });
+    await user.type(field, 'suppress');
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+
+    // Select the whole field and type over it. This never passes through an
+    // empty value, so a reset keyed on "cleared" missed it entirely and the next
+    // search began with the last one's closures — leaving its only match inside
+    // a section folded shut two searches ago. Each search is its own scope.
+    //
+    // The selection is stated rather than performed with a triple click: jsdom
+    // does not derive a text selection from click events, so the click would
+    // leave the caret at the end and the typing would append.
+    await user.type(field, 'threat', {
+      initialSelectionStart: 0,
+      initialSelectionEnd: (field as HTMLInputElement).value.length,
+    });
+
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: /threat intel/i })).toBeInTheDocument();
+  });
+
+  it('keeps the current page’s section open when a search is running', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true, route: '/dashboard' });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    // Match both groups, so navigating between them does not change what the
+    // filter shows — only which section holds the current page.
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'a');
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(screen.getByRole('link', { name: ALWAYS }));
+
+    // The invariant has to hold in whichever disclosure state is in force.
+    // Reaching only into the non-search set left the current page folded away
+    // for exactly the case a search was running.
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('puts focus back in the field when the search is cleared', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    const field = screen.getByRole('textbox', { name: /search navigation/i });
+    await user.type(field, 'capture');
+    // Reached by keyboard, which is the case that breaks: the button exists only
+    // while there is something to clear, so activating it unmounts the element
+    // holding focus and drops the user at the top of the document.
+    await user.tab();
+    expect(screen.getByRole('button', { name: /clear search/i })).toHaveFocus();
+    await user.keyboard('{Enter}');
+
+    expect(field).toHaveFocus();
+    expect(field).toHaveValue('');
+  });
+
+  it('keeps the section header a valid button', async () => {
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    // A `<button>` takes phrasing content only, and browser recovery from a
+    // flow-content child is not uniform — so this is a real rule, not a
+    // validator's. Asserted structurally because nothing else would notice.
+    const header = screen.getByRole('button', { name: /^security$/i });
+    expect(header.querySelector('div')).toBeNull();
+  });
+
+  it('drops the filter once the user has gone somewhere', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true, route: '/dashboard' });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'threat');
+    await user.click(screen.getByRole('link', { name: /threat intel/i }));
+
+    /*
+     * A search is a way of getting somewhere, not a view to keep. Left standing,
+     * a later route change — Back, or an in-page link — leaves the panel showing
+     * a list that need not contain the current page at all: nothing marked, most
+     * destinations absent, and no clue why beyond a clear button to notice.
+     *
+     * The drawer escaped this only because MUI unmounts it on close, so the same
+     * navigation behaved differently at the two widths.
+     */
+    expect(screen.getByRole('textbox', { name: /search navigation/i })).toHaveValue('');
+    expect(screen.getByRole('link', { name: /^dashboard$/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /threat intel/i })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('restores the full list, and the sections the user had closed, on clear', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /^capture$/i }));
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'capture');
+    // A result the user cannot see is not a result: searching opens what matches.
+    expect(screen.getByRole('button', { name: /^capture$/i })).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(screen.getByRole('button', { name: /clear search/i }));
+
+    expect(screen.getByRole('link', { name: /^dashboard$/i })).toBeInTheDocument();
+    // The hand-closed section comes back closed. Searching borrowed the state, it
+    // did not overwrite it.
+    expect(screen.getByRole('button', { name: /^capture$/i })).toHaveAttribute('aria-expanded', 'false');
+  });
+});
+
+describe('AppLayout panel collapse', () => {
+  it('starts expanded, with labels showing', async () => {
+    renderApp(<AppLayout />, { authenticated: true });
+
+    expect(await screen.findByText('Security Alerts')).toBeInTheDocument();
+  });
+
+  it('collapses to a rail of section icons', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+
+    // The rail carries one control per SECTION, not per page — that is the
+    // design's own trade, and the reason the toggle has to stay reachable.
+    expect(screen.getByRole('button', { name: /^security$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: ALWAYS })).toBeNull();
+    expect(screen.getByRole('button', { name: /expand navigation/i })).toBeInTheDocument();
+  });
+
+  it('does not strand a search term behind the rail', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    // A term matching nothing is the worst case: the rail has no field and no
+    // clear button, so a surviving filter left the strip empty but for the
+    // "No pages match" paragraph wrapped inside 56px.
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'zzzz');
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+
+    expect(screen.queryByText(/no pages match/i)).toBeNull();
+    expect(screen.getByRole('button', { name: /^security$/i })).toBeInTheDocument();
+
+    // And it does not come back when the panel does.
+    await user.click(screen.getByRole('button', { name: /expand navigation/i }));
+    expect(screen.getByRole('textbox', { name: /search navigation/i })).toHaveValue('');
+    expect(await screen.findByRole('link', { name: ALWAYS })).toBeInTheDocument();
+  });
+
+  it('opens the panel AND the section when a rail icon is clicked', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    // Close Security first, so the click has both halves to do.
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+
+    // Half of this went wrong in the source every time it was wired per screen:
+    // the panel opened without the section, or the section without the panel.
+    expect(screen.getByRole('button', { name: /collapse navigation/i })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: ALWAYS })).toBeInTheDocument();
+  });
+
+  it('points its collapse control at the region it collapses', async () => {
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    // The same rule the rail buttons are held to below: `aria-expanded` needs
+    // something to have expanded. Here the region is real in both states, so the
+    // attribute stays and gets an `aria-controls` rather than being dropped.
+    const toggle = screen.getByRole('button', { name: /collapse navigation/i });
+    const controls = toggle.getAttribute('aria-controls');
+    expect(controls).toBeTruthy();
+    expect(document.getElementById(controls!)).not.toBeNull();
+  });
+
+  it('does not announce a region the rail is not rendering', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+
+    // In the rail there is no list under this button and no `aria-controls` to
+    // point at one, so "expanded" would describe something that is not there —
+    // and would report the hidden panel's state rather than anything visible.
+    expect(screen.getByRole('button', { name: /^security$/i })).not.toHaveAttribute('aria-expanded');
+  });
+
+  it('still says where the user is', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true, route: '/alerts' });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+
+    /*
+     * With the rows unrendered, `aria-current` would otherwise leave the document
+     * altogether and no icon would carry an active state — so the rail would
+     * offer no sighted OR assistive indication of the current page. Not a
+     * transient state either: the collapse preference is persisted, so this is
+     * the navigation from then on for anyone who collapses once.
+     */
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-current', 'page');
+    // And only that one — the marker has to distinguish, not decorate.
+    expect(screen.getByRole('button', { name: /^capture$/i })).not.toHaveAttribute('aria-current');
+  });
+
+  it('moves the rail marker when the page changes', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true, route: '/alerts' });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('link', { name: /capture by ip/i }));
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+
+    expect(screen.getByRole('button', { name: /^capture$/i })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: /^security$/i })).not.toHaveAttribute('aria-current');
+  });
+
+  it('moves focus into the section a rail click opened', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+
+    // The rail button unmounts as the panel expands. Without a handoff, focus
+    // falls to <body> and a keyboard user is dropped at the top of the document
+    // rather than into the section they just asked for.
+    await screen.findByRole('link', { name: ALWAYS });
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveFocus();
+  });
+
+  it('remembers the collapsed state across a reload', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+    unmount();
+
+    // A fresh mount is what a reload looks like from here: same storage, new tree.
+    renderApp(<AppLayout />, { authenticated: true });
+
+    expect(await screen.findByRole('button', { name: /expand navigation/i })).toBeInTheDocument();
+    expect(screen.queryByText('Security Alerts')).toBeNull();
+  });
+
+  it('expands again from the same control', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+    await user.click(screen.getByRole('button', { name: /expand navigation/i }));
+
+    expect(screen.getByText('Security Alerts')).toBeInTheDocument();
   });
 });
