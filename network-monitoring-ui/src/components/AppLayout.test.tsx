@@ -114,6 +114,29 @@ describe('AppLayout section disclosure', () => {
     expect(screen.getByRole('button', { name: /^capture$/i })).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('keeps the current section open when moving WITHIN a group', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true, route: '/alerts' });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    /*
+     * The invariant's narrow case, and the one that has now broken twice.
+     *
+     * The neighbouring test crosses a group boundary, so the active GROUP
+     * changes and an effect keyed on the group id runs. Moving between two pages
+     * inside one section does not change it — and that is precisely the path
+     * where a search hands back to a `closedIds` that still holds the section:
+     * close it by hand, search, click the result, and the panel returns with the
+     * current page folded away. Keyed on the route, both cases are one rule.
+     */
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'suppress');
+    await user.click(screen.getByRole('link', { name: /suppressions/i }));
+
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: /suppressions/i })).toHaveAttribute('aria-current', 'page');
+  });
+
   it('opens the section holding the current page, whatever else is closed', async () => {
     const user = userEvent.setup();
     renderApp(<AppLayout />, { authenticated: true, route: '/dashboard' });
@@ -241,6 +264,35 @@ describe('AppLayout panel search', () => {
     // Reaching only into the non-search set left the current page folded away
     // for exactly the case a search was running.
     expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('puts focus back in the field when the search is cleared', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    const field = screen.getByRole('textbox', { name: /search navigation/i });
+    await user.type(field, 'capture');
+    // Reached by keyboard, which is the case that breaks: the button exists only
+    // while there is something to clear, so activating it unmounts the element
+    // holding focus and drops the user at the top of the document.
+    await user.tab();
+    expect(screen.getByRole('button', { name: /clear search/i })).toHaveFocus();
+    await user.keyboard('{Enter}');
+
+    expect(field).toHaveFocus();
+    expect(field).toHaveValue('');
+  });
+
+  it('keeps the section header a valid button', async () => {
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    // A `<button>` takes phrasing content only, and browser recovery from a
+    // flow-content child is not uniform — so this is a real rule, not a
+    // validator's. Asserted structurally because nothing else would notice.
+    const header = screen.getByRole('button', { name: /^security$/i });
+    expect(header.querySelector('div')).toBeNull();
   });
 
   it('drops the filter once the user has gone somewhere', async () => {

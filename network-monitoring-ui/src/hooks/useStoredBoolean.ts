@@ -16,6 +16,13 @@ import { useCallback, useState } from 'react';
  * Every access is guarded. `localStorage` is not merely empty in a private
  * window or with site data blocked; the property access itself throws, and this
  * runs during the first render of the shell.
+ *
+ * Be honest about what that guard buys TODAY, though: `api/client.ts` reads a
+ * token from `localStorage` unguarded at module scope, so on a browser where
+ * storage throws the app is already gone before this hook is reached. The guard
+ * is still right — it is the correct way to touch storage, and it stops this
+ * hook being a second thing to fix — but the claim it makes is "this file is not
+ * the reason the page is blank", not "the page is not blank".
  */
 export function useStoredBoolean(key: string, fallback: boolean) {
   const [value, setValue] = useState<boolean>(() => {

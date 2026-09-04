@@ -255,11 +255,30 @@ function SidebarSearchField({
   value,
   onChange,
 }: Readonly<{ placeholder: string; value: string; onChange: (next: string) => void }>) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  /*
+   * Clearing puts focus back in the field.
+   *
+   * The clear button exists only while there is something to clear, so
+   * activating it unmounts the element that has focus — and focus falls to
+   * `<body>`, dumping a keyboard user at the top of the document. Exactly the
+   * failure the rail click guards against with its `autoFocus` handoff, and the
+   * fix is the same shape: the control that removes itself hands focus on before
+   * it goes. The field is also where the user wants to be: they cleared it to
+   * type something else.
+   */
+  const clear = () => {
+    onChange('');
+    inputRef.current?.focus();
+  };
+
   return (
     <TextField
       placeholder={placeholder}
       value={value}
       onChange={(event) => onChange(event.target.value)}
+      inputRef={inputRef}
       size="small"
       fullWidth
       slotProps={{
@@ -279,12 +298,7 @@ function SidebarSearchField({
           // affordance that does nothing is noise in a 32px field.
           endAdornment: value ? (
             <InputAdornment position="end">
-              <IconButton
-                size="small"
-                onClick={() => onChange('')}
-                aria-label="Clear search"
-                sx={{ padding: '4px' }}
-              >
+              <IconButton size="small" onClick={clear} aria-label="Clear search" sx={{ padding: '4px' }}>
                 <CloseOutlinedIcon sx={{ fontSize: 14 }} />
               </IconButton>
             </InputAdornment>
@@ -470,7 +484,16 @@ function SidebarSection({
         })}
       >
         {label}
+        {/*
+          A `span`, not the default `div`. A `<button>`'s content model is
+          phrasing content, so a flow-content child is invalid — and browser
+          recovery from it is not uniform, which is what makes this a real rule
+          rather than a validator's. `SidebarItemLines` says the same thing about
+          its anchors above; this was the one place in the file departing from
+          its own convention. `display: flex` keeps the layout unchanged.
+        */}
         <Box
+          component="span"
           sx={(theme) => ({
             display: 'flex',
             color: NAV.light.chevron,
@@ -683,16 +706,33 @@ export default function SideNav({
    */
   const activeGroupId = groupContaining(groups, pathname)?.id;
   useEffect(() => {
-    if (activeGroupId === undefined) return;
+    /*
+     * Resolved HERE rather than read from `activeGroupId` above, so that the
+     * dependency is the ROUTE.
+     *
+     * Keyed on the group id, the effect did not run when the user moved between
+     * two pages inside one section — which is precisely the path that could
+     * leave it shut: close Security by hand, search, click the result. The
+     * search scope showed the section open, then cleared on navigation and
+     * disclosure fell back to a `closedIds` that still held it, so the panel
+     * returned with the current page folded away. The group had not changed, so
+     * nothing re-opened it.
+     *
+     * Depending on `pathname` directly also keeps the dependency honest: it is
+     * read in the body, so there is no suppression here claiming a value matters
+     * that the linter can see nothing using.
+     */
+    const currentId = groupContaining(groups, pathname)?.id;
+    if (currentId === undefined) return;
     const open = (closed: ReadonlySet<string>) => {
-      if (!closed.has(activeGroupId)) return closed;
+      if (!closed.has(currentId)) return closed;
       const next = new Set(closed);
-      next.delete(activeGroupId);
+      next.delete(currentId);
       return next;
     };
     setClosedIds(open);
     setSearchClosedIds(open);
-  }, [activeGroupId]);
+  }, [groups, pathname]);
 
   /*
    * The section a rail click asked to be focused, cleared once that has happened.
