@@ -41,16 +41,24 @@ describe('adhocRole', () => {
   });
 
   it('uses the same rule the migration does', () => {
-    // The SQL is `left('nm_adhoc_' || db, 54) || '_' || left(md5(db), 8)`.
-    // Spelled out here rather than described, so a change to either side that
-    // does not change the other fails.
+    // The SQL is `'nm_adhoc_' || left(md5(db), 16)`. Spelled out here rather
+    // than described, so a change to either side that is not made to the other
+    // fails.
     const database = 'x'.repeat(80);
-    const expected = `${`nm_adhoc_${database}`.slice(0, 54)}_${createHash('md5')
-      .update(database)
-      .digest('hex')
-      .slice(0, 8)}`;
+    const expected = `nm_adhoc_${createHash('md5').update(database).digest('hex').slice(0, 16)}`;
 
     assert.equal(adhocRole(database), expected);
+  });
+
+  it('stays inside the limit for a multibyte name, which is where slicing broke', () => {
+    // The budget is BYTES; a character slice let a multibyte name come in under
+    // the character limit and over the byte one, so Postgres truncated at CREATE
+    // ROLE while this side kept the full string. Nothing is truncated now, which
+    // is what makes this hold rather than what documents it.
+    const database = 'ネットワーク監視'.repeat(12);
+
+    assert.ok(Buffer.byteLength(adhocRole(database)) <= LIMIT);
+    assert.notEqual(adhocRole(database), adhocRole(`${database}x`));
   });
 
   it('is stable, so a restart reaches the same role', () => {

@@ -85,13 +85,10 @@ export const sharedTableOptions = {
       boxShadow: 'none',
     },
   },
-  muiBottomToolbarProps: {
-    sx: {
-      backgroundColor: 'transparent',
-      backgroundImage: 'none',
-      boxShadow: 'none',
-      borderTop: '1px solid',
-      borderColor: 'divider',
-    },
-  },
+  // No `muiBottomToolbarProps`: `DataGrid` renders its own footer through
+  // `renderBottomToolbar`, which replaces `MRT_BottomToolbar` rather than
+  // configuring it — so those props were read by nothing. The rule and surface
+  // they described live in `GridPagination` now. Left as a comment rather than
+  // deleted silently, because "the footer has no border" is otherwise a puzzle
+  // that starts by looking here.
 } as const;

@@ -97,6 +97,19 @@ export default function GridPagination<T extends MRT_RowData>({
         width: '100%',
         px: 1,
         py: 0.5,
+        /*
+         * The rule and the surface that `muiBottomToolbarProps` used to supply.
+         *
+         * `renderBottomToolbar` replaces `MRT_BottomToolbar` outright, and those
+         * props are only read INSIDE that component — so overriding the toolbar
+         * silently dropped the 1px hairline above the pager on every grid in the
+         * app. A missing rule is exactly the kind of thing noticed weeks later
+         * and blamed on something else, so the pager carries it itself and the
+         * now-dead option is gone from `sharedTableOptions`.
+         */
+        backgroundColor: 'transparent',
+        borderTop: '1px solid',
+        borderColor: 'divider',
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

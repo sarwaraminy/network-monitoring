@@ -57,18 +57,22 @@ export function adhocRole(database: string): string {
    *
    * Truncating alone would trade that for a worse bug: two long database names
    * cut to the same role, which is the shared-role collision V11 exists to
-   * remove. So the tail is a hash of the WHOLE name — the prefix stays readable
-   * and the identity stays unique. `md5` because Postgres has it built in and
-   * this has to be computable identically on both sides; it is a naming device,
-   * not a security one.
+   * remove. So the over-long case is the prefix plus a hash of the WHOLE name,
+   * and NOTHING is truncated — which is the second correction this needed. An
+   * earlier version kept a readable slice of the name in front of the hash, and
+   * that slice was taken in CHARACTERS while the budget is in BYTES: a database
+   * name with any multibyte character came in under the character limit and over
+   * the byte one, so Postgres truncated at CREATE ROLE while this kept the full
+   * string, and startup failed claiming the role did not exist. A fixed-width
+   * name cannot drift from the SQL that has to reproduce it.
    *
-   * Sliced by character on the assumption that database names are ASCII, which
-   * is true of every one this project creates. The byte check above is what
-   * actually decides, so a multibyte name takes the hashed form rather than
-   * being cut mid-character.
+   * The readability that loses is bought back in V11, which sets a COMMENT on
+   * the role naming the database it belongs to.
+   *
+   * `md5` because Postgres has it built in and this must be computable
+   * identically on both sides. It is a naming device, not a security one.
    */
-  const digest = createHash('md5').update(database).digest('hex').slice(0, HASH_LENGTH);
-  return `${full.slice(0, MAX_IDENTIFIER_BYTES - HASH_LENGTH - 1)}_${digest}`;
+  return `${ROLE_PREFIX}${createHash('md5').update(database).digest('hex').slice(0, HASH_LENGTH)}`;
 }
 
 export interface AdhocColumn {
@@ -105,6 +109,9 @@ export class AdhocError extends HttpError {
 }
 
 let pool: pg.Pool | null = null;
+/** Held so `stopAdhoc` can revoke the login it granted. Cleared with the pool. */
+let ownerPool: pg.Pool | null = null;
+let activeRole = '';
 
 /** True once `startAdhoc` has proved the sandbox holds. */
 export function adhocReady(): boolean {
@@ -123,7 +130,8 @@ export function adhocReady(): boolean {
 /** Postgres's `NAMEDATALEN - 1`. An identifier longer than this is truncated. */
 const MAX_IDENTIFIER_BYTES = 63;
 const ROLE_PREFIX = 'nm_adhoc_';
-const HASH_LENGTH = 8;
+/** Hex characters of md5 kept. 9 + 16 = 25 bytes, comfortably inside the limit. */
+const HASH_LENGTH = 16;
 
 function adhocConnectionString(role: string, password: string): string {
   const url = new URL(env.databaseUrl);
@@ -203,8 +211,20 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     });
     candidate.on('error', (error) => log.error({ err: error }, 'Idle ad hoc client error'));
 
-    await proveSandbox(candidate, role);
+    try {
+      await proveSandbox(candidate, role);
+    } catch (error) {
+      // The candidate is a LOCAL: nothing else holds it, and `stopAdhoc` reads
+      // the module-level `pool`, which is never assigned on this path. Without
+      // this its connections stay open until the 30s idle timeout — against a
+      // role that has just failed its safety check, and in the test suite it is
+      // what keeps the process from exiting.
+      await candidate.end().catch(() => {});
+      throw error;
+    }
     pool = candidate;
+    ownerPool = owner;
+    activeRole = role;
     log.info({ role }, 'Ad hoc query console enabled');
     return true;
   } catch (error) {
@@ -219,13 +239,7 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
      */
     // `role` is empty only if the lookup above was what failed, in which case
     // nothing was granted and there is nothing to take back.
-    if (role !== '')
-      await owner
-        .query('SELECT format($$ALTER ROLE %I NOLOGIN$$, $1::text) AS statement', [role])
-        .then((result) => owner.query(result.rows[0]!.statement))
-        .catch((revertError) =>
-          log.error({ err: revertError }, `Could not revoke LOGIN from ${role}; do it by hand`),
-        );
+    if (role !== '') await revokeLogin(owner, role);
     return false;
   }
 }
@@ -312,10 +326,36 @@ async function mustBeRefused(candidate: pg.Pool, sql: string, complaint: string)
   }
 }
 
+/**
+ * Closes the console AND takes its login away again.
+ *
+ * Closing the pool was not enough, and the gap mattered most where it was least
+ * visible: the test suite boots the console with a committed password, so after
+ * one `npm test` the developer's cluster held a login-able role carrying it.
+ * PUBLIC has CONNECT by default, so that role could reach their real database —
+ * where V10 has also run and granted it the same SELECTs.
+ *
+ * The same statement the failure path already issues. Best effort and logged,
+ * because this runs during shutdown and there is nothing further to do about it.
+ */
 export async function stopAdhoc(): Promise<void> {
   const closing = pool;
+  const role = activeRole;
+  const owner = ownerPool;
   pool = null;
+  activeRole = '';
+  ownerPool = null;
+
   await closing?.end().catch(() => {});
+  if (owner && role !== '') await revokeLogin(owner, role);
+}
+
+/** `ALTER ROLE … NOLOGIN`, the one statement both teardown paths need. */
+async function revokeLogin(owner: pg.Pool, role: string): Promise<void> {
+  await owner
+    .query('SELECT format($$ALTER ROLE %I NOLOGIN$$, $1::text) AS statement', [role])
+    .then((result) => owner.query(result.rows[0]!.statement))
+    .catch((error) => log.error({ err: error }, `Could not revoke LOGIN from ${role}; do it by hand`));
 }
 
 /**

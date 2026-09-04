@@ -133,6 +133,30 @@ export default function AdhocPage() {
     );
   }
 
+  if (availability.isError) {
+    /*
+     * A failed request is not "the feature is off", and conflating them gives
+     * the wrong instruction: the disabled copy below tells the reader to go set
+     * `ADHOC_ENABLED` on a server where it may already be set. `staleTime:
+     * Infinity` means nothing refetches to correct it either — one failed
+     * request at first paint and the page keeps misleading for the session.
+     *
+     * 403 gets its own sentence because it is the likeliest of these and the
+     * only one the reader can act on: they are signed in, just not as an admin.
+     */
+    const forbidden = (availability.error as { response?: { status?: number } })?.response?.status === 403;
+
+    return (
+      <SurfaceCard title="Ad Hoc Query" titleComponent="h1" titleVariant="h5">
+        <Alert severity={forbidden ? 'info' : 'error'}>
+          {forbidden
+            ? 'The query console is available to administrators only.'
+            : `The server could not be asked whether the query console is available. ${describeError(availability.error)}`}
+        </Alert>
+      </SurfaceCard>
+    );
+  }
+
   if (!availability.data?.enabled) {
     return (
       <SurfaceCard title="Ad Hoc Query" titleComponent="h1" titleVariant="h5">

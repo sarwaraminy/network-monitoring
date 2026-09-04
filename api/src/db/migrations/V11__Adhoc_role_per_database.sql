@@ -37,17 +37,26 @@ DECLARE
     -- trade that for a worse one: two long database names cut to the same role,
     -- which is the shared-role collision this file exists to remove. So the tail
     -- is an md5 of the whole name; the prefix stays readable and the identity
-    -- stays unique. `adhoc.service.ts` computes this exact rule — 54 characters
-    -- of prefix, an underscore, 8 hex characters — and the two must move together.
+    -- stays unique. Nothing is truncated in the over-long case, deliberately:
+    -- `left(…, 54)` counts CHARACTERS while the budget is BYTES, so a multibyte
+    -- database name came in under one and over the other, and the two sides
+    -- disagreed again. `adhoc.service.ts` computes this exact rule — the prefix
+    -- plus 16 hex characters of md5 — and the two must move together.
     role_name text := CASE
         WHEN octet_length('nm_adhoc_' || current_database()) <= 63
             THEN 'nm_adhoc_' || current_database()
-        ELSE left('nm_adhoc_' || current_database(), 54) || '_' || left(md5(current_database()), 8)
+        ELSE 'nm_adhoc_' || left(md5(current_database()), 16)
     END;
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+    -- Same shape as V10: caught rather than checked. The per-database name means
+    -- two DATABASES cannot collide here, but two processes migrating the SAME
+    -- database can — `migrate.ts` takes no lock — and check-then-create loses
+    -- that race the same way.
+    BEGIN
         EXECUTE format('CREATE ROLE %I NOLOGIN', role_name);
-    END IF;
+    EXCEPTION
+        WHEN duplicate_object THEN NULL;
+    END;
 
     -- Explicit, though a fresh role has none of this: the point is that the file
     -- can be read as the whole of what this role may do.

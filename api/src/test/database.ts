@@ -206,18 +206,32 @@ async function restoreSeed(pool: pg.Pool): Promise<void> {
    * kind of thing that presents as an unrelated flake.
    */
   for (const table of touched) {
-    await pool.query(
-      `SELECT setval(pg_get_serial_sequence($1, a.attname), COALESCE(max_id.value, 1))
+    /*
+     * Driven off `pg_get_serial_sequence`, not off a column called `id`.
+     *
+     * The previous version filtered on `attname = 'id'` but built the max()
+     * inside a `CROSS JOIN LATERAL (SELECT max(id) FROM <table>)` — which is
+     * part of the statement and is PARSED for every table regardless of the
+     * filter. A seeded table without an `id` would not have been skipped; it
+     * would have failed to parse, breaking `truncateAll` for every database
+     * suite at once and reporting it as the harness being broken rather than as
+     * the migration that introduced the table.
+     */
+    const { rows: sequences } = await pool.query<{ column: string; sequence: string }>(
+      `SELECT quote_ident(a.attname) AS column, pg_get_serial_sequence($1, a.attname) AS sequence
          FROM pg_attribute a
-         CROSS JOIN LATERAL (
-           SELECT max(id) AS value FROM ${table}
-         ) AS max_id
         WHERE a.attrelid = $1::regclass
-          AND a.attname = 'id'
+          AND a.attnum > 0
           AND NOT a.attisdropped
           AND pg_get_serial_sequence($1, a.attname) IS NOT NULL`,
       [table],
     );
+
+    for (const { column, sequence } of sequences) {
+      // `coalesce(..., 1)` because an empty table has no max, and a sequence
+      // cannot be set below its minimum.
+      await pool.query(`SELECT setval($1, coalesce((SELECT max(${column}) FROM ${table}), 1))`, [sequence]);
+    }
   }
 }
 

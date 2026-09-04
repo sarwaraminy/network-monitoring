@@ -45,11 +45,25 @@
 
 DO $$
 BEGIN
-    -- Idempotent: a role is cluster-wide, not database-wide, so a second database
-    -- on the same server running these migrations would otherwise fail here.
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nm_adhoc') THEN
+    -- Idempotent AGAINST A RACE, not just against a second run.
+    --
+    -- A role is cluster-wide while a migration runs per database, so several
+    -- databases migrating at once all reach this line together — which is
+    -- exactly what CI does now: four test suites migrate their own databases in
+    -- parallel against a cluster that starts empty. A check-then-create loses
+    -- there. All four see no role, all four issue CREATE ROLE, one wins on
+    -- `pg_authid`'s unique index and three fail, each taking its suite down.
+    -- The first run against a clean cluster is the likeliest to fail, and it
+    -- fails as three unrelated-looking suite errors.
+    --
+    -- `CREATE ROLE` has no `IF NOT EXISTS`, so catching the duplicate is the
+    -- shape that actually holds: the loser blocks on the index until the winner
+    -- commits, then finds the role already there, which is the outcome it wanted.
+    BEGIN
         CREATE ROLE nm_adhoc NOLOGIN;
-    END IF;
+    EXCEPTION
+        WHEN duplicate_object THEN NULL;
+    END;
 END
 $$;
 
