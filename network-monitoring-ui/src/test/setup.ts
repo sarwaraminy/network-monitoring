@@ -29,9 +29,13 @@ beforeAll(() => {
  * Guarded on the capability rather than on a version, so this disappears on its
  * own the day the runtime supplies a real one, and never masks jsdom's.
  *
- * `Storage` is redefined alongside it so `vi.spyOn(Storage.prototype, ...)`
- * still reaches these methods — a test simulating storage that throws is exactly
- * the kind that would otherwise pass against the wrong object.
+ * The global `Storage` class is deliberately NOT replaced. Doing so made
+ * `vi.spyOn(Storage.prototype, ...)` reach this shim, which was convenient for
+ * one test file — and made `sessionStorage instanceof Storage` false and any
+ * future spy on `Storage.prototype` miss `sessionStorage` entirely, since jsdom
+ * still provides that one. A shim for `localStorage` has no business changing
+ * what `sessionStorage` is. Tests that need to make storage misbehave spy on the
+ * `localStorage` OBJECT, which works whichever implementation is underneath.
  *
  * ---------------------------------------------------------------------------
  * ENTRIES ARE OWN ENUMERABLE PROPERTIES, and that is not an implementation
@@ -84,11 +88,6 @@ if (typeof globalThis.localStorage?.setItem !== 'function') {
     }
   }
 
-  Object.defineProperty(globalThis, 'Storage', {
-    writable: true,
-    configurable: true,
-    value: MemoryStorage,
-  });
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
     value: new MemoryStorage(),

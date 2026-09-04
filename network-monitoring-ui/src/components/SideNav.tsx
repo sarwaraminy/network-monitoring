@@ -9,7 +9,7 @@ import InputAdornment from '@mui/material/InputAdornment';
 import type { Theme } from '@mui/material/styles';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
-import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { NAV, RADIUS, SIDEBAR_METRICS, SURFACE } from '../theme';
 import { groupContaining, type NavGroup } from './navItems';
@@ -322,6 +322,15 @@ interface SidebarSectionProps {
   autoFocus?: boolean;
   /** Called once `autoFocus` has been honoured, so the request is not repeated. */
   onFocused?: () => void;
+  /**
+   * This section holds the page currently open.
+   *
+   * Only the RAIL uses it. Expanded, the current page is marked on its own row,
+   * which is more precise than marking the section around it — rule 5 says the
+   * active item is the only tinted one, and a tinted section header on top of a
+   * tinted row would be two answers to one question.
+   */
+  isCurrent?: boolean;
   children: ReactNode;
 }
 
@@ -340,6 +349,7 @@ function SidebarSection({
   onExpandPanel,
   autoFocus = false,
   onFocused,
+  isCurrent = false,
   children,
 }: Readonly<SidebarSectionProps>) {
   const autoId = useId();
@@ -379,8 +389,36 @@ function SidebarSection({
           region that is not there — and the state it would report is the
           panel's, which is not visible from the rail anyway. What this button
           does is "open the panel at this section", and `aria-label` says that.
+
+          `aria-current` is a different claim and a true one. With the rows
+          unrendered it is the only thing left in the document saying where the
+          user is, and the rail is a PERSISTED state — collapse once and this is
+          the navigation from then on. The source has no equivalent because its
+          sidebar is a secondary nav under a tab bar that answers the question;
+          here there is nothing else to answer it.
         */}
-        <IconButton size="small" onClick={openFromRail} aria-label={label}>
+        <IconButton
+          size="small"
+          onClick={openFromRail}
+          aria-label={label}
+          aria-current={isCurrent ? 'page' : undefined}
+          sx={(theme) => ({
+            // Rule 5's vocabulary — fill and ink — minus the rule, which has no
+            // row edge to land on in a 56px strip.
+            ...(isCurrent && {
+              bgcolor: NAV.light.activeBg,
+              color: NAV.light.activeInk,
+              '&:hover': { bgcolor: NAV.light.activeBg },
+            }),
+            ...theme.applyStyles('dark', {
+              ...(isCurrent && {
+                bgcolor: NAV.dark.activeBg,
+                color: NAV.dark.activeInk,
+                '&:hover': { bgcolor: NAV.dark.activeBg },
+              }),
+            }),
+          })}
+        >
           {icon}
         </IconButton>
       </Tooltip>
@@ -586,14 +624,46 @@ export default function SideNav({
   };
 
   /*
+   * Dropping a search back to the full list, without churning state that is
+   * already empty — this runs on every navigation, and a fresh `Set` each time
+   * would re-render the whole panel for nothing.
+   */
+  const clearSearch = useCallback(() => {
+    setSearchTerm((term) => (term === '' ? term : ''));
+    setSearchClosedIds((closed) => (closed.size === 0 ? closed : new Set()));
+  }, []);
+
+  /*
    * Collapsing to the rail clears the search state for when the panel returns.
    * What the rail RENDERS is already handled by `effectiveTerm` above.
    */
   useEffect(() => {
-    if (!collapsed) return;
-    setSearchTerm('');
-    setSearchClosedIds(new Set());
-  }, [collapsed]);
+    if (collapsed) clearSearch();
+  }, [collapsed, clearSearch]);
+
+  /*
+   * So does navigating.
+   *
+   * A search is a way of getting somewhere, not a view the panel should keep. It
+   * survived the trip: click a result and the panel stayed filtered to the term,
+   * so a later route change — Back, or one of the in-page links on the dashboard
+   * and the capture toolbar — left the sidebar showing a list that need not
+   * contain the current page at all. Nothing marked, most destinations simply
+   * absent, and no clue why beyond a clear button the user has to notice.
+   *
+   * The drawer escaped it only because MUI unmounts it on close, so the same one
+   * navigation behaved differently at the two widths. That difference is the part
+   * that reads as a bug rather than as a policy, which is the real argument for
+   * clearing here rather than papering over the desktop case.
+   */
+  // `pathname` is never read in the body. Being in the array IS its job: it is
+  // the trigger, exactly as `depsKey` is in `useViewportFitHeight`. Removing it,
+  // as the lint suggests, leaves an effect that runs once and never clears a
+  // search again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  useEffect(() => {
+    clearSearch();
+  }, [pathname, clearSearch]);
 
   /*
    * Whatever else is closed, the section holding the CURRENT page is open.
@@ -811,6 +881,7 @@ export default function SideNav({
             }
             autoFocus={focusSectionId === group.id}
             onFocused={() => setFocusSectionId(null)}
+            isCurrent={activeGroupId === group.id}
           >
             {group.items.map((item) => (
               <SidebarItem

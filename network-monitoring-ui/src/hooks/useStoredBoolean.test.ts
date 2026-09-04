@@ -56,7 +56,13 @@ describe('useStoredBoolean', () => {
   it('survives storage that throws on read', () => {
     // A private window, or a browser set to block site data: the access itself
     // throws, during the first render of the shell.
-    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    // On the OBJECT, not `Storage.prototype`. The prototype only works while
+    // some implementation of `Storage` is the one behind `localStorage`, and on
+    // Node 25 it is a shim that deliberately leaves the global class alone — so
+    // a prototype spy would silently intercept nothing and this test would pass
+    // for the wrong reason, with `getItem` returning null and the fallback
+    // looking like the guard working.
+    const getItem = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
       throw new Error('SecurityError');
     });
 
@@ -67,7 +73,7 @@ describe('useStoredBoolean', () => {
   });
 
   it('survives storage that throws on write, and still toggles', () => {
-    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError');
     });
 

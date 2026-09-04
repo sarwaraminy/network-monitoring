@@ -243,6 +243,28 @@ describe('AppLayout panel search', () => {
     expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('drops the filter once the user has gone somewhere', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true, route: '/dashboard' });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'threat');
+    await user.click(screen.getByRole('link', { name: /threat intel/i }));
+
+    /*
+     * A search is a way of getting somewhere, not a view to keep. Left standing,
+     * a later route change — Back, or an in-page link — leaves the panel showing
+     * a list that need not contain the current page at all: nothing marked, most
+     * destinations absent, and no clue why beyond a clear button to notice.
+     *
+     * The drawer escaped this only because MUI unmounts it on close, so the same
+     * navigation behaved differently at the two widths.
+     */
+    expect(screen.getByRole('textbox', { name: /search navigation/i })).toHaveValue('');
+    expect(screen.getByRole('link', { name: /^dashboard$/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /threat intel/i })).toHaveAttribute('aria-current', 'page');
+  });
+
   it('restores the full list, and the sections the user had closed, on clear', async () => {
     const user = userEvent.setup();
     renderApp(<AppLayout />, { authenticated: true });
@@ -331,6 +353,37 @@ describe('AppLayout panel collapse', () => {
     // point at one, so "expanded" would describe something that is not there —
     // and would report the hidden panel's state rather than anything visible.
     expect(screen.getByRole('button', { name: /^security$/i })).not.toHaveAttribute('aria-expanded');
+  });
+
+  it('still says where the user is', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true, route: '/alerts' });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+
+    /*
+     * With the rows unrendered, `aria-current` would otherwise leave the document
+     * altogether and no icon would carry an active state — so the rail would
+     * offer no sighted OR assistive indication of the current page. Not a
+     * transient state either: the collapse preference is persisted, so this is
+     * the navigation from then on for anyone who collapses once.
+     */
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveAttribute('aria-current', 'page');
+    // And only that one — the marker has to distinguish, not decorate.
+    expect(screen.getByRole('button', { name: /^capture$/i })).not.toHaveAttribute('aria-current');
+  });
+
+  it('moves the rail marker when the page changes', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true, route: '/alerts' });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('link', { name: /capture by ip/i }));
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+
+    expect(screen.getByRole('button', { name: /^capture$/i })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: /^security$/i })).not.toHaveAttribute('aria-current');
   });
 
   it('moves focus into the section a rail click opened', async () => {
