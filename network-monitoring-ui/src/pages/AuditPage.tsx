@@ -171,7 +171,7 @@ export default function AuditPage() {
   // fetch.
   if (!isAdmin) {
     return (
-      <SurfaceCard title="Activity" titleComponent="h1" titleVariant="h5">
+      <SurfaceCard title="Audit Trail" titleComponent="h1" titleVariant="h5">
         <Alert severity="info">
           The audit trail is visible to administrators. It records who deleted, changed or redirected things,
           and it names accounts.
@@ -182,7 +182,7 @@ export default function AuditPage() {
 
   return (
     <SurfaceCard
-      title="Activity"
+      title="Audit Trail"
       titleComponent="h1"
       titleVariant="h5"
       subtitle="Who deleted, changed or redirected something — append-only, and never pruned"

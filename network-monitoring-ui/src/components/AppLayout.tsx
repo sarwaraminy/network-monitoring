@@ -1,26 +1,15 @@
-import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
-import GppMaybeOutlinedIcon from '@mui/icons-material/GppMaybeOutlined';
-import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
-import RuleFolderOutlinedIcon from '@mui/icons-material/RuleFolderOutlined';
-import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
-import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
 import ShieldMoonOutlinedIcon from '@mui/icons-material/ShieldMoonOutlined';
-import SpaceDashboardOutlinedIcon from '@mui/icons-material/SpaceDashboardOutlined';
-import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import AppBar from '@mui/material/AppBar';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Divider from '@mui/material/Divider';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
-import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
@@ -29,60 +18,61 @@ import Toolbar from '@mui/material/Toolbar';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { type ReactElement, useMemo, useState } from 'react';
-import { NavLink, Outlet, Link as RouterLink, useNavigate } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Outlet, Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { CARD_METRICS, HEADER, NAV } from '../theme';
+import { useStoredBoolean } from '../hooks/useStoredBoolean';
+import { CARD_METRICS, HEADER, SIDEBAR_METRICS } from '../theme';
 import ColorSchemeToggle from './ColorSchemeToggle';
+import { visibleNavGroups } from './navItems';
+import SideNav from './SideNav';
 
-interface NavItem {
-  label: string;
-  /**
-   * Hidden from anyone who is not an ADMIN.
-   *
-   * The convention already applied to controls inside pages — see the account menu
-   * below, and the delete button on the alerts table — and the nav had no way to
-   * express it, so an ADMIN-only page would have advertised itself to everybody and
-   * answered with a 403.
-   */
-  adminOnly?: boolean;
-  to: string;
-  icon: ReactElement;
-}
+/** Where the sidebar's collapsed state is remembered. Namespaced, not bare. */
+const COLLAPSED_KEY = 'nm.sidebar.collapsed';
 
-/** Replaces the Bootstrap navbar in dashboard/NavigationBar.js. */
-const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', to: '/dashboard', icon: <SpaceDashboardOutlinedIcon /> },
-  { label: 'Security Alerts', to: '/alerts', icon: <WarningAmberOutlinedIcon /> },
-  // Next to the alerts, because it is read as part of triaging them: the
-  // question "why am I seeing this every night" and the answer live together.
-  { label: 'Suppressions', to: '/suppressions', icon: <RuleFolderOutlinedIcon /> },
-  { label: 'Activity', to: '/activity', icon: <HistoryOutlinedIcon />, adminOnly: true },
-  { label: 'Threat Intel', to: '/threat-intel', icon: <GppMaybeOutlinedIcon /> },
-  { label: 'Delivery', to: '/delivery', icon: <SendOutlinedIcon /> },
-  { label: 'Capture by Interface', to: '/capture-packets', icon: <SettingsEthernetIcon /> },
-  { label: 'Capture by IP', to: '/capture-packets-ip', icon: <FilterAltOutlinedIcon /> },
-];
-
+/**
+ * The application shell: brand bar across the top, grouped navigation down the
+ * left, page canvas filling the rest.
+ *
+ * The navigation used to be a row of tabs in the bar, and it moved because it
+ * outgrew that row — eight destinations with no way to say which belonged
+ * together, and the next one would have had to wrap or shrink. A sidebar spends
+ * horizontal room to buy two things the strip could not offer at any width:
+ * named groups, and headroom. It spends no VERTICAL room, which is the axis that
+ * actually matters here — every page in this app is a tall table sized by
+ * `useViewportFitHeight`, and a second row of chrome would have come straight
+ * out of the rows on screen.
+ *
+ * Three widths, one navigation:
+ *
+ *  - from `md`: the sidebar, expanded or collapsed to an icon rail. The choice
+ *    is the user's and is remembered, because it depends on their screen rather
+ *    than on ours.
+ *  - below `md`: a temporary drawer over the page, opened by the same button.
+ *
+ * The two mountings are mutually exclusive, not both-rendered-and-one-hidden.
+ * Rendering both puts every link in the document twice, which duplicates them
+ * for a screen reader and lets a keyboard tab through a panel nobody can see.
+ */
 export default function AppLayout() {
   const theme = useTheme();
   const isCompact = useMediaQuery(theme.breakpoints.down('md'));
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [collapsed, setCollapsed] = useStoredBoolean(COLLAPSED_KEY, false);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
 
   const { user, logout } = useAuth();
   /*
-   * Admin-only entries are not rendered for anyone else.
+   * Admin-only entries are not rendered for anyone else, and a group left empty
+   * by that filtering is dropped with them.
    *
-   * The server refuses the route regardless — this only stops offering a link that
-   * would answer 403, which is the convention the account menu below and the
-   * alerts table's delete button already follow. Filtered once and used by both
-   * the drawer and the rail, so the two cannot disagree about what is on offer.
+   * The server refuses the route regardless — this only stops offering a link
+   * that would answer 403, which is the convention the account menu below and
+   * the alerts table's delete button already follow. Filtered once and handed to
+   * whichever mounting is on screen, so the two cannot disagree about what is on
+   * offer.
    */
-  const navItems = useMemo(
-    () => NAV_ITEMS.filter((item) => item.adminOnly !== true || user?.role === 'ADMIN'),
-    [user?.role],
-  );
+  const navGroups = useMemo(() => visibleNavGroups(user?.role), [user?.role]);
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -100,21 +90,26 @@ export default function AppLayout() {
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <AppBar position="sticky">
-        <Toolbar
-          // Stretched, not centred. A centred row gives its children content
-          // height and leaves the slack above and below, so the nav Stack could
-          // never bottom-align its tabs to the bar's edge — which is what left
-          // the active tab floating as a pill in the middle of the sweep.
-          // Everything that should stay centred says so for itself below.
-          sx={{ gap: 1, alignItems: 'stretch' }}
-        >
+        {/*
+          A fixed height, matching `HEADER.height`. The sidebar sticks to the
+          underside of this bar and needs the offset as a number; leaving the
+          height to `Toolbar`'s responsive default would make that offset a guess
+          that is wrong at exactly one breakpoint.
+        */}
+        <Toolbar sx={{ gap: 1, minHeight: `${HEADER.height}px !important` }}>
+          {/*
+            Compact only. From `md` up the collapse control lives in the panel's
+            own 48px header row, which is where the design puts it — a caret on
+            the thing it collapses, rather than a hamburger in the bar aimed at
+            something else on screen.
+          */}
           {isCompact && (
             <IconButton
               edge="start"
               color="inherit"
               onClick={() => setDrawerOpen(true)}
               aria-label="Open navigation"
-              sx={{ alignSelf: 'center' }}
+              aria-expanded={drawerOpen}
             >
               <MenuIcon />
             </IconButton>
@@ -127,119 +122,23 @@ export default function AppLayout() {
             spacing={1}
             sx={{
               alignItems: 'center',
-              alignSelf: 'center',
               color: 'inherit',
               textDecoration: 'none',
-              mr: 2,
+              minWidth: 0,
             }}
           >
-            {/* The one piece of colour in the bar, now that it is neutral. */}
+            {/* The one piece of iconography in the bar, now that the tabs are
+                out of it. */}
             <ShieldMoonOutlinedIcon sx={{ color: 'inherit' }} />
-            <Typography
-              variant="subtitle1"
-              noWrap
-              sx={{
-                fontWeight: 700,
-                letterSpacing: '-0.01em',
-              }}
-            >
+            <Typography variant="subtitle1" noWrap sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
               Network Monitoring
             </Typography>
           </Stack>
 
-          {!isCompact && (
-            <Stack
-              direction="row"
-              spacing={0.5}
-              /*
-               * `stretch`, and the inset lives HERE rather than on the tabs.
-               *
-               * `flex-end` only moves a content-height box to the bottom of
-               * whatever the Stack happens to be, so the tab stayed a pill
-               * floating in the sweep. `stretch` makes the tabs fill the strip
-               * outright, so their bottom edge is the bar's bottom edge.
-               *
-               * The top inset is then this margin on the strip, not a margin on
-               * each Button — a margin there had no visible effect, and the strip
-               * is the right place for it anyway: one value insets all the tabs
-               * together, so they cannot drift off a shared baseline. Raise it
-               * for a shallower tab; the bottom stays pinned and the bar's height
-               * never changes, because nothing is being padded down to the edge.
-               */
-              sx={{ flexGrow: 1, alignItems: 'stretch', marginTop: '6px' }}
-            >
-              {navItems.map((item) => (
-                <Button
-                  key={item.to}
-                  component={NavLink}
-                  to={item.to}
-                  startIcon={item.icon}
-                  color="inherit"
-                  sx={(theme) => ({
-                    // The source spec's own values: a compact tab with a small
-                    // top margin, sitting on the bottom edge of the strip. The
-                    // inset is at the top only, which is what makes the active
-                    // one read as rising out of the bar rather than floating in
-                    // the middle of it.
-                    paddingInline: '14px',
-                    paddingBlock: 0,
-                    // No margin here — the strip above carries the inset.
-                    minHeight: 'unset',
-                    minWidth: 'unset',
-                    // White on the sweep in both schemes, until it is the current
-                    // page. Inactive tabs are not dimmed — on a saturated bar a
-                    // dimmed label reads as disabled rather than as unselected.
-                    color: HEADER.light.tabInk,
-                    borderRadius: 0,
-                    borderTopLeftRadius: 6,
-                    borderTopRightRadius: 6,
-                    // An inactive tab lightens the sweep under it; the active
-                    // one is already on its own surface and keeps it.
-                    '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.1)' },
-
-                    // The active tab rises out of the sweep onto its own surface,
-                    // and that is the whole signal in both schemes. No underline:
-                    // the tab runs to the bar's bottom edge, so a rule there is a
-                    // second marker drawn under a surface that already reads as
-                    // the current page.
-                    //
-                    // The ink is a darkened azure rather than the brand azure —
-                    // base azure on this pale tab measures 3.28:1, under the
-                    // 4.5:1 floor for 14px text.
-                    '&.active': {
-                      bgcolor: HEADER.light.activeTabBg,
-                      color: HEADER.light.activeTabInk,
-                      '&:hover': { bgcolor: HEADER.light.activeTabBg },
-                    },
-
-                    // Dark lifts too, onto the page canvas. Both schemes now
-                    // carry the state as a surface and neither underlines, so the
-                    // reserved bottom border is gone with them — nothing paints
-                    // it, and an always-transparent 3px rule was only costing the
-                    // tab height.
-                    ...theme.applyStyles('dark', {
-                      color: HEADER.dark.tabInk,
-                      '&.active': {
-                        bgcolor: HEADER.dark.activeTabBg,
-                        color: HEADER.dark.activeTabInk,
-                        '&:hover': { bgcolor: HEADER.dark.activeTabBg },
-                      },
-                    }),
-                  })}
-                >
-                  {item.label}
-                </Button>
-              ))}
-            </Stack>
-          )}
-
-          <Box sx={{ flexGrow: isCompact ? 1 : 0 }} />
+          <Box sx={{ flexGrow: 1 }} />
 
           <Tooltip title={user?.email ?? 'Account'}>
-            <IconButton
-              onClick={(event) => setMenuAnchor(event.currentTarget)}
-              sx={{ p: 0.5, alignSelf: 'center' }}
-            >
+            <IconButton onClick={(event) => setMenuAnchor(event.currentTarget)} sx={{ p: 0.5 }}>
               <Avatar sx={{ width: 34, height: 34, bgcolor: 'primary.main', fontSize: '0.85rem' }}>
                 {initials || '?'}
               </Avatar>
@@ -257,13 +156,7 @@ export default function AppLayout() {
               <Typography variant="subtitle2" noWrap>
                 {[user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Signed in'}
               </Typography>
-              <Typography
-                variant="caption"
-                noWrap
-                sx={{
-                  color: 'text.secondary',
-                }}
-              >
+              <Typography variant="caption" noWrap sx={{ color: 'text.secondary' }}>
                 {user?.email} · {user?.role}
               </Typography>
             </Box>
@@ -301,73 +194,90 @@ export default function AppLayout() {
           </Menu>
         </Toolbar>
       </AppBar>
-      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <Box sx={{ width: 268, pt: 1 }} onClick={() => setDrawerOpen(false)}>
-          {navItems.map((item) => (
-            <ListItemButton
-              key={item.to}
-              component={NavLink}
-              to={item.to}
-              sx={(theme) => ({
-                // The drawer's equivalent of the bar's underline: a rule on the
-                // panel edge. Present and transparent on every row, for the same
-                // reason — otherwise every label shifts 2px as the selection
-                // moves down the list.
-                borderLeft: '2px solid transparent',
-                borderRadius: 0,
-                color: NAV.light.itemInk,
-                '& .MuiListItemText-primary': { fontSize: 13 },
-                // Only the active row is tinted. Colouring every row removes the
-                // contrast that makes "you are here" readable at a glance.
-                '&.active': {
-                  borderLeftColor: NAV.light.activeRule,
-                  bgcolor: NAV.light.activeBg,
-                  color: NAV.light.activeInk,
-                  '& .MuiListItemIcon-root': { color: NAV.light.activeInk },
-                  '& .MuiListItemText-primary': { fontSize: 13, fontWeight: 600 },
-                },
-                ...theme.applyStyles('dark', {
-                  color: NAV.dark.itemInk,
-                  '&.active': {
-                    borderLeftColor: NAV.dark.activeRule,
-                    bgcolor: NAV.dark.activeBg,
-                    color: NAV.dark.activeInk,
-                    '& .MuiListItemIcon-root': { color: NAV.dark.activeInk },
-                  },
-                }),
-              })}
-            >
-              <ListItemIcon>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.label} />
-            </ListItemButton>
-          ))}
-        </Box>
-      </Drawer>
-      {/*
-        The page canvas. A flex column with one gap between its children, rather
-        than every page spacing itself with `mb` — which is how the pages ended
-        up with a title band 16px above its content on one page and 12px on
-        another, and how a page's last card gained a trailing margin the page
-        below it did not.
 
-        `minHeight: 0` and a stretched column are what let a SurfaceCard marked
-        `fill` consume the leftover height, so a short page's last card reaches
-        the bottom instead of leaving the page background showing beneath it.
+      {/*
+        Sidebar and canvas side by side. `minHeight: 0` on the row and on the
+        canvas column is what lets a SurfaceCard marked `fill` consume the
+        leftover height — without it a flex child refuses to shrink below its
+        content and the card's bottom edge slides under the fold.
       */}
-      <Container
-        maxWidth={false}
-        sx={{
-          paddingBlock: `${CARD_METRICS.pagePaddingBlock}px`,
-          paddingInline: `${CARD_METRICS.pagePaddingInline}px`,
-          flexGrow: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: `${CARD_METRICS.gap}px`,
-          minHeight: 0,
-        }}
-      >
-        <Outlet />
-      </Container>
+      <Box sx={{ display: 'flex', flexGrow: 1, minHeight: 0 }}>
+        {isCompact ? (
+          <Drawer
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            // The panel keeps its own margin inside the sheet, so the sheet is
+            // the panel plus both margins — the same object as on the desktop,
+            // not a second, flatter version of it.
+            slotProps={{
+              paper: {
+                sx: { width: SIDEBAR_METRICS.panelWidth + SIDEBAR_METRICS.panelMargin * 2 },
+              },
+            }}
+          >
+            {/*
+              Never collapsed, and no collapse control: the drawer is already an
+              overlay, so the width the rail would save is width nothing else is
+              using, and the sheet's own scrim is how it closes.
+            */}
+            <SideNav groups={navGroups} onNavigate={() => setDrawerOpen(false)} />
+          </Drawer>
+        ) : (
+          /*
+           * The panel is a bordered object floating on the page, not a flush
+           * column — that is the design, and it is why this wrapper exists at
+           * all: the panel needs a bounded height to scroll inside, and the
+           * wrapper is what bounds it.
+           *
+           * Sticky rather than fixed, so it stays inside the flex row and the
+           * canvas beside it needs no matching offset. It parks under the bar
+           * and the panel takes its own margin from there.
+           */
+          <Box
+            sx={{
+              flexShrink: 0,
+              alignSelf: 'flex-start',
+              position: 'sticky',
+              top: HEADER.height,
+              height: `calc(100vh - ${HEADER.height}px)`,
+              display: 'flex',
+            }}
+          >
+            <SideNav
+              groups={navGroups}
+              collapsed={collapsed}
+              onToggleCollapsed={() => setCollapsed(!collapsed)}
+            />
+          </Box>
+        )}
+
+        {/*
+          The page canvas. A flex column with one gap between its children, rather
+          than every page spacing itself with `mb` — which is how the pages ended
+          up with a title band 16px above its content on one page and 12px on
+          another, and how a page's last card gained a trailing margin the page
+          below it did not.
+        */}
+        <Container
+          maxWidth={false}
+          sx={{
+            paddingBlock: `${CARD_METRICS.pagePaddingBlock}px`,
+            paddingInline: `${CARD_METRICS.pagePaddingInline}px`,
+            flexGrow: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: `${CARD_METRICS.gap}px`,
+            // Both axes. `minWidth` is the one that is easy to miss: a flex item
+            // defaults to `min-width: auto`, so a wide table would push the
+            // canvas wider than the row instead of scrolling inside it, and take
+            // the sidebar off screen with it.
+            minHeight: 0,
+            minWidth: 0,
+          }}
+        >
+          <Outlet />
+        </Container>
+      </Box>
     </Box>
   );
 }

@@ -48,43 +48,196 @@ export const SURFACE = {
 /**
  * The application header.
  *
- * Light keeps a raised bar with the brand sweep behind the tabs; dark uses a
- * deeper flat navy, because the azure sweep was the brightest thing on the page.
+ * Light keeps a raised bar with the brand sweep; dark uses a deeper flat navy,
+ * because the azure sweep was the brightest thing on the page.
  *
- * `activeTabInk` is a separate token from the brand azure on purpose. Base azure
- * measures 3.28:1 on the lifted pale tab and 3.94:1 on the dark navy, both under
- * the 4.5:1 floor for 14px text; these two values clear it.
- *
- * There is no underline token. The source system uses one as dark mode's
- * substitute for the lift; both schemes lift here, so a rule under the tab would
- * be a second marker under a surface that already says "current page".
+ * The bar no longer carries the navigation — that moved to the sidebar, which
+ * is what the tab tokens (`activeTabBg`, `activeTabInk`) used to colour. They are
+ * gone with the tabs rather than left behind as tokens nothing paints. What is
+ * left is the brand strip: the sweep, and the ink for the brand and the two
+ * controls sitting on it.
  */
 export const HEADER = {
+  /**
+   * Fixed bar height, in px.
+   *
+   * Needed as a number, not just as `Toolbar`'s default, because the sidebar
+   * sticks to the underside of the bar and has to be told where that is. MUI's
+   * `mixins.toolbar` is a responsive style object rather than a value, so it
+   * cannot be arithmetic. 64 is what the default resolves to from `sm` up, and
+   * the sidebar is only mounted from `md` up — below that the navigation is a
+   * temporary drawer, which floats over the bar and needs no offset.
+   */
+  height: 64,
   light: {
     barBg: '#F9FAFB',
     navBg: 'linear-gradient(135deg, #154069, #0e558a, #0677b2, #0a669e, #0289c8)',
     tabInk: '#FFFFFF',
-    activeTabInk: '#1A6EA8',
-    activeTabBg: '#F9FAFB',
   },
   dark: {
     barBg: '#0E1B2E',
     navBg: '#122F52',
     tabInk: '#FFFFFF',
-    activeTabInk: '#33A9DD',
-    // The page canvas, which is the same idea as light's `#F9FAFB`: the active
-    // tab is a notch of the page showing through the bar. Dark had carried only
-    // an underline, on the reasoning that a pale slab on dark chrome is the
-    // brightest thing on screen — true of a PALE slab, but the canvas is darker
-    // than the bar, so it recesses rather than glares.
-    activeTabBg: SURFACE.dark.canvas,
   },
 } as const;
 
-/** Drawer / sidebar rows. Only the active row is tinted. */
+/**
+ * Sidebar navigation roles, ported from the PRO 2.0 design system in the
+ * sibling `professional` project (its `NavRoles`, tickets PRO20-2693 / -2796).
+ *
+ * The values are that system's, not ours, and the point of taking them whole is
+ * that the two apps then read as one product. Light and dark are NOT symmetric
+ * and were never meant to be: PRO specifies light and derives dark, each dark
+ * value reusing an established dark role a step off the surface it sits on
+ * rather than inverting the light hex.
+ *
+ * `activeInk` and `activeRule` are deliberately different values in light — a
+ * darker ink for the label, a brighter bar for the indicator. They agree in
+ * dark, where a deep azure would disappear into the tint.
+ *
+ * `sectionBg` does double duty as the item HOVER fill, by design: a hovered row
+ * reads as "about to become a row like that section header".
+ *
+ * `divider` is the rule BETWEEN sections and is deliberately lighter than
+ * `SURFACE.cardBorder`, which is the panel's own outline and the heavier rule
+ * under the header row.
+ */
 export const NAV = {
-  light: { activeInk: '#1A6EA8', activeBg: '#EEF3F7', activeRule: '#1A6EA8', itemInk: '#3C4A54' },
-  dark: { activeInk: '#38B0E6', activeBg: '#0E2A38', activeRule: '#38B0E6', itemInk: '#E6EAEF' },
+  light: {
+    activeInk: '#0f4c78',
+    activeBg: '#eaf3f8',
+    activeRule: '#1272a4',
+    /** Panel title ink — the 13/700/0.06em uppercase label in the header row. */
+    titleInk: '#12222E',
+    sectionBg: '#F5F8FA',
+    sectionInk: '#31424E',
+    /** Deliberately weaker than the section label it sits beside. */
+    chevron: '#718593',
+    itemInk: '#3d4a5c',
+    /**
+     * The SUBTITLE on a two-line item row, at rest, and the same subtitle on the
+     * active row. Both are deliberately weaker than the ink they sit under — the
+     * subtitle is the quieter half of the row and must read as smaller and
+     * lower-contrast than the name above it.
+     */
+    itemCodeInk: '#9AA0AA',
+    activeCodeInk: '#4D8BB0',
+    divider: '#EDF3F7',
+    /** Search-field placeholder ink. */
+    placeholder: '#68747C',
+    /**
+     * The panel surface. PRO's `surface.surface` — white in light, and one step
+     * off the dark canvas in dark, which is what lets the panel read as a
+     * bordered object on the page rather than as part of it.
+     */
+    panelBg: '#FFFFFF',
+  },
+  dark: {
+    activeInk: '#38B0E6',
+    activeBg: '#0E2A38',
+    activeRule: '#38B0E6',
+    titleInk: '#C9DCE8',
+    sectionBg: '#1E2C36',
+    sectionInk: '#C9DCE8',
+    chevron: '#9AA4B2',
+    itemInk: '#E6EAEF',
+    /*
+     * Derived rather than specified, like the rest of dark: each reuses an
+     * established dark role a step weaker than the ink it sits under. The active
+     * one is the dark active ink blended 15% toward `activeBg`, which lands at
+     * 4.81:1 — above AA and BELOW the name's 6.06:1, so the subtitle still reads
+     * as the quieter half. An earlier guess measured STRONGER than the name it
+     * sits under, inverting the rule.
+     */
+    itemCodeInk: '#9AA4B2',
+    activeCodeInk: '#329CCC',
+    divider: '#2A323C',
+    placeholder: '#9AA4B2',
+    panelBg: '#1B2027',
+  },
+} as const;
+
+/**
+ * Sidebar metrics, in px — PRO 2.0's `SIDEBAR_METRICS`, same source.
+ *
+ * Every number the design's measurement table gives lives here, because the
+ * design's whole point is that these are the SAME wherever the panel appears:
+ * one width, one set of row heights, and only the title and the section list
+ * differ. There is deliberately no way to override one per screen — that drift
+ * is what the consolidation existed to remove.
+ *
+ * The two indents are a pair, not a choice: the active row drops to 20 so that
+ * its 2px rule lands flush and its label stays on the same optical line as its
+ * inactive neighbours. Ours reaches the same result by drawing the rule on
+ * every row and colouring only the active one, which needs a single 20px
+ * indent — same geometry, one value instead of two.
+ */
+export const SIDEBAR_METRICS = {
+  /** Panel width, and the rail left behind when it is collapsed. */
+  panelWidth: 290,
+  railWidth: 56,
+  /** The panel's margin from the header above it and the page beside it. */
+  panelMargin: 14,
+
+  /** Title + collapse control. A row, not a card. */
+  headerRowHeight: 48,
+  headerFontSize: 13,
+  headerTracking: '0.06em',
+
+  /** Search row; the field itself is shorter than the row that holds it. */
+  searchRowHeight: 52,
+  searchFieldHeight: 32,
+  searchFieldRadius: 5,
+
+  /** Section header — the whole row is the click target, not just the chevron. */
+  sectionHeaderHeight: 38,
+  sectionFontSize: 11.5,
+  sectionFontWeight: 700,
+  sectionTracking: '0.07em',
+  // No caret size: the source's table says 6px, but the caret it actually
+  // renders is fixed at 16px by design — one glyph size for the whole app. A
+  // constant nothing reads is worse than no constant.
+
+  /**
+   * Item row. The active treatment is fill, ink and a rule — never a size
+   * change, which would make the list jump as the selection moves.
+   *
+   * `itemRowHeight` is a MINIMUM, not a fixed height: a one-line row is exactly
+   * 34px and a wrapped or two-line one takes the space it needs rather than
+   * clipping.
+   */
+  itemRowHeight: 34,
+  itemFontSize: 13,
+  /**
+   * Item indent, and the indent an active row drops to so its 2px rule lands
+   * flush and the label stays on the same optical line as its neighbours.
+   *
+   * Both are kept, because both variants below need the pair. The single-line
+   * row reaches the same geometry by drawing a transparent rule on every row —
+   * one indent, no pair to drift — but the two-line row's own inset is a
+   * different number, so the rule has to be stated rather than inferred.
+   */
+  itemIndent: 22,
+  itemActiveIndent: 20,
+  activeRuleWidth: 2,
+
+  /*
+   * The TWO-LINE item row: a label with a short code or qualifier under it.
+   *
+   * Separate metrics rather than changes to the single-line numbers above, so a
+   * row without a subtitle is untouched. The variant is chosen by whether a row
+   * HAS a subtitle, not by which screen renders it — so it is not the
+   * per-screen override this design set out to remove, and any future entry
+   * that needs a second line gets the treatment for free.
+   */
+  itemTwoLinePaddingY: 8,
+  itemTwoLinePaddingX: 12,
+  itemNameFontSize: 13.5,
+  itemNameLineHeight: 1.3,
+  itemCodeFontSize: 11,
+  itemCodeLineHeight: 1.2,
+  itemCodeTracking: '0.04em',
+  itemCodeGap: 2,
 } as const;
 
 /**
