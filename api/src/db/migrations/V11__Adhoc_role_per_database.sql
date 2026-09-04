@@ -29,7 +29,21 @@
 
 DO $$
 DECLARE
-    role_name text := 'nm_adhoc_' || current_database();
+    -- Bounded to Postgres's 63-byte identifier limit, and NOT by truncation
+    -- alone. An over-long identifier is silently cut at creation, so the plain
+    -- concatenation left this migration and `adhocRole()` in adhoc.service.ts
+    -- naming different roles — and the resulting error compares two strings that
+    -- are identical for as far as anyone reads. Truncating on both sides would
+    -- trade that for a worse one: two long database names cut to the same role,
+    -- which is the shared-role collision this file exists to remove. So the tail
+    -- is an md5 of the whole name; the prefix stays readable and the identity
+    -- stays unique. `adhoc.service.ts` computes this exact rule — 54 characters
+    -- of prefix, an underscore, 8 hex characters — and the two must move together.
+    role_name text := CASE
+        WHEN octet_length('nm_adhoc_' || current_database()) <= 63
+            THEN 'nm_adhoc_' || current_database()
+        ELSE left('nm_adhoc_' || current_database(), 54) || '_' || left(md5(current_database()), 8)
+    END;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
         EXECUTE format('CREATE ROLE %I NOLOGIN', role_name);

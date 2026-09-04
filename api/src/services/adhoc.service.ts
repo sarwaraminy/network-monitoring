@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import pg from 'pg';
 import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
@@ -42,8 +43,32 @@ const log = componentLogger('adhoc');
  * creates a database per suite and boots the console in each, logged the running
  * app out of its own query console. See V11.
  */
-function adhocRole(database: string): string {
-  return `nm_adhoc_${database}`;
+export function adhocRole(database: string): string {
+  const full = `${ROLE_PREFIX}${database}`;
+  if (Buffer.byteLength(full) <= MAX_IDENTIFIER_BYTES) return full;
+
+  /*
+   * Postgres truncates an over-long identifier SILENTLY at creation, so a plain
+   * long name leaves the two sides naming different roles — and the error that
+   * produces is close to unreadable: `connected as "nm_adhoc_netmonitoring_ad…",
+   * expected "nm_adhoc_netmonitoring_ad…"`, two strings identical for as far as
+   * anyone reads. `assertNotSuperuser` gets there first and blames V11 for not
+   * having run, sending the operator to a migration that ran fine.
+   *
+   * Truncating alone would trade that for a worse bug: two long database names
+   * cut to the same role, which is the shared-role collision V11 exists to
+   * remove. So the tail is a hash of the WHOLE name — the prefix stays readable
+   * and the identity stays unique. `md5` because Postgres has it built in and
+   * this has to be computable identically on both sides; it is a naming device,
+   * not a security one.
+   *
+   * Sliced by character on the assumption that database names are ASCII, which
+   * is true of every one this project creates. The byte check above is what
+   * actually decides, so a multibyte name takes the hashed form rather than
+   * being cut mid-character.
+   */
+  const digest = createHash('md5').update(database).digest('hex').slice(0, HASH_LENGTH);
+  return `${full.slice(0, MAX_IDENTIFIER_BYTES - HASH_LENGTH - 1)}_${digest}`;
 }
 
 export interface AdhocColumn {
@@ -95,6 +120,11 @@ export function adhocReady(): boolean {
  * every control here off while the feature still appeared to work. There is no
  * spelling of the configuration that reaches a superuser.
  */
+/** Postgres's `NAMEDATALEN - 1`. An identifier longer than this is truncated. */
+const MAX_IDENTIFIER_BYTES = 63;
+const ROLE_PREFIX = 'nm_adhoc_';
+const HASH_LENGTH = 8;
+
 function adhocConnectionString(role: string, password: string): string {
   const url = new URL(env.databaseUrl);
   url.username = role;
@@ -128,12 +158,21 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     return false;
   }
 
-  // Asked of the connection rather than parsed out of the URL, so the role
-  // always matches the database the migrations actually ran against.
-  const { rows: current } = await owner.query<{ name: string }>('SELECT current_database() AS name');
-  const role = adhocRole(current[0]!.name);
+  // Declared out here so the catch can name it, resolved INSIDE the try. Every
+  // other failure in this function is downgraded to "stays off" — that is the
+  // whole reason it returns a boolean — and a query sitting above the try broke
+  // that posture: a transient connection blip at this exact moment propagated
+  // out of `startAdhoc`, past an `index.ts` that does not guard the call, into
+  // `main()`'s catch and `process.exit(1)`. The entire API taken down over an
+  // optional feature that is off by default.
+  let role = '';
 
   try {
+    // Asked of the connection rather than parsed out of the URL, so the role
+    // always matches the database the migrations actually ran against.
+    const { rows: current } = await owner.query<{ name: string }>('SELECT current_database() AS name');
+    role = adhocRole(current[0]!.name);
+
     /*
      * The superuser check comes FIRST, before this role is given a way to log in.
      *
@@ -178,12 +217,15 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
      * effort, and logged if it fails, because there is nothing further this
      * process can do about it.
      */
-    await owner
-      .query('SELECT format($$ALTER ROLE %I NOLOGIN$$, $1::text) AS statement', [role])
-      .then((result) => owner.query(result.rows[0]!.statement))
-      .catch((revertError) =>
-        log.error({ err: revertError }, `Could not revoke LOGIN from ${role}; do it by hand`),
-      );
+    // `role` is empty only if the lookup above was what failed, in which case
+    // nothing was granted and there is nothing to take back.
+    if (role !== '')
+      await owner
+        .query('SELECT format($$ALTER ROLE %I NOLOGIN$$, $1::text) AS statement', [role])
+        .then((result) => owner.query(result.rows[0]!.statement))
+        .catch((revertError) =>
+          log.error({ err: revertError }, `Could not revoke LOGIN from ${role}; do it by hand`),
+        );
     return false;
   }
 }

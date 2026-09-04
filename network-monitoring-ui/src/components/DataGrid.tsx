@@ -13,6 +13,7 @@ import type { ReactNode } from 'react';
 import useViewportFitHeight from '../hooks/useViewportFitHeight';
 import { sharedTableOptions } from '../tableTheme';
 import { GRID_METRICS, SURFACE } from '../theme';
+import GridPagination from './GridPagination';
 
 /**
  * The one table wrapper.
@@ -275,7 +276,17 @@ function DataGridBase({
     enableColumnResizing: false,
     enableDensityToggle: true,
     columnFilterDisplayMode: 'popover',
-    paginationDisplayMode: 'pages',
+    /*
+     * Our own footer, replacing MRT's bottom toolbar outright.
+     *
+     * MRT makes the two halves mutually exclusive: `paginationDisplayMode:
+     * 'pages'` gives numbered buttons and no record range, `'default'` gives a
+     * range and no numbers. Both are wanted, so the bar is rendered here — the
+     * same resolution the PRO 2.0 grid reached. See GridPagination.
+     *
+     * Before the spread, so a caller can still replace it.
+     */
+    renderBottomToolbar: ({ table }) => <GridPagination table={table} />,
     // MRT's selection banner is a surface with no counterpart anywhere else in
     // this app, and it pushes the table down as it appears.
     positionToolbarAlertBanner: 'none',
