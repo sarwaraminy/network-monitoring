@@ -166,7 +166,24 @@ export async function truncateAll(pool: pg.Pool): Promise<void> {
  * `db/index.ts` builds its pool from `env.ts` at module load and `env.ts` reads
  * `process.env` once.
  */
-export async function openTestDatabase(): Promise<TestDatabase> {
+export interface OpenOptions {
+  /**
+   * A session `TimeZone` for every connection, including the application's own.
+   *
+   * The reason this exists rather than being a `SET` a test could issue: the
+   * timezone bug this repository shipped was `date_trunc('day', ts)` resolving
+   * in the SESSION's zone, so it is invisible on a server set to UTC — which is
+   * every CI runner and most developer machines. A test that cannot choose the
+   * session zone cannot reproduce it, and would pass against the bug.
+   *
+   * Passed through the connection string as a libpq `options` parameter so it
+   * applies to pooled connections the application opens for itself, not only to
+   * ones the test holds.
+   */
+  sessionTimeZone?: string;
+}
+
+export async function openTestDatabase(options: OpenOptions = {}): Promise<TestDatabase> {
   process.env.JWT_SECRET ??= 'db-test-secret-not-used-for-signing';
 
   /*
@@ -185,10 +202,13 @@ export async function openTestDatabase(): Promise<TestDatabase> {
     );
   }
 
-  process.env.DATABASE_URL = TEST_DATABASE_URL;
+  const url = options.sessionTimeZone
+    ? withSessionTimeZone(TEST_DATABASE_URL, options.sessionTimeZone)
+    : TEST_DATABASE_URL;
+  process.env.DATABASE_URL = url;
 
   const pool = new pg.Pool({
-    connectionString: TEST_DATABASE_URL,
+    connectionString: url,
     max: 4,
     connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
   });
@@ -270,6 +290,14 @@ async function createDatabase(name: string): Promise<boolean> {
   } finally {
     await admin.end().catch(() => {});
   }
+}
+
+/** Adds `-c timezone=<zone>` to a connection string's startup options. */
+function withSessionTimeZone(url: string, zone: string): string {
+  const parsed = new URL(url);
+  const existing = parsed.searchParams.get('options');
+  parsed.searchParams.set('options', `${existing ? `${existing} ` : ''}-c timezone=${zone}`);
+  return parsed.toString();
 }
 
 /** A connection string with its password removed, for an error message. */

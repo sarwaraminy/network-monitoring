@@ -1687,6 +1687,7 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **Postgres in CI** — the SQL-level claims stop being probes run by hand: a service container, a harness that refuses any database not named `_test`, and standing tests for the four retention bugs review caught, each verified by reintroducing the bug | #51 |
 | **Grouped sidebar navigation** — eight tabs in one header strip became a bordered panel with named sections, ported whole from the PRO 2.0 sidebar in the sibling `professional` project; collapses to a rail, remembers that, and spends no vertical room, which is the axis the tables need | #50 |
 | **Audit trail** — who deleted, changed or redirected something; append-only, enforced by a trigger, written in the same transaction as the act it records | #49 |
 | **Route-level auth tests** — every authenticated route swept over real HTTP with seven credentials; found `DELETE /api/alerts/:id` and the legacy log writes ungated, and a CI glob that had been running 456 of 496 tests | #48 |
@@ -1700,23 +1701,17 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 ### Next, in order
 
-1. **Postgres in CI** (~1–2 d). Every SQL-level claim in this repository is currently
-   verified by a probe run by hand once and then trusted, and retention alone had four
-   real SQL bugs found in review rather than by tests — timezone bucketing, partial-day
-   over-deletion, the rollup filter, sweep concurrency. A service container would turn
-   those probes into standing tests, and would also allow the one authorisation case that
-   needs a user row: a valid token for a non-admin getting 403 over HTTP.
-2. **SMTP that modern mailboxes accept** ([#27](https://github.com/sarwaraminy/network-monitoring/issues/27), ~1 wk).
+1. **SMTP that modern mailboxes accept** ([#27](https://github.com/sarwaraminy/network-monitoring/issues/27), ~1 wk).
    Microsoft 365 and Google both disable basic SMTP auth by default, so email delivery does
    not work with the two most common providers. An internal relay already works with no
    credentials and a 535 is already legible; what is missing is OAuth2/XOAUTH2.
-3. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
+2. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
    each other's findings. Cheap now and expensive once anyone has data.
-4. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
+3. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
    type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
    `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
    `.bin`.
-5. **Small, and each independently useful:**
+4. **Small, and each independently useful:**
    - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,
