@@ -105,12 +105,23 @@ export default function AppLayout() {
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <AppBar position="sticky">
         {/*
-          A fixed height, matching `HEADER.height`. The sidebar sticks to the
-          underside of this bar and needs the offset as a number; leaving the
-          height to `Toolbar`'s responsive default would make that offset a guess
-          that is wrong at exactly one breakpoint.
+          A fixed height from `md` up, and ONLY from `md` up.
+          
+          The panel sticks to the underside of this bar and needs the offset as a
+          number, so leaving that to `Toolbar`'s responsive default would make
+          `top: 64` a guess. But there is no panel below `md` — the navigation is
+          a drawer floating over the page — so the override buys nothing there
+          and costs 8px against the 56px default, 16px in landscape. That comes
+          straight out of the rows `useViewportFitHeight` has left to give, on
+          the screens with the least to spare, which is the opposite of the point
+          of moving the navigation off this bar in the first place.
         */}
-        <Toolbar sx={{ gap: 1, minHeight: `${HEADER.height}px !important` }}>
+        <Toolbar
+          sx={(theme) => ({
+            gap: 1,
+            [theme.breakpoints.up('md')]: { minHeight: `${HEADER.height}px !important` },
+          })}
+        >
           {/*
             Compact only. From `md` up the collapse control lives in the panel's
             own 48px header row, which is where the design puts it — a caret on

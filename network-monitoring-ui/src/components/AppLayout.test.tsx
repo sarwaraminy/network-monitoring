@@ -394,6 +394,19 @@ describe('AppLayout panel collapse', () => {
     expect(await screen.findByRole('link', { name: ALWAYS })).toBeInTheDocument();
   });
 
+  it('points its collapse control at the region it collapses', async () => {
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    // The same rule the rail buttons are held to below: `aria-expanded` needs
+    // something to have expanded. Here the region is real in both states, so the
+    // attribute stays and gets an `aria-controls` rather than being dropped.
+    const toggle = screen.getByRole('button', { name: /collapse navigation/i });
+    const controls = toggle.getAttribute('aria-controls');
+    expect(controls).toBeTruthy();
+    expect(document.getElementById(controls!)).not.toBeNull();
+  });
+
   it('does not announce a region the rail is not rendering', async () => {
     const user = userEvent.setup();
     renderApp(<AppLayout />, { authenticated: true });

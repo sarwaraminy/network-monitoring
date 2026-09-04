@@ -581,6 +581,8 @@ export default function SideNav({
   onNavigate,
 }: Readonly<SideNavProps>) {
   const { pathname } = useLocation();
+  /** The section list, so the collapse toggle has something to point `aria-controls` at. */
+  const listRegionId = `sidebar-list-${useId()}`;
 
   /*
    * Sections start open — all of them.
@@ -591,6 +593,25 @@ export default function SideNav({
    * choice rather than a chore.
    */
   const [closedIds, setClosedIds] = useState<ReadonlySet<string>>(() => new Set());
+  /*
+   * Held here, so it lives as long as this component does — which means it
+   * survives the session on the desktop panel and is discarded each time the
+   * drawer closes, since MUI unmounts that.
+   *
+   * That asymmetry is deliberate, and it is worth saying why it does NOT get the
+   * treatment the search got. A search was cleared everywhere precisely because
+   * leaving it produced a WRONG view: a panel filtered to a term, not containing
+   * the current page, with nothing marked and no explanation. Losing a disclosure
+   * preference produces the DEFAULT view — every section open, every destination
+   * reachable, which is where the panel starts anyway. One asymmetry leaves the
+   * user somewhere broken; the other leaves them somewhere fine.
+   *
+   * The drawer is also a transient surface: it opens, takes one choice and
+   * closes, so "the section I folded three navigations ago" is not a thing anyone
+   * is holding in their head. Lifting the state to `AppLayout`, or keeping the
+   * drawer mounted, would make the two agree — at the cost of a hidden mounted
+   * tree, and to remember something nobody asked to have remembered.
+   */
   /*
    * What the user has closed DURING a search, kept apart from `closedIds`.
    *
@@ -642,8 +663,12 @@ export default function SideNav({
      * Each search is its own disclosure scope. That does mean typing another
      * character reopens a section closed a moment earlier, which is the right
      * trade: the results have changed, and no match may be left hidden.
+     *
+     * Guarded the same way `clearSearch` is: this runs on every keystroke, and
+     * a fresh `Set` when the old one was already empty is a re-render of the
+     * whole panel bought for nothing.
      */
-    setSearchClosedIds(new Set());
+    setSearchClosedIds((closed) => (closed.size === 0 ? closed : new Set()));
   };
 
   /*
@@ -836,6 +861,20 @@ export default function SideNav({
             onClick={onToggleCollapsed}
             aria-label={collapsed ? `Expand ${PANEL_TITLE}` : `Collapse ${PANEL_TITLE}`}
             aria-expanded={!collapsed}
+            /*
+             * `aria-controls`, because `aria-expanded` without one is the exact
+             * objection this file raises against the rail section buttons a few
+             * hundred lines up. It is less wrong here — the region really is
+             * present in both states, so the announcement is at least about
+             * something real — but "less wrong" is not the standard the file
+             * argues for elsewhere, and a rule applied in one place and not the
+             * other is worse than either answer.
+             *
+             * Pointing it at the region rather than dropping the attribute,
+             * because unlike the rail button this control genuinely does expand
+             * and collapse a thing that is on screen.
+             */
+            aria-controls={listRegionId}
             sx={{ color: 'inherit' }}
           >
             <RailCollapseCaret collapsed={collapsed} />
@@ -877,6 +916,7 @@ export default function SideNav({
         gives it its radius, so without this a tall list is simply lost.
       */}
       <Box
+        id={listRegionId}
         sx={{
           flex: 1,
           minHeight: 0,

@@ -73,6 +73,21 @@ describe('AppLayout across the md breakpoint', () => {
     expect(screen.getByRole('navigation', NAV)).toBeInTheDocument();
   });
 
+  it('leaves the compact bar its native height', () => {
+    // The 64px override exists so the sticky panel knows where the bar's
+    // underside is. There is no panel below `md`, so the override buys nothing
+    // there and takes 8px — 16px in landscape — out of the rows
+    // `useViewportFitHeight` has left to give, on the screens with the least to
+    // spare. Asserted on the rule rather than on a computed height, since jsdom
+    // resolves neither the breakpoint nor MUI's own responsive defaults.
+    viewport.compact = true;
+    renderApp(<AppLayout />, { authenticated: true });
+
+    const toolbar = document.querySelector('.MuiToolbar-root');
+    expect(toolbar).not.toBeNull();
+    expect(toolbar).not.toHaveStyle({ minHeight: '64px' });
+  });
+
   it('offers no collapse control in the drawer', async () => {
     // The drawer is already an overlay: the width a rail would save is width
     // nothing else is using, and the scrim is how it closes.

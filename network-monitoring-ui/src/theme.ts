@@ -54,8 +54,8 @@ export const SURFACE = {
  * The bar no longer carries the navigation — that moved to the sidebar, which
  * is what the tab tokens (`activeTabBg`, `activeTabInk`) used to colour. They are
  * gone with the tabs rather than left behind as tokens nothing paints. What is
- * left is the brand strip: the sweep, and the ink for the brand and the two
- * controls sitting on it.
+ * left is the brand strip: the sweep, and `barInk` for the brand and the
+ * controls sitting on it. It was `tabInk` while there were tabs to ink.
  */
 export const HEADER = {
   /**
@@ -72,12 +72,12 @@ export const HEADER = {
   light: {
     barBg: '#F9FAFB',
     navBg: 'linear-gradient(135deg, #154069, #0e558a, #0677b2, #0a669e, #0289c8)',
-    tabInk: '#FFFFFF',
+    barInk: '#FFFFFF',
   },
   dark: {
     barBg: '#0E1B2E',
     navBg: '#122F52',
-    tabInk: '#FFFFFF',
+    barInk: '#FFFFFF',
   },
 } as const;
 
@@ -357,21 +357,24 @@ export const theme = createTheme({
           /*
            * The brand header, from the PRO 2.0 system.
            *
-           * Light gets the brand sweep behind the tabs; dark gets a flat, deeper
-           * navy instead, because the azure sweep was the brightest thing on a
-           * dark page and pulled the eye to the chrome rather than the alerts.
+           * Light gets the brand sweep; dark gets a flat, deeper navy instead,
+           * because the azure sweep was the brightest thing on a dark page and
+           * pulled the eye to the chrome rather than to the alerts.
            *
-           * This is opaque rather than the blurred translucent bar it replaces.
-           * A sweep cannot be translucent — the page scrolling through it turns
-           * the gradient muddy — and the tab treatment below depends on the bar
-           * being a known colour.
+           * The bar no longer carries the navigation — that is the sidebar's now
+           * — so what sits on this sweep is the brand, the account avatar and,
+           * below `md`, the drawer button. `barInk` colours all three.
+           *
+           * Opaque rather than the blurred translucent bar it replaces: a sweep
+           * cannot be translucent, because the page scrolling through it turns
+           * the gradient muddy.
            */
           background: HEADER.light.navBg,
-          color: HEADER.light.tabInk,
+          color: HEADER.light.barInk,
           borderBottom: 'none',
           ...theme.applyStyles('dark', {
             background: HEADER.dark.navBg,
-            color: HEADER.dark.tabInk,
+            color: HEADER.dark.barInk,
           }),
         }),
       },
