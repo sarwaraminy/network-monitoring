@@ -302,6 +302,37 @@ export const env = {
    * render exactly like a quiet one, which is the confusion this codebase works
    * hardest to avoid.
    */
+  /**
+   * The Ad Hoc Query console.
+   *
+   * OFF by default, and that is the important default in this whole file. Every
+   * other feature here fails towards doing less; this one, switched on without
+   * thought, is a SQL prompt on the production database reachable from a browser
+   * session. An installation should have to decide to have it.
+   *
+   * There is deliberately no connection-string setting. The console's role name
+   * is fixed in code, and only its password comes from here — an
+   * `ADHOC_DATABASE_URL` would be one an operator could point at `postgres`,
+   * turning every restriction off while the feature still appeared to work. See
+   * `adhoc.service.ts`, which additionally refuses to start unless the database
+   * confirms the role is neither a superuser nor able to write.
+   */
+  adhoc: {
+    enabled: bool('ADHOC_ENABLED', false),
+    /** Set on the `nm_adhoc` role at boot. Empty leaves the console off. */
+    password: process.env.ADHOC_DB_PASSWORD ?? '',
+    /**
+     * A query stops here rather than running until somebody notices. Ten seconds
+     * is long for an interactive question and short next to the damage a
+     * cartesian join does to a pool shared with detection.
+     */
+    timeoutMs: int('ADHOC_TIMEOUT_MS', 10_000),
+    /** Rows returned to the browser. A grid, not an export. */
+    maxRows: int('ADHOC_MAX_ROWS', 1_000),
+    /** Characters accepted, so the body limit is not the thing that rejects a query. */
+    maxLength: int('ADHOC_MAX_QUERY_LENGTH', 20_000),
+  },
+
   retention: {
     /**
      * On by default: an unbounded table is a problem every installation eventually

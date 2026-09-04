@@ -314,6 +314,7 @@ let flowRouter: Router;
 let intelRouter: Router;
 let logsRouter: Router;
 let auditRouter: Router;
+let adhocRouter: Router;
 
 before(async () => {
   // These routers pull in the services, which construct a connection pool at
@@ -328,6 +329,7 @@ before(async () => {
   ({ intelRouter } = await import('./intel.routes.js'));
   ({ logsRouter } = await import('./logs.routes.js'));
   ({ auditRouter } = await import('./audit.routes.js'));
+  ({ adhocRouter } = await import('./adhoc.routes.js'));
 
   const { createPacketRouter } = await import('./packets.routes.js');
   const { interfaceCapture } = await import('../services/packet-capture.registry.js');
@@ -511,6 +513,26 @@ interface RouterPosture {
 }
 
 const ROUTERS: RouterPosture[] = [
+  {
+    file: 'adhoc.routes.ts',
+    router: () => adhocRouter,
+    role: 'admin',
+    /*
+     * `readRole` is the one that carries this router, and it is not a formality.
+     *
+     * `POST /query` is a READ in every sense that matters to a user, so a posture
+     * declaring only `role` would be describing the mutating routes — of which
+     * there are none — and asserting nothing, the same vacuum this file's docblock
+     * describes for the audit router. Both keys are set so that neither the read
+     * nor a future write can lose its gate quietly.
+     *
+     * ADMIN because the console reaches the database directly. It is read-only and
+     * cannot see the columns holding secrets, but "every authenticated account may
+     * run arbitrary SELECTs over the findings, the devices and the audit trail" is
+     * not a thing to arrive at by leaving a guard off.
+     */
+    readRole: 'admin',
+  },
   {
     file: 'alerts.routes.ts',
     router: () => alertsRouter,

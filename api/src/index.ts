@@ -1,6 +1,6 @@
 import { createApp } from './app.js';
 import { env } from './config/env.js';
-import { closeDb } from './db/index.js';
+import { closeDb, pool } from './db/index.js';
 import { runMigrations } from './db/migrate.js';
 import { startFlowCollector, stopFlowCollector } from './flow/collector.js';
 import { startIntel, stopIntel } from './intel/registry.js';
@@ -8,6 +8,7 @@ import { componentLogger, logger } from './logger.js';
 import { reloadNotifier } from './notify/notifier.js';
 import { loadDeliverySettings, seedFromEnvironment } from './notify/settings.service.js';
 import { libraryVersion } from './packet/libpcap.js';
+import { startAdhoc, stopAdhoc } from './services/adhoc.service.js';
 import { stopAllCaptures } from './services/packet-capture.registry.js';
 import { retentionIdle, startRetention, stopRetention } from './services/retention.service.js';
 import { flushSuppressionCounters, refreshSuppressions } from './services/suppression.service.js';
@@ -83,6 +84,16 @@ async function main(): Promise<void> {
     log.info('Retention disabled: alerts and known devices will be kept indefinitely');
   }
 
+  /*
+   * Off unless asked for, and off unless the database confirms the console's role
+   * is neither a superuser nor able to write — see `adhoc.service.ts`. Awaited
+   * rather than fired and forgotten, so the log line below is the truth about what
+   * this process is offering rather than a guess made before the checks finished.
+   */
+  if (await startAdhoc(pool)) {
+    log.warn('Ad hoc SQL console is ENABLED: administrators can run read-only queries against this database');
+  }
+
   let shuttingDown = false;
 
   const shutdown = async (signal: string): Promise<void> => {
@@ -117,6 +128,7 @@ async function main(): Promise<void> {
       // stopRetention only cancels what had not started; a sweep already running
       // keeps querying the pool that closeDb() is about to end.
       await retentionIdle();
+      await stopAdhoc();
       stopIntel();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await closeDb();
