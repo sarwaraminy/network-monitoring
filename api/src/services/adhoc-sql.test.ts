@@ -135,10 +135,19 @@ describe('ad hoc query console', { skip: database.skip }, () => {
 
   it('still reads the non-secret columns of those same tables', async () => {
     // The other half: excluding a column must not cost the table.
-    const result = await adhoc.runAdhocQuery('SELECT email, role FROM users');
+    //
+    // Filtered to this suite's own fixture rather than asserting a row COUNT.
+    // Counting makes the test a hostage to how many rows the migrations happen
+    // to seed — `users` is empty after V5 removes V2's accounts, but a future
+    // migration seeding one would break an assertion that has nothing to do with
+    // column grants.
+    const result = await adhoc.runAdhocQuery(
+      `SELECT email, role FROM users WHERE email = 'adhoc@example.test'`,
+    );
 
     assert.equal(result.rows.length, 1);
     assert.equal((result.rows[0] as { email: string }).email, 'adhoc@example.test');
+    assert.equal((result.rows[0] as { role: string }).role, 'ADMIN');
   });
 
   it('refuses to reach outside the database', async () => {
@@ -178,6 +187,28 @@ describe('ad hoc query console', { skip: database.skip }, () => {
     // statement anyway, which is why this is not the defence — but a console
     // that accepted `;` would at least be lying about what it ran.
     await refused('SELECT 1; SELECT 2', 'a chained statement');
+  });
+
+  it('refuses a query that is too long before it reaches the database', async () => {
+    // `assertRunnable` is what the route calls before it writes to the audit
+    // trail, so this bound is also what keeps the trail from carrying a
+    // megabyte of rejected SQL.
+    const message = await refused(`SELECT '${'x'.repeat(30_000)}'`, 'an over-long query');
+
+    assert.match(message, /limited to/i);
+  });
+
+  it('carries a status the error handler will honour', async () => {
+    // `AdhocError` has to extend `HttpError` or the handler falls through to its
+    // 500 path — which in production replaces the message with "Internal server
+    // error", switching off this feature's whole error design somewhere a
+    // developer never sees it.
+    const { HttpError } = await import('../middleware/error-handler.js');
+    await assert.rejects(
+      () => adhoc.runAdhocQuery('SELECT * FROM no_such_table'),
+      (error: unknown) => error instanceof HttpError && (error as { status: number }).status === 400,
+      'an ad hoc failure must carry a 4xx status, not fall through to the 500 path',
+    );
   });
 
   it('keeps the message Postgres gave, rather than hiding it', async () => {

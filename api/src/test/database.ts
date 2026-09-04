@@ -180,6 +180,7 @@ async function captureSeed(pool: pg.Pool, tables: string[]): Promise<void> {
 
 /** Re-inserts what `captureSeed` saw, leaving the database as migrations left it. */
 async function restoreSeed(pool: pg.Pool): Promise<void> {
+  const touched = new Set<string>();
   for (const [table, rows] of seededRows.get(pool) ?? []) {
     for (const row of rows) {
       const columns = Object.keys(row);
@@ -189,7 +190,34 @@ async function restoreSeed(pool: pg.Pool): Promise<void> {
          VALUES (${placeholders})`,
         columns.map((column) => row[column]),
       );
+      touched.add(table);
     }
+  }
+
+  /*
+   * Put the sequences back above the rows just restored.
+   *
+   * `TRUNCATE ... RESTART IDENTITY` sets every sequence to 1, and these rows go
+   * back with their ORIGINAL ids — so a table seeded with id 1 is left with a
+   * sequence that will hand out 1 again, and the next insert taking the default
+   * dies on the primary key. Nothing hits that today: the only seeded table is
+   * `delivery_settings`, whose row the tests update rather than insert beside.
+   * It is a trap laid for whoever seeds the next table, which is exactly the
+   * kind of thing that presents as an unrelated flake.
+   */
+  for (const table of touched) {
+    await pool.query(
+      `SELECT setval(pg_get_serial_sequence($1, a.attname), COALESCE(max_id.value, 1))
+         FROM pg_attribute a
+         CROSS JOIN LATERAL (
+           SELECT max(id) AS value FROM ${table}
+         ) AS max_id
+        WHERE a.attrelid = $1::regclass
+          AND a.attname = 'id'
+          AND NOT a.attisdropped
+          AND pg_get_serial_sequence($1, a.attname) IS NOT NULL`,
+      [table],
+    );
   }
 }
 

@@ -302,6 +302,32 @@ export const env = {
    * render exactly like a quiet one, which is the confusion this codebase works
    * hardest to avoid.
    */
+  retention: {
+    /**
+     * On by default: an unbounded table is a problem every installation eventually
+     * has, and the default window is long enough that nobody meets it by surprise.
+     * Set false to keep everything for ever.
+     */
+    enabled: bool('RETENTION_ENABLED', true),
+    /** Full-detail alert rows. A year, after which the daily rollup carries it. */
+    alertDays: retentionDays('ALERT_RETENTION_DAYS', 365),
+    /**
+     * How long a device is remembered after it was last seen.
+     *
+     * Pruning one means it is reported as new if it ever returns, which is the same
+     * trade `DELETE /api/alerts/devices/:mac` already makes deliberately — after a
+     * year of absence, "this appeared on the network" is arguably true again.
+     */
+    deviceDays: retentionDays('DEVICE_RETENTION_DAYS', 365),
+    /**
+     * Gap between sweeps. The work is idempotent, so a missed one costs nothing.
+     *
+     * Clamped at both ends — see `sweepHours`. The upper bound is not a policy
+     * choice: past it a JavaScript timer silently becomes 1 ms.
+     */
+    sweepHours: sweepHours('RETENTION_SWEEP_HOURS', 24),
+  },
+
   /**
    * The Ad Hoc Query console.
    *
@@ -331,31 +357,5 @@ export const env = {
     maxRows: int('ADHOC_MAX_ROWS', 1_000),
     /** Characters accepted, so the body limit is not the thing that rejects a query. */
     maxLength: int('ADHOC_MAX_QUERY_LENGTH', 20_000),
-  },
-
-  retention: {
-    /**
-     * On by default: an unbounded table is a problem every installation eventually
-     * has, and the default window is long enough that nobody meets it by surprise.
-     * Set false to keep everything for ever.
-     */
-    enabled: bool('RETENTION_ENABLED', true),
-    /** Full-detail alert rows. A year, after which the daily rollup carries it. */
-    alertDays: retentionDays('ALERT_RETENTION_DAYS', 365),
-    /**
-     * How long a device is remembered after it was last seen.
-     *
-     * Pruning one means it is reported as new if it ever returns, which is the same
-     * trade `DELETE /api/alerts/devices/:mac` already makes deliberately — after a
-     * year of absence, "this appeared on the network" is arguably true again.
-     */
-    deviceDays: retentionDays('DEVICE_RETENTION_DAYS', 365),
-    /**
-     * Gap between sweeps. The work is idempotent, so a missed one costs nothing.
-     *
-     * Clamped at both ends — see `sweepHours`. The upper bound is not a policy
-     * choice: past it a JavaScript timer silently becomes 1 ms.
-     */
-    sweepHours: sweepHours('RETENTION_SWEEP_HOURS', 24),
   },
 } as const;

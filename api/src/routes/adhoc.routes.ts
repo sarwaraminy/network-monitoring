@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error-handler.js';
-import { AdhocError, adhocReady, runAdhocQuery } from '../services/adhoc.service.js';
+import { adhocReady, assertRunnable, runAdhocQuery } from '../services/adhoc.service.js';
 import { actorOf, recordAudit } from '../services/audit.service.js';
 
 /**
@@ -57,10 +57,16 @@ adhocRouter.get(
 adhocRouter.post(
   '/query',
   asyncHandler(async (req, res) => {
-    const { sql } = req.body as { sql?: unknown };
-    if (typeof sql !== 'string') {
-      throw new AdhocError('Send the query as a `sql` string.');
-    }
+    /*
+     * Validated BEFORE the trail is written, which is a change from the first
+     * version and worth the note. Auditing first meant the recorded text was
+     * bounded by the 1 MB JSON body limit rather than by `ADHOC_MAX_QUERY_LENGTH`
+     * — fifty times the accepted length, on a request that was going to be
+     * rejected anyway — and it wrote an `adhoc.query` row for every POST while
+     * the console was switched off, so an installation that never enabled the
+     * feature still collected entries for it.
+     */
+    const sql = assertRunnable((req.body as { sql?: unknown }).sql);
 
     const actor = actorOf(req.user);
     await recordAudit(db, {

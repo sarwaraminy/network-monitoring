@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
+import { HttpError } from '../middleware/error-handler.js';
 
 const log = componentLogger('adhoc');
 
@@ -44,13 +45,21 @@ export interface AdhocResult {
   durationMs: number;
 }
 
-/** Thrown for anything the operator should see verbatim — including Postgres's own errors. */
-export class AdhocError extends Error {
-  constructor(
-    message: string,
-    readonly status = 400,
-  ) {
-    super(message);
+/**
+ * Thrown for anything the operator should see verbatim — including Postgres's
+ * own errors.
+ *
+ * Extends `HttpError`, and that is not a detail. `errorHandler` maps only
+ * `HttpError` onto a status and a visible body; anything else falls through to
+ * the 500 path, which in PRODUCTION replaces the message with "Internal server
+ * error". Extending plain `Error` therefore switched off this whole feature's
+ * error design exactly where it matters and nowhere a developer would see it:
+ * `env.isProduction` is false in dev, so the real message passed through and
+ * everything looked right. An operator with a typo got a 500 and no clue.
+ */
+export class AdhocError extends HttpError {
+  constructor(message: string, status = 400) {
+    super(status, message);
     this.name = 'AdhocError';
   }
 }
@@ -105,8 +114,21 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
   }
 
   try {
+    /*
+     * The superuser check comes FIRST, before this role is given a way to log in.
+     *
+     * Granting LOGIN and a password and then proving the sandbox is inverted in
+     * exactly the case the proof exists for: if someone has recreated `nm_adhoc`
+     * as a superuser, the old order handed that superuser a working login and a
+     * password from the environment, and then logged that the console "stays
+     * off". A startup that was meant to refuse had instead provisioned
+     * credentials. This one is answerable through the owner's connection without
+     * the role being able to log in at all.
+     */
+    await assertNotSuperuser(owner);
+
     // As the owner, because the role cannot set its own password before it can
-    // log in. `quote_literal` rather than interpolation: the password comes from
+    // log in. `format(%L)` rather than interpolation: the password comes from
     // the environment, but a password containing a quote should change nothing.
     const { rows } = await owner.query<{ statement: string }>(
       `SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', $1::text, $2::text) AS statement`,
@@ -129,7 +151,38 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
   } catch (error) {
     log.error({ err: error }, 'Ad hoc query console failed its safety checks and stays off');
     pool = null;
+    /*
+     * Take the login away again. Anything that fails after the ALTER above
+     * leaves a role that can authenticate with a password from the environment
+     * and a console that is switched off — credentials nobody is watching. Best
+     * effort, and logged if it fails, because there is nothing further this
+     * process can do about it.
+     */
+    await owner
+      .query('SELECT format($$ALTER ROLE %I NOLOGIN$$, $1::text) AS statement', [ADHOC_ROLE])
+      .then((result) => owner.query(result.rows[0]!.statement))
+      .catch((revertError) =>
+        log.error({ err: revertError }, `Could not revoke LOGIN from ${ADHOC_ROLE}; do it by hand`),
+      );
     return false;
+  }
+}
+
+/**
+ * Refuses a superuser `nm_adhoc`, asked through the OWNER's connection.
+ *
+ * Separate from `proveSandbox` because it has to run before the role can log in
+ * — see `startAdhoc`. A superuser bypasses every grant in V10 with no error to
+ * notice, so this is the one check that must never be reached late.
+ */
+async function assertNotSuperuser(owner: pg.Pool): Promise<void> {
+  const { rows } = await owner.query<{ superuser: boolean }>(
+    'SELECT rolsuper AS superuser FROM pg_roles WHERE rolname = $1',
+    [ADHOC_ROLE],
+  );
+  if (rows.length === 0) throw new Error(`role ${ADHOC_ROLE} does not exist; has V10 run?`);
+  if (rows[0]!.superuser) {
+    throw new Error(`"${ADHOC_ROLE}" is a superuser; every restriction on the console is void`);
   }
 }
 
@@ -154,17 +207,42 @@ async function proveSandbox(candidate: pg.Pool): Promise<void> {
     throw new Error(`"${ADHOC_ROLE}" is a superuser; every restriction on the console is void`);
   }
 
-  // And a real attempt, because `rolsuper` being false does not by itself prove
-  // the grants are what V10 wrote. Rolled back either way; the expected outcome
-  // is the error.
+  /*
+   * Two real attempts, because `rolsuper` being false does not by itself prove
+   * the grants are what V10 wrote.
+   *
+   * The second one is the important addition. Checking only that writes are
+   * refused leaves the COLUMN-level revokes unverified, and those are the grants
+   * most likely to be undone by accident — an operator debugging a permissions
+   * problem runs `GRANT SELECT ON ALL TABLES IN SCHEMA public TO nm_adhoc`, the
+   * role is still not a superuser and still cannot write, both old probes pass,
+   * and the console starts with every secret column in the database readable
+   * from a browser session. This file's own docblock already reasons about
+   * someone having "re-granted since"; this is that case.
+   */
+  await mustBeRefused(
+    candidate,
+    `INSERT INTO alerts (kind, severity, title, description, dedup_key, first_seen, last_seen)
+     VALUES ('adhoc_probe', 'low', 'probe', 'probe', 'adhoc-probe', now(), now())`,
+    'the ad hoc role was able to INSERT; it is not read-only',
+  );
+  await mustBeRefused(
+    candidate,
+    'SELECT password FROM users LIMIT 1',
+    'the ad hoc role can read users.password; the column grants from V10 are not in force',
+  );
+}
+
+/** Runs `sql` inside a rolled-back transaction and insists Postgres refuses it. */
+async function mustBeRefused(candidate: pg.Pool, sql: string, complaint: string): Promise<void> {
   const client = await candidate.connect();
   try {
     await client.query('BEGIN');
-    await client.query(`INSERT INTO alerts (kind, severity, title, description, dedup_key, first_seen, last_seen)
-                        VALUES ('adhoc_probe', 'low', 'probe', 'probe', 'adhoc-probe', now(), now())`);
-    throw new Error('the ad hoc role was able to INSERT; it is not read-only');
+    await client.query(sql);
+    throw new Error(complaint);
   } catch (error) {
-    // `42501` is insufficient_privilege — the answer this probe wants.
+    // `42501` is insufficient_privilege — the answer these probes want. Anything
+    // else is a real failure and is rethrown, including the complaint above.
     if ((error as { code?: string }).code !== '42501') throw error;
   } finally {
     await client.query('ROLLBACK').catch(() => {});
@@ -176,6 +254,31 @@ export async function stopAdhoc(): Promise<void> {
   const closing = pool;
   pool = null;
   await closing?.end().catch(() => {});
+}
+
+/**
+ * Everything that can be refused before the query is recorded or run.
+ *
+ * Exported so the route can call it BEFORE writing to the audit trail. Auditing
+ * first meant `env.adhoc.maxLength` was not what bounded the recorded text — the
+ * 1 MB JSON body limit was, so a caller could put fifty times the accepted
+ * length into `audit_events` on a request that was always going to be rejected.
+ * It also wrote an `adhoc.query` row for every POST while the console was
+ * switched off, so an installation that never enabled the feature still
+ * accumulated entries for it.
+ *
+ * Returns the trimmed query, so the caller records what would actually run.
+ */
+export function assertRunnable(sql: unknown): string {
+  if (!pool) throw new AdhocError('The query console is not enabled on this server.', 503);
+  if (typeof sql !== 'string') throw new AdhocError('Send the query as a `sql` string.');
+
+  const trimmed = sql.trim();
+  if (trimmed === '') throw new AdhocError('Enter a query to run.');
+  if (trimmed.length > env.adhoc.maxLength) {
+    throw new AdhocError(`Queries are limited to ${env.adhoc.maxLength} characters.`);
+  }
+  return trimmed;
 }
 
 /**
@@ -207,18 +310,15 @@ export async function stopAdhoc(): Promise<void> {
  * would be lying about what it did.
  */
 export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
-  if (!pool) {
-    throw new AdhocError('The query console is not enabled on this server.', 503);
-  }
-
-  const trimmed = sql.trim();
-  if (trimmed === '') throw new AdhocError('Enter a query to run.');
-  if (trimmed.length > env.adhoc.maxLength) {
-    throw new AdhocError(`Queries are limited to ${env.adhoc.maxLength} characters.`);
-  }
+  const trimmed = assertRunnable(sql);
+  // `assertRunnable` has already refused a null pool; re-reading it here is what
+  // narrows the type, and it also closes the window where `stopAdhoc` runs
+  // between the check and the connect.
+  const running = pool;
+  if (!running) throw new AdhocError('The query console is not enabled on this server.', 503);
 
   const started = Date.now();
-  const client = await pool.connect();
+  const client = await running.connect();
   try {
     // READ ONLY on the transaction, not just on the role: two independent things
     // have to be wrong before a write reaches this database.
