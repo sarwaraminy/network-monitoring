@@ -114,7 +114,7 @@ export function actorOf(user: UserRow | undefined): Actor {
   const email = user?.email?.trim();
 
   return {
-    name: email && email !== '' ? email : `user:${user?.id ?? 'unknown'}`,
+    name: email || `user:${user?.id ?? 'unknown'}`,
     id: user?.id ?? null,
   };
 }
