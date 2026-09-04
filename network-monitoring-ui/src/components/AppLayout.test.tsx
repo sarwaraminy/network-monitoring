@@ -145,6 +145,21 @@ describe('AppLayout panel search', () => {
     expect(screen.queryByRole('button', { name: /^overview$/i })).toBeNull();
   });
 
+  it('finds a group by the heading the user is looking at', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    // The headings are on screen while the user types. A search that cannot find
+    // one reads as broken, not as a rule about what is searchable.
+    await user.type(screen.getByRole('textbox', { name: /search navigation/i }), 'administr');
+
+    // A heading match keeps its items whole — the match is the group.
+    expect(screen.getByRole('button', { name: /^administration$/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /delivery/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^security$/i })).toBeNull();
+  });
+
   it('says so when nothing matches, rather than showing an empty panel', async () => {
     const user = userEvent.setup();
     renderApp(<AppLayout />, { authenticated: true });
@@ -258,6 +273,34 @@ describe('AppLayout panel collapse', () => {
     // the panel opened without the section, or the section without the panel.
     expect(screen.getByRole('button', { name: /collapse navigation/i })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: ALWAYS })).toBeInTheDocument();
+  });
+
+  it('does not announce a region the rail is not rendering', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+
+    // In the rail there is no list under this button and no `aria-controls` to
+    // point at one, so "expanded" would describe something that is not there —
+    // and would report the hidden panel's state rather than anything visible.
+    expect(screen.getByRole('button', { name: /^security$/i })).not.toHaveAttribute('aria-expanded');
+  });
+
+  it('moves focus into the section a rail click opened', async () => {
+    const user = userEvent.setup();
+    renderApp(<AppLayout />, { authenticated: true });
+    await screen.findByRole('link', { name: ALWAYS });
+
+    await user.click(screen.getByRole('button', { name: /collapse navigation/i }));
+    await user.click(screen.getByRole('button', { name: /^security$/i }));
+
+    // The rail button unmounts as the panel expands. Without a handoff, focus
+    // falls to <body> and a keyboard user is dropped at the top of the document
+    // rather than into the section they just asked for.
+    await screen.findByRole('link', { name: ALWAYS });
+    expect(screen.getByRole('button', { name: /^security$/i })).toHaveFocus();
   });
 
   it('remembers the collapsed state across a reload', async () => {

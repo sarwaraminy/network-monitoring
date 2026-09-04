@@ -9,7 +9,7 @@ import InputAdornment from '@mui/material/InputAdornment';
 import type { Theme } from '@mui/material/styles';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
-import { type ReactNode, useEffect, useId, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { NAV, RADIUS, SIDEBAR_METRICS, SURFACE } from '../theme';
 import { groupContaining, type NavGroup } from './navItems';
@@ -309,6 +309,17 @@ interface SidebarSectionProps {
   icon: ReactNode;
   /** Opens the panel from the rail. See `openFromRail` below. */
   onExpandPanel?: () => void;
+  /**
+   * Take focus on mount.
+   *
+   * Set for the one section opened from the rail. The rail button that was
+   * clicked unmounts as the panel expands, and focus would otherwise fall to
+   * `<body>` — dumping a keyboard or screen-reader user at the top of the
+   * document instead of into the section they just asked for.
+   */
+  autoFocus?: boolean;
+  /** Called once `autoFocus` has been honoured, so the request is not repeated. */
+  onFocused?: () => void;
   children: ReactNode;
 }
 
@@ -325,10 +336,25 @@ function SidebarSection({
   collapsed,
   icon,
   onExpandPanel,
+  autoFocus = false,
+  onFocused,
   children,
 }: Readonly<SidebarSectionProps>) {
   const autoId = useId();
   const regionId = `sidebar-section-${autoId}`;
+  const headerRef = useRef<HTMLButtonElement | null>(null);
+  // Held in a ref so honouring the request does not depend on the caller
+  // remembering `useCallback` — the effect below must not re-run on identity.
+  const onFocusedRef = useRef(onFocused);
+  onFocusedRef.current = onFocused;
+
+  // Above the rail's early return, unconditionally: a hook placed after a
+  // conditional return is a hook that stops being called when the panel folds.
+  useEffect(() => {
+    if (!autoFocus || collapsed) return;
+    headerRef.current?.focus();
+    onFocusedRef.current?.();
+  }, [autoFocus, collapsed]);
 
   if (collapsed) {
     /*
@@ -345,7 +371,14 @@ function SidebarSection({
     };
     return (
       <Tooltip title={label} placement="right" disableInteractive>
-        <IconButton size="small" onClick={openFromRail} aria-label={label} aria-expanded={expanded}>
+        {/*
+          No `aria-expanded`. There is no rendered list under this button and no
+          `aria-controls` to point at one, so announcing "expanded" describes a
+          region that is not there — and the state it would report is the
+          panel's, which is not visible from the rail anyway. What this button
+          does is "open the panel at this section", and `aria-label` says that.
+        */}
+        <IconButton size="small" onClick={openFromRail} aria-label={label}>
           {icon}
         </IconButton>
       </Tooltip>
@@ -367,6 +400,7 @@ function SidebarSection({
       <Box
         component="button"
         type="button"
+        ref={headerRef}
         onClick={onToggle}
         aria-expanded={expanded}
         aria-controls={regionId}
@@ -438,23 +472,32 @@ const SEARCH_PLACEHOLDER = 'Search navigation…';
 /**
  * Groups reduced to what matches `term`, with any group left empty dropped.
  *
- * Matches the subtitle as well as the label. A row whose second line is the only
- * thing distinguishing it from its neighbour is exactly the row someone would
- * search for by that line.
+ * Three things match, and the third is the one that is easy to leave out: the
+ * GROUP heading. Those headings are on screen while the user types, so a search
+ * that cannot find "Administration" — a word the user is reading as they type it
+ * — reads as a broken search rather than as a rule about what is searchable. A
+ * heading that hits keeps its items whole, because the match is the group.
+ *
+ * Item subtitles match too. A row whose second line is the only thing
+ * distinguishing it from its neighbour is exactly the row someone would look for
+ * by that line.
  */
 function filterGroups(groups: NavGroup[], term: string): NavGroup[] {
   const needle = term.trim().toLowerCase();
   if (needle === '') return groups;
 
   return groups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter(
-        (item) =>
-          item.label.toLowerCase().includes(needle) ||
-          (item.subtitle?.toLowerCase().includes(needle) ?? false),
-      ),
-    }))
+    .map((group) => {
+      if (group.label.toLowerCase().includes(needle)) return group;
+      return {
+        ...group,
+        items: group.items.filter(
+          (item) =>
+            item.label.toLowerCase().includes(needle) ||
+            (item.subtitle?.toLowerCase().includes(needle) ?? false),
+        ),
+      };
+    })
     .filter((group) => group.items.length > 0);
 }
 
@@ -544,6 +587,15 @@ export default function SideNav({
       return next;
     });
   }, [activeGroupId]);
+
+  /*
+   * The section a rail click asked to be focused, cleared once that has happened.
+   *
+   * The click unmounts the rail button it came from, so without this focus falls
+   * to `<body>` and a keyboard user is dropped at the top of the document rather
+   * than into the section they just opened.
+   */
+  const [focusSectionId, setFocusSectionId] = useState<string | null>(null);
 
   // Whichever disclosure state is the live one. A click always moves the set the
   // header row is currently reading, so the row can never record a change it did
@@ -714,7 +766,15 @@ export default function SideNav({
             expanded={isExpanded(group.id)}
             onToggle={() => toggleSection(group.id)}
             collapsed={collapsed}
-            onExpandPanel={onToggleCollapsed}
+            onExpandPanel={
+              onToggleCollapsed &&
+              (() => {
+                onToggleCollapsed();
+                setFocusSectionId(group.id);
+              })
+            }
+            autoFocus={focusSectionId === group.id}
+            onFocused={() => setFocusSectionId(null)}
           >
             {group.items.map((item) => (
               <SidebarItem

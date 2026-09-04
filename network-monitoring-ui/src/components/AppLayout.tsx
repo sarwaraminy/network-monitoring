@@ -18,7 +18,7 @@ import Toolbar from '@mui/material/Toolbar';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Outlet, Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useStoredBoolean } from '../hooks/useStoredBoolean';
@@ -74,6 +74,20 @@ export default function AppLayout() {
    */
   const navGroups = useMemo(() => visibleNavGroups(user?.role), [user?.role]);
   const navigate = useNavigate();
+
+  /*
+   * Leaving compact width closes the drawer.
+   *
+   * `drawerOpen` outlives the breakpoint that made it meaningful. While the
+   * drawer was mounted at every width it merely sat behind the desktop layout;
+   * now that the two mountings are exclusive, a stale `true` is applied fresh on
+   * the way back — so opening the drawer, widening past `md`, and narrowing
+   * again put the sheet over the page with nobody having touched the button.
+   * Rotating a tablet is enough to do it.
+   */
+  useEffect(() => {
+    if (!isCompact) setDrawerOpen(false);
+  }, [isCompact]);
 
   const handleLogout = () => {
     setMenuAnchor(null);
