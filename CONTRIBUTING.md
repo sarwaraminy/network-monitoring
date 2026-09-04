@@ -127,7 +127,8 @@ npm run ci && npm run build
 ```
 
 `npm run ci` covers what most of CI's jobs run — Biome (lint + format check), `tsc` over both
-packages, and both test suites, none of which need a database. It does **not** run `npm run
+packages, and both test suites. Most of that needs no database; the SQL-level suites skip without one,
+so run `REQUIRE_DB_TESTS=1 npm run test:api` too if you have touched anything SQL-shaped. It does **not** run `npm run
 build`, which is CI's separate `build` job (compiling the API and bundling the UI) — run it too,
 since a change can pass `ci` and still fail to compile or bundle. `npm run lint:fix` fixes what
 Biome can fix automatically; the rest it reports.
@@ -141,10 +142,12 @@ A few conventions this codebase holds to more strictly than most:
 - **A fix ships with the test that would have caught it.** Where practical, verify that test by
   temporarily reintroducing the bug and confirming it fails, then restore the fix — a test that
   would pass either way is worse than no test.
-- **Tests need no database, no browser, no running server.** If a change makes that stop being
-  true, that's worth a second look before committing to it — see the README's [Tests](
-  README.md#tests) section for how migrations and other SQL-heavy paths are instead verified by
-  hand against a real Postgres and documented as such, rather than mocked.
+- **Tests need no browser and no running server, and almost none need a database.** If a change
+  makes a test need one, that's worth a second look: the bar is that mocking would test the mock
+  rather than the behaviour, which is true of SQL itself and of very little else. The suites that
+  do clear that bar run against a real Postgres, skip when none is reachable, and are held to
+  having actually run by `REQUIRE_DB_TESTS=1` in CI — see the README's [Tests](README.md#tests)
+  section.
 
 ## License
 

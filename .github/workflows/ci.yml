@@ -35,6 +35,34 @@ jobs:
       fail-fast: false
       matrix:
         node: [22, 24]
+
+    # A real Postgres, because the SQL-level claims in this repository cannot be
+    # covered any other way: aggregating a day and deleting it in one
+    # transaction, a trigger that refuses an UPDATE, a role check that has to
+    # read a user row. Those were probes run by hand once and then trusted, and
+    # retention alone shipped four SQL bugs that review caught and no test could
+    # have.
+    #
+    # Same major as docker-compose.yml, so CI and a developer's machine are not
+    # two different databases. The health check is what makes `npm ci` and the
+    # build steps below safe to start immediately: the job waits on it rather
+    # than racing a container that has accepted a TCP connection but is still
+    # initialising.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: netmonitoring_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -52,11 +80,18 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      # No database needed: the suite covers decoders and detectors only.
+      # `REQUIRE_DB_TESTS` turns "no database" from a skip into a failure. The
+      # database-backed suites skip locally so a contributor without Postgres
+      # can still run `npm test`, and a skip CI also honoured would be the same
+      # class of bug as the glob that ran 456 of 496 tests under a green tick —
+      # "nothing failed" and "nothing ran" look identical from outside.
+      # `ci-requires-database.test.ts` is the standing check that this stays set.
       - name: Test (API)
         run: npm run test:api
         env:
           JWT_SECRET: ci-secret-not-used-for-anything-real
+          REQUIRE_DB_TESTS: '1'
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/netmonitoring_test
 
       # Vitest + Testing Library + MSW, in jsdom. No browser and no API needed.
       - name: Test (UI)
