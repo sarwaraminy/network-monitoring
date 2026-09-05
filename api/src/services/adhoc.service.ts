@@ -187,11 +187,28 @@ export function adhocConnectionString(role: string, password: string): string {
  * quietly did not start is a smaller problem than one that quietly did.
  */
 export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
-  if (!env.adhoc.enabled) return false;
+  /*
+   * Both "off" paths revoke, and that is the point rather than tidiness.
+   *
+   * `stopAdhoc`'s docblock says the login does not outlive the console. It only
+   * ran on shutdown of a process that had the console ON — so the operator
+   * action that matters, setting `ADHOC_ENABLED=false` and restarting, took this
+   * path and revoked nothing. The role kept LOGIN and the configured password
+   * indefinitely after the feature was switched off, with PUBLIC holding CONNECT
+   * by default. The file documented a guarantee it did not provide.
+   *
+   * Best effort: this runs at boot, the role may not exist yet on a fresh
+   * install, and a console that is off is off either way.
+   */
+  if (!env.adhoc.enabled) {
+    await revokeAdhocLogin(owner).catch(() => {});
+    return false;
+  }
 
   const password = env.adhoc.password;
   if (!password) {
     log.warn('ADHOC_ENABLED is set but ADHOC_DB_PASSWORD is empty; the query console stays off');
+    await revokeAdhocLogin(owner).catch(() => {});
     return false;
   }
 
@@ -535,8 +552,20 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
   if (!running) throw new AdhocError('The query console is not enabled on this server.', 503);
 
   const started = Date.now();
-  const client = await running.connect();
+  let client: pg.PoolClient | undefined;
   try {
+    /*
+     * INSIDE the try, and this is the second time it has had to move here.
+     *
+     * A pool acquisition can fail — `max: 2` and a ten-second statement timeout
+     * make "two long queries in flight" an ordinary state, so a third request
+     * waits out `connectionTimeoutMillis` and rejects. Outside the try that
+     * escapes as a raw pg `Error`, which `errorHandler` cannot map, so production
+     * answers 500 with "Internal server error" — the exact generic-500 problem
+     * `AdhocError extends HttpError` exists to end. `translate` below turns it
+     * into something the operator can act on.
+     */
+    client = await running.connect();
     // READ ONLY on the transaction, not just on the role: two independent things
     // have to be wrong before a write reaches this database.
     await client.query('BEGIN READ ONLY');
@@ -545,18 +574,28 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
     // the answer is "no" rather than a console that hangs holding a connection.
     await client.query('SET LOCAL lock_timeout = 1000');
 
-    const declared = await client.query(`DECLARE adhoc_result NO SCROLL CURSOR FOR ${trimmed}`);
-    if (Array.isArray(declared)) {
-      throw new AdhocError('Run one statement at a time — the query contains more than one.');
-    }
-    // One more than the cap, so "there were more" is knowable without counting
-    // the whole result — which is the thing the cap exists to avoid doing.
-    // `rowMode: 'array'` for the reason in `AdhocResult.rows`: positional rows
-    // cannot collide on a repeated column name.
-    const result = await client.query({
-      text: `FETCH ${env.adhoc.maxRows + 1} FROM adhoc_result`,
-      rowMode: 'array',
-    });
+    /*
+     * `EXPLAIN` and `SHOW` run UNWRAPPED, because a cursor cannot hold them.
+     *
+     * `DECLARE … CURSOR FOR` takes a query, so `EXPLAIN SELECT …` came back as
+     * `syntax error at or near "EXPLAIN"` — and since this console passes
+     * Postgres's message through verbatim, the operator read a syntax error
+     * about SQL that has none, with nothing pointing at the wrapper we added.
+     *
+     * The timing is what made it worth fixing rather than documenting: an
+     * administrator reaches for EXPLAIN exactly when a query has hit the
+     * ten-second timeout, and the console's own advice at that moment is to
+     * narrow the query — with no way to see what was slow.
+     *
+     * They lose only the cursor, not the cage: the same READ ONLY transaction,
+     * the same statement timeout, the same role. The row cap is applied by hand
+     * afterwards, which is fine here because an EXPLAIN plan is tens of rows and
+     * `SHOW` is one — the reason the cursor exists (not materialising a huge
+     * result) does not apply to either.
+     */
+    const result = UNWRAPPABLE.test(trimmed)
+      ? await client.query({ text: trimmed, rowMode: 'array' })
+      : await declareAndFetch(client, trimmed);
 
     const truncated = result.rows.length > env.adhoc.maxRows;
     return {
@@ -571,9 +610,39 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
   } finally {
     // Always ROLLBACK: the transaction is read-only, so there is nothing to
     // commit, and rolling back releases the cursor and any locks in one step.
-    await client.query('ROLLBACK').catch(() => {});
-    client.release();
+    // Guarded, because the acquisition itself is now inside the try and may be
+    // the thing that failed.
+    if (client) {
+      await client.query('ROLLBACK').catch(() => {});
+      client.release();
+    }
   }
+}
+
+/**
+ * Statements the cursor cannot wrap, which this console still allows.
+ *
+ * Deliberately a short, explicit list rather than "anything that is not a
+ * SELECT". Nothing here decides what is SAFE — the role does that, and it can
+ * only read — so this is about which statements the FETCH wrapper can hold, and
+ * a narrow list is easier to reason about than a broad exclusion.
+ */
+const UNWRAPPABLE = /^\s*(?:explain|show)\s/i;
+
+/** The cursor path: declare, fetch one more than the cap, and report the excess. */
+async function declareAndFetch(client: pg.PoolClient, sql: string) {
+  const declared = await client.query(`DECLARE adhoc_result NO SCROLL CURSOR FOR ${sql}`);
+  if (Array.isArray(declared)) {
+    throw new AdhocError('Run one statement at a time — the query contains more than one.');
+  }
+  // One more than the cap, so "there were more" is knowable without counting the
+  // whole result — which is the thing the cap exists to avoid doing.
+  // `rowMode: 'array'` for the reason in `AdhocResult.rows`: positional rows
+  // cannot collide on a repeated column name.
+  return client.query({
+    text: `FETCH ${env.adhoc.maxRows + 1} FROM adhoc_result`,
+    rowMode: 'array',
+  });
 }
 
 /**
@@ -593,6 +662,15 @@ function translate(error: unknown): AdhocError {
   if (code === '57014') {
     return new AdhocError(
       `The query ran longer than ${env.adhoc.timeoutMs} ms and was stopped. Narrow it, or add a LIMIT.`,
+    );
+  }
+  // Not a Postgres code at all: `pg` rejects a pool acquisition with a plain
+  // Error. Worth naming, because "timeout exceeded when trying to connect" reads
+  // as the database being down when it means the console is busy.
+  if (message?.includes('timeout exceeded when trying to connect')) {
+    return new AdhocError(
+      'The query console is busy — it runs a small number of queries at a time. Try again in a moment.',
+      503,
     );
   }
   if (code === '42501') {

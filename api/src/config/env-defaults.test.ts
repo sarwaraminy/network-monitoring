@@ -181,14 +181,6 @@ function deliveryCodeDefaults(): Map<string, string> {
  * now fails this test until it is either passed through to Compose or explicitly
  * excused here, and excusing it is the act that has to be conscious.
  */
-/**
- * Settings deliberately absent from `api/.env.example`.
- *
- * Kept as a list with reasons rather than a loose match, so "not documented" is
- * always a decision somebody made rather than something that fell out.
- */
-const NOT_IN_HOST_EXAMPLE = new Set<string>([]);
-
 const NOT_IN_COMPOSE = new Set([
   // Set by the Compose file itself or by the container, not by an operator.
   'PORT',
@@ -208,6 +200,14 @@ const NOT_IN_COMPOSE = new Set([
   // Read straight from a file path, not configured per deployment.
   'ARP_TRUSTED_MAPPINGS',
 ]);
+
+/**
+ * Settings deliberately absent from `api/.env.example`.
+ *
+ * Kept as a list with reasons rather than a loose match, so "not documented" is
+ * always a decision somebody made rather than something that fell out.
+ */
+const NOT_IN_HOST_EXAMPLE = new Set<string>([]);
 
 /**
  * Compose entries that need not appear in `.env.docker.example`.

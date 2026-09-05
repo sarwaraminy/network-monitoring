@@ -234,6 +234,39 @@ describe('ad hoc query console', { skip: database.skip }, () => {
     );
   });
 
+  it('explains a query instead of blaming its syntax', async () => {
+    /*
+     * `DECLARE … CURSOR FOR` takes a query, so an EXPLAIN wrapped in one came
+     * back as `syntax error at or near "EXPLAIN"` — and this console passes
+     * Postgres's message through verbatim, so the operator read a syntax error
+     * about SQL that has none, with nothing pointing at the wrapper.
+     *
+     * The timing is what made it matter: an administrator reaches for EXPLAIN
+     * exactly when a query has hit the timeout, and the console's own advice at
+     * that moment is to narrow it.
+     */
+    const result = await adhoc.runAdhocQuery('EXPLAIN SELECT count(*) FROM alerts');
+
+    assert.ok(result.rows.length > 0, 'EXPLAIN returned no plan');
+    assert.match(String(result.rows[0]![0]), /Aggregate|Scan/i);
+  });
+
+  it('runs SHOW, which the cursor also cannot hold', async () => {
+    const result = await adhoc.runAdhocQuery('SHOW statement_timeout');
+
+    // And it ran inside the console's own transaction, so it reports the cage's
+    // timeout rather than the server default — which is the proof that skipping
+    // the cursor did not skip the rest.
+    assert.equal(String(result.rows[0]![0]), '1500ms');
+  });
+
+  it('still refuses a write dressed up as something the cursor cannot wrap', async () => {
+    // The unwrapped path must not become a way around the role. It is not the
+    // wrapper that makes this safe, but worth pinning that skipping the wrapper
+    // changes nothing.
+    await refused('EXPLAIN DELETE FROM alerts', 'a write inside an EXPLAIN');
+  });
+
   it('keeps the message Postgres gave, rather than hiding it', async () => {
     // An administrator debugging their own typo is the common case by a wide
     // margin, and "query failed" would send them guessing.

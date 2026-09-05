@@ -172,6 +172,8 @@ services:
       ADHOC_TIMEOUT_MS: ${ADHOC_TIMEOUT_MS:-10000}
       ADHOC_MAX_ROWS: ${ADHOC_MAX_ROWS:-1000}
       ADHOC_MAX_QUERY_LENGTH: ${ADHOC_MAX_QUERY_LENGTH:-20000}
+      # all | refused | off — see .env.docker.example.
+      ADHOC_AUDIT: ${ADHOC_AUDIT:-all}
       NOTIFY_EMAIL_FROM: ${NOTIFY_EMAIL_FROM:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

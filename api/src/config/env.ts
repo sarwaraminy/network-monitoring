@@ -97,6 +97,21 @@ function sweepHours(name: string, fallback: number): number {
   return hours;
 }
 
+/**
+ * A setting whose value must be one of a fixed set.
+ *
+ * Falls back loudly rather than silently: a typo in a mode name is a
+ * configuration the operator believes is in force, and the difference between
+ * `off` and `all` here is a table filling up or not.
+ */
+function oneOf<const T extends readonly string[]>(name: string, allowed: T, fallback: T[number]): T[number] {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (raw === undefined || raw === '') return fallback;
+  if ((allowed as readonly string[]).includes(raw)) return raw as T[number];
+  console.warn(`[config] ${name}=${raw} is not one of ${allowed.join(', ')}; using ${fallback}.`);
+  return fallback;
+}
+
 function databaseUrl(): string {
   const url = process.env.DATABASE_URL;
   if (url && url.trim() !== '') return url;
@@ -367,5 +382,22 @@ export const env = {
     maxRows: int('ADHOC_MAX_ROWS', 1_000),
     /** Characters accepted, so the body limit is not the thing that rejects a query. */
     maxLength: int('ADHOC_MAX_QUERY_LENGTH', 20_000),
+    /**
+     * How much of the console's activity reaches the audit trail.
+     *
+     *  - `all`     — every query as it is accepted, before its result is known.
+     *  - `refused` — only queries the database rejected, which is the set worth
+     *                keeping if the trail is being read for attempts rather than
+     *                for activity: a `SELECT password FROM users` that came back
+     *                `permission denied` is exactly the row somebody wants later.
+     *  - `off`     — nothing.
+     *
+     * `all` is the default because this is a SQL console over security findings,
+     * and "who asked what" is the question an audit trail exists for. It is
+     * configurable because that is also a lot of rows on an installation using
+     * the console routinely, and an operator who cannot quiet it will end up
+     * reading past it — which is worse for the trail than not writing it.
+     */
+    audit: oneOf('ADHOC_AUDIT', ['all', 'refused', 'off'] as const, 'all'),
   },
 } as const;

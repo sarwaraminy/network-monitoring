@@ -465,14 +465,36 @@ async function recreateDatabase(url: string, name: string): Promise<void> {
   admin.on('error', () => {});
   try {
     const { rows } = await admin.query<{ quoted: string }>('SELECT quote_ident($1) AS quoted', [name]);
-    // FORCE so a connection left open by a crashed previous run does not block
-    // the drop; without it the failure is "database is being accessed by other
-    // users", which reads as a permissions problem.
-    await admin.query(`DROP DATABASE IF EXISTS ${rows[0]!.quoted} WITH (FORCE)`);
-    await admin.query(`CREATE DATABASE ${rows[0]!.quoted}`);
-  } catch {
-    // Best effort. If this fails the connection below fails too, with an error
-    // that describes the actual problem rather than this one.
+    const quoted = rows[0]!.quoted;
+
+    /*
+     * A failed DROP is NOT best-effort, and that distinction is the whole point
+     * of splitting these two.
+     *
+     * The old single `catch` justified itself with "if this fails the connection
+     * below fails too" — true when the CREATE failed, and false in the likelier
+     * case. If the DROP is refused, by another connection surviving FORCE or by
+     * insufficient privilege, the database is STILL THERE and the connection
+     * below succeeds against the previous run's data. What follows is the exact
+     * failure this function exists to prevent: `captureSeed` records last run's
+     * rows as the migration seed, `restoreSeed` re-inserts them after every
+     * truncate, and the suite hits a `users_pkey` collision reported by the
+     * harness — so it reads as the harness being broken rather than as a
+     * database that did not get dropped.
+     *
+     * FORCE so a connection left open by a crashed previous run does not block
+     * it; without that the failure is "database is being accessed by other
+     * users", which reads as a permissions problem.
+     */
+    await admin.query(`DROP DATABASE IF EXISTS ${quoted} WITH (FORCE)`);
+
+    try {
+      await admin.query(`CREATE DATABASE ${quoted}`);
+    } catch {
+      // This one IS best-effort: the database may already exist because another
+      // suite created it, and if it genuinely cannot be created the connection
+      // below fails with an error describing that rather than this.
+    }
   } finally {
     await admin.end().catch(() => {});
   }

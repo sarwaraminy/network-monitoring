@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { env } from '../config/env.js';
 import { db } from '../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error-handler.js';
@@ -67,16 +68,32 @@ adhocRouter.post(
      * feature still collected entries for it.
      */
     const sql = assertRunnable((req.body as { sql?: unknown }).sql);
-
     const actor = actorOf(req.user);
-    await recordAudit(db, {
-      actor: actor.name,
-      actorId: actor.id,
-      action: 'adhoc.query',
-      detail: { sql },
-    });
+    const record = (detail: Record<string, unknown>) =>
+      recordAudit(db, { actor: actor.name, actorId: actor.id, action: 'adhoc.query', detail });
 
-    const result = await runAdhocQuery(sql);
+    /*
+     * `all` audits BEFORE the result is known, which is the ordering that makes
+     * the trail a record of what was ASKED rather than of what worked. A query
+     * the database refused is at least as interesting as one it answered.
+     *
+     * `refused` inverts that of necessity — whether it was refused is not known
+     * until it has been tried — and accepts the trade: a process that dies
+     * mid-query records nothing. Worth stating, because it is the one thing the
+     * quieter mode gives up.
+     */
+    if (env.adhoc.audit === 'all') await record({ sql });
+
+    let result: Awaited<ReturnType<typeof runAdhocQuery>>;
+    try {
+      result = await runAdhocQuery(sql);
+    } catch (error) {
+      if (env.adhoc.audit === 'refused') {
+        await record({ sql, refused: (error as Error).message });
+      }
+      throw error;
+    }
+
     res.json(result);
   }),
 );

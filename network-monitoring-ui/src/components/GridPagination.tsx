@@ -47,6 +47,17 @@ export interface PageFacts {
  */
 export function pageFactsOf<T extends MRT_RowData>(table: MRT_TableInstance<T>): PageFacts {
   const { pagination } = table.getState();
+  /*
+   * CLIENT-side counts, which is what every grid in this app is.
+   *
+   * Under `manualPagination` these would be wrong in a specific way worth
+   * naming: `getFilteredRowModel()` holds only the page the server sent, so
+   * `total` would be the page size and the range would read "1–25 of 25" on
+   * every page of a thousand. Nothing here paginates server-side today, and the
+   * honest response to that is to say so rather than write a branch that has
+   * never run — but if one ever does, this function is the place it has to be
+   * taught, and `table.options.rowCount` is the value it should read.
+   */
   const total = table.getFilteredRowModel().rows.length;
   const unfiltered = table.options.rowCount ?? table.getPreFilteredRowModel().rows.length;
   const pageCount = Math.max(1, Math.ceil(total / pagination.pageSize));
