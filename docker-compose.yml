@@ -171,6 +171,10 @@ services:
       ADHOC_DB_PASSWORD: ${ADHOC_DB_PASSWORD:-}
       ADHOC_TIMEOUT_MS: ${ADHOC_TIMEOUT_MS:-10000}
       ADHOC_MAX_ROWS: ${ADHOC_MAX_ROWS:-1000}
+      # Lets the console write as well as read. Selects a different Postgres
+      # role rather than just permitting writes in the app — see
+      # V12__Adhoc_write_role.sql and .env.docker.example.
+      ADHOC_WRITE_ENABLED: ${ADHOC_WRITE_ENABLED:-false}
       ADHOC_MAX_QUERY_LENGTH: ${ADHOC_MAX_QUERY_LENGTH:-20000}
       # all | refused | off — see .env.docker.example.
       ADHOC_AUDIT: ${ADHOC_AUDIT:-all}

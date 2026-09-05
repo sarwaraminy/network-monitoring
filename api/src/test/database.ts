@@ -372,8 +372,6 @@ export async function openTestDatabase(options: OpenOptions): Promise<TestDataba
    * else's provisioning decision, and dropping a database we were pointed at
    * rather than one we invented is not ours to make.
    */
-  if (derived) await recreateDatabase(TEST_DATABASE_URL, name);
-
   const pool = new pg.Pool({
     connectionString: url,
     max: 4,
@@ -385,6 +383,13 @@ export async function openTestDatabase(options: OpenOptions): Promise<TestDataba
   pool.on('error', () => {});
 
   try {
+    // INSIDE the try, with the connection attempt it belongs to. Outside it, an
+    // unreachable Postgres propagated from here uncaught — so the suite crashed
+    // at this line before the skip logic below ran and before `REQUIRE_DB_TESTS`
+    // was ever consulted. That is the contributor-without-Postgres case, which
+    // the README, CONTRIBUTING and this file's own docblock all promise skips;
+    // instead it failed in a way that reads as the harness being broken.
+    if (derived) await recreateDatabase(TEST_DATABASE_URL, name);
     await pool.query('SELECT 1');
   } catch (error) {
     // `3D000` is "database does not exist", which is the ordinary state of a

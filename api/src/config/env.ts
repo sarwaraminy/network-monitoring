@@ -361,6 +361,30 @@ export const env = {
   adhoc: {
     enabled: bool('ADHOC_ENABLED', false),
     /**
+     * Lets the console UPDATE, INSERT and DELETE as well as read.
+     *
+     * OFF by default, and separate from `enabled` on purpose: turning the console
+     * ON and letting it WRITE are two different decisions, and only one of them
+     * can destroy data from a browser session.
+     *
+     * This does not merely permit the app to issue writes — it selects a
+     * different Postgres ROLE. Off, the console authenticates as V11's
+     * `nm_adhoc_<db>`, which holds SELECT and nothing else; on, as V12's
+     * `nm_adhocrw_<db>`. So a read-only install stays read-only in the database
+     * rather than in an `if`, and this flag is never the only thing standing
+     * between a session and a DELETE.
+     *
+     * What write mode still cannot do: touch `audit_events` (the trail stays
+     * append-only, so the console's own use remains investigable), read or write
+     * the secret columns, change `users` or `delivery_settings`, or act as a
+     * superuser. It writes the operational tables — findings, devices,
+     * suppressions, the legacy log, the rollup — and nothing else. See V12.
+     *
+     * Auditing is forced to `all` while this is on: a write nobody recorded is
+     * the one entry a trail cannot afford to be missing.
+     */
+    write: bool('ADHOC_WRITE_ENABLED', false),
+    /**
      * Set on the console's role at boot. Empty leaves the console off.
      *
      * Worth knowing before choosing one: `ALTER ROLE … PASSWORD` has no
@@ -398,6 +422,11 @@ export const env = {
      * the console routinely, and an operator who cannot quiet it will end up
      * reading past it — which is worse for the trail than not writing it.
      */
-    audit: oneOf('ADHOC_AUDIT', ['all', 'refused', 'off'] as const, 'all'),
+    audit: bool('ADHOC_WRITE_ENABLED', false)
+      ? // Not configurable in write mode: `refused` or `off` would leave a
+        // successful DELETE with no record of who ran it, which is the single
+        // entry this trail most needs.
+        ('all' as const)
+      : oneOf('ADHOC_AUDIT', ['all', 'refused', 'off'] as const, 'all'),
   },
 } as const;

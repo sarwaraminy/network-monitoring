@@ -302,7 +302,21 @@ export default function AdhocPage() {
         </Stack>
       </SurfaceCard>
 
-      {result !== null && (
+      {/*
+        A statement that changed rows says so, on its own.
+        `SELECT` is not reported this way: its count is the grid underneath, and
+        "1,204 rows" above a grid of 1,204 rows is noise. A DELETE has no grid at
+        all, so this line is the only confirmation that anything happened — and
+        the one place the console tells you the size of what you just did.
+      */}
+      {result?.rowsAffected !== undefined && (
+        <Alert severity="success" sx={{ '& .MuiAlert-message': monoSx }}>
+          {result.command} — {result.rowsAffected.toLocaleString()}{' '}
+          {result.rowsAffected === 1 ? 'row' : 'rows'} affected in {result.durationMs} ms
+        </Alert>
+      )}
+
+      {result !== null && result.columns.length > 0 && (
         <SurfaceCard
           title="Result"
           bodyVariant="grid"

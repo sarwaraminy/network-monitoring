@@ -67,7 +67,14 @@ adhocRouter.post(
      * the console was switched off, so an installation that never enabled the
      * feature still collected entries for it.
      */
-    const sql = assertRunnable((req.body as { sql?: unknown }).sql);
+    // `req.body?.sql`, not `req.body.sql`. Express 5 with body-parser 2 leaves
+    // the body UNDEFINED when no parser matched — a client posting without
+    // `Content-Type: application/json` — and the cast tells TypeScript the shape
+    // is safe, so nothing flags it. The TypeError is not an `HttpError`, so it
+    // took the 500 path: the same generic-500 failure `AdhocError extends
+    // HttpError` exists to eliminate, one layer earlier. `assertRunnable`
+    // already answers 400 for `undefined`.
+    const sql = assertRunnable((req.body as { sql?: unknown } | undefined)?.sql);
     const actor = actorOf(req.user);
     const record = (detail: Record<string, unknown>) =>
       recordAudit(db, { actor: actor.name, actorId: actor.id, action: 'adhoc.query', detail });

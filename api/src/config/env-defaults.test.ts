@@ -115,6 +115,39 @@ function parseCodeDefaults(text: string): Map<string, string> {
   }
 
   /*
+   * And a guard on the guard: a helper this pattern does not know about takes
+   * its settings out of view SILENTLY, which is how `oneOf` arrived and
+   * `ADHOC_AUDIT` became invisible the moment it was written. It passed only
+   * because the setting happened to be in Compose already — deleting it from
+   * there would have left the suite green, which is the exact drift this file
+   * exists to catch.
+   *
+   * So any `something('SETTING_NAME'` that the alternation above did not match
+   * is a failure here rather than a quiet omission. The comment above used to
+   * say "any future parser helper has to be added here too"; this is what makes
+   * that true instead of hopeful.
+   */
+  const KNOWN_HELPERS = new Set([
+    'bool',
+    'int',
+    'optional',
+    'oneOf',
+    'required',
+    'retentionDays',
+    'sweepHours',
+  ]);
+  const unknown = [...text.matchAll(/\b([a-zA-Z][a-zA-Z0-9_]*)\(\s*'([A-Z0-9_]{2,})'/g)]
+    .filter((match) => !KNOWN_HELPERS.has(match[1]!) && !values.has(match[2]!))
+    .map((match) => `${match[1]}('${match[2]}')`);
+
+  assert.deepEqual(
+    [...new Set(unknown)],
+    [],
+    'env.ts reads settings through a helper this guard does not recognise, so they are ' +
+      'invisible to the Compose and example checks. Add the helper to the pattern above.',
+  );
+
+  /*
    * Bare `process.env.NAME` too, which the helpers do not cover.
    *
    * The whole inversion rests on "a new setting fails by default", and a

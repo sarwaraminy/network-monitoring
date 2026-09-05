@@ -19,6 +19,15 @@ export interface AdhocResult {
   /** The row cap stopped the read. The grid must say so rather than imply completeness. */
   truncated: boolean;
   durationMs: number;
+  /** Postgres's own command tag — `SELECT`, `DELETE`, `UPDATE`, `EXPLAIN`. */
+  command: string;
+  /**
+   * Rows changed, for the commands that change rows; `undefined` for a SELECT.
+   *
+   * A DELETE returns no rows, so without this the page would answer a
+   * destructive statement with an empty grid and no confirmation of what it did.
+   */
+  rowsAffected?: number;
 }
 
 /**

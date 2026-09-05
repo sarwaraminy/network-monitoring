@@ -22,6 +22,12 @@ import { openTestDatabase } from '../test/database.js';
  */
 
 process.env.ADHOC_ENABLED = 'true';
+// STATED, not inherited. `env.ts` loads `api/.env`, so a developer who has
+// switched write mode on for their own machine would otherwise run this suite in
+// the wrong mode — and its assertions are all about what read mode refuses, so
+// they would fail with no hint that the mode was the reason.
+process.env.ADHOC_WRITE_ENABLED = 'false';
+
 process.env.ADHOC_DB_PASSWORD = 'adhoc-disabled-test-password';
 
 const database = await openTestDatabase({ id: 'adhocoff' });

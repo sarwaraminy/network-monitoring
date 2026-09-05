@@ -43,8 +43,9 @@ const log = componentLogger('adhoc');
  * creates a database per suite and boots the console in each, logged the running
  * app out of its own query console. See V11.
  */
-export function adhocRole(database: string): string {
-  const full = `${ROLE_PREFIX}${database}`;
+export function adhocRole(database: string, mode: AdhocMode = 'read'): string {
+  const prefix = mode === 'write' ? WRITE_ROLE_PREFIX : ROLE_PREFIX;
+  const full = `${prefix}${database}`;
   if (Buffer.byteLength(full) <= MAX_IDENTIFIER_BYTES) return full;
 
   /*
@@ -72,7 +73,7 @@ export function adhocRole(database: string): string {
    * `md5` because Postgres has it built in and this must be computable
    * identically on both sides. It is a naming device, not a security one.
    */
-  return `${ROLE_PREFIX}${createHash('md5').update(database).digest('hex').slice(0, HASH_LENGTH)}`;
+  return `${prefix}${createHash('md5').update(database).digest('hex').slice(0, HASH_LENGTH)}`;
 }
 
 export interface AdhocColumn {
@@ -99,6 +100,22 @@ export interface AdhocResult {
   /** True when the cap stopped the read, so the UI can say so rather than imply completeness. */
   truncated: boolean;
   durationMs: number;
+  /**
+   * Postgres's own command tag — `SELECT`, `DELETE`, `UPDATE`, `EXPLAIN`.
+   *
+   * Taken from the driver rather than parsed from the SQL, so it says what
+   * actually ran. That matters most for the audit entry: "what did this query
+   * turn out to be" is not a question the query text alone answers reliably.
+   */
+  command: string;
+  /**
+   * Rows the statement changed, for the commands that change rows.
+   *
+   * `undefined` for a SELECT, where the row count is the result itself. A DELETE
+   * returns no rows, so without this the console would answer a destructive
+   * statement with a blank grid and no confirmation of what it did.
+   */
+  rowsAffected?: number;
 }
 
 /**
@@ -121,6 +138,8 @@ export class AdhocError extends HttpError {
 }
 
 let pool: pg.Pool | null = null;
+/** Which role the live pool authenticated as. Cleared with it. */
+let activeMode: AdhocMode = 'read';
 
 /** True once `startAdhoc` has proved the sandbox holds. */
 export function adhocReady(): boolean {
@@ -136,9 +155,22 @@ export function adhocReady(): boolean {
  * every control here off while the feature still appeared to work. There is no
  * spelling of the configuration that reaches a superuser.
  */
+const ROLE_PREFIX = 'nm_adhoc_';
+/** V12's role. A separate identity, so a read-only install cannot write. */
+const WRITE_ROLE_PREFIX = 'nm_adhocrw_';
+
+/**
+ * Which of the two roles the console runs as.
+ *
+ * The mode is a database identity, not an application check. `ADHOC_WRITE_ENABLED`
+ * chooses which role to authenticate as; what that role may then do is decided
+ * entirely by V11's and V12's grants. So turning the flag off does not merely
+ * stop the app issuing writes — it connects as a role that cannot perform them.
+ */
+export type AdhocMode = 'read' | 'write';
+
 /** Postgres's `NAMEDATALEN - 1`. An identifier longer than this is truncated. */
 const MAX_IDENTIFIER_BYTES = 63;
-const ROLE_PREFIX = 'nm_adhoc_';
 /** Hex characters of md5 kept. 9 + 16 = 25 bytes, comfortably inside the limit. */
 const HASH_LENGTH = 16;
 
@@ -220,6 +252,7 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
   // `main()`'s catch and `process.exit(1)`. The entire API taken down over an
   // optional feature that is off by default.
   let role = '';
+  let mode: AdhocMode = 'read';
   /*
    * Whether the LOGIN was actually granted, which `role !== ''` does NOT say.
    *
@@ -237,7 +270,8 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     // Asked of the connection rather than parsed out of the URL, so the role
     // always matches the database the migrations actually ran against.
     const { rows: current } = await owner.query<{ name: string }>('SELECT current_database() AS name');
-    role = adhocRole(current[0]!.name);
+    mode = env.adhoc.write ? 'write' : 'read';
+    role = adhocRole(current[0]!.name, mode);
 
     /*
      * The superuser check comes FIRST, before this role is given a way to log in.
@@ -330,7 +364,7 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     candidate.on('error', (error) => log.error({ err: error }, 'Idle ad hoc client error'));
 
     try {
-      await proveSandbox(candidate, role);
+      await proveSandbox(candidate, role, mode);
     } catch (error) {
       // The candidate is a LOCAL: nothing else holds it, and `stopAdhoc` reads
       // the module-level `pool`, which is never assigned on this path. Without
@@ -341,7 +375,14 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
       throw error;
     }
     pool = candidate;
-    log.info({ role }, 'Ad hoc query console enabled');
+    activeMode = mode;
+    if (mode === 'write') {
+      // WARN, not info. An operator scanning a boot log should not have to
+      // notice a missing word to learn that a browser session can now DELETE.
+      log.warn({ role }, 'Ad hoc query console enabled in READ-WRITE mode');
+    } else {
+      log.info({ role }, 'Ad hoc query console enabled');
+    }
     return true;
   } catch (error) {
     log.error({ err: error }, 'Ad hoc query console failed its safety checks and stays off');
@@ -386,7 +427,7 @@ async function assertNotSuperuser(owner: pg.Pool, role: string): Promise<void> {
  * V10 without any error to notice, and a role that can write is one an operator
  * has re-granted since.
  */
-async function proveSandbox(candidate: pg.Pool, role: string): Promise<void> {
+async function proveSandbox(candidate: pg.Pool, role: string, mode: AdhocMode): Promise<void> {
   const { rows } = await candidate.query<{ superuser: boolean; who: string }>(
     'SELECT rolsuper AS superuser, current_user AS who FROM pg_roles WHERE rolname = current_user',
   );
@@ -412,17 +453,55 @@ async function proveSandbox(candidate: pg.Pool, role: string): Promise<void> {
    * from a browser session. This file's own docblock already reasons about
    * someone having "re-granted since"; this is that case.
    */
-  await mustBeRefused(
-    candidate,
-    `INSERT INTO alerts (kind, severity, title, description, dedup_key, first_seen, last_seen)
-     VALUES ('adhoc_probe', 'low', 'probe', 'probe', 'adhoc-probe', now(), now())`,
-    'the ad hoc role was able to INSERT; it is not read-only',
-  );
+  if (mode === 'read') {
+    await mustBeRefused(
+      candidate,
+      `INSERT INTO alerts (kind, severity, title, description, dedup_key, first_seen, last_seen)
+       VALUES ('adhoc_probe', 'low', 'probe', 'probe', 'adhoc-probe', now(), now())`,
+      'the ad hoc role was able to INSERT; it is not read-only',
+    );
+  } else {
+    /*
+     * The mirror image: write mode has to prove it CAN write, or an install that
+     * asked for it gets a console that silently refuses every DELETE with a
+     * permission error and no explanation. Rolled back — proving the grant is
+     * not a reason to leave a row behind.
+     *
+     * And `audit_events` must still refuse, in this mode especially. A console
+     * that can rewrite the trail is one whose own use cannot be investigated,
+     * which is the property V9 exists for and the one write mode must not cost.
+     */
+    await mustSucceed(
+      candidate,
+      `INSERT INTO alerts (kind, severity, title, description, dedup_key, first_seen, last_seen)
+       VALUES ('adhoc_probe', 'low', 'probe', 'probe', 'adhoc-probe', now(), now())`,
+      'write mode is enabled but the role cannot INSERT; has V12 run on this database?',
+    );
+    await mustBeRefused(
+      candidate,
+      `DELETE FROM audit_events WHERE id = -1`,
+      'the ad hoc write role can delete from the audit trail',
+    );
+  }
   await mustBeRefused(
     candidate,
     'SELECT password FROM users LIMIT 1',
     'the ad hoc role can read users.password; the column grants from V10 are not in force',
   );
+}
+
+/** Runs `sql` inside a rolled-back transaction and insists Postgres ALLOWS it. */
+async function mustSucceed(candidate: pg.Pool, sql: string, complaint: string): Promise<void> {
+  const client = await candidate.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(sql);
+  } catch (error) {
+    throw new Error(`${complaint} (${(error as Error).message})`);
+  } finally {
+    await client.query('ROLLBACK').catch(() => {});
+    client.release();
+  }
 }
 
 /** Runs `sql` inside a rolled-back transaction and insists Postgres refuses it. */
@@ -467,6 +546,7 @@ async function mustBeRefused(candidate: pg.Pool, sql: string, complaint: string)
 export async function stopAdhoc(): Promise<void> {
   const closing = pool;
   pool = null;
+  activeMode = 'read';
   await closing?.end().catch(() => {});
 }
 
@@ -484,6 +564,27 @@ export async function revokeAdhocLogin(owner: pg.Pool): Promise<void> {
 
 /** `ALTER ROLE … NOLOGIN`, the one statement both teardown paths need. */
 async function revokeLogin(owner: pg.Pool, role: string): Promise<void> {
+  /*
+   * A role that does not exist is not a problem to report.
+   *
+   * "Not there" is the NORMAL state on exactly the installs the migrations went
+   * out of their way to support: an owner without CREATEROLE, where V10 to V12
+   * skipped the create, and `DB_AUTO_MIGRATE=false`, where they have not run.
+   * Logging `Could not revoke LOGIN … do it by hand` at ERROR on every boot —
+   * about a feature they have switched off, instructing them to undo something
+   * that was never done — is noise that teaches operators to ignore the log.
+   *
+   * The docblock on the caller already promised this was best effort. This is
+   * the code catching up with it.
+   */
+  const { rows } = await owner
+    .query<{ exists: boolean }>('SELECT true AS exists FROM pg_roles WHERE rolname = $1', [role])
+    .catch(() => ({ rows: [] as { exists: boolean }[] }));
+  if (rows.length === 0) {
+    log.debug({ role }, 'No ad hoc console role to revoke');
+    return;
+  }
+
   await owner
     .query('SELECT format($$ALTER ROLE %I NOLOGIN$$, $1::text) AS statement', [role])
     .then((result) => owner.query(result.rows[0]!.statement))
@@ -551,6 +652,7 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
   const running = pool;
   if (!running) throw new AdhocError('The query console is not enabled on this server.', 503);
 
+  const writing = activeMode === 'write';
   const started = Date.now();
   let client: pg.PoolClient | undefined;
   try {
@@ -568,7 +670,17 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
     client = await running.connect();
     // READ ONLY on the transaction, not just on the role: two independent things
     // have to be wrong before a write reaches this database.
-    await client.query('BEGIN READ ONLY');
+    /*
+     * READ ONLY only in read mode.
+     *
+     * It is the belt to the role's braces there — a grant added carelessly by
+     * some future migration does not become a write path. In write mode the
+     * braces are deliberately looser, so the belt would only stop the thing the
+     * operator asked for; what still holds is that the role itself cannot touch
+     * `audit_events`, the secret columns, or anything outside the operational
+     * tables. See V12.
+     */
+    await client.query(writing ? 'BEGIN' : 'BEGIN READ ONLY');
     await client.query(`SET LOCAL statement_timeout = ${env.adhoc.timeoutMs}`);
     // Nothing here should ever wait on another transaction's lock; if it does,
     // the answer is "no" rather than a console that hangs holding a connection.
@@ -582,20 +694,33 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
      * Postgres's message through verbatim, the operator read a syntax error
      * about SQL that has none, with nothing pointing at the wrapper we added.
      *
-     * The timing is what made it worth fixing rather than documenting: an
-     * administrator reaches for EXPLAIN exactly when a query has hit the
-     * ten-second timeout, and the console's own advice at that moment is to
-     * narrow the query — with no way to see what was slow.
-     *
-     * They lose only the cursor, not the cage: the same READ ONLY transaction,
-     * the same statement timeout, the same role. The row cap is applied by hand
-     * afterwards, which is fine here because an EXPLAIN plan is tens of rows and
-     * `SHOW` is one — the reason the cursor exists (not materialising a huge
-     * result) does not apply to either.
+     * They lose only the cursor, not the cage: the same transaction, the same
+     * statement timeout, the same role. The row cap is applied by hand
+     * afterwards, which is fine because an EXPLAIN plan is tens of rows and
+     * `SHOW` is one — the reason the cursor exists does not apply to either.
      */
     const result = UNWRAPPABLE.test(trimmed)
       ? await client.query({ text: trimmed, rowMode: 'array' })
-      : await declareAndFetch(client, trimmed);
+      : await declareAndFetch(client, trimmed, writing);
+
+    /*
+     * The unwrapped branch's half of the same check.
+     *
+     * It only lived inside the cursor helper before, which left `EXPLAIN
+     * SELECT 1; SELECT 2` unchecked: it came back as an ARRAY of results,
+     * `result.rows` was undefined, and the operator got `Cannot read properties
+     * of undefined` as the 400 body — the right refusal with an unreadable
+     * reason. The two paths surface a chain in different places, so each checks
+     * where it can see it.
+     */
+    if (Array.isArray(result)) {
+      throw new AdhocError('Run one statement at a time — the query contains more than one.');
+    }
+
+    // Write mode has to COMMIT or the operator's DELETE is undone the moment
+    // the `finally` below runs, which would be the worst possible outcome: a
+    // console reporting "12 rows" and changing nothing.
+    if (writing) await client.query('COMMIT');
 
     const truncated = result.rows.length > env.adhoc.maxRows;
     return {
@@ -603,6 +728,12 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
       rows: truncated ? result.rows.slice(0, env.adhoc.maxRows) : result.rows,
       truncated,
       durationMs: Date.now() - started,
+      // `FETCH` is our cursor, not the operator's statement. Reporting it would
+      // put a word they never typed into the audit trail and onto the page.
+      command: result.command === 'FETCH' ? 'SELECT' : (result.command ?? 'SELECT'),
+      // Only where it means something. `pg` reports 0 for a SELECT that returned
+      // rows through a cursor, and reporting that would read as "deleted 0".
+      rowsAffected: CHANGES_ROWS.has(result.command) ? (result.rowCount ?? 0) : undefined,
     };
   } catch (error) {
     // Ours already says exactly what happened; only driver errors need translating.
@@ -629,8 +760,49 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
  */
 const UNWRAPPABLE = /^\s*(?:explain|show)\s/i;
 
-/** The cursor path: declare, fetch one more than the cap, and report the excess. */
-async function declareAndFetch(client: pg.PoolClient, sql: string) {
+/** Commands whose interesting number is rows CHANGED rather than rows returned. */
+const CHANGES_ROWS = new Set(['INSERT', 'UPDATE', 'DELETE']);
+
+/**
+ * The cursor path: declare, fetch one more than the cap, and report the excess.
+ *
+ * In WRITE mode a statement may be one a cursor cannot hold — `DELETE FROM …`
+ * is not a query — and the `DECLARE` then fails with a syntax error about SQL
+ * that is perfectly valid. Rather than guess from the leading keyword, which
+ * gets CTEs wrong in both directions, it tries the cursor behind a SAVEPOINT and
+ * falls back to running the statement directly when Postgres says it is not a
+ * query. A genuine syntax error takes the same fallback and surfaces on the
+ * direct attempt, which is the better message anyway: it is about the operator's
+ * SQL rather than about our wrapper.
+ *
+ * The savepoint is what makes the retry possible at all — a failed statement
+ * aborts the transaction, so without it the fallback would meet 25P02.
+ */
+async function declareAndFetch(client: pg.PoolClient, sql: string, writing: boolean) {
+  if (writing) {
+    await client.query('SAVEPOINT adhoc_try_cursor');
+    try {
+      return await declareAndFetchStrict(client, sql);
+    } catch (error) {
+      if ((error as { code?: string }).code !== '42601') throw error;
+      await client.query('ROLLBACK TO SAVEPOINT adhoc_try_cursor');
+      return client.query({ text: sql, rowMode: 'array' });
+    }
+  }
+  return declareAndFetchStrict(client, sql);
+}
+
+async function declareAndFetchStrict(client: pg.PoolClient, sql: string) {
+  /*
+   * Checked on the DECLARE, because that is where the chain shows up here.
+   *
+   * The caller checks its own result too, and both are needed rather than one
+   * being redundant: on THIS path the array comes back from the DECLARE — the
+   * driver sent `DECLARE … FOR SELECT 1; SELECT 2` as two statements — while the
+   * value the caller sees is the later FETCH, which is a single result and looks
+   * perfectly ordinary. Moving the check up to the caller alone therefore let
+   * chained statements through here, which the suite caught.
+   */
   const declared = await client.query(`DECLARE adhoc_result NO SCROLL CURSOR FOR ${sql}`);
   if (Array.isArray(declared)) {
     throw new AdhocError('Run one statement at a time — the query contains more than one.');
@@ -674,9 +846,17 @@ function translate(error: unknown): AdhocError {
     );
   }
   if (code === '42501') {
-    return new AdhocError(
-      `${message ?? 'Permission denied.'} — the query console is read-only and cannot read columns holding secrets.`,
-    );
+    /*
+     * The suffix depends on the mode, because the read-only sentence is simply
+     * false in write mode and sends the operator looking for the wrong thing.
+     * What is true in both is that the console cannot reach the secrets or the
+     * audit trail — which is usually the actual reason they are seeing this.
+     */
+    const why =
+      activeMode === 'write'
+        ? 'the query console writes only the operational tables, and cannot touch the audit trail, the accounts or the columns holding secrets'
+        : 'the query console is read-only and cannot read columns holding secrets';
+    return new AdhocError(`${message ?? 'Permission denied.'} — ${why}.`);
   }
   return new AdhocError(message ?? 'The query could not be run.');
 }
