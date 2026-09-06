@@ -16,6 +16,10 @@ Flow collection ([below](#flow-collection-netflow--ipfix)) is the easier deploym
 margin and covers more of the network; packet capture is what you add on top when you need to
 see payload. Both feed the same detectors and the same alert table.
 
+This README is written for whoever installs and changes the thing. For whoever *uses* it —
+the screens, what each one is telling you, and what each role may do — there is a
+**[user guide](user-guide/index.html)**; open `user-guide/index.html` in a browser.
+
 ## What it detects
 
 Each detector produces an **alert**: a finding with a severity, an occurrence count and
@@ -1753,7 +1757,10 @@ handler ran, so they reflect when the frame actually arrived.
 ## Screenshots
 
 Taken from the running application, against a small set of representative findings —
-the addresses and hostnames are from the documentation ranges, not a real network.
+the addresses and hostnames are from the documentation ranges, not a real network. They
+are also the illustrations in the [user guide](user-guide/index.html), which covers the
+same screens from an operator's side rather than a developer's: what each one is telling
+you, and which actions each role is allowed to take.
 
 **Dashboard** — what the detectors found, and which hosts keep appearing
 

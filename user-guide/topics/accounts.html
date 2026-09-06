@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accounts &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Accounts</h1>
+<p class="lede">How accounts come to exist, and who may create one.</p>
+
+<h2>The rules</h2>
+
+<p>Account creation follows three rules, in this order:</p>
+
+<ol>
+  <li><strong>An administrator can create any account</strong>, at either role.</li>
+  <li><strong>On an installation with no accounts at all, exactly one can be created
+    without permission</strong>, and it is forced to ADMIN. Otherwise there would be no
+    way to create the second. The window shuts the instant an account exists.</li>
+  <li><strong>Otherwise, account creation is refused</strong> &mdash; unless the server has
+    open signup switched on, in which case anybody may create an account and it is
+    always a USER.</li>
+</ol>
+
+<p>A requested role is treated as a suggestion, never an instruction. It is honoured only
+for an authenticated administrator, and discarded entirely under open signup. A public
+form that could create administrators is exactly the hole this replaced.</p>
+
+<h2>Open signup</h2>
+
+<p>Open signup is off by default. An administrator turns it on with
+<code>ALLOW_OPEN_SIGNUP=true</code> in <code>api/.env</code> on the server, followed by a
+restart. Even then it can only ever produce USER accounts.</p>
+
+<h2>Creating accounts from the server</h2>
+
+<p>Accounts can also be managed from a shell on the server, which is how the first one is
+usually made and how a forgotten password is recovered:</p>
+
+<pre><code>npm run user -- list
+npm run user -- create --email you@example.com --password 'a good one' --role ADMIN
+npm run user -- set-password --email you@example.com --password 'a new one'
+npm run user -- delete --email old@example.com</code></pre>
+
+<p>Passwords are hashed before they are stored, by the same code path the application
+uses.</p>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p>Creating an account requires an administrator, except for the single
+  first-account case above. Nobody, at any role, can read another account's
+  password.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

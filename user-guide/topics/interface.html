@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finding your way around &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Finding your way around</h1>
+<p class="lede">Conventions that hold on every screen, so the rest of this guide does
+not repeat them.</p>
+
+<h2>The navigation panel</h2>
+
+<p>Screens are grouped down the left in four sections:</p>
+
+<ul>
+  <li><strong>Overview</strong> &mdash; the Dashboard.</li>
+  <li><strong>Security</strong> &mdash; Security Alerts, Suppressions, Threat Intel.</li>
+  <li><strong>Capture</strong> &mdash; Capture by Interface, Capture by IP.</li>
+  <li><strong>Administration</strong> &mdash; Delivery, Audit Trail, Ad Hoc Query.</li>
+</ul>
+
+<p>Type into <span class="ui">Search navigation…</span> to filter the list. The
+<span class="ui">&lsaquo;</span> control at the top collapses the panel to a narrow rail
+of icons, and the application remembers that choice for next time.</p>
+
+<p>You will not see every entry. Screens restricted to administrators are hidden rather
+than shown and refused &mdash; see <a href="access-and-roles.html">Who can do what</a>.</p>
+
+<h2>Tables</h2>
+
+<p>Findings, rules, packets and query results are all shown in the same table, which
+behaves the same way everywhere:</p>
+
+<ul>
+  <li><strong>Sort</strong> by clicking the arrows in a column heading.</li>
+  <li><strong>Filter</strong> a single column from the funnel icon in its heading.</li>
+  <li><strong>Search</strong> every column at once from the search box above the
+    table.</li>
+  <li><strong>Choose columns</strong> and switch to a denser row height from the
+    controls at the top right of the table.</li>
+  <li><strong>Page</strong> from the foot of the table, and set how many rows a page
+    holds.</li>
+</ul>
+
+<h2>Severity</h2>
+
+<p>Every finding carries one of five severities, and they mean the same thing on every
+screen and in every message:</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Severity</th><th>Read it as</th></tr></thead>
+  <tbody>
+    <tr><td>Critical</td><td>Someone is being attacked, or a credential has already been
+      exposed. Look now.</td></tr>
+    <tr><td>High</td><td>Reconnaissance or a known-bad destination. Look today.</td></tr>
+    <tr><td>Medium</td><td>Worth explaining, often ordinary once explained.</td></tr>
+    <tr><td>Low</td><td>Informational &mdash; a new device, for instance.</td></tr>
+    <tr><td>Info</td><td>Housekeeping. Never delivered to a person by default.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Severity is what the delivery threshold is measured against, so raising the threshold
+is what quietens an inbox without hiding anything from the alerts list.</p>
+
+<h2>Times</h2>
+
+<p>Times are shown in your browser's own timezone. A finding carries both a
+<strong>first seen</strong> and a <strong>last seen</strong> time, because repeats of the
+same finding are aggregated into one row with an occurrence count rather than one row
+each &mdash; see <a href="security-alerts.html">Security alerts</a>.</p>
+  </main>
+</div>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

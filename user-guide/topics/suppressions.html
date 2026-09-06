@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Suppression rules &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Suppression rules</h1>
+<p class="lede">Findings you have declared expected.</p>
+
+<p>A vulnerability scanner that sweeps the network every Sunday will raise a port-scan
+finding every Sunday. It is not wrong &mdash; that is a port scan &mdash; but after the
+second week nobody reads the alerts page any more. A suppression rule is how you say so
+once.</p>
+
+<figure>
+  <img src="../../screenshots/suppressions.png" alt="Suppression rules, with the reason each one exists.">
+  <figcaption>Suppression rules, with the reason each one exists.</figcaption>
+</figure>
+
+<h2>What a rule does</h2>
+
+<p><strong>A matching finding is dropped before it is stored</strong>, not hidden behind
+a filter. That is the important property and it cuts both ways: the alerts list stays
+readable, and a suppressed finding is genuinely gone &mdash; it is not sitting somewhere
+waiting to be un-hidden.</p>
+
+<p>Rules are read from the top. The first one that matches a finding is the one that
+drops it, and the <strong>Hidden</strong> column counts how many findings each rule has
+actually dropped.</p>
+
+<p>The four tiles above the table are the health check for this page:</p>
+
+<ul>
+  <li><strong>Rules</strong> &mdash; how many exist, and how many are in force.</li>
+  <li><strong>Findings hidden</strong> &mdash; how much they have dropped in total.</li>
+  <li><strong>Never matched</strong> &mdash; rules in force that have hidden nothing. Each
+    is either harmless or a rule that does not do what its author thought.</li>
+  <li><strong>Expired</strong> &mdash; rules past their expiry date, no longer
+    suppressing.</li>
+</ul>
+
+<h2>Adding a rule</h2>
+
+<ol>
+  <li>Click <span class="ui">New rule</span>.</li>
+  <li>Narrow it with any combination of:
+    <ul>
+      <li><strong>Detector</strong> &mdash; the kind of finding to suppress.</li>
+      <li><strong>Source</strong> and <strong>Target</strong> &mdash; an address or a CIDR
+        range, such as <code>10.20.4.9/32</code> for a single host.</li>
+      <li><strong>Port</strong>.</li>
+    </ul>
+    The criteria combine: a finding must match <em>all</em> of the ones you set. A rule
+    with no criteria at all is refused &mdash; it would suppress everything.</li>
+  <li>Type a <strong>reason</strong>. This is required, and it is the field that makes
+    this page maintainable a year later: <em>Vulnerability scanner, scheduled Sundays
+    02:00</em> can be judged by somebody else, where a rule with no reason can only be
+    left alone or deleted.</li>
+  <li>Optionally set an <strong>expiry</strong>, for something you know is
+    temporary.</li>
+  <li>Before saving, the form shows how many findings already in the system the rule
+    would have matched. A draft that matches nothing is usually a mistake in the
+    criteria rather than a quiet network.</li>
+</ol>
+
+<h2>Switching a rule off, and deleting it</h2>
+
+<p>Switching a rule <strong>off</strong> keeps it and its record &mdash; the reason, and
+what it hid &mdash; while it stops suppressing. Prefer that to deleting when you are
+only testing a theory.</p>
+
+<p><strong>Deleting</strong> a rule discards the record of what it hid along with it.
+Both actions are recorded in the <a href="audit-trail.html">audit trail</a>.</p>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p>Any signed-in account can see the rules and what they have hidden
+  &mdash; which is the point, since a suppression rule explains an absence. Creating,
+  editing, switching off and deleting a rule are restricted to administrators.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

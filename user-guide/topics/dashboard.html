@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The dashboard &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>The dashboard</h1>
+<p class="lede">What the detectors have found, and which hosts keep appearing.</p>
+
+<p>The Dashboard is where you arrive after signing in. It answers two questions: is
+anything happening that needs me, and is the system actually watching.</p>
+
+<figure>
+  <img src="../../screenshots/dashboard.png" alt="The dashboard, over the last seven days.">
+  <figcaption>The dashboard, over the last seven days.</figcaption>
+</figure>
+
+<h2>The period</h2>
+
+<p>The <span class="ui">Period</span> control at the top right sets the window every
+chart on the page is measured over. <span class="ui">Refresh</span> reloads it.</p>
+
+<p>The four tiles across the top do not all honour that window, and the difference
+matters:</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tile</th><th>What it counts</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Open findings</strong></td><td>Findings nobody has acknowledged yet,
+      all time. The number under it is the total.</td></tr>
+    <tr><td><strong>Critical and high</strong></td><td>Of those, the ones worth looking at
+      first.</td></tr>
+    <tr><td><strong>Capture</strong></td><td>Whether a capture session is running right now,
+      or <em>Idle</em>. Idle does not mean nothing is being detected &mdash; a flow
+      collector, if you have one configured, feeds detection without a capture
+      session.</td></tr>
+    <tr><td><strong>Known devices</strong></td><td>Distinct MAC addresses seen on the
+      segment. On a network of phones using address randomisation this climbs on its
+      own.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>The charts</h2>
+
+<ul>
+  <li><strong>Findings over time</strong> &mdash; findings per day, stacked by severity.
+    The shape is the point: a flat line that suddenly steps up is worth more attention
+    than any single row in the alerts table.</li>
+  <li><strong>Findings by detector</strong> &mdash; which checks are firing. One detector
+    dominating usually means a suppression rule is wanted rather than an attack; see
+    <a href="suppressions.html">Suppression rules</a>.</li>
+  <li><strong>Most implicated sources</strong> &mdash; the addresses appearing in the most
+    findings.</li>
+  <li><strong>Severity breakdown</strong> &mdash; every finding held, by severity, all
+    time.</li>
+</ul>
+
+<div class="note">
+  <span class="label">Note</span>
+  <p>Findings are kept in full for a limited period and then aggregated into
+  daily totals, so a long window still has a shape after the detail has expired. A
+  shorter bar at the far left of <strong>Findings over time</strong> may mean the detail
+  has been rolled up rather than that the day was quiet.</p>
+</div>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p>Every signed-in account can see the Dashboard, and everyone sees the
+  same numbers &mdash; findings are not partitioned by account.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/nav.js"></script>
+</body>
+</html>
