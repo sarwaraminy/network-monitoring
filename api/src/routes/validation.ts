@@ -390,9 +390,9 @@ export const deliverySettingsPatchSchema = z
      * is optional by design — the form sends only what changed, and a secret that
      * is not being replaced is absent rather than round-tripped. "OAuth2 is
      * selected but half-filled" is therefore not something a per-request schema can
-     * see; `missingOauthSettings` in notify/email.ts is where that is caught, and
-     * it names the missing variables in the delivery result rather than opening a
-     * socket to fail.
+     * see; `missingEmailOauthSettings` in notify/settings.ts is where that is
+     * caught, and it names the missing variables on the Delivery page and in a test
+     * send rather than opening a socket to fail.
      */
     emailAuthMethod: z.enum(EMAIL_AUTH_METHODS).nullable().optional(),
     emailOauthClientId: nullableTrimmed(255),

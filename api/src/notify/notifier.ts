@@ -397,7 +397,11 @@ export class Notifier {
       isTest: true,
     };
 
-    return await this.deliver(notification);
+    // Export channels included, unlike the digest path. Proving the collector is
+    // reachable is most of what this button is for, and a syslog-only install
+    // otherwise gets `{delivered: 0, attempted: 0, results: []}` — the same silent
+    // omission that was fixed for a half-configured mailbox, in the same handler.
+    return await this.deliver(notification, { includeExporters: true });
   }
 
   /**
@@ -485,20 +489,28 @@ export class Notifier {
    * a rejection escaping here would surface as an unhandled rejection and, via the
    * process handler in index.ts, look like a server fault.
    */
-  private async deliver(notification: Notification): Promise<DeliveryResult[]> {
+  private async deliver(
+    notification: Notification,
+    { includeExporters = false }: { includeExporters?: boolean } = {},
+  ): Promise<DeliveryResult[]> {
     /*
-     * Export channels are excluded here, and that is not an optimisation.
+     * Export channels are excluded from a digest, and that is not an optimisation.
      *
      * They already received every one of these findings ungated, at the top of
      * `consider()`. Sending them the digest as well would deliver each finding to
      * the SIEM twice — once as its own event and once inside a summary — and
      * every correlation rule counting occurrences would double.
      *
-     * `sendTest()` deliberately does not go through here, so a test message still
-     * reaches syslog: proving the collector is reachable is the whole point of it.
+     * A test send is the exception, which is what `includeExporters` is for. This
+     * comment used to claim `sendTest()` did not come through here at all; it always
+     * did, so syslog was filtered out of every test send and a syslog-only install
+     * was answered `502 {delivered: 0, attempted: 0, results: []}` — a configured
+     * channel, never attempted, reported as though nothing were configured. There is
+     * no double-delivery to avoid on that path: a test message corresponds to no
+     * finding and was never sent to the exporters by `consider()`.
      */
     const configured = this.channels.filter(
-      (channel) => channel.isConfigured() && channel.deliversEveryFinding !== true,
+      (channel) => channel.isConfigured() && (includeExporters || channel.deliversEveryFinding !== true),
     );
     const settled = await Promise.allSettled(configured.map((channel) => channel.send(notification)));
 
