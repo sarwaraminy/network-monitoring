@@ -408,4 +408,57 @@ describe('DeliverySettingsForm', () => {
     await waitFor(() => expect(body).not.toBeNull());
     expect(body).toEqual({ emailTo: null });
   });
+
+  it('shows the OAuth2 fields only once OAuth2 is the auth method', async () => {
+    // The two SMTP auth methods ask for disjoint things. A client secret box on a
+    // password mailbox, or a password box on an OAuth2 one, is rule 1 in a
+    // different disguise: a control that accepts an edit and changes nothing.
+    const user = userEvent.setup();
+    renderApp(<DeliverySettingsForm />, { authenticated: true });
+
+    // Narrowed to an input: the auth-method combobox is a div labelled by its own
+    // value, so while that value is "password" a bare label query matches it too.
+    expect(await screen.findByLabelText(/^password$/i, { selector: 'input' })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/refresh token/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: /authentication/i }));
+    await user.click(await screen.findByRole('option', { name: 'oauth2' }));
+
+    // Before saving, deliberately: the alternative is having to save the method to
+    // find out what the other one even asks for.
+    expect(await screen.findByLabelText(/refresh token/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/token endpoint/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^password$/i, { selector: 'input' })).not.toBeInTheDocument();
+  });
+
+  it('does not save an edit to a field the auth method has since hidden', async () => {
+    // Typed into the password box, then switched to OAuth2. Saving the password
+    // would write a credential the operator can no longer see, for a method that
+    // does not use it — and the unsaved count would name a field that is not on
+    // screen.
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      http.put('/api/notify/settings', async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(DELIVERY_SETTINGS);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<DeliverySettingsForm />, { authenticated: true });
+
+    await user.type(await screen.findByLabelText(/^password$/i, { selector: 'input' }), 'app-password');
+    expect(screen.getByText(/1 unsaved/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: /authentication/i }));
+    await user.click(await screen.findByRole('option', { name: 'oauth2' }));
+
+    // One again: the method itself, not the password behind it.
+    expect(screen.getByText(/1 unsaved/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(body).toEqual({ emailAuthMethod: 'oauth2' });
+  });
 });

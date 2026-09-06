@@ -60,6 +60,16 @@ interface FieldSpec {
 }
 
 /**
+ * How the SMTP transport authenticates.
+ *
+ * `password` covers both AUTH LOGIN/PLAIN and no authentication at all — a relay
+ * with a blank username sends no AUTH, which is what makes an internal relay the
+ * zero-configuration case it should be.
+ */
+export const EMAIL_AUTH_METHODS = ['password', 'oauth2'] as const;
+export type EmailAuthMethod = (typeof EMAIL_AUTH_METHODS)[number];
+
+/**
  * Every delivery setting, flattened.
  *
  * Flat rather than nested like `env.notify`, because this shape has to be a database
@@ -94,6 +104,18 @@ export const DELIVERY_FIELDS = {
   emailPassword: { env: 'SMTP_PASSWORD', kind: 'string', secret: true },
   emailFrom: { env: 'NOTIFY_EMAIL_FROM', kind: 'string' },
   emailTo: { env: 'NOTIFY_EMAIL_TO', kind: 'string-list' },
+
+  // XOAUTH2, for the tenants that permit nothing else. See issue #27 and
+  // V13__Email_oauth2.sql. The method is an explicit switch rather than something
+  // inferred from "is a client id set": inference would let a half-entered OAuth2
+  // configuration fall back to password auth and report a rejected password, which
+  // is the exact confusion this feature exists to end.
+  emailAuthMethod: { env: 'SMTP_AUTH_METHOD', kind: 'enum', values: EMAIL_AUTH_METHODS },
+  emailOauthClientId: { env: 'SMTP_OAUTH_CLIENT_ID', kind: 'string' },
+  emailOauthClientSecret: { env: 'SMTP_OAUTH_CLIENT_SECRET', kind: 'string', secret: true },
+  emailOauthRefreshToken: { env: 'SMTP_OAUTH_REFRESH_TOKEN', kind: 'string', secret: true },
+  emailOauthTokenUrl: { env: 'SMTP_OAUTH_TOKEN_URL', kind: 'string' },
+  emailOauthScope: { env: 'SMTP_OAUTH_SCOPE', kind: 'string' },
 } as const satisfies Record<string, FieldSpec>;
 
 export type DeliveryField = keyof typeof DELIVERY_FIELDS;
@@ -126,6 +148,13 @@ export interface DeliverySettings {
   emailPassword: string;
   emailFrom: string;
   emailTo: string[];
+
+  emailAuthMethod: EmailAuthMethod;
+  emailOauthClientId: string;
+  emailOauthClientSecret: string;
+  emailOauthRefreshToken: string;
+  emailOauthTokenUrl: string;
+  emailOauthScope: string;
 }
 
 /**
@@ -163,6 +192,15 @@ export const DELIVERY_DEFAULTS: DeliverySettings = {
   emailPassword: '',
   emailFrom: '',
   emailTo: [],
+
+  // Password, so an installation that upgrades into these columns keeps sending
+  // exactly the way it did before they existed.
+  emailAuthMethod: 'password',
+  emailOauthClientId: '',
+  emailOauthClientSecret: '',
+  emailOauthRefreshToken: '',
+  emailOauthTokenUrl: '',
+  emailOauthScope: '',
 };
 
 /** A field's resolved value with its provenance. */

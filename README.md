@@ -462,13 +462,53 @@ In the order that succeeds:
    needs no credentials, and it is the right answer for an on-prem sensor. Set `SMTP_HOST`,
    leave `SMTP_USER` and `SMTP_PASSWORD` empty, and the transport omits AUTH entirely.
 2. **An app password**, where the tenant still permits one.
-3. **Your company mailbox with an ordinary password** — this usually fails. Microsoft 365 and
+3. **OAuth2 / XOAUTH2**, for a tenant that permits nothing else — below.
+4. **Your company mailbox with an ordinary password** — this usually fails. Microsoft 365 and
    Google disable basic SMTP AUTH by default on modern tenants, so a *correct* password is
    rejected exactly like a wrong one. When the server returns `535` or nodemailer reports
    `EAUTH`, the delivery result says so rather than passing the raw SMTP string through, because
    "authentication unsuccessful" sends people to check a password that was never the problem.
 
-OAuth2 / XOAUTH2 is not implemented. If your tenant requires it, use a relay.
+### OAuth2, when the tenant allows nothing else
+
+`SMTP_AUTH_METHOD=oauth2` switches the transport to XOAUTH2. It is the **refresh-token
+grant** and nothing more ambitious: register an application with the identity provider,
+consent to it once as the sending mailbox, and paste the refresh token in. Nodemailer
+exchanges it for an access token on first use and renews that when it expires, so nothing
+here stores or schedules a token.
+
+There is deliberately no authorization-code redirect. That needs a browser round trip
+through a publicly reachable callback URL, and this runs on a sensor inside a network — the
+one-time consent happens on the administrator's own machine instead, and only its result is
+configured here.
+
+| | Microsoft 365 | Google Workspace |
+| --- | --- | --- |
+| `SMTP_HOST` | `smtp.office365.com` | `smtp.gmail.com` |
+| `SMTP_USER` | the mailbox being sent from | the mailbox being sent from |
+| `SMTP_OAUTH_TOKEN_URL` | `https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token` | `https://oauth2.googleapis.com/token` |
+| `SMTP_OAUTH_SCOPE` | `https://outlook.office.com/SMTP.Send offline_access` | not needed — the refresh grant ignores it |
+| Permission to grant | Office 365 Exchange Online → Delegated → `SMTP.Send` | `https://mail.google.com/` |
+
+Two things about this fail in ways worth naming in advance, and both are reported rather
+than left to be guessed at:
+
+- **Microsoft's per-mailbox SMTP AUTH switch is separate, and OAuth2 does not bypass it.** A
+  correctly issued token is still refused with `535` until
+  `Set-CASMailbox -SmtpClientAuthenticationDisabled $false` has been run for that mailbox.
+  That rejection is the same `535` a wrong password produces, so what the delivery result
+  says about it depends on which auth method is in force — the password advice would send
+  somebody to check a password that is not being used.
+- **A refresh token expires or gets revoked.** The token endpoint's refusal (`invalid_grant`)
+  is reported as itself, distinct from a mailbox refusing a token that was issued fine, and
+  the provider's own `error_description` is passed through.
+
+`SMTP_OAUTH_TOKEN_URL` has no default on purpose. Nodemailer's own fallback is Google's
+endpoint, so a blank value on a Microsoft tenant would post the refresh token to
+`accounts.google.com` and return a refusal that names neither problem. An OAuth2 setup
+missing any of the five required values is refused before a socket opens, naming the
+variables that are unset — rather than sending unauthenticated and reporting whatever the
+server says about that.
 
 ### Sending is disclosure
 
@@ -1787,6 +1827,7 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **SMTP that modern mailboxes accept** — XOAUTH2 with a refresh token, so a Microsoft 365 or Google mailbox works without basic SMTP AUTH; a half-filled setup names its missing variables instead of opening a socket, and the same `535` is explained differently depending on which auth method is in force | #53 |
 | **Postgres in CI** — the SQL-level claims stop being probes run by hand: a service container, a harness that refuses any database not named `_test`, and standing tests for the four retention bugs review caught, each verified by reintroducing the bug | #51 |
 | **Grouped sidebar navigation** — eight tabs in one header strip became a bordered panel with named sections, ported whole from the PRO 2.0 sidebar in the sibling `professional` project; collapses to a rail, remembers that, and spends no vertical room, which is the axis the tables need | #50 |
 | **Audit trail** — who deleted, changed or redirected something; append-only, enforced by a trigger, written in the same transaction as the act it records | #49 |
@@ -1801,17 +1842,13 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 ### Next, in order
 
-1. **SMTP that modern mailboxes accept** ([#27](https://github.com/sarwaraminy/network-monitoring/issues/27), ~1 wk).
-   Microsoft 365 and Google both disable basic SMTP auth by default, so email delivery does
-   not work with the two most common providers. An internal relay already works with no
-   credentials and a 535 is already legible; what is missing is OAuth2/XOAUTH2.
-2. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
+1. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
    each other's findings. Cheap now and expensive once anyone has data.
-3. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
+2. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
    type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
    `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
    `.bin`.
-4. **Small, and each independently useful:**
+3. **Small, and each independently useful:**
    - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,

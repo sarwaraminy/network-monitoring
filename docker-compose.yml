@@ -184,6 +184,14 @@ services:
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      # password | oauth2. The five below are read only under oauth2 — see
+      # .env.example for the Microsoft 365 and Google setups.
+      SMTP_AUTH_METHOD: ${SMTP_AUTH_METHOD:-password}
+      SMTP_OAUTH_CLIENT_ID: ${SMTP_OAUTH_CLIENT_ID:-}
+      SMTP_OAUTH_CLIENT_SECRET: ${SMTP_OAUTH_CLIENT_SECRET:-}
+      SMTP_OAUTH_REFRESH_TOKEN: ${SMTP_OAUTH_REFRESH_TOKEN:-}
+      SMTP_OAUTH_TOKEN_URL: ${SMTP_OAUTH_TOKEN_URL:-}
+      SMTP_OAUTH_SCOPE: ${SMTP_OAUTH_SCOPE:-}
     expose:
       - '8080'
     volumes:

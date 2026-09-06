@@ -184,6 +184,16 @@ export const deliverySettings = pgTable('delivery_settings', {
   /** An array, so a recipient containing a comma cannot corrupt the set. */
   emailTo: text('email_to').array(),
 
+  /** 'password' or 'oauth2' — see V13__Email_oauth2.sql. */
+  emailAuthMethod: varchar('email_auth_method', { length: 16 }),
+  emailOauthClientId: varchar('email_oauth_client_id', { length: 255 }),
+  /** A credential. Never returned by the API. */
+  emailOauthClientSecret: varchar('email_oauth_client_secret', { length: 500 }),
+  /** The credential that mints access tokens for the mailbox. Never returned. */
+  emailOauthRefreshToken: varchar('email_oauth_refresh_token', { length: 4000 }),
+  emailOauthTokenUrl: varchar('email_oauth_token_url', { length: 500 }),
+  emailOauthScope: varchar('email_oauth_scope', { length: 500 }),
+
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   updatedBy: varchar('updated_by', { length: 200 }),
 });

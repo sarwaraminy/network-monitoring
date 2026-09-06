@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { env } from '../config/env.js';
 import { HttpError } from '../middleware/error-handler.js';
 import { parsePrefix } from '../net/prefix.js';
+import { EMAIL_AUTH_METHODS } from '../notify/settings.js';
 import { WEBHOOK_FORMATS } from '../notify/types.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
 import { AUDIT_ACTIONS, type AuditAction } from '../services/audit-types.js';
@@ -360,6 +361,51 @@ export const deliverySettingsPatchSchema = z
      * cannot corrupt the set. A comma-separated string is still accepted, because
      * that is what the environment variable looks like and somebody will paste one.
      */
+    /**
+     * XOAUTH2, for a tenant that permits nothing else. See issue #27.
+     *
+     * None of these is required *by the schema*, because every field of this patch
+     * is optional by design — the form sends only what changed, and a secret that
+     * is not being replaced is absent rather than round-tripped. "OAuth2 is
+     * selected but half-filled" is therefore not something a per-request schema can
+     * see; `missingOauthSettings` in notify/email.ts is where that is caught, and
+     * it names the missing variables in the delivery result rather than opening a
+     * socket to fail.
+     */
+    emailAuthMethod: z.enum(EMAIL_AUTH_METHODS).nullable().optional(),
+    emailOauthClientId: nullableTrimmed(255),
+    // A credential. Accepted, never returned.
+    emailOauthClientSecret: nullableTrimmed(500),
+    // The credential that mints access tokens for the mailbox, and the longest
+    // string this table stores: a Microsoft refresh token routinely runs past a
+    // kilobyte where a Google one is a hundred characters.
+    emailOauthRefreshToken: nullableTrimmed(4000),
+    /*
+     * A full URL, checked the same way the webhook URL is and for the same reason:
+     * this one is POSTed to with the refresh token in the body, so a scheme other
+     * than http(s) — or a stray `javascript:` — must not reach the fetch.
+     */
+    emailOauthTokenUrl: z
+      .string()
+      .trim()
+      .max(500)
+      .refine(
+        (value) => {
+          try {
+            return ['http:', 'https:'].includes(new URL(value).protocol);
+          } catch {
+            return false;
+          }
+        },
+        {
+          message:
+            'emailOauthTokenUrl must be a full URL including the scheme, e.g. https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token',
+        },
+      )
+      .nullable()
+      .optional(),
+    emailOauthScope: nullableTrimmed(500),
+
     emailTo: z
       .union([z.array(z.string()), z.string()])
       .nullable()

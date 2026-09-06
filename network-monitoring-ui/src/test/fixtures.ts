@@ -301,6 +301,13 @@ export const DELIVERY_SETTINGS: DeliverySettingsResponse = {
     emailPassword: { source: 'default', configured: false },
     emailFrom: { source: 'default', value: '' },
     emailTo: { source: 'default', value: [] },
+
+    emailAuthMethod: { source: 'default', value: 'password' },
+    emailOauthClientId: { source: 'default', value: '' },
+    emailOauthClientSecret: { source: 'default', configured: false },
+    emailOauthRefreshToken: { source: 'default', configured: false },
+    emailOauthTokenUrl: { source: 'default', value: '' },
+    emailOauthScope: { source: 'default', value: '' },
   },
   pinnedByEnvironment: ['enabled'],
 };

@@ -609,6 +609,14 @@ export function buildChannels(settings: DeliverySettings): NotificationChannel[]
         password: settings.emailPassword,
         from: settings.emailFrom,
         to: settings.emailTo,
+        authMethod: settings.emailAuthMethod,
+        oauth: {
+          clientId: settings.emailOauthClientId,
+          clientSecret: settings.emailOauthClientSecret,
+          refreshToken: settings.emailOauthRefreshToken,
+          tokenUrl: settings.emailOauthTokenUrl,
+          scope: settings.emailOauthScope,
+        },
       }),
     );
   }

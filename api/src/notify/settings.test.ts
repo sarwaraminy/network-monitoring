@@ -151,9 +151,20 @@ describe('delivery settings resolution', () => {
       assert.equal(view.webhookUrl?.configured, false);
     });
 
-    it('marks exactly the two fields that are credentials', () => {
+    it('marks exactly the fields that are credentials, and no others', () => {
+      // A roster rather than a spot check, so adding a field has to be a decision
+      // about whether it is a credential. The OAuth2 client *id* is deliberately
+      // not on this list — it is an identifier, and redacting it would leave the
+      // form unable to show which application is configured; the client secret and
+      // the refresh token are, and the refresh token is the more dangerous of the
+      // two, since it is what mints access tokens for the mailbox.
       const secrets = (Object.keys(DELIVERY_FIELDS) as DeliveryField[]).filter(isSecretField);
-      assert.deepEqual(secrets.sort(), ['emailPassword', 'webhookUrl']);
+      assert.deepEqual(secrets.sort(), [
+        'emailOauthClientSecret',
+        'emailOauthRefreshToken',
+        'emailPassword',
+        'webhookUrl',
+      ]);
     });
   });
 
