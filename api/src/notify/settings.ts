@@ -44,6 +44,19 @@ interface FieldSpec {
   /** The environment variable that pins this field. */
   env: string;
   kind: FieldKind;
+  /**
+   * True for a string field that must be an `https:` URL.
+   *
+   * Only the OAuth2 token endpoint, and checked here rather than only in the Zod
+   * patch schema because that schema guards one of the three doors: a value can also
+   * arrive from the environment (which never reaches Zod, and *pins* the field so the
+   * UI cannot correct it) or from a hand-written row. This URL takes `client_secret`
+   * and `refresh_token` in the POST body on every refresh, so an `http:` value leaks
+   * long-lived credentials repeatedly and invisibly. Rejecting it here makes it fall
+   * through to the next layer and puts the variable's name in
+   * `invalidEnvironmentVariables`, which is logged at boot.
+   */
+  httpsOnly?: true;
   /** Allowed values, for `enum`. */
   values?: readonly string[];
   /**
@@ -114,7 +127,7 @@ export const DELIVERY_FIELDS = {
   emailOauthClientId: { env: 'SMTP_OAUTH_CLIENT_ID', kind: 'string' },
   emailOauthClientSecret: { env: 'SMTP_OAUTH_CLIENT_SECRET', kind: 'string', secret: true },
   emailOauthRefreshToken: { env: 'SMTP_OAUTH_REFRESH_TOKEN', kind: 'string', secret: true },
-  emailOauthTokenUrl: { env: 'SMTP_OAUTH_TOKEN_URL', kind: 'string' },
+  emailOauthTokenUrl: { env: 'SMTP_OAUTH_TOKEN_URL', kind: 'string', httpsOnly: true },
   emailOauthScope: { env: 'SMTP_OAUTH_SCOPE', kind: 'string' },
 } as const satisfies Record<string, FieldSpec>;
 
@@ -276,8 +289,18 @@ export function parseFieldValue(field: DeliveryField, raw: unknown): unknown {
     default: {
       // A string field. Trimmed, because a trailing space in a copied webhook URL
       // is otherwise a silent failure that looks like a wrong URL.
-      return String(raw).trim();
+      const text = String(raw).trim();
+      if (spec.httpsOnly && text !== '' && !isHttpsUrl(text)) return undefined;
+      return text;
     }
+  }
+}
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
   }
 }
 
@@ -445,9 +468,44 @@ export function isWebhookConfigured(settings: DeliverySettings): boolean {
 }
 
 export function isEmailConfigured(settings: DeliverySettings): boolean {
-  const pointedSomewhere =
-    settings.emailHost.trim() !== '' && settings.emailFrom.trim() !== '' && settings.emailTo.length > 0;
-  return pointedSomewhere && missingEmailOauthSettings(settings).length === 0;
+  return isEmailPointedSomewhere(settings) && missingEmailOauthSettings(settings).length === 0;
+}
+
+/**
+ * Whether email has a destination at all: a host, a sender and a recipient.
+ *
+ * Separate from `isEmailConfigured` because the two answer different questions and
+ * the difference decides which advice an operator is given. "Nothing is set up" and
+ * "set up but the mailbox cannot authenticate" have opposite fixes, and telling
+ * somebody with no SMTP host to go and fill in a refresh token is a dead end — see
+ * `emailBlockedReason`.
+ */
+export function isEmailPointedSomewhere(settings: DeliverySettings): boolean {
+  return settings.emailHost.trim() !== '' && settings.emailFrom.trim() !== '' && settings.emailTo.length > 0;
+}
+
+/**
+ * Why email cannot deliver, in a sentence, or null when nothing is stopping it.
+ *
+ * One sentence, one definition, three readers: the status endpoint (so the Delivery
+ * page stops offering the pre-OAuth2 reason for an OAuth2 failure), the test-send
+ * result (so pressing Test says email was skipped rather than quietly leaving it out
+ * of the attempt), and the message when no channel is configured at all.
+ *
+ * Null when email is not pointed anywhere, deliberately: that is not an OAuth2
+ * problem, and the answer to it names the host, sender and recipients instead.
+ */
+export function emailBlockedReason(settings: DeliverySettings): string | null {
+  if (!isEmailPointedSomewhere(settings)) return null;
+
+  const missing = missingEmailOauthSettings(settings);
+  if (missing.length === 0) return null;
+
+  return (
+    `Email is set to OAuth2 but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set, ` +
+    'so the mailbox cannot authenticate. Fill those in on this page, or set the authentication ' +
+    'method back to password.'
+  );
 }
 
 /**

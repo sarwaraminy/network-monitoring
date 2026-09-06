@@ -37,6 +37,42 @@ describe('DeliveryPage', () => {
     expect(screen.getAllByText('Off').length).toBeGreaterThan(0);
   });
 
+  it('gives the server’s reason for an unconfigured mailbox, not the standing one', async () => {
+    /*
+     * An OAuth2 mailbox missing its refresh token is correctly not "configured" — but
+     * the standing sentence for an unconfigured channel names an SMTP host, a sender
+     * and recipients, which are exactly the three things that operator has already
+     * set. Naming the wrong cause on the screen they are looking at is the same
+     * failure as claiming the channel was ready.
+     */
+    server.use(
+      http.get('/api/notify/status', () =>
+        HttpResponse.json({
+          ...NOTIFY_STATUS,
+          email: {
+            configured: false,
+            recipients: 2,
+            reason:
+              'Email is set to OAuth2 but SMTP_OAUTH_REFRESH_TOKEN is not set, so the mailbox cannot authenticate.',
+          },
+        }),
+      ),
+    );
+
+    renderApp(<DeliveryPage />, { authenticated: true });
+
+    expect(await screen.findByText(/SMTP_OAUTH_REFRESH_TOKEN/)).toBeInTheDocument();
+    expect(screen.queryByText(/SMTP host, sender and at least one recipient/i)).not.toBeInTheDocument();
+  });
+
+  it('falls back to the standing reason when the server has none', async () => {
+    // A mailbox that is simply unset. `reason` is null, and the generic sentence is
+    // the right one — it must not disappear along with the special case.
+    renderApp(<DeliveryPage />, { authenticated: true });
+
+    expect(await screen.findByText(/SMTP host, sender and at least one recipient/i)).toBeInTheDocument();
+  });
+
   it('shows the gates, because each one is a reason an alert did not arrive', async () => {
     renderApp(<DeliveryPage />, { authenticated: true });
 

@@ -179,7 +179,11 @@ export default function DeliveryPage() {
                 detail={
                   data?.email.configured
                     ? `${data.email.recipients} recipient${data.email.recipients === 1 ? '' : 's'}`
-                    : 'SMTP host, sender and at least one recipient'
+                    : // The server's own reason when it has one. An OAuth2 mailbox
+                      // missing its refresh token has a host, a sender and recipients
+                      // already, so the standing sentence would name the three things
+                      // that are not the problem.
+                      (data?.email.reason ?? 'SMTP host, sender and at least one recipient')
                 }
                 loading={loading}
               />

@@ -253,7 +253,7 @@ export const NOTIFY_STATUS: NotifyStatus = {
   sentLastHour: 4,
   throttledKeys: 1,
   webhook: { configured: true, format: 'slack' },
-  email: { configured: false, recipients: 0 },
+  email: { configured: false, recipients: 0, reason: null },
   syslog: {
     configured: true,
     target: 'siem.internal:514',

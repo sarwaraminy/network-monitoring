@@ -4,10 +4,10 @@ import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { notifier, reloadNotifier } from '../notify/notifier.js';
 import {
   DELIVERY_FIELDS,
+  emailBlockedReason,
   environmentPinnedFields,
   isEmailConfigured,
   isWebhookConfigured,
-  missingEmailOauthSettings,
   pinnedConflicts,
 } from '../notify/settings.js';
 import {
@@ -16,6 +16,7 @@ import {
   currentSettings,
   saveDeliverySettings,
 } from '../notify/settings.service.js';
+import type { DeliveryResult } from '../notify/types.js';
 import { detectFormat } from '../notify/webhook.js';
 import { actorOf } from '../services/audit.service.js';
 import { deliverySettingsPatchSchema, parseOrThrow } from './validation.js';
@@ -78,6 +79,16 @@ notifyRouter.get('/status', (_req, res) => {
     email: {
       configured: isEmailConfigured(settings),
       recipients: settings.emailTo.length,
+      /*
+       * Why not, when not — because the page that reads this has one standing
+       * sentence for an unconfigured mailbox ("SMTP host, sender and at least one
+       * recipient"), and for an OAuth2 mailbox missing its refresh token those three
+       * are exactly what the operator has already set. Widening `isEmailConfigured`
+       * without this would have moved the problem rather than removed it: the
+       * channel stops claiming to be ready and starts naming the wrong cause, on the
+       * same screen either way.
+       */
+      reason: emailBlockedReason(settings),
     },
     /*
      * Reported in full, unlike the webhook URL.
@@ -187,40 +198,57 @@ notifyRouter.put(
 );
 
 /**
+ * Why there is nothing to send to.
+ *
+ * An OAuth2 mailbox that is half filled in gets its own answer, because the generic
+ * message ("set an SMTP host with recipients") describes a mailbox whose host and
+ * recipients *are* already set, and sends the operator to check the two things that
+ * are not the problem.
+ *
+ * But only when email is actually pointed somewhere, which is what
+ * `emailBlockedReason` checks before it says anything. `emailAuthMethod` can be
+ * `oauth2` on an install with no SMTP host, no sender and no recipients — set in the
+ * environment, or left behind by an earlier attempt — and telling *that* operator to
+ * fill in a refresh token is a dead end in both directions: there is nothing to
+ * authenticate against either way, and the accurate answer naming all three would
+ * have been suppressed to say it.
+ */
+function nothingConfiguredMessage(): string {
+  return (
+    emailBlockedReason(currentSettings()) ??
+    'No delivery channel is configured. Set a webhook URL, a syslog host, or an SMTP host with recipients — on this page, or in api/.env.'
+  );
+}
+
+/**
+ * The email channel's absence, reported as a result rather than as silence.
+ *
+ * `sendTest` can only report on channels that exist, and an incomplete OAuth2 mailbox
+ * never becomes one — so with a webhook or syslog host also set, the response would
+ * be `{delivered: 1, attempted: 1}` and read as a clean pass. The operator pressed
+ * Test to find out whether *email* works, and would be told that everything attempted
+ * was delivered without being told email was never attempted.
+ *
+ * Returned as a failed result for the channel, so it appears where every other
+ * channel's answer appears.
+ */
+function skippedEmailResult(): DeliveryResult[] {
+  const reason = emailBlockedReason(currentSettings());
+  return reason ? [{ channel: 'email', ok: false, detail: reason }] : [];
+}
+
+/**
  * POST /api/notify/test — sends a test message to every configured channel.
  *
  * Admin-only. It causes outbound traffic to a third party and would otherwise be a
  * way for any account to make the server send messages on demand.
  */
-/**
- * Why there is nothing to send to.
- *
- * An OAuth2 mailbox that is half filled in gets its own answer. `isEmailConfigured`
- * refuses it — correctly, since every send would fail — but the generic message
- * ("set an SMTP host with recipients") describes a mailbox whose host and recipients
- * *are* already set, so it sends the operator to check the two things that are not
- * the problem. This is the one moment they have actively asked why delivery does not
- * work; naming the unset fields here is the whole difference between a setup that can
- * be finished and one that cannot.
- */
-function nothingConfiguredMessage(): string {
-  const missing = missingEmailOauthSettings(currentSettings());
-
-  if (missing.length > 0) {
-    return (
-      `Email is set to OAuth2 but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set, ` +
-      'so the mailbox cannot authenticate. Fill those in on this page, or set the authentication ' +
-      'method back to password.'
-    );
-  }
-
-  return 'No delivery channel is configured. Set a webhook URL, a syslog host, or an SMTP host with recipients — on this page, or in api/.env.';
-}
-
 notifyRouter.post(
   '/test',
   requireRole('ADMIN'),
   asyncHandler(async (_req, res) => {
+    const skipped = skippedEmailResult();
+
     if (notifier().configuredChannels.length === 0) {
       res.status(400).json({ message: nothingConfiguredMessage() });
       return;
@@ -229,7 +257,7 @@ notifyRouter.post(
     // Deliberately bypasses every gate, including `enabled`: the question being
     // answered is "can this reach you", and requiring the feature to be switched on
     // first makes it useless for checking config before committing to it.
-    const results = await notifier().sendTest();
+    const results = [...(await notifier().sendTest()), ...skipped];
     const delivered = results.filter((result) => result.ok).length;
 
     res.status(delivered > 0 ? 200 : 502).json({
