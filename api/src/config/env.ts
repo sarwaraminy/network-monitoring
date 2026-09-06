@@ -97,6 +97,21 @@ function sweepHours(name: string, fallback: number): number {
   return hours;
 }
 
+/**
+ * A setting whose value must be one of a fixed set.
+ *
+ * Falls back loudly rather than silently: a typo in a mode name is a
+ * configuration the operator believes is in force, and the difference between
+ * `off` and `all` here is a table filling up or not.
+ */
+function oneOf<const T extends readonly string[]>(name: string, allowed: T, fallback: T[number]): T[number] {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (raw === undefined || raw === '') return fallback;
+  if ((allowed as readonly string[]).includes(raw)) return raw as T[number];
+  console.warn(`[config] ${name}=${raw} is not one of ${allowed.join(', ')}; using ${fallback}.`);
+  return fallback;
+}
+
 function databaseUrl(): string {
   const url = process.env.DATABASE_URL;
   if (url && url.trim() !== '') return url;
@@ -326,5 +341,92 @@ export const env = {
      * choice: past it a JavaScript timer silently becomes 1 ms.
      */
     sweepHours: sweepHours('RETENTION_SWEEP_HOURS', 24),
+  },
+
+  /**
+   * The Ad Hoc Query console.
+   *
+   * OFF by default, and that is the important default in this whole file. Every
+   * other feature here fails towards doing less; this one, switched on without
+   * thought, is a SQL prompt on the production database reachable from a browser
+   * session. An installation should have to decide to have it.
+   *
+   * There is deliberately no connection-string setting. The console's role name
+   * is fixed in code, and only its password comes from here — an
+   * `ADHOC_DATABASE_URL` would be one an operator could point at `postgres`,
+   * turning every restriction off while the feature still appeared to work. See
+   * `adhoc.service.ts`, which additionally refuses to start unless the database
+   * confirms the role is neither a superuser nor able to write.
+   */
+  adhoc: {
+    enabled: bool('ADHOC_ENABLED', false),
+    /**
+     * Lets the console UPDATE, INSERT and DELETE as well as read.
+     *
+     * OFF by default, and separate from `enabled` on purpose: turning the console
+     * ON and letting it WRITE are two different decisions, and only one of them
+     * can destroy data from a browser session.
+     *
+     * This does not merely permit the app to issue writes — it selects a
+     * different Postgres ROLE. Off, the console authenticates as V11's
+     * `nm_adhoc_<db>`, which holds SELECT and nothing else; on, as V12's
+     * `nm_adhocrw_<db>`. So a read-only install stays read-only in the database
+     * rather than in an `if`, and this flag is never the only thing standing
+     * between a session and a DELETE.
+     *
+     * What write mode still cannot do: touch `audit_events` (the trail stays
+     * append-only, so the console's own use remains investigable), read or write
+     * the secret columns, change `users` or `delivery_settings`, or act as a
+     * superuser. It writes the operational tables — findings, devices,
+     * suppressions, the legacy log, the rollup — and nothing else. See V12.
+     *
+     * Auditing is forced to `all` while this is on: a write nobody recorded is
+     * the one entry a trail cannot afford to be missing.
+     */
+    write: bool('ADHOC_WRITE_ENABLED', false),
+    /**
+     * Set on the console's role at boot. Empty leaves the console off.
+     *
+     * Worth knowing before choosing one: `ALTER ROLE … PASSWORD` has no
+     * parameterised form, so this value is part of the statement text. The app
+     * runs it with `SET LOCAL log_statement = 'none'`, but that setting is
+     * superuser-only — so if the database owner is not a superuser, the
+     * suppression is skipped and this password is written to the Postgres log in
+     * cleartext under `log_statement = 'ddl'` or `'all'`. Treat it as a
+     * credential the database server may record, and not as one reused anywhere.
+     */
+    password: process.env.ADHOC_DB_PASSWORD ?? '',
+    /**
+     * A query stops here rather than running until somebody notices. Ten seconds
+     * is long for an interactive question and short next to the damage a
+     * cartesian join does to a pool shared with detection.
+     */
+    timeoutMs: int('ADHOC_TIMEOUT_MS', 10_000),
+    /** Rows returned to the browser. A grid, not an export. */
+    maxRows: int('ADHOC_MAX_ROWS', 1_000),
+    /** Characters accepted, so the body limit is not the thing that rejects a query. */
+    maxLength: int('ADHOC_MAX_QUERY_LENGTH', 20_000),
+    /**
+     * How much of the console's activity reaches the audit trail.
+     *
+     *  - `all`     — every query as it is accepted, before its result is known.
+     *  - `refused` — only queries the database rejected, which is the set worth
+     *                keeping if the trail is being read for attempts rather than
+     *                for activity: a `SELECT password FROM users` that came back
+     *                `permission denied` is exactly the row somebody wants later.
+     *  - `off`     — nothing.
+     *
+     * `all` is the default because this is a SQL console over security findings,
+     * and "who asked what" is the question an audit trail exists for. It is
+     * configurable because that is also a lot of rows on an installation using
+     * the console routinely, and an operator who cannot quiet it will end up
+     * reading past it — which is worse for the trail than not writing it.
+     */
+    audit: bool('ADHOC_WRITE_ENABLED', false)
+      ? // Not configurable in write mode: `refused` or `off` would leave a
+        // successful DELETE with no record of who ran it, which is the single
+        // entry this trail most needs.
+        ('all' as const)
+      : oneOf('ADHOC_AUDIT', ['all', 'refused', 'off'] as const, 'all'),
   },
 } as const;

@@ -94,6 +94,10 @@ export const NAV_GROUPS: NavGroup[] = [
       // The route stays `/activity`: the label is what people read, and changing
       // the URL would break every bookmark and pasted link for a rename.
       { label: 'Audit Trail', to: '/activity', adminOnly: true },
+      // Admin-only because the server refuses it to anyone else: the console
+      // reads the database directly, and every query it runs is recorded in the
+      // audit trail above.
+      { label: 'Ad Hoc Query', to: '/adhoc', adminOnly: true },
     ],
   },
 ];

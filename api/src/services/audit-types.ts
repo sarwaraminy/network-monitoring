@@ -28,6 +28,11 @@ export const AUDIT_ACTIONS = {
   'log.create': 'Added a legacy packet-log record',
   'log.update': 'Changed a legacy packet-log record',
   'log.delete': 'Deleted a legacy packet-log record',
+  // The query text goes in `detail`, which is the one place this trail records a
+  // value rather than the fact of a change: here the query IS the action, and
+  // "ran a query" without saying which one records nothing. The console's role
+  // cannot read a secret, so the text cannot contain one.
+  'adhoc.query': 'Ran an ad hoc SQL query',
 } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;

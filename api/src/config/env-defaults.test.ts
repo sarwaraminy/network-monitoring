@@ -115,6 +115,39 @@ function parseCodeDefaults(text: string): Map<string, string> {
   }
 
   /*
+   * And a guard on the guard: a helper this pattern does not know about takes
+   * its settings out of view SILENTLY, which is how `oneOf` arrived and
+   * `ADHOC_AUDIT` became invisible the moment it was written. It passed only
+   * because the setting happened to be in Compose already — deleting it from
+   * there would have left the suite green, which is the exact drift this file
+   * exists to catch.
+   *
+   * So any `something('SETTING_NAME'` that the alternation above did not match
+   * is a failure here rather than a quiet omission. The comment above used to
+   * say "any future parser helper has to be added here too"; this is what makes
+   * that true instead of hopeful.
+   */
+  const KNOWN_HELPERS = new Set([
+    'bool',
+    'int',
+    'optional',
+    'oneOf',
+    'required',
+    'retentionDays',
+    'sweepHours',
+  ]);
+  const unknown = [...text.matchAll(/\b([a-zA-Z][a-zA-Z0-9_]*)\(\s*'([A-Z0-9_]{2,})'/g)]
+    .filter((match) => !KNOWN_HELPERS.has(match[1]!) && !values.has(match[2]!))
+    .map((match) => `${match[1]}('${match[2]}')`);
+
+  assert.deepEqual(
+    [...new Set(unknown)],
+    [],
+    'env.ts reads settings through a helper this guard does not recognise, so they are ' +
+      'invisible to the Compose and example checks. Add the helper to the pattern above.',
+  );
+
+  /*
    * Bare `process.env.NAME` too, which the helpers do not cover.
    *
    * The whole inversion rests on "a new setting fails by default", and a
@@ -200,6 +233,14 @@ const NOT_IN_COMPOSE = new Set([
   // Read straight from a file path, not configured per deployment.
   'ARP_TRUSTED_MAPPINGS',
 ]);
+
+/**
+ * Settings deliberately absent from `api/.env.example`.
+ *
+ * Kept as a list with reasons rather than a loose match, so "not documented" is
+ * always a decision somebody made rather than something that fell out.
+ */
+const NOT_IN_HOST_EXAMPLE = new Set<string>([]);
 
 /**
  * Compose entries that need not appear in `.env.docker.example`.
@@ -296,6 +337,38 @@ describe('deployment defaults match the code', () => {
       }
     });
   }
+
+  it('offers every setting env.ts reads in api/.env.example', () => {
+    /*
+     * The host-install example, checked for COMPLETENESS rather than only for
+     * contradiction.
+     *
+     * Nothing compared this file against `env.ts` before, and the gap showed:
+     * `ADHOC_MAX_QUERY_LENGTH` reached Compose and `.env.docker.example` and was
+     * missing here alone, so somebody configuring a host install had no
+     * indication the setting existed. That is the second ad hoc setting to land
+     * in some examples and not others, which is the sort of drift a person
+     * cannot be relied on to catch by eye.
+     *
+     * Commented-out lines count. An example's job is to name the setting and its
+     * default, and `# NAME=value` does that without changing anyone's
+     * configuration — which is the right form for anything optional.
+     */
+    const example = read('api/.env.example');
+    const named = new Set(
+      [...example.matchAll(/^\s*#?\s*([A-Z][A-Z0-9_]*)\s*=/gm)].map((match) => match[1]!),
+    );
+
+    const missing = [...code.keys()].filter((name) => !named.has(name) && !NOT_IN_HOST_EXAMPLE.has(name));
+
+    assert.deepEqual(
+      missing,
+      [],
+      'read by env.ts but absent from api/.env.example: ' +
+        `${missing.join(', ')}. Add them there (commented out, with the default), ` +
+        'or add them to NOT_IN_HOST_EXAMPLE with a reason.',
+    );
+  });
 
   it('passes every setting env.ts reads through to Compose', () => {
     /*

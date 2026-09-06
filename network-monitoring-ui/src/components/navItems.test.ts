@@ -21,12 +21,16 @@ const ICON = null as unknown as NavGroup['icon'];
 describe('visibleNavGroups', () => {
   it('offers an administrator every entry', () => {
     expect(labelsOf(visibleNavGroups('ADMIN'))).toContain('Audit Trail');
+    expect(labelsOf(visibleNavGroups('ADMIN'))).toContain('Ad Hoc Query');
   });
 
   it('withholds an admin-only entry from a plain user', () => {
     // Asserted from both sides, so this cannot pass because the entry was
     // renamed or dropped for everybody.
     expect(labelsOf(visibleNavGroups('USER'))).not.toContain('Audit Trail');
+    // The console reads the database directly, so offering the link to someone
+    // the server would refuse is worse here than for an ordinary admin page.
+    expect(labelsOf(visibleNavGroups('USER'))).not.toContain('Ad Hoc Query');
   });
 
   it('withholds admin-only entries before the role is known', () => {

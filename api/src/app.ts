@@ -8,6 +8,7 @@ import { pool } from './db/index.js';
 import { logger } from './logger.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { apiLimiter, authLimiter } from './middleware/rate-limit.js';
+import { adhocRouter } from './routes/adhoc.routes.js';
 import { alertsRouter } from './routes/alerts.routes.js';
 import { auditRouter } from './routes/audit.routes.js';
 import { authRouter } from './routes/auth.routes.js';
@@ -119,6 +120,7 @@ export function createApp(): Express {
   app.use('/auth', authLimiter, authRouter);
   app.use('/api', apiLimiter);
   app.use('/api/alerts', alertsRouter);
+  app.use('/api/adhoc', adhocRouter);
   app.use('/api/audit', auditRouter);
   app.use('/api/flow', flowRouter);
   app.use('/api/intel', intelRouter);

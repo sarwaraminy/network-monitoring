@@ -933,7 +933,35 @@ npm run test:api  # the API suite, several hundred cases
 npm run test:ui   # the UI suite
 ```
 
-Neither suite needs a database, a browser or a running server.
+Neither suite needs a browser or a running server. Almost none of it needs a database
+either — decoders, detectors and guards are pure, and mocking a database to assert what
+SQL would do only tests the mock.
+
+The exception is the handful of suites whose subject **is** the SQL: aggregate a day and
+delete it in one transaction, a trigger that refuses an `UPDATE`, a role check that has to
+read a user row. Those cannot be covered any other way, and until recently they were not
+covered at all — they were probes run by hand once and then trusted, which is how retention
+shipped four SQL bugs that review caught and no test could have.
+
+Those suites now run against a real Postgres, and they **skip** when none is reachable, so
+`npm test` still works on a machine without one. The skip is not allowed to be silent:
+
+```bash
+# Uses your DATABASE_URL's credentials against a separate <name>_test database,
+# creating it if it does not exist. Never touches your dev database.
+npm run test:api
+
+# What CI runs. An unreachable database is now a failure, not a skip.
+REQUIRE_DB_TESTS=1 npm run test:api
+```
+
+`REQUIRE_DB_TESTS=1` is the promise that those suites ran, and CI sets it —
+`ci-requires-database.test.ts` is the standing check that it still does. Without that, a
+green tick would mean "nothing failed" and "nothing ran" indistinguishably, which is exactly
+how the glob bug below ran 456 of 496 tests for as long as it existed.
+
+The harness refuses any database whose name does not end in `_test`, because it truncates
+every table between suites and the cost of getting that wrong is somebody's data.
 
 Exact counts are deliberately not printed here. They were, and they went stale in four
 consecutive pull requests — the last time hiding a dropped file, since the number was the only
@@ -1659,6 +1687,8 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **Postgres in CI** — the SQL-level claims stop being probes run by hand: a service container, a harness that refuses any database not named `_test`, and standing tests for the four retention bugs review caught, each verified by reintroducing the bug | #51 |
+| **Grouped sidebar navigation** — eight tabs in one header strip became a bordered panel with named sections, ported whole from the PRO 2.0 sidebar in the sibling `professional` project; collapses to a rail, remembers that, and spends no vertical room, which is the axis the tables need | #50 |
 | **Audit trail** — who deleted, changed or redirected something; append-only, enforced by a trigger, written in the same transaction as the act it records | #49 |
 | **Route-level auth tests** — every authenticated route swept over real HTTP with seven credentials; found `DELETE /api/alerts/:id` and the legacy log writes ungated, and a CI glob that had been running 456 of 496 tests | #48 |
 | **Retention with daily rollup** — detail expires, the shape does not: expiring days are aggregated into `alert_rollup_daily` in the same transaction that deletes them | #45 |
@@ -1671,23 +1701,17 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 ### Next, in order
 
-1. **Postgres in CI** (~1–2 d). Every SQL-level claim in this repository is currently
-   verified by a probe run by hand once and then trusted, and retention alone had four
-   real SQL bugs found in review rather than by tests — timezone bucketing, partial-day
-   over-deletion, the rollup filter, sweep concurrency. A service container would turn
-   those probes into standing tests, and would also allow the one authorisation case that
-   needs a user row: a valid token for a non-admin getting 403 over HTTP.
-2. **SMTP that modern mailboxes accept** ([#27](https://github.com/sarwaraminy/network-monitoring/issues/27), ~1 wk).
+1. **SMTP that modern mailboxes accept** ([#27](https://github.com/sarwaraminy/network-monitoring/issues/27), ~1 wk).
    Microsoft 365 and Google both disable basic SMTP auth by default, so email delivery does
    not work with the two most common providers. An internal relay already works with no
    credentials and a 535 is already legible; what is missing is OAuth2/XOAUTH2.
-3. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
+2. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
    each other's findings. Cheap now and expensive once anyone has data.
-4. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
+3. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
    type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
    `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
    `.bin`.
-5. **Small, and each independently useful:**
+4. **Small, and each independently useful:**
    - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,

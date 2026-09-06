@@ -160,6 +160,24 @@ services:
       ALERT_RETENTION_DAYS: ${ALERT_RETENTION_DAYS:-365}
       DEVICE_RETENTION_DAYS: ${DEVICE_RETENTION_DAYS:-365}
       RETENTION_SWEEP_HOURS: ${RETENTION_SWEEP_HOURS:-24}
+      # Ad Hoc Query console — a read-only SQL page for administrators. OFF by
+      # default, because switched on without thought it is a SQL prompt on the
+      # production database reachable from a browser session. Its Postgres role
+      # is fixed in code (nm_adhoc, SELECT-only, secrets excluded at the column
+      # level) and only the password is configurable: a settable connection
+      # string would be one that could be pointed at the superuser, turning every
+      # restriction off while the feature still appeared to work.
+      ADHOC_ENABLED: ${ADHOC_ENABLED:-false}
+      ADHOC_DB_PASSWORD: ${ADHOC_DB_PASSWORD:-}
+      ADHOC_TIMEOUT_MS: ${ADHOC_TIMEOUT_MS:-10000}
+      ADHOC_MAX_ROWS: ${ADHOC_MAX_ROWS:-1000}
+      # Lets the console write as well as read. Selects a different Postgres
+      # role rather than just permitting writes in the app — see
+      # V12__Adhoc_write_role.sql and .env.docker.example.
+      ADHOC_WRITE_ENABLED: ${ADHOC_WRITE_ENABLED:-false}
+      ADHOC_MAX_QUERY_LENGTH: ${ADHOC_MAX_QUERY_LENGTH:-20000}
+      # all | refused | off — see .env.docker.example.
+      ADHOC_AUDIT: ${ADHOC_AUDIT:-all}
       NOTIFY_EMAIL_FROM: ${NOTIFY_EMAIL_FROM:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

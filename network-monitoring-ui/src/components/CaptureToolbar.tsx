@@ -5,14 +5,17 @@ import StopIcon from '@mui/icons-material/Stop';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Collapse from '@mui/material/Collapse';
 import Grid from '@mui/material/Grid';
+import IconButton from '@mui/material/IconButton';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import type { UsePacketCapture } from '../hooks/usePacketCapture';
+import { DisclosureCaret } from './DisclosureCaret';
 import SurfaceCard from './SurfaceCard';
 
 interface CaptureToolbarProps {
@@ -30,7 +33,21 @@ interface CaptureToolbarProps {
   title: string;
   subtitle?: string;
   headerActions?: ReactNode;
+  /**
+   * Called when the fold has finished animating, in either direction.
+   *
+   * The packet table below measures its own height, and that measurement watches
+   * for RESIZE — which is blind to this card getting shorter above it, because
+   * nothing here changes size from the table's point of view; its top edge
+   * simply rises. The page passes this through to the table so it re-measures
+   * once the layout has stopped moving. Measuring on the state flip instead
+   * would read a half-collapsed toolbar.
+   */
+  onLayoutSettled?: () => void;
 }
+
+/** So the collapse toggle's `aria-controls` has something real to point at. */
+const CONTROLS_REGION = 'capture-controls';
 
 /** What the interface dropdown says under itself, in each of its three states. */
 function interfaceHelperText(loading: boolean, count: number): string {
@@ -48,7 +65,15 @@ export default function CaptureToolbar({
   title,
   subtitle,
   headerActions,
+  onLayoutSettled,
 }: Readonly<CaptureToolbarProps>) {
+  /*
+   * Open to begin with, because the first thing anyone does on this page is
+   * choose an interface and press Start. It folds away afterwards by hand, which
+   * is the point: once a capture is running these controls are settings you have
+   * already made, and the packets are what you came to look at.
+   */
+  const [showControls, setShowControls] = useState(true);
   const {
     interfaces,
     selectedInterface,
@@ -92,7 +117,23 @@ export default function CaptureToolbar({
       titleComponent="h1"
       titleVariant="h5"
       subtitle={subtitle}
-      headerActions={headerActions}
+      headerActions={
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          {headerActions}
+          <IconButton
+            size="small"
+            onClick={() => setShowControls((open) => !open)}
+            aria-label={showControls ? 'Hide capture settings' : 'Show capture settings'}
+            aria-expanded={showControls}
+            // Points at what it opens, so the state it announces describes
+            // something real rather than being an assertion about nothing.
+            aria-controls={CONTROLS_REGION}
+            sx={{ color: 'text.secondary' }}
+          >
+            <DisclosureCaret expanded={showControls} />
+          </IconButton>
+        </Stack>
+      }
     >
       {captureUnavailable && (
         <Alert severity="warning" sx={{ mb: 2 }}>
@@ -106,151 +147,191 @@ export default function CaptureToolbar({
           {error}
         </Alert>
       )}
-      <Grid
-        container
-        spacing={2}
-        sx={{
-          alignItems: 'flex-start',
-        }}
+      {/*
+        Only the CONTROLS fold away. The status row below stays put, because it
+        is the half you want while watching packets — whether a capture is
+        running, how many frames, whether anything was dropped. Folding the whole
+        card would trade the settings for the readout, which is the wrong half.
+      */}
+      <Collapse
+        in={showControls}
+        id={CONTROLS_REGION}
+        timeout={250}
+        onEntered={onLayoutSettled}
+        onExited={onLayoutSettled}
       >
-        <Grid size={{ xs: 12, md: showIpFilter ? 4 : 5 }}>
-          <TextField
-            select
-            label="Network interface"
-            value={selectedInterface}
-            onChange={(event) => setSelectedInterface(event.target.value)}
-            disabled={capturing || loadingInterfaces}
-            helperText={interfaceHelperText(loadingInterfaces, interfaces.length)}
-            fullWidth
-          >
-            {interfaces.map((device) => (
-              <MenuItem key={device.name} value={device.name}>
-                {device.description || device.name}
-                {device.addresses.length > 0 && ` — ${device.addresses[0]}`}
-              </MenuItem>
-            ))}
-          </TextField>
-        </Grid>
-
-        {showIpFilter && (
-          <Grid size={{ xs: 12, sm: 6, md: 2.5 }}>
+        <Grid
+          container
+          spacing={2}
+          sx={{
+            alignItems: 'flex-start',
+          }}
+        >
+          <Grid size={{ xs: 12, md: showIpFilter ? 4 : 5 }}>
             <TextField
-              label="Filter by IP address"
-              value={filterIp}
-              onChange={(event) => setFilterIp(event.target.value)}
-              placeholder={exampleHost}
+              select
+              label="Network interface"
+              value={selectedInterface}
+              onChange={(event) => setSelectedInterface(event.target.value)}
+              disabled={capturing || loadingInterfaces}
+              helperText={interfaceHelperText(loadingInterfaces, interfaces.length)}
+              fullWidth
+            >
+              {interfaces.map((device) => (
+                <MenuItem key={device.name} value={device.name}>
+                  {device.description || device.name}
+                  {device.addresses.length > 0 && ` — ${device.addresses[0]}`}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+
+          {showIpFilter && (
+            <Grid size={{ xs: 12, sm: 6, md: 2.5 }}>
+              <TextField
+                label="Filter by IP address"
+                value={filterIp}
+                onChange={(event) => setFilterIp(event.target.value)}
+                placeholder={exampleHost}
+                disabled={capturing}
+                helperText="Applied as the BPF filter host <ip>"
+                fullWidth
+              />
+            </Grid>
+          )}
+
+          <Grid size={{ xs: 6, sm: 3, md: showIpFilter ? 1.75 : 2 }}>
+            <TextField
+              label="Snapshot length"
+              type="number"
+              value={snapshotLength}
+              onChange={(event) => setSnapshotLength(Number(event.target.value))}
               disabled={capturing}
-              helperText="Applied as the BPF filter host <ip>"
+              slotProps={{ htmlInput: { min: 64, max: 262144, step: 1024 } }}
+              helperText="Bytes per frame"
               fullWidth
             />
           </Grid>
-        )}
 
-        <Grid size={{ xs: 6, sm: 3, md: showIpFilter ? 1.75 : 2 }}>
-          <TextField
-            label="Snapshot length"
-            type="number"
-            value={snapshotLength}
-            onChange={(event) => setSnapshotLength(Number(event.target.value))}
-            disabled={capturing}
-            slotProps={{ htmlInput: { min: 64, max: 262144, step: 1024 } }}
-            helperText="Bytes per frame"
-            fullWidth
-          />
+          <Grid size={{ xs: 6, sm: 3, md: showIpFilter ? 1.75 : 2 }}>
+            <TextField
+              label="Timeout (ms)"
+              type="number"
+              value={timeout}
+              onChange={(event) => setTimeoutMs(Number(event.target.value))}
+              disabled={capturing}
+              slotProps={{ htmlInput: { min: 0, step: 10 } }}
+              helperText="pcap read timeout"
+              fullWidth
+            />
+          </Grid>
         </Grid>
+      </Collapse>
 
-        <Grid size={{ xs: 6, sm: 3, md: showIpFilter ? 1.75 : 2 }}>
-          <TextField
-            label="Timeout (ms)"
-            type="number"
-            value={timeout}
-            onChange={(event) => setTimeoutMs(Number(event.target.value))}
-            disabled={capturing}
-            slotProps={{ htmlInput: { min: 0, step: 10 } }}
-            helperText="pcap read timeout"
-            fullWidth
-          />
-        </Grid>
+      {/*
+        One row: what the capture IS on the left, what you can DO to it on the
+        right. They were stacked, which spent a second line of the card on two
+        short rows that never fill their width — and this card sits above a table
+        that wants every pixel of height it can get.
 
-        <Grid size={{ xs: 12, md: showIpFilter ? 12 : 3 }}>
-          <Stack
-            direction="row"
-            spacing={1}
-            useFlexGap
-            sx={{
-              flexWrap: 'wrap',
-              pt: { md: 0.25 },
-            }}
-          >
-            <Button
-              variant="contained"
-              startIcon={<PlayArrowIcon />}
-              onClick={start}
-              disabled={!canStart || captureUnavailable}
-            >
-              Start capture
-            </Button>
-            <Button
-              variant="outlined"
-              color="warning"
-              startIcon={<StopIcon />}
-              onClick={stop}
-              disabled={!capturing || busy}
-            >
-              Stop
-            </Button>
-            <Button
-              variant="outlined"
-              color="error"
-              startIcon={<DeleteSweepIcon />}
-              onClick={clear}
-              disabled={busy}
-            >
-              Clear
-            </Button>
-          </Stack>
-        </Grid>
-      </Grid>
+        `space-between` rather than a spacer, so the two groups keep their ends
+        as the middle stretches. Both wrap internally, and the row itself wraps
+        at narrow widths, which puts the actions under the status rather than
+        squeezing either.
+
+        The actions are OUTSIDE the fold above, deliberately — the same call
+        `AdhocPage` makes about its Run button. The workflow this collapse exists
+        for is "hide the settings so the packet table has room while packets
+        stream in", and that is exactly when a capture is RUNNING and Stop is the
+        control most likely to be wanted. Folding it away would take the only
+        means of ending a live capture with it, at the moment of wanting to.
+      */}
       <Stack
         direction="row"
-        spacing={1}
+        spacing={2}
         useFlexGap
         sx={{
           alignItems: 'center',
+          justifyContent: 'space-between',
           flexWrap: 'wrap',
           mt: 2,
         }}
       >
-        <Chip
-          size="small"
-          icon={<FiberManualRecordIcon sx={{ fontSize: 12 }} />}
-          color={capturing ? 'success' : 'default'}
-          variant={capturing ? 'filled' : 'outlined'}
-          label={capturing ? 'Capturing' : 'Idle'}
-        />
-        {status?.linkType && <Chip size="small" variant="outlined" label={`Link: ${status.linkType}`} />}
-        {status?.filter && <Chip size="small" variant="outlined" label={`Filter: ${status.filter}`} />}
-        {status && status.findingCount > 0 && (
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          sx={{
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
           <Chip
             size="small"
-            color="warning"
-            variant="outlined"
-            component={RouterLink}
-            to="/alerts"
-            clickable
-            label={`${status.findingCount} finding${status.findingCount === 1 ? '' : 's'} — view alerts`}
+            icon={<FiberManualRecordIcon sx={{ fontSize: 12 }} />}
+            color={capturing ? 'success' : 'default'}
+            variant={capturing ? 'filled' : 'outlined'}
+            label={capturing ? 'Capturing' : 'Idle'}
           />
-        )}
-        {status && status.droppedPackets > 0 && (
-          <Typography
-            variant="caption"
-            sx={{
-              color: 'text.secondary',
-            }}
+          {status?.linkType && <Chip size="small" variant="outlined" label={`Link: ${status.linkType}`} />}
+          {status?.filter && <Chip size="small" variant="outlined" label={`Filter: ${status.filter}`} />}
+          {status && status.findingCount > 0 && (
+            <Chip
+              size="small"
+              color="warning"
+              variant="outlined"
+              component={RouterLink}
+              to="/alerts"
+              clickable
+              label={`${status.findingCount} finding${status.findingCount === 1 ? '' : 's'} — view alerts`}
+            />
+          )}
+          {status && status.droppedPackets > 0 && (
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+              }}
+            >
+              {status.droppedPackets.toLocaleString()} older packet(s) dropped from the buffer
+            </Typography>
+          )}
+        </Stack>
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          sx={{
+            flexWrap: 'wrap',
+          }}
+        >
+          <Button
+            variant="contained"
+            startIcon={<PlayArrowIcon />}
+            onClick={start}
+            disabled={!canStart || captureUnavailable}
           >
-            {status.droppedPackets.toLocaleString()} older packet(s) dropped from the buffer
-          </Typography>
-        )}
+            Start capture
+          </Button>
+          <Button
+            variant="outlined"
+            color="warning"
+            startIcon={<StopIcon />}
+            onClick={stop}
+            disabled={!capturing || busy}
+          >
+            Stop
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<DeleteSweepIcon />}
+            onClick={clear}
+            disabled={busy}
+          >
+            Clear
+          </Button>
+        </Stack>
       </Stack>
     </SurfaceCard>
   );

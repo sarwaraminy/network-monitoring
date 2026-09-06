@@ -13,6 +13,7 @@ import type { ReactNode } from 'react';
 import useViewportFitHeight from '../hooks/useViewportFitHeight';
 import { sharedTableOptions } from '../tableTheme';
 import { GRID_METRICS, SURFACE } from '../theme';
+import GridPagination from './GridPagination';
 
 /**
  * The one table wrapper.
@@ -171,6 +172,16 @@ export interface DataGridProps<T extends MRT_RowData> {
   /** Fallback height until the first measurement lands. */
   fallbackMaxHeight?: string;
   /**
+   * Extra values that should force the height to be re-measured.
+   *
+   * The measurement observes this element and its parent for RESIZE, which is
+   * blind to anything that only moves the table. A panel collapsing above it is
+   * exactly that: nothing here changes size, the top edge simply rises, and the
+   * table keeps the height it was given when it sat lower — leaving a gap under
+   * it. Pass the state that moved it (`[expanded]`) and the measurement follows.
+   */
+  fitHeightDeps?: readonly unknown[];
+  /**
    * Escape hatch for what genuinely differs per table — row actions, detail
    * panels, per-row styling, a custom toolbar. Merged OVER the defaults below,
    * so a table can override any of them; the shared appearance from
@@ -211,6 +222,7 @@ function DataGridBase({
   emptyMessage = 'Nothing to show.',
   disableFitHeight = false,
   fallbackMaxHeight = '55vh',
+  fitHeightDeps = [],
   tableOptions,
 }: Readonly<DataGridProps<MRT_RowData>>) {
   /*
@@ -234,8 +246,9 @@ function DataGridBase({
   const { ref, maxHeight } = useViewportFitHeight<HTMLDivElement>({
     enabled: !disableFitHeight,
     // Re-measure when the row count changes: an empty table and a full one put
-    // the pagination bar in different places.
-    deps: [data.length],
+    // the pagination bar in different places. Plus whatever the caller says moves
+    // it — see `fitHeightDeps`.
+    deps: [data.length, ...fitHeightDeps],
   });
 
   /*
@@ -263,7 +276,17 @@ function DataGridBase({
     enableColumnResizing: false,
     enableDensityToggle: true,
     columnFilterDisplayMode: 'popover',
-    paginationDisplayMode: 'pages',
+    /*
+     * Our own footer, replacing MRT's bottom toolbar outright.
+     *
+     * MRT makes the two halves mutually exclusive: `paginationDisplayMode:
+     * 'pages'` gives numbered buttons and no record range, `'default'` gives a
+     * range and no numbers. Both are wanted, so the bar is rendered here — the
+     * same resolution the PRO 2.0 grid reached. See GridPagination.
+     *
+     * Before the spread, so a caller can still replace it.
+     */
+    renderBottomToolbar: ({ table }) => <GridPagination table={table} />,
     // MRT's selection banner is a surface with no counterpart anywhere else in
     // this app, and it pushes the table down as it appears.
     positionToolbarAlertBanner: 'none',

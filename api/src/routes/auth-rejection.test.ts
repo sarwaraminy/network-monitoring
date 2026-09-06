@@ -64,23 +64,37 @@ before(async () => {
   // silent read of whatever database the developer had configured.
   process.env.DATABASE_URL = 'postgres://nobody:nothing@127.0.0.1:1/should-never-connect';
 
-  const [{ createApp }, alerts, audit, auth, flow, intel, notify, suppressions, packets, logs, registry] =
-    await Promise.all([
-      import('../app.js'),
-      import('./alerts.routes.js'),
-      import('./audit.routes.js'),
-      import('./auth.routes.js'),
-      import('./flow.routes.js'),
-      import('./intel.routes.js'),
-      import('./notify.routes.js'),
-      import('./suppressions.routes.js'),
-      import('./packets.routes.js'),
-      import('./logs.routes.js'),
-      import('../services/packet-capture.registry.js'),
-    ]);
+  const [
+    { createApp },
+    adhoc,
+    alerts,
+    audit,
+    auth,
+    flow,
+    intel,
+    notify,
+    suppressions,
+    packets,
+    logs,
+    registry,
+  ] = await Promise.all([
+    import('../app.js'),
+    import('./adhoc.routes.js'),
+    import('./alerts.routes.js'),
+    import('./audit.routes.js'),
+    import('./auth.routes.js'),
+    import('./flow.routes.js'),
+    import('./intel.routes.js'),
+    import('./notify.routes.js'),
+    import('./suppressions.routes.js'),
+    import('./packets.routes.js'),
+    import('./logs.routes.js'),
+    import('../services/packet-capture.registry.js'),
+  ]);
 
   mounts = [
     { at: '/auth', router: () => auth.authRouter },
+    { at: '/api/adhoc', router: () => adhoc.adhocRouter },
     { at: '/api/alerts', router: () => alerts.alertsRouter },
     { at: '/api/audit', router: () => audit.auditRouter },
     { at: '/api/flow', router: () => flow.flowRouter },
@@ -294,6 +308,7 @@ const EXPECTED: readonly string[] = [
   'DELETE /api/alerts/devices/aa:bb:cc:dd:ee:ff',
   'DELETE /api/log/1',
   'DELETE /api/suppressions/1',
+  'GET /api/adhoc',
   'GET /api/alerts',
   'GET /api/alerts/dashboard',
   'GET /api/alerts/devices',
@@ -317,6 +332,7 @@ const EXPECTED: readonly string[] = [
   'GET /auth/me',
   'GET /auth/users',
   'PATCH /api/suppressions/1',
+  'POST /api/adhoc/query',
   'POST /api/alerts/1/acknowledge',
   'POST /api/alerts/1/unacknowledge',
   'POST /api/intel/reload',

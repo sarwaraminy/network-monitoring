@@ -1,6 +1,5 @@
 import ChevronLeftOutlinedIcon from '@mui/icons-material/ChevronLeftOutlined';
 import CloseOutlinedIcon from '@mui/icons-material/CloseOutlined';
-import KeyboardArrowDownOutlinedIcon from '@mui/icons-material/KeyboardArrowDownOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import Box from '@mui/material/Box';
 import Collapse from '@mui/material/Collapse';
@@ -12,6 +11,7 @@ import Tooltip from '@mui/material/Tooltip';
 import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { NAV, RADIUS, SIDEBAR_METRICS, SURFACE } from '../theme';
+import { DisclosureCaret } from './DisclosureCaret';
 import { groupContaining, type NavGroup } from './navItems';
 
 /*
@@ -51,31 +51,6 @@ import { groupContaining, type NavGroup } from './navItems';
  * of the two into a new port would import that problem rather than the design.
  * ===========================================================================
  */
-
-/**
- * A single chevron that points down when collapsed and rotates a full 180° when
- * expanded — never two different glyphs.
- *
- * Swapping the glyph makes the arrowhead teleport rather than turn, so the
- * control reads as two states of two different things. `aria-hidden` because
- * the state is already announced by `aria-expanded` on the button that owns it.
- */
-function DisclosureCaret({ expanded }: Readonly<{ expanded: boolean }>) {
-  return (
-    <Box
-      component="span"
-      aria-hidden
-      sx={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        transition: 'transform 200ms ease',
-        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-      }}
-    >
-      <KeyboardArrowDownOutlinedIcon sx={{ fontSize: 16 }} />
-    </Box>
-  );
-}
 
 /** The same rule on the other axis: one chevron, turned, for the rail toggle. */
 function RailCollapseCaret({ collapsed }: Readonly<{ collapsed: boolean }>) {

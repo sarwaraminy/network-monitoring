@@ -15,6 +15,14 @@ interface PacketTableProps {
   packets: Packet[];
   capturing: boolean;
   onIpClick: (ipAddress: string) => void;
+  /**
+   * Values that should force the table to re-measure its height.
+   *
+   * The capture settings above this table fold away, which moves the table up
+   * without changing its size — invisible to the resize observer the measurement
+   * uses. See `DataGrid`'s `fitHeightDeps`.
+   */
+  fitHeightDeps?: readonly unknown[];
 }
 
 /**
@@ -24,7 +32,12 @@ interface PacketTableProps {
  * `packet.destinationIpAddress ? ... : null` guard. The two hex streams live in
  * the expandable detail panel rather than inline cells.
  */
-export default function PacketTable({ packets, capturing, onIpClick }: Readonly<PacketTableProps>) {
+export default function PacketTable({
+  packets,
+  capturing,
+  onIpClick,
+  fitHeightDeps,
+}: Readonly<PacketTableProps>) {
   const rows = useMemo(() => packets.filter((packet) => Boolean(packet.destinationIpAddress)), [packets]);
 
   const columns = useMemo<MRT_ColumnDef<Packet>[]>(
@@ -166,7 +179,7 @@ export default function PacketTable({ packets, capturing, onIpClick }: Readonly<
     ),
   } satisfies Partial<MRT_TableOptions<Packet>>;
 
-  return <DataGrid columns={columns} data={rows} tableOptions={tableOptions} />;
+  return <DataGrid columns={columns} data={rows} tableOptions={tableOptions} fitHeightDeps={fitHeightDeps} />;
 }
 
 /*
