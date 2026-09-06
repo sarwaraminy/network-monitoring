@@ -66,42 +66,21 @@ export interface EmailChannelOptions {
   transportFactory?: () => Transporter;
 }
 
-/**
- * What XOAUTH2 needs, by the environment variable an operator would set.
- *
- * The username is on this list because nodemailer treats OAuth2 without a user as
- * *no auth configured at all*: it would connect, send no AUTH command, and the
- * server would refuse the message with a 530 that says nothing about a missing
- * mailbox address. Named here instead.
- */
-const OAUTH_REQUIREMENTS: ReadonlyArray<{ variable: string; get: (options: EmailChannelOptions) => string }> =
-  [
-    { variable: 'SMTP_USER', get: (options) => options.user },
-    { variable: 'SMTP_OAUTH_CLIENT_ID', get: (options) => options.oauth.clientId },
-    { variable: 'SMTP_OAUTH_CLIENT_SECRET', get: (options) => options.oauth.clientSecret },
-    { variable: 'SMTP_OAUTH_REFRESH_TOKEN', get: (options) => options.oauth.refreshToken },
-    { variable: 'SMTP_OAUTH_TOKEN_URL', get: (options) => options.oauth.tokenUrl },
-  ];
-
-/**
- * The OAuth2 settings that are missing, named by their variable.
- *
- * Exported so the refusal has a test that does not need a mail server. Checked
- * before anything opens a socket, because the alternative — build the transport
- * anyway — produces either a silent unauthenticated send or a provider error about
- * a malformed grant, and neither says "you did not finish filling this in".
- */
-export function missingOauthSettings(options: EmailChannelOptions): string[] {
-  if (options.authMethod !== 'oauth2') return [];
-  return OAUTH_REQUIREMENTS.filter(({ get }) => get(options).trim() === '').map(({ variable }) => variable);
-}
-
 export class EmailChannel implements NotificationChannel {
   readonly name = 'email';
   private transporter: Transporter | null = null;
 
   constructor(private readonly options: EmailChannelOptions) {}
 
+  /**
+   * Whether this channel can attempt a send.
+   *
+   * Host, sender and recipients only. Whether the *authentication* is complete is
+   * decided one layer up, by `isEmailConfigured` in settings.ts, which is what
+   * `buildChannels` consults before a channel exists at all — an OAuth2 mailbox
+   * missing its refresh token never becomes a channel, so there is nothing for this
+   * to re-check and no second definition to drift from.
+   */
   isConfigured(): boolean {
     return this.options.host.trim() !== '' && this.options.from.trim() !== '' && this.options.to.length > 0;
   }
@@ -111,9 +90,6 @@ export class EmailChannel implements NotificationChannel {
     if (!this.isConfigured()) {
       return { channel: this.name, ok: false, detail: 'email is not configured' };
     }
-
-    const incomplete = this.incompleteOauth();
-    if (incomplete) return { channel: this.name, ok: false, detail: incomplete };
 
     try {
       const transporter = this.transport();
@@ -147,9 +123,6 @@ export class EmailChannel implements NotificationChannel {
       return { channel: this.name, ok: false, detail: 'email is not configured' };
     }
 
-    const incomplete = this.incompleteOauth();
-    if (incomplete) return { channel: this.name, ok: false, detail: incomplete };
-
     try {
       await this.transport().verify();
       return { channel: this.name, ok: true, detail: `${this.options.host}:${this.options.port} reachable` };
@@ -165,16 +138,6 @@ export class EmailChannel implements NotificationChannel {
   close(): void {
     this.transporter?.close();
     this.transporter = null;
-  }
-
-  /** The message for an OAuth2 setup that is not finished, or null when it is. */
-  private incompleteOauth(): string | null {
-    const missing = missingOauthSettings(this.options);
-    if (missing.length === 0) return null;
-    return (
-      `email is set to OAuth2 but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set. ` +
-      'Fill these in on the Delivery page, or set the email auth method back to password.'
-    );
   }
 
   private transport(): Transporter {
@@ -271,16 +234,25 @@ function authFor(options: EmailChannelOptions): Pick<SMTPPool.Options, 'auth'> {
  * checks the password, finds it right, and concludes the tool is broken. The failure
  * is real and unavoidable; presenting it as "wrong password" is not.
  *
- * With **OAuth2**, the same rejection means the opposite thing — the credentials were
- * accepted well enough to mint a token — and there are two distinct failures worth
- * separating:
+ * With **OAuth2** the same rejection means the opposite thing — the credentials were
+ * accepted well enough to mint a token — and two distinct failures hide behind it:
  *
- *   - `EOAUTH2`: the token endpoint refused. The refresh token has expired or been
- *     revoked, the client secret has rotated, or the token URL is the wrong tenant.
- *     The provider's own `error_description` is already in the message.
- *   - `EAUTH` / 535: a token was obtained and the *mailbox* refused it. On Microsoft
- *     365 this is almost always SMTP AUTH still disabled for that mailbox, which is a
- *     per-mailbox setting that OAuth2 does not bypass.
+ *   - **The token endpoint refused.** The refresh token has expired or been revoked,
+ *     the client secret has rotated, or the token URL is the wrong tenant. The
+ *     provider's own `error_description` is already in the message.
+ *   - **A token was obtained and the mailbox refused it.** On Microsoft 365 this is
+ *     almost always SMTP AUTH still disabled for that mailbox, which is a per-mailbox
+ *     setting OAuth2 does not bypass.
+ *
+ * They are told apart by the **absence of an SMTP response code**, not by `code`.
+ * Nodemailer does not deliver its own `EOAUTH2` to callers: `_handleXOauth2Token`
+ * passes the token error through `_formatError(err, 'EAUTH', false, 'AUTH XOAUTH2')`
+ * (`smtp-connection/index.js:1959`), which mutates that same Error and overwrites
+ * `code` with `EAUTH`. Because the response argument is `false`, no `responseCode` is
+ * ever attached — the exchange never reached the server. A mailbox rejection comes
+ * from `_actionAUTHComplete`, which passes the server's line, so it carries
+ * `responseCode: 535`. `EOAUTH2` is still accepted here in case a future version
+ * stops rewriting it, but it is the missing code that does the work.
  *
  * `EAUTH` is nodemailer's own classification and the 5xx codes are SMTP's; both are
  * checked because a server may return one without the other.
@@ -289,26 +261,30 @@ function describe(error: unknown, authMethod: EmailAuthMethod): string {
   if (!(error instanceof Error)) return String(error);
 
   const smtp = error as Error & { responseCode?: number; code?: string };
-
-  if (smtp.code === 'EOAUTH2') {
-    return (
-      `${error.message} — the identity provider refused to issue an access token. The refresh ` +
-      'token may have expired or been revoked, the client secret may have rotated, or ' +
-      'SMTP_OAUTH_TOKEN_URL may point at the wrong tenant. A new refresh token has to be ' +
-      'obtained the same way the first one was.'
-    );
-  }
-
   const rejectedCredentials = smtp.code === 'EAUTH' || smtp.responseCode === 535 || smtp.responseCode === 534;
 
-  if (rejectedCredentials && authMethod === 'oauth2') {
-    return (
-      `${error.message} — a token was issued but the mailbox rejected it. On Microsoft 365 this ` +
-      'is usually SMTP AUTH still disabled for this specific mailbox, which OAuth2 does not ' +
-      'bypass (Set-CASMailbox -SmtpClientAuthenticationDisabled $false). Check too that ' +
-      'SMTP_USER is the mailbox being sent from and that the app registration holds the ' +
-      'SMTP.Send permission.'
-    );
+  if (authMethod === 'oauth2') {
+    const neverReachedTheServer =
+      smtp.code === 'EOAUTH2' || (rejectedCredentials && smtp.responseCode === undefined);
+
+    if (neverReachedTheServer) {
+      return (
+        `${error.message} — the identity provider refused to issue an access token. The refresh ` +
+        'token may have expired or been revoked, the client secret may have rotated, or ' +
+        'SMTP_OAUTH_TOKEN_URL may point at the wrong tenant. A new refresh token has to be ' +
+        'obtained the same way the first one was.'
+      );
+    }
+
+    if (rejectedCredentials) {
+      return (
+        `${error.message} — a token was issued but the mailbox rejected it. On Microsoft 365 ` +
+        'this is usually SMTP AUTH still disabled for this specific mailbox, which OAuth2 does ' +
+        'not bypass (Set-CASMailbox -SmtpClientAuthenticationDisabled $false). Check too that ' +
+        'SMTP_USER is the mailbox being sent from and that the app registration holds the ' +
+        'SMTP.Send permission.'
+      );
+    }
   }
 
   if (rejectedCredentials) {

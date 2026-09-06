@@ -361,51 +361,6 @@ export const deliverySettingsPatchSchema = z
      * cannot corrupt the set. A comma-separated string is still accepted, because
      * that is what the environment variable looks like and somebody will paste one.
      */
-    /**
-     * XOAUTH2, for a tenant that permits nothing else. See issue #27.
-     *
-     * None of these is required *by the schema*, because every field of this patch
-     * is optional by design — the form sends only what changed, and a secret that
-     * is not being replaced is absent rather than round-tripped. "OAuth2 is
-     * selected but half-filled" is therefore not something a per-request schema can
-     * see; `missingOauthSettings` in notify/email.ts is where that is caught, and
-     * it names the missing variables in the delivery result rather than opening a
-     * socket to fail.
-     */
-    emailAuthMethod: z.enum(EMAIL_AUTH_METHODS).nullable().optional(),
-    emailOauthClientId: nullableTrimmed(255),
-    // A credential. Accepted, never returned.
-    emailOauthClientSecret: nullableTrimmed(500),
-    // The credential that mints access tokens for the mailbox, and the longest
-    // string this table stores: a Microsoft refresh token routinely runs past a
-    // kilobyte where a Google one is a hundred characters.
-    emailOauthRefreshToken: nullableTrimmed(4000),
-    /*
-     * A full URL, checked the same way the webhook URL is and for the same reason:
-     * this one is POSTed to with the refresh token in the body, so a scheme other
-     * than http(s) — or a stray `javascript:` — must not reach the fetch.
-     */
-    emailOauthTokenUrl: z
-      .string()
-      .trim()
-      .max(500)
-      .refine(
-        (value) => {
-          try {
-            return ['http:', 'https:'].includes(new URL(value).protocol);
-          } catch {
-            return false;
-          }
-        },
-        {
-          message:
-            'emailOauthTokenUrl must be a full URL including the scheme, e.g. https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token',
-        },
-      )
-      .nullable()
-      .optional(),
-    emailOauthScope: nullableTrimmed(500),
-
     emailTo: z
       .union([z.array(z.string()), z.string()])
       .nullable()
@@ -427,6 +382,57 @@ export const deliverySettingsPatchSchema = z
           .nullable()
           .optional(),
       ),
+
+    /**
+     * XOAUTH2, for a tenant that permits nothing else. See issue #27.
+     *
+     * None of these is required *by the schema*, because every field of this patch
+     * is optional by design — the form sends only what changed, and a secret that
+     * is not being replaced is absent rather than round-tripped. "OAuth2 is
+     * selected but half-filled" is therefore not something a per-request schema can
+     * see; `missingOauthSettings` in notify/email.ts is where that is caught, and
+     * it names the missing variables in the delivery result rather than opening a
+     * socket to fail.
+     */
+    emailAuthMethod: z.enum(EMAIL_AUTH_METHODS).nullable().optional(),
+    emailOauthClientId: nullableTrimmed(255),
+    // A credential. Accepted, never returned.
+    emailOauthClientSecret: nullableTrimmed(500),
+    // The credential that mints access tokens for the mailbox, and the longest
+    // string this table stores: a Microsoft refresh token routinely runs past a
+    // kilobyte where a Google one is a hundred characters.
+    emailOauthRefreshToken: nullableTrimmed(4000),
+    /*
+     * `https:` only — narrower than the webhook URL's allowlist, deliberately.
+     *
+     * Permitting `http:` for a webhook is defensible: it is often an endpoint inside
+     * the same network, and the URL is the only thing at stake. This field is where
+     * `client_secret` and `refresh_token` are POSTed on every token refresh, so an
+     * `http:` value would put long-lived credentials on the wire in cleartext, over
+     * and over, with nothing visible to say it was happening. No real provider offers
+     * a plaintext token endpoint — Microsoft and Google are both https-only — so the
+     * restriction costs nothing an operator would want.
+     */
+    emailOauthTokenUrl: z
+      .string()
+      .trim()
+      .max(500)
+      .refine(
+        (value) => {
+          try {
+            return new URL(value).protocol === 'https:';
+          } catch {
+            return false;
+          }
+        },
+        {
+          message:
+            'emailOauthTokenUrl must be an https URL, e.g. https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token — the client secret and refresh token are posted to it',
+        },
+      )
+      .nullable()
+      .optional(),
+    emailOauthScope: nullableTrimmed(500),
   })
   // Unknown keys are refused rather than ignored: a typo like `minSeverety` would
   // otherwise return 200 having changed nothing, which is the silent no-op this

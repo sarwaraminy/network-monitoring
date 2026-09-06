@@ -185,8 +185,13 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       # password | oauth2. The five below are read only under oauth2 — see
-      # .env.example for the Microsoft 365 and Google setups.
-      SMTP_AUTH_METHOD: ${SMTP_AUTH_METHOD:-password}
+      # .env.example for the Microsoft 365 and Google setups. Blank rather than
+      # `password`, and that is not a typo: any non-blank value here PINS the field, so
+      # the Delivery page would render the authentication select disabled and hide the
+      # five OAuth2 fields behind it, making this feature unreachable from the UI on
+      # the default stack. Blank means unset, and DELIVERY_DEFAULTS already makes
+      # password the effective default.
+      SMTP_AUTH_METHOD: ${SMTP_AUTH_METHOD:-}
       SMTP_OAUTH_CLIENT_ID: ${SMTP_OAUTH_CLIENT_ID:-}
       SMTP_OAUTH_CLIENT_SECRET: ${SMTP_OAUTH_CLIENT_SECRET:-}
       SMTP_OAUTH_REFRESH_TOKEN: ${SMTP_OAUTH_REFRESH_TOKEN:-}

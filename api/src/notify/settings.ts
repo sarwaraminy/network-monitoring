@@ -445,5 +445,39 @@ export function isWebhookConfigured(settings: DeliverySettings): boolean {
 }
 
 export function isEmailConfigured(settings: DeliverySettings): boolean {
-  return settings.emailHost.trim() !== '' && settings.emailFrom.trim() !== '' && settings.emailTo.length > 0;
+  const pointedSomewhere =
+    settings.emailHost.trim() !== '' && settings.emailFrom.trim() !== '' && settings.emailTo.length > 0;
+  return pointedSomewhere && missingEmailOauthSettings(settings).length === 0;
+}
+
+/**
+ * What an OAuth2 mailbox still needs, named by the variable an operator would set.
+ *
+ * Empty for a password mailbox, and empty for a complete OAuth2 one — so
+ * `isEmailConfigured` can ask this without a second opinion about which mode is in
+ * force. That single answer is the point: host, sender and recipients can all be set
+ * while the refresh token is blank, and a channel in that state reports itself ready
+ * and refuses every send.
+ *
+ * The username is on the list because nodemailer treats OAuth2 without a user as *no
+ * auth configured at all*: it would connect, send no AUTH command, and the server
+ * would refuse the message with a 530 that mentions no missing mailbox address.
+ *
+ * Variable names rather than field keys, for the same reason `invalidEnvironmentVariables`
+ * uses them: an operator reading `emailOauthRefreshToken` has nothing to search for,
+ * and `SMTP_OAUTH_REFRESH_TOKEN` is a line in their file and a labelled box on the
+ * Delivery page.
+ */
+export function missingEmailOauthSettings(settings: DeliverySettings): string[] {
+  if (settings.emailAuthMethod !== 'oauth2') return [];
+
+  const required: ReadonlyArray<[value: string, variable: string]> = [
+    [settings.emailUser, 'SMTP_USER'],
+    [settings.emailOauthClientId, 'SMTP_OAUTH_CLIENT_ID'],
+    [settings.emailOauthClientSecret, 'SMTP_OAUTH_CLIENT_SECRET'],
+    [settings.emailOauthRefreshToken, 'SMTP_OAUTH_REFRESH_TOKEN'],
+    [settings.emailOauthTokenUrl, 'SMTP_OAUTH_TOKEN_URL'],
+  ];
+
+  return required.filter(([value]) => value.trim() === '').map(([, variable]) => variable);
 }

@@ -7,6 +7,7 @@ import {
   environmentPinnedFields,
   isEmailConfigured,
   isWebhookConfigured,
+  missingEmailOauthSettings,
   pinnedConflicts,
 } from '../notify/settings.js';
 import {
@@ -191,15 +192,37 @@ notifyRouter.put(
  * Admin-only. It causes outbound traffic to a third party and would otherwise be a
  * way for any account to make the server send messages on demand.
  */
+/**
+ * Why there is nothing to send to.
+ *
+ * An OAuth2 mailbox that is half filled in gets its own answer. `isEmailConfigured`
+ * refuses it — correctly, since every send would fail — but the generic message
+ * ("set an SMTP host with recipients") describes a mailbox whose host and recipients
+ * *are* already set, so it sends the operator to check the two things that are not
+ * the problem. This is the one moment they have actively asked why delivery does not
+ * work; naming the unset fields here is the whole difference between a setup that can
+ * be finished and one that cannot.
+ */
+function nothingConfiguredMessage(): string {
+  const missing = missingEmailOauthSettings(currentSettings());
+
+  if (missing.length > 0) {
+    return (
+      `Email is set to OAuth2 but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set, ` +
+      'so the mailbox cannot authenticate. Fill those in on this page, or set the authentication ' +
+      'method back to password.'
+    );
+  }
+
+  return 'No delivery channel is configured. Set a webhook URL, a syslog host, or an SMTP host with recipients — on this page, or in api/.env.';
+}
+
 notifyRouter.post(
   '/test',
   requireRole('ADMIN'),
   asyncHandler(async (_req, res) => {
     if (notifier().configuredChannels.length === 0) {
-      res.status(400).json({
-        message:
-          'No delivery channel is configured. Set a webhook URL, a syslog host, or an SMTP host with recipients — on this page, or in api/.env.',
-      });
+      res.status(400).json({ message: nothingConfiguredMessage() });
       return;
     }
 

@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { Transporter } from 'nodemailer';
-import {
-  EmailChannel,
-  type EmailChannelOptions,
-  missingOauthSettings,
-  transportOptionsFor,
-} from './email.js';
+import { EmailChannel, type EmailChannelOptions, transportOptionsFor } from './email.js';
 import type { Notification } from './types.js';
 
 /**
@@ -82,9 +77,31 @@ function failingTransport(error: unknown): () => Transporter {
   return () => transporter as unknown as Transporter;
 }
 
-/** The rejection nodemailer surfaces for a refused login. */
-function authError(message: string): Error {
-  return Object.assign(new Error(message), { code: 'EAUTH', responseCode: 535 });
+/**
+ * The two failures nodemailer produces, shaped the way it really shapes them.
+ *
+ * Both arrive as `code: 'EAUTH'` — `_handleXOauth2Token` passes a token error through
+ * `_formatError(err, 'EAUTH', false, …)`, which overwrites the `EOAUTH2` the xoauth2
+ * client set. What separates them is `responseCode`: `_formatError` only attaches one
+ * when it was given the server's reply, and a token that was never issued never
+ * reached the server. Constructing these by hand from `{ code: 'EOAUTH2' }` would
+ * assert a branch's wording while proving nothing about whether it is reachable.
+ */
+
+/** A mailbox refusing a credential: nodemailer's `_actionAUTHComplete` path. */
+function mailboxRejection(serverLine: string): Error {
+  return Object.assign(new Error(`Invalid login: ${serverLine}`), {
+    code: 'EAUTH',
+    response: serverLine,
+    responseCode: Number(serverLine.slice(0, 3)),
+    command: 'AUTH XOAUTH2',
+  });
+}
+
+/** The identity provider refusing to issue one: the `_handleXOauth2Token` path. */
+function tokenRefusal(message: string): Error {
+  // `code` starts as EOAUTH2 in the xoauth2 client and is overwritten in place.
+  return Object.assign(new Error(message), { code: 'EAUTH', command: 'AUTH XOAUTH2' });
 }
 
 describe('the SMTP auth block', () => {
@@ -133,72 +150,13 @@ describe('the SMTP auth block', () => {
   });
 });
 
-describe('an unfinished OAuth2 setup', () => {
-  it('names every missing setting, by the name an operator would set', () => {
-    // Field keys would send them searching for something that appears in no file
-    // they can edit.
-    assert.deepEqual(missingOauthSettings({ ...BASE, authMethod: 'oauth2' }), [
-      'SMTP_USER',
-      'SMTP_OAUTH_CLIENT_ID',
-      'SMTP_OAUTH_CLIENT_SECRET',
-      'SMTP_OAUTH_REFRESH_TOKEN',
-      'SMTP_OAUTH_TOKEN_URL',
-    ]);
-  });
-
-  it('counts a whitespace-only value as missing', () => {
-    const options = { ...OAUTH, oauth: { ...OAUTH.oauth, refreshToken: '   ' } };
-    assert.deepEqual(missingOauthSettings(options), ['SMTP_OAUTH_REFRESH_TOKEN']);
-  });
-
-  it('says nothing is missing while the method is password', () => {
-    // Not "these fields are blank" — they are irrelevant, and reporting them would
-    // make an ordinary relay look misconfigured.
-    assert.deepEqual(missingOauthSettings(BASE), []);
-  });
-
-  it('refuses to send without opening a socket, and says which settings are unset', async () => {
-    let built = 0;
-    const channel = new EmailChannel({
-      ...OAUTH,
-      oauth: { ...OAUTH.oauth, refreshToken: '' },
-      transportFactory: () => {
-        built += 1;
-        return failingTransport(new Error('should not be reached'))();
-      },
-    });
-
-    const result = await channel.send(NOTIFICATION);
-
-    assert.equal(result.ok, false);
-    assert.match(result.detail ?? '', /SMTP_OAUTH_REFRESH_TOKEN/);
-    // The point of checking before building: a half-configured OAuth2 transport
-    // either sends unauthenticated or fails at the provider, and neither failure
-    // mentions the field that was never filled in.
-    assert.equal(built, 0);
-  });
-
-  it('refuses the connection check too', async () => {
-    const channel = new EmailChannel({
-      ...OAUTH,
-      oauth: { ...OAUTH.oauth, clientSecret: '' },
-      transportFactory: failingTransport(new Error('should not be reached')),
-    });
-
-    const result = await channel.verify();
-
-    assert.equal(result.ok, false);
-    assert.match(result.detail ?? '', /SMTP_OAUTH_CLIENT_SECRET/);
-  });
-});
-
 describe('what a rejection is reported as', () => {
   it('blames basic SMTP AUTH being disabled when a password was used', async () => {
     const channel = new EmailChannel({
       ...BASE,
       user: 'nmt@contoso.test',
       password: 'correct-password',
-      transportFactory: failingTransport(authError('535 5.7.139 Authentication unsuccessful')),
+      transportFactory: failingTransport(mailboxRejection('535 5.7.139 Authentication unsuccessful')),
     });
 
     const detail = (await channel.send(NOTIFICATION)).detail ?? '';
@@ -213,7 +171,7 @@ describe('what a rejection is reported as', () => {
     // setting that OAuth2 does not bypass.
     const channel = new EmailChannel({
       ...OAUTH,
-      transportFactory: failingTransport(authError('535 5.7.3 Authentication unsuccessful')),
+      transportFactory: failingTransport(mailboxRejection('535 5.7.3 Authentication unsuccessful')),
     });
 
     const detail = (await channel.send(NOTIFICATION)).detail ?? '';
@@ -223,14 +181,14 @@ describe('what a rejection is reported as', () => {
   });
 
   it('separates a token that could not be issued from one the mailbox refused', async () => {
-    // nodemailer's EOAUTH2 carries the provider's own error_description, so "the
-    // refresh token has expired" is already in the message; what it does not say is
-    // that a new one has to be obtained the way the first was.
+    // The failure this feature exists to diagnose, and the one that is easiest to
+    // mislabel: it arrives as the same EAUTH as a mailbox rejection, and telling the
+    // operator to run Set-CASMailbox would send them to change a mailbox setting when
+    // what needs reissuing is their refresh token. The absence of a responseCode is
+    // the only thing separating the two.
     const channel = new EmailChannel({
       ...OAUTH,
-      transportFactory: failingTransport(
-        Object.assign(new Error('invalid_grant: The refresh token has expired'), { code: 'EOAUTH2' }),
-      ),
+      transportFactory: failingTransport(tokenRefusal('invalid_grant: The refresh token has expired')),
     });
 
     const detail = (await channel.send(NOTIFICATION)).detail ?? '';
@@ -238,6 +196,37 @@ describe('what a rejection is reported as', () => {
     assert.match(detail, /invalid_grant/);
     assert.match(detail, /refresh token/);
     assert.doesNotMatch(detail, /SmtpClientAuthenticationDisabled/);
+  });
+
+  it('still reads a bare EOAUTH2 as the provider refusing', async () => {
+    // Belt and braces: nodemailer rewrites the code today, and this is what happens
+    // if a future version stops.
+    const channel = new EmailChannel({
+      ...OAUTH,
+      transportFactory: failingTransport(
+        Object.assign(new Error('invalid_client: bad secret'), { code: 'EOAUTH2' }),
+      ),
+    });
+
+    assert.match((await channel.send(NOTIFICATION)).detail ?? '', /identity provider refused/);
+  });
+
+  it('leaves a password mailbox out of the OAuth2 explanations entirely', async () => {
+    // A password login can fail without a response code too — a socket dropped
+    // mid-AUTH. It must not be described as a refresh token problem.
+    const channel = new EmailChannel({
+      ...BASE,
+      user: 'nmt@example.test',
+      password: 'app-password',
+      transportFactory: failingTransport(
+        Object.assign(new Error('Unexpected socket close'), { code: 'EAUTH', command: 'AUTH LOGIN' }),
+      ),
+    });
+
+    const detail = (await channel.send(NOTIFICATION)).detail ?? '';
+
+    assert.doesNotMatch(detail, /refresh token/);
+    assert.match(detail, /basic SMTP AUTH/);
   });
 
   it('passes an ordinary failure through unexplained', async () => {

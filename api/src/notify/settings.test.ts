@@ -4,10 +4,13 @@ import {
   DELIVERY_DEFAULTS,
   DELIVERY_FIELDS,
   type DeliveryField,
+  type DeliverySettings,
   effectiveSettings,
   environmentPinnedFields,
   invalidEnvironmentVariables,
+  isEmailConfigured,
   isSecretField,
+  missingEmailOauthSettings,
   parseFieldValue,
   pinnedConflicts,
   redactForApi,
@@ -285,5 +288,63 @@ describe('naming a bad environment value rather than silently ignoring it', () =
     // See parseFieldValue's boolean case — this is the one kind that never falls
     // through, matching the legacy parser it replaces.
     assert.deepEqual(invalidEnvironmentVariables({ NOTIFY_INCLUDE_EVIDENCE: 'maybe' }), []);
+  });
+});
+
+describe('whether email could actually deliver', () => {
+  const POINTED: DeliverySettings = {
+    ...DELIVERY_DEFAULTS,
+    emailHost: 'smtp.office365.com',
+    emailFrom: 'nmt@contoso.test',
+    emailTo: ['ops@contoso.test'],
+  };
+
+  const OAUTH: DeliverySettings = {
+    ...POINTED,
+    emailAuthMethod: 'oauth2',
+    emailUser: 'nmt@contoso.test',
+    emailOauthClientId: 'client-id',
+    emailOauthClientSecret: 'client-secret',
+    emailOauthRefreshToken: 'refresh-token',
+    emailOauthTokenUrl: 'https://login.microsoftonline.com/tenant/oauth2/v2.0/token',
+  };
+
+  it('needs a host, a sender and a recipient', () => {
+    assert.equal(isEmailConfigured(POINTED), true);
+    assert.equal(isEmailConfigured({ ...POINTED, emailFrom: '' }), false);
+    assert.equal(isEmailConfigured({ ...POINTED, emailTo: [] }), false);
+  });
+
+  it('needs the OAuth2 credentials too, once OAuth2 is the method', () => {
+    // The failure this guards: host, sender and recipients are all set, so the old
+    // check said configured — while every send was refused for want of a refresh
+    // token. `GET /api/notify/status` answered "email ready" and the Delivery page
+    // showed a working channel.
+    assert.equal(isEmailConfigured(OAUTH), true);
+    assert.equal(isEmailConfigured({ ...OAUTH, emailOauthRefreshToken: '' }), false);
+    assert.equal(isEmailConfigured({ ...OAUTH, emailUser: '' }), false);
+  });
+
+  it('names what is missing, by the variable an operator would set', () => {
+    assert.deepEqual(missingEmailOauthSettings({ ...POINTED, emailAuthMethod: 'oauth2' }), [
+      'SMTP_USER',
+      'SMTP_OAUTH_CLIENT_ID',
+      'SMTP_OAUTH_CLIENT_SECRET',
+      'SMTP_OAUTH_REFRESH_TOKEN',
+      'SMTP_OAUTH_TOKEN_URL',
+    ]);
+    assert.deepEqual(missingEmailOauthSettings({ ...OAUTH, emailOauthClientSecret: '   ' }), [
+      'SMTP_OAUTH_CLIENT_SECRET',
+    ]);
+  });
+
+  it('asks nothing of a password mailbox', () => {
+    // Not "these five are blank" — they are irrelevant, and an internal relay with
+    // no credentials at all is the configuration the README puts first.
+    assert.deepEqual(missingEmailOauthSettings(POINTED), []);
+    assert.equal(
+      isEmailConfigured({ ...OAUTH, emailAuthMethod: 'password', emailOauthRefreshToken: '' }),
+      true,
+    );
   });
 });
