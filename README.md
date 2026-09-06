@@ -813,6 +813,83 @@ than reusing the pattern the rest of this trail relies on. Worth doing, not yet 
 
 ---
 
+## Ad Hoc Query
+
+The question no screen was built for.
+
+Every other page here answers something somebody designed a page for. This one is where an
+administrator goes when the shape of what they need is not one of those, and the alternative
+is a `psql` session on the server or an export nobody has written.
+
+**It is off by default**, and that default is the important one in this repository. Switched
+on without thought, a SQL console is a prompt on the production database reachable from a
+browser session.
+
+### What makes it safe is not in the application
+
+There is no validation of the SQL. Deliberately: app-side checking does not hold — a CTE
+carries DML, a comment or a string literal hides a keyword, `;` chains a second statement —
+and writing a check invites the belief that it is doing something. Postgres already has an
+authorisation system that gets all of this right, so the console borrows it rather than
+reimplementing a worse one.
+
+The console authenticates as a dedicated role whose name is **derived, never configured**:
+
+| Mode | Role | May |
+| --- | --- | --- |
+| default | `nm_adhoc_<database>` | `SELECT` only |
+| `ADHOC_WRITE_ENABLED=true` | `nm_adhocrw_<database>` | `SELECT`, plus write on the operational tables |
+
+There is no connection-string setting on purpose. One would be one an operator could point
+at `postgres` — the owner this application connects as, a superuser in the default Compose
+file — turning every restriction off while the feature still appeared to work.
+
+Neither role can:
+
+- **read the columns holding secrets** — `users.password`, `delivery_settings.email_password`,
+  `webhook_url`. Excluded at the *column* level, so `SELECT * FROM users` is refused outright
+  rather than quietly returning the hash. A read-only console that can select a webhook URL
+  has exfiltrated a bearer credential just as thoroughly as one that could write.
+- **write `audit_events`** — reading it is granted, since a console that cannot search the
+  trail is a poor tool for the person searching it; no write grant exists in either mode, so
+  the trail stays append-only even in write mode and the console's own use remains
+  investigable. It writes an entry for every query it runs.
+- **change `users` or `delivery_settings`** — both have their own screens and their own audit
+  entries; a console `UPDATE` there would change who can log in, or where findings are
+  delivered, with no record beyond the query text.
+- **act as a superuser** — `COPY … FROM PROGRAM` is command execution on the database host,
+  and `pg_read_file` reads its filesystem. That is the difference between "can edit rows" and
+  "has the server".
+
+Write mode grants `INSERT`/`UPDATE`/`DELETE` on the operational tables only: findings, known
+devices, suppression rules, the legacy packet log and the daily rollup. Sequences get `USAGE`
+and `SELECT`, never `setval`.
+
+### It proves the cage at boot rather than assuming it
+
+Every control above is invisible when it fails. A migration that did not run, a grant an
+operator "fixed" while debugging, a role recreated by hand — each leaves a console that works
+perfectly and is wide open, and nothing on screen looks different.
+
+So on startup the console asks the database to confirm it is caged: that the role is not a
+superuser, that it cannot read `users.password`, and — depending on the mode — that it either
+cannot write at all, or can write while still being refused by `audit_events`. If any answer
+is wrong the feature stays off and says why. A feature that quietly did not start is a smaller
+problem than one that quietly did.
+
+### Around the role
+
+The things a grant cannot express: a separate two-connection pool, so a slow query cannot
+starve the pool detection and alerting share; a statement timeout, so a cartesian join stops
+instead of running until somebody notices; a row cap applied with a cursor, so the SQL is
+never rewritten; and `EXPLAIN`/`SHOW` run unwrapped inside the same transaction, timeout and
+role, because a cursor cannot hold them and a syntax error about SQL that has none is the
+worst thing to hand somebody who has just hit the timeout.
+
+`POST` is used for a read, which is not the mistake it looks like: a query string is written
+into the access log of every proxy in between, and into browser history. Neither is somewhere
+a `SELECT … FROM users` belongs, even a permitted one.
+
 ## Flow collection (NetFlow / IPFIX)
 
 Instead of capturing packets ourselves, let the switch, router or firewall do the observing and
@@ -1251,6 +1328,22 @@ table refuses `UPDATE`, `DELETE` and `TRUNCATE` at the database level.
 | `GET`  | `/`        | Entries, newest first. `action` filters, `before` pages (keyset on `id`), `limit` up to 200 |
 | `GET`  | `/actions` | The action vocabulary and its labels, so the filter cannot drift from the server |
 
+### Ad Hoc Query — `/api/adhoc`
+
+ADMIN-only, and off unless `ADHOC_ENABLED` is set. Runs as a dedicated Postgres role rather
+than as the application's own connection — see [Ad Hoc Query](#ad-hoc-query) for what that
+role may and may not do.
+
+| Method | Path     | Purpose                                                             |
+| ------ | -------- | ------------------------------------------------------------------- |
+| `GET`  | `/`      | Whether the console is usable, so the page can explain itself rather than render an editor whose every query answers 503 |
+| `POST` | `/query` | Runs one statement. `POST` for a read on purpose: a query string reaches the access log of every proxy in between, and browser history |
+
+`POST /query` answers `400` for a rejected query — including Postgres's own message verbatim,
+because "permission denied for table users" tells an administrator exactly which rule they met
+— `503` when the console is off or both its connections are busy, and `403` for anyone who is
+not an ADMIN.
+
 ### Suppression rules — `/api/suppressions`
 
 Findings the operator has declared expected. See [Suppression rules](#suppression-rules) for
@@ -1408,6 +1501,13 @@ network-monitoring-ui/        React + TypeScript + Vite frontend
 | `FLOW_PORT`            | `2055`                                         | 4739 is IANA's for IPFIX                       |
 | `FLOW_BIND_ADDRESS`    | `0.0.0.0`                                      | Narrow to a management interface in production  |
 | `FLOW_EXPORTERS`       | — (any source)                                 | Comma-separated allow-list of exporter addresses |
+| `ADHOC_ENABLED`        | `false`                                        | The SQL console. Off by default: switched on without thought, it is a prompt on the production database reachable from a browser session |
+| `ADHOC_WRITE_ENABLED`  | `false`                                        | Lets the console write. Selects a different Postgres role rather than relaxing a check in the app |
+| `ADHOC_DB_PASSWORD`    | *required when enabled*                        | Set on the console's role at boot                |
+| `ADHOC_AUDIT`          | `all`                                          | `all` / `refused` / `off`. Forced to `all` while writes are enabled |
+| `ADHOC_TIMEOUT_MS`     | `10000`                                        | A query stops here rather than running until somebody notices |
+| `ADHOC_MAX_ROWS`       | `1000`                                         | Rows returned to the browser. A grid, not an export |
+| `ADHOC_MAX_QUERY_LENGTH` | `20000`                                      | Characters accepted, so the body limit is not what rejects a query |
 
 Detection thresholds, shared by the packet and flow detectors and all tunable per network:
 
