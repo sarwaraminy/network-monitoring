@@ -505,10 +505,17 @@ than left to be guessed at:
 
 `SMTP_OAUTH_TOKEN_URL` has no default on purpose. Nodemailer's own fallback is Google's
 endpoint, so a blank value on a Microsoft tenant would post the refresh token to
-`accounts.google.com` and return a refusal that names neither problem. An OAuth2 setup
-missing any of the five required values is refused before a socket opens, naming the
-variables that are unset — rather than sending unauthenticated and reporting whatever the
-server says about that.
+`accounts.google.com` and return a refusal that names neither problem. It is also the one
+URL here restricted to `https:` — the client secret and refresh token are in the body of
+every token request — and that restriction applies wherever the value comes from, the
+environment variable included, since a value set there cannot be corrected from the UI.
+
+An OAuth2 mailbox missing any of the five required values is not treated as configured, and
+the three places that would otherwise say so incorrectly all name the unset variables
+instead: the Delivery page reports them rather than its standing "SMTP host, sender and at
+least one recipient", a test send lists email as a failed channel rather than leaving it out
+of the attempt, and an install with no channels at all is told what it actually needs. No
+socket is opened in any of them.
 
 ### Sending is disclosure
 
@@ -1745,28 +1752,74 @@ handler ran, so they reflect when the frame actually arrived.
 
 ## Screenshots
 
-> These predate the MUI rewrite and the alerts page — the flows are the same, the interface is
-> not. Worth recapturing before showing the project to anyone.
+Taken from the running application, against a small set of representative findings —
+the addresses and hostnames are from the documentation ranges, not a real network.
 
-**Login**
+**Dashboard** — what the detectors found, and which hosts keep appearing
 
-![Login page](./screenshots/login.png)
+![Dashboard](./screenshots/dashboard.png)
 
-**Findings list** (previously the anomaly log)
+**Security alerts** — every finding, newest first, with the severity tiles doubling as filters
 
-![Logs](./screenshots/Logs.png)
+![Security alerts](./screenshots/alerts.png)
 
-**Capture from an interface**
+**A finding, expanded** — what it means, and the evidence behind it. Evidence never contains
+passwords or payloads; the cleartext-credential detector records a username and the secret's
+*length*, and the tests assert it.
 
-![Scan packets](./screenshots/scanPacket.png)
+![A finding, expanded](./screenshots/alert-detail.png)
 
-**Capture filtered by IP**
+**IP lookup** — reverse DNS, geolocation and WHOIS for any address in a finding, from the
+magnifier beside it
 
-![Scan packets by IP](./screenshots/scanPacketIP.png)
+![IP information](./screenshots/ip-lookup.png)
 
-**WHOIS lookup**
+**Suppression rules** — findings you have declared expected. A matching finding is dropped
+before storage, not hidden behind a filter, and every rule carries the reason it exists.
 
-![WHOIS lookup](./screenshots/whoisLookup.png)
+![Suppression rules](./screenshots/suppressions.png)
+
+**Alert delivery** — where findings go and whether they are getting there, with the four
+limits that decide whether a message is sent stated on the page rather than buried in a
+config file
+
+![Alert delivery](./screenshots/delivery.png)
+
+**Delivery settings** — changed here and in force immediately, no file to edit and no
+restart. A field pinned in the environment renders disabled and names the variable that pins
+it (the padlocked chips), because a control that accepts an edit and changes nothing is worse
+than no control.
+
+![Delivery settings](./screenshots/delivery-settings.png)
+
+**SMTP over OAuth2** — switching authentication to `oauth2` reveals what XOAUTH2 needs and
+hides what it does not. The client secret and refresh token are write-only: the API reports
+whether each is set and never returns it.
+
+![Delivery settings, OAuth2](./screenshots/delivery-settings-oauth2.png)
+
+**Threat intelligence** — off by default, because which feeds to trust is your decision and a
+security tool should not start making outbound requests to a list nobody chose. The page says
+exactly how to switch it on.
+
+![Threat intelligence](./screenshots/threat-intel.png)
+
+**Ad hoc query** — read-only SQL against this system's own database, gated by role and its own
+flag, with every query recorded in the audit trail. The columns holding secrets are refused by
+the database, not by this page.
+
+![Ad hoc query](./screenshots/adhoc-query.png)
+
+**Packet capture** — shown idle on purpose: a live capture on the machine that took these
+would put its real addresses and MACs in a public README.
+
+![Packet capture](./screenshots/capture.png)
+
+**Sign in** — no account ships with the product. `V5__Remove_seeded_accounts.sql` deletes any
+row still carrying the bcrypt hash this repository used to publish, and the first account is
+created with `npm run user`.
+
+![Sign in](./screenshots/login.png)
 
 ---
 
