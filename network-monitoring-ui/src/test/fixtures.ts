@@ -59,6 +59,7 @@ export const ACCOUNTS = [
 
 export const CRITICAL_ALERT: Alert = {
   id: 101,
+  sensorId: 'default',
   kind: 'plaintext_credentials',
   severity: 'critical',
   title: 'Cleartext HTTP credentials for "alice" to 10.0.0.50',
@@ -84,6 +85,7 @@ export const CRITICAL_ALERT: Alert = {
 
 export const HIGH_ALERT: Alert = {
   id: 102,
+  sensorId: 'default',
   kind: 'port_scan',
   severity: 'high',
   title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',

@@ -19,12 +19,29 @@ export function useAlerts(filters: alertsApi.AlertFilters) {
   });
 }
 
-export function useAlertSummary() {
+export function useAlertSummary(sensor?: string) {
   return useQuery({
-    queryKey: queryKeys.alertSummary,
-    queryFn: alertsApi.fetchAlertSummary,
+    queryKey: queryKeys.alertSummary(sensor),
+    queryFn: () => alertsApi.fetchAlertSummary(sensor),
     // Drives the severity tiles; cheap enough to poll while a capture runs.
     refetchInterval: 15_000,
+  });
+}
+
+/**
+ * The sensors writing to this database.
+ *
+ * Long `staleTime` because the answer changes when somebody installs a sensor,
+ * which is not something a page needs to notice within seconds — and because
+ * every consumer uses it only to decide whether to render a control at all. A
+ * filter that appeared and vanished under the pointer would be worse than one
+ * that arrives a minute late.
+ */
+export function useSensors() {
+  return useQuery({
+    queryKey: queryKeys.sensors,
+    queryFn: alertsApi.fetchSensors,
+    staleTime: 300_000,
   });
 }
 
@@ -48,7 +65,7 @@ export function useDeleteAlert() {
 export function useKnownDevices() {
   return useQuery({
     queryKey: queryKeys.knownDevices,
-    queryFn: alertsApi.fetchKnownDevices,
+    queryFn: () => alertsApi.fetchKnownDevices(),
     staleTime: 60_000,
   });
 }

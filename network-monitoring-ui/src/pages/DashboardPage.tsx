@@ -23,7 +23,7 @@ import { useChartPalette } from '../charts/useChartPalette';
 import { KIND_LABEL } from '../components/SeverityChip';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
-import { useKnownDevices } from '../hooks/useAlerts';
+import { useKnownDevices, useSensors } from '../hooks/useAlerts';
 import type { AlertKind } from '../types';
 
 /**
@@ -65,14 +65,23 @@ const PERIODS = [
  */
 export default function DashboardPage() {
   const [days, setDays] = useState<number>(7);
+  const [sensor, setSensor] = useState<string>('');
   const navigate = useNavigate();
   const palette = useChartPalette();
 
   const dashboard = useQuery({
-    queryKey: ['alerts', 'dashboard', days],
-    queryFn: () => fetchAlertDashboard(days),
+    queryKey: ['alerts', 'dashboard', days, sensor || 'all'],
+    queryFn: () => fetchAlertDashboard(days, sensor || undefined),
     refetchInterval: 30_000,
   });
+
+  // Shown only once a second sensor has written something — see AlertsPage for
+  // the reasoning. A dashboard that merges two segments into one trend is the
+  // readable answer while there is one segment and a misleading one after that,
+  // so the control appears exactly when it starts to matter.
+  const sensorsQuery = useSensors();
+  const sensors = sensorsQuery.data ?? [];
+  const multiSensor = sensors.length > 1;
 
   const interfaceStatus = useQuery({
     queryKey: queryKeys.captureStatus('interface'),
@@ -98,6 +107,24 @@ export default function DashboardPage() {
         subtitle="What the detectors have found, and which hosts keep appearing"
         headerActions={
           <>
+            {multiSensor && (
+              <TextField
+                select
+                size="small"
+                label="Sensor"
+                value={sensor}
+                onChange={(event) => setSensor(event.target.value)}
+                sx={{ minWidth: 170 }}
+              >
+                <MenuItem value="">All sensors</MenuItem>
+                {sensors.map((entry) => (
+                  <MenuItem key={entry.sensorId} value={entry.sensorId}>
+                    {entry.sensorId}
+                    {entry.self ? ' (this one)' : ''}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
             <TextField
               select
               size="small"

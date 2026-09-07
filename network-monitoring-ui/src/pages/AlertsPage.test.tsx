@@ -250,6 +250,53 @@ describe('AlertsPage', () => {
     expect(await screen.findByText(/nothing to report/i, {}, { timeout: 10_000 })).toBeInTheDocument();
   });
 
+  /**
+   * The sensor controls, which exist only when there is a choice to make.
+   *
+   * Every installation has one sensor until somebody deploys a second, and for
+   * those this page must be unchanged: a column repeating one value on every row
+   * costs width and says nothing, and a filter offering a single option is a
+   * control that cannot do anything. So the interesting assertion is the negative
+   * one — it is what keeps this feature from taxing the installations that will
+   * never use it.
+   */
+  it('hides the sensor column and filter while there is only one sensor', async () => {
+    await renderAlerts();
+
+    expect(screen.queryByRole('combobox', { name: /sensor/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /sensor/i })).not.toBeInTheDocument();
+  });
+
+  it('shows them, and narrows the list, once a second sensor has reported', async () => {
+    server.use(
+      http.get('/api/alerts/sensors', () =>
+        HttpResponse.json([
+          { sensorId: 'branch-office', self: false, alerts: 1, latestAt: null },
+          { sensorId: 'default', self: true, alerts: 1, latestAt: null },
+        ]),
+      ),
+    );
+
+    const user = userEvent.setup();
+    await renderAlerts();
+
+    expect(await screen.findByRole('columnheader', { name: /sensor/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: /sensor/i }));
+    // The sensor serving the page says so: an operator who reached this address
+    // through one of them has no other way to tell which it is.
+    await user.click(await screen.findByRole('option', { name: /default \(this one\)/i }));
+
+    // The fixtures are both `default`, so `branch-office` is the case that proves
+    // the parameter reached the server rather than being dropped.
+    await user.click(screen.getByRole('combobox', { name: /sensor/i }));
+    await user.click(await screen.findByRole('option', { name: /branch-office/i }));
+
+    await waitFor(() => expect(screen.getByText(/nothing to report/i)).toBeInTheDocument(), {
+      timeout: 10_000,
+    });
+  });
+
   it('looks up an IP address from the table', async () => {
     const user = userEvent.setup();
     await renderAlerts();

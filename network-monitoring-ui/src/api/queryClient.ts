@@ -44,7 +44,10 @@ export const queryKeys = {
   // separately. `unknown` rather than a concrete shape keeps this file free of
   // imports from the API modules.
   alerts: (filters: object) => ['alerts', 'list', filters] as const,
-  alertSummary: ['alerts', 'summary'] as const,
+  // Keyed by sensor, so the tiles cached for one sensor are not served for
+  // another. `all` rather than `undefined`, which would not survive the key.
+  alertSummary: (sensor?: string) => ['alerts', 'summary', sensor ?? 'all'] as const,
+  sensors: ['alerts', 'sensors'] as const,
   knownDevices: ['alerts', 'devices'] as const,
   interfaces: (scope: string) => ['packets', scope, 'interfaces'] as const,
   captureStatus: (scope: string) => ['packets', scope, 'status'] as const,
