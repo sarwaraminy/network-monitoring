@@ -339,6 +339,38 @@ describe('two sensors sharing one database', { skip: database.skip }, () => {
     assert.equal(await sensorScope.refreshSensorScope(), true);
   });
 
+  it('re-asks after the window its own constant names', async () => {
+    /*
+     * The refresh interval and the TTL were equal, and `checkedAt` was stamped when
+     * the query resolved — so a tick arriving exactly one TTL later found the cached
+     * answer fresher than the TTL by however long the query had taken, returned
+     * early, and the first tick that actually re-asked was the one after it. The
+     * effective refresh was double the constant, and what that buys is a newly added
+     * sensor staying invisible to the notification scope for twice as long as
+     * intended, its alerts going out unlabelled in the meantime.
+     *
+     * Asserted through the injectable clock rather than by waiting: what matters is
+     * that a refresh one window later re-reads, not how long a timer takes.
+     */
+    assert.ok(
+      sensorScope.SENSOR_SCOPE_REFRESH_MS < sensorScope.SENSOR_SCOPE_TTL_MS,
+      'a refresh interval no shorter than the TTL means every other tick is a no-op',
+    );
+
+    sensorScope.resetSensorScope();
+    const started = Date.now();
+    assert.equal(await sensorScope.refreshSensorScope(started), false);
+
+    // A second sensor appears, and a tick arrives exactly one TTL later.
+    await seedDevice('sensor-b', 'aa:bb:cc:dd:ee:ff', new Date());
+
+    assert.equal(
+      await sensorScope.refreshSensorScope(started + sensorScope.SENSOR_SCOPE_TTL_MS),
+      true,
+      'the tick one TTL later must re-ask, not return the stale answer',
+    );
+  });
+
   it('keeps the previous answer rather than assuming one sensor', async () => {
     /*
      * The failure direction that matters. Answering "one sensor" because a query

@@ -15,3 +15,10 @@ node_modules
 **/node_modules
 
 .git
+
+# The tour recorder's scratch directory, for the same reason it is in .gitignore
+# and read by Biome: an interrupted run leaves a raw WebM behind. api/Dockerfile
+# blanket-copies `user-guide` (the guide is served by the API, behind its session
+# gate), so without this a developer's Ctrl-C bakes that file into the image —
+# silent, and visible only as size.
+user-guide/video/.raw/

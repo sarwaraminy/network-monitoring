@@ -84,6 +84,22 @@ ALTER TABLE known_devices ADD PRIMARY KEY (sensor_id, mac_address);
 CREATE INDEX known_devices_sensor_last_seen_idx
     ON known_devices (sensor_id, last_seen DESC);
 
+-- Replaces what the OLD primary key was providing incidentally.
+--
+-- `known_devices_pkey` was `(mac_address)`, so a lookup that knows only the MAC
+-- was served by it for free. The new key leads with `sensor_id`, which cannot
+-- answer that — and `forgetDevice` asks it twice per delete: it reads the holders
+-- of an address `FOR UPDATE` to decide which sensor's row to remove, and to tell
+-- "no such device" apart from "not on that sensor". Without this index each
+-- `DELETE /api/alerts/devices/:mac` sequentially scans a table the schema
+-- documents as unbounded, and which this migration deliberately makes larger
+-- still: one row per device per sensor.
+--
+-- Invisible in review and in a fresh database, which is the argument for adding it
+-- with the key swap that caused it rather than after somebody notices deletes
+-- getting slower the longer an install has been running.
+CREATE INDEX known_devices_mac_idx ON known_devices (mac_address);
+
 -- The rollup's natural key gains the same column, so a sweep on one sensor cannot
 -- add its counts to another's bucket. This is what keeps the sweep idempotent per
 -- sensor rather than per day.

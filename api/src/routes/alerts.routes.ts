@@ -68,10 +68,10 @@ alertsRouter.get(
 /**
  * GET /api/alerts/sensors — which sensors have written findings here.
  *
- * Not admin-only: it names the installations sharing this database and counts their
- * findings, which is the same shape of information the alert list already hands
- * every authenticated user. Gating it would leave the sensor column populated and
- * the filter that explains it empty.
+ * Not admin-only: it names the installations sharing this database, which is less
+ * than the alert list already hands every authenticated user — every row there
+ * carries its sensor. Gating it would leave the sensor column populated and the
+ * filter that explains it empty.
  */
 alertsRouter.get(
   '/sensors',

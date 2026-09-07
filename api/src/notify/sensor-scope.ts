@@ -47,10 +47,27 @@ const log = componentLogger('sensor-scope');
  * building every digest, and a query on that path would be paid at whatever rate
  * the network generates findings.
  */
-const TTL_MS = 5 * 60 * 1000;
+export const SENSOR_SCOPE_TTL_MS = 5 * 60 * 1000;
 
-/** How often the application re-asks. Exported so index.ts sets one interval, not two. */
-export const SENSOR_SCOPE_REFRESH_MS = TTL_MS;
+/**
+ * How often the application re-asks. Exported so index.ts sets one interval, not two.
+ *
+ * **Half the TTL, and that is the point rather than a rounding.** Set equal to it,
+ * every other tick did nothing: `checkedAt` is stamped when the query *resolves*,
+ * so a tick arriving exactly `TTL_MS` later finds the cached answer fractionally
+ * too fresh and returns early. The effective refresh was ten minutes, not the five
+ * the constant named — and what that costs is a newly added sensor staying invisible
+ * to the notification scope for twice as long as intended, with its alerts going out
+ * unlabelled in the meantime.
+ *
+ * Both halves of the fix are here, because either alone leaves a gap. The interval
+ * is half the TTL *and* `checkedAt` is stamped when the query starts rather than
+ * when it resolves — with only the halving, a tick at exactly `TTL_MS` still finds
+ * the answer fresher than the TTL by however long the query took, and the first
+ * tick that actually re-asks is the one after it. Together the effective refresh is
+ * the TTL the constant names.
+ */
+export const SENSOR_SCOPE_REFRESH_MS = SENSOR_SCOPE_TTL_MS / 2;
 
 let known = false;
 let checkedAt = 0;
@@ -78,18 +95,25 @@ export function hasMultipleSensors(): boolean {
  * went missing.
  */
 export async function refreshSensorScope(now: number = Date.now()): Promise<boolean> {
-  if (now - checkedAt < TTL_MS) return known;
+  if (now - checkedAt < SENSOR_SCOPE_TTL_MS) return known;
 
-  // One query at a time. Both pages' polling and a digest can land together, and
-  // there is no reason for three identical reads.
+  // Stamped before the query, not after it. See SENSOR_SCOPE_REFRESH_MS: measuring
+  // from when the answer arrived made the guard reject a tick that was exactly one
+  // TTL late, which is the only kind of tick a fixed interval produces.
+  checkedAt = now;
+
+  // One query at a time. Two callers can land together, and there is no reason for
+  // two identical reads.
   inFlight ??= query()
     .then((result) => {
       known = result;
-      checkedAt = Date.now();
       return result;
     })
     .catch((error) => {
       log.warn({ err: error }, 'Could not count sensors; keeping the previous answer');
+      // Retry on the next tick rather than sitting on a failed attempt for a full
+      // TTL: the stamp above is a promise to have asked, and this one did not.
+      checkedAt = 0;
       return known;
     })
     .finally(() => {
