@@ -82,10 +82,22 @@ interface GuideClaims {
   purpose: 'user-guide';
 }
 
-export function signGuideSession(email: string): { value: string; maxAgeSeconds: number } {
+/**
+ * Mints a session, never outliving `capSeconds` when one is given.
+ *
+ * The cap is the caller's remaining access-token life — see the mint route. Two
+ * credentials with independent lifetimes meant the shorter-lived-by-design one
+ * could outlive the session that authorised it, which is the opposite of what
+ * "deliberately short" was for.
+ */
+export function signGuideSession(
+  email: string,
+  capSeconds?: number,
+): { value: string; maxAgeSeconds: number } {
+  const ttl = capSeconds === undefined ? TTL_SECONDS : Math.max(0, Math.min(TTL_SECONDS, capSeconds));
   const claims: GuideClaims = { sub: email, purpose: 'user-guide' };
-  const value = jwt.sign(claims, GUIDE_KEY, { algorithm: 'HS512', expiresIn: TTL_SECONDS });
-  return { value, maxAgeSeconds: TTL_SECONDS };
+  const value = jwt.sign(claims, GUIDE_KEY, { algorithm: 'HS512', expiresIn: ttl });
+  return { value, maxAgeSeconds: ttl };
 }
 
 /** True when the value is a guide session this server issued and it has not expired. */

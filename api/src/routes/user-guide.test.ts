@@ -148,8 +148,23 @@ describe('the user guide gate', { skip: database.skip }, () => {
     });
     assert.equal(cleared.status, 204);
 
-    // The browser drops the cookie on that response; a request without it is
-    // what the next navigation looks like.
+    /*
+     * Asserted on the header, because the header is the entire mechanism.
+     *
+     * The guide session is a stateless JWT with no server-side revocation —
+     * `isValidGuideSession` checks signature, algorithm and expiry and nothing
+     * else — so `Set-Cookie` with a past expiry is the only way signing out ends
+     * guide access. The first version of this test fetched the page with no
+     * cookie and asserted a 302, which is what the first test in this file
+     * already proves: deleting `res.clearCookie(...)` outright left it green.
+     */
+    const setCookie = cleared.headers.get('set-cookie') ?? '';
+    assert.match(setCookie, /nmt_guide_session=/, 'the response did not clear the cookie');
+    assert.match(setCookie, /Path=\/user-guide/, 'cleared at the wrong path, so the browser keeps it');
+    // Either spelling of "immediately", both of which browsers honour.
+    assert.match(setCookie, /Expires=Thu, 01 Jan 1970|Max-Age=0/, `the cookie was not expired: ${setCookie}`);
+
+    // And the page is gone for a request that no longer carries it.
     const after = await fetch(`${origin}/user-guide/index.html`, {
       headers: { accept: 'text/html' },
       redirect: 'manual',
@@ -158,13 +173,96 @@ describe('the user guide gate', { skip: database.skip }, () => {
   });
 
   it('will not walk out of the guide directory', async () => {
-    // `express.static` resolves this itself; asserted because the consequence of
-    // it ever not doing so is reading arbitrary files off the server.
-    const response = await fetch(`${origin}/user-guide/../package.json`, {
-      headers: { cookie: await mintGuideCookie() },
-      redirect: 'manual',
+    /*
+     * Percent-encoded, because the plain form never leaves this process.
+     *
+     * `new URL('http://host/user-guide/../package.json').pathname` is
+     * `/package.json` — the WHATWG parser resolves dot segments before the
+     * request is sent, so the first version of this test asked for a path that
+     * matches no route and got a 404 from the not-found handler. It would have
+     * stayed green with the cookie gate removed, with `express.static`'s own
+     * defence removed, or with `guideDirectory` pointed at the repository root.
+     * `%2e%2e%2f` survives normalisation and is decoded after routing, which is
+     * the request actually worth making.
+     */
+    const cookie = await mintGuideCookie();
+
+    for (const attempt of [
+      '/user-guide/%2e%2e%2f%2e%2e%2fpackage.json',
+      '/user-guide/..%2f..%2fpackage.json',
+      '/user-guide/assets/%2e%2e%2f%2e%2e%2f%2e%2e%2fpackage.json',
+    ]) {
+      const response = await fetch(`${origin}${attempt}`, {
+        headers: { cookie },
+        redirect: 'manual',
+      });
+
+      assert.notEqual(response.status, 200, `${attempt} was served`);
+      // And nothing that looks like the file it was reaching for.
+      const body = await response.text();
+      assert.doesNotMatch(body, /"name": "network-monitoring/, `${attempt} returned package.json`);
+    }
+  });
+
+  it('never mints a cookie that outlives the token that asked for it', async () => {
+    /*
+     * The two credentials had independent lifetimes and nothing linking them, so
+     * a dashboard left open past its access token's expiry kept a valid guide
+     * cookie: the next request 401s, the sign-in screen renders, and
+     * `/user-guide/*` goes on serving the whole guide — screenshots of a real
+     * dashboard, the delivery configuration, the shape of the alerts table — to
+     * whoever next sits down.
+     *
+     * Clearing it on the 401 cannot work, which is why the fix is a cap: the
+     * clear endpoint needs the access token, and the token is what expired. The
+     * cookie is scoped to `/user-guide`, so the browser never sends it to
+     * `/api/user-guide/session` either — it cannot authenticate its own removal.
+     */
+    const jwt = (await import('jsonwebtoken')).default;
+    const shortLived = jwt.sign({ sub: 'reader@example.test', uid: 1, role: 'USER' }, SECRET, {
+      algorithm: 'HS512',
+      expiresIn: 90,
     });
 
-    assert.notEqual(response.status, 200);
+    const minted = await fetch(`${origin}/api/user-guide/session`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${shortLived}` },
+    });
+    assert.equal(minted.status, 204);
+
+    const setCookie = minted.headers.get('set-cookie') ?? '';
+    const maxAge = Number(/Max-Age=(\d+)/.exec(setCookie)?.[1] ?? Number.NaN);
+
+    assert.ok(Number.isFinite(maxAge), `no Max-Age on the cookie: ${setCookie}`);
+    assert.ok(maxAge <= 90, `the cookie outlives the token by ${maxAge - 90}s`);
+    // And is not zero-length either, which would pass the line above while making
+    // the guide unopenable.
+    assert.ok(maxAge > 0, 'the cookie expired immediately');
+  });
+
+  it('does not tell the guide to upgrade its own assets to https', async () => {
+    /*
+     * The app-wide policy was written for a process that served JSON only, and
+     * helmet's defaults turn that into a header carrying
+     * `upgrade-insecure-requests`. Free until this router started serving pages;
+     * after that, on the plain-HTTP stack Compose actually ships, the guide
+     * document rewrote its own stylesheet, scripts and screenshots to `https://`
+     * where nothing listens — an unstyled page with no images, and `guard.js`
+     * never running, which is the layer whose absence is invisible.
+     *
+     * Chrome exempts `localhost`, so this failed on every install except the one
+     * it was written on. Asserted on the header rather than on the rendering,
+     * because that is what the browser acts on.
+     */
+    const response = await fetch(`${origin}/user-guide/index.html`, {
+      headers: { cookie: await mintGuideCookie() },
+    });
+
+    const csp = response.headers.get('content-security-policy') ?? '';
+    assert.doesNotMatch(csp, /upgrade-insecure-requests/, `the guide would upgrade its assets: ${csp}`);
+    // And it still permits what the guide actually loads, all of it same-origin.
+    assert.match(csp, /script-src 'self'/);
+    assert.match(csp, /style-src 'self'/);
+    assert.match(csp, /img-src 'self'/);
   });
 });

@@ -45,8 +45,17 @@ export function createApp(): Express {
   // --- Security headers ---
   app.use(
     helmet({
-      // This process serves JSON only; the UI is a separate static bundle. A
-      // restrictive policy costs nothing here.
+      /*
+       * Written for a process that serves JSON, which is nearly all of it.
+       *
+       * Not quite all: `/user-guide` serves HTML with a stylesheet, two scripts
+       * and a dozen screenshots, and for those this policy is wrong — helmet's
+       * defaults add `upgrade-insecure-requests`, which on the plain-HTTP stack
+       * Compose ships rewrote every one of those assets to a `https://` port
+       * nothing listens on. That router therefore sets its own policy and
+       * overrides this one; see user-guide.routes.ts. Everything else here is
+       * JSON, where a restrictive policy costs nothing.
+       */
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'none'"],

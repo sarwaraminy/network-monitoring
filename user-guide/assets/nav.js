@@ -6,9 +6,15 @@
  * links at the foot of the topic. One list to edit when a topic is added, rather
  * than the same markup pasted into a dozen files and slowly diverging.
  *
- * A classic script rather than a module, and no fetch: the guide has to work when
- * it is opened straight off disk (file://), which is how it will be read on a
- * machine that is not running the application.
+ * A classic script rather than a module, and no fetch: there is no build step for
+ * these pages, so anything here has to run in a browser exactly as written.
+ *
+ * It used to say the guide had to work when opened straight off disk. That was
+ * never true of the shipped design and is now plainly false: guard.js reads the
+ * access token from localStorage, and on a file:// origin that is not the
+ * application's storage — it finds nothing and navigates to /login, out of the
+ * guide and into a filesystem path that does not exist. These files are served by
+ * the API behind a cookie, which is the whole reason they are not in public/.
  */
 (function () {
   'use strict';

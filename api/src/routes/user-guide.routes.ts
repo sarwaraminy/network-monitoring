@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type Request, type Response, Router } from 'express';
+import helmet from 'helmet';
+import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -13,6 +15,7 @@ import {
   readCookie,
   signGuideSession,
 } from '../services/guide-session.js';
+import { extractBearerToken } from '../services/jwt.service.js';
 
 const log = componentLogger('user-guide');
 
@@ -84,7 +87,26 @@ guideSessionRouter.post(
   '/session',
   asyncHandler(async (req: Request, res: Response) => {
     const email = req.user?.email ?? 'unknown';
-    const { value, maxAgeSeconds } = signGuideSession(email);
+    /*
+     * Capped at whatever is left of the caller's access token.
+     *
+     * The two credentials had independent lifetimes and nothing linking them, so
+     * a dashboard left open past its token's expiry kept a valid guide cookie:
+     * the next request 401s, the sign-in screen renders, and `/user-guide/*` goes
+     * on serving the whole guide — screenshots of a real dashboard, the delivery
+     * configuration, the shape of the alerts table — to whoever next sits down.
+     * The same "working credential left in the browser" the sign-out fix was
+     * written for, reached through the adjacent door.
+     *
+     * Clearing it on a 401 cannot work, which is why this is a cap rather than a
+     * revocation: the clear endpoint needs the access token, and the token is
+     * precisely what has expired. The cookie is also scoped to `/user-guide`, so
+     * the browser does not send it to `/api/user-guide/session` and the cookie
+     * cannot authenticate its own removal. Capping the life removes the gap
+     * instead of trying to close it after the fact, and the renewal loop re-caps
+     * it every four hours while the session is alive.
+     */
+    const { value, maxAgeSeconds } = signGuideSession(email, remainingTokenSeconds(req));
 
     res.cookie(GUIDE_COOKIE, value, {
       httpOnly: true,
@@ -100,6 +122,26 @@ guideSessionRouter.post(
   }),
 );
 
+/**
+ * Seconds left on the caller's access token, or `undefined` if it cannot be read.
+ *
+ * `requireAuth` has already verified the token by the time this runs, so `exp` is
+ * present and in the future; the fallback exists because reading a claim off a
+ * request should not be able to throw its way out of a route.
+ */
+function remainingTokenSeconds(req: Request): number | undefined {
+  const token = extractBearerToken(req.header('authorization'));
+  if (!token) return undefined;
+
+  const payload = jwt.decode(token);
+  if (typeof payload !== 'object' || payload === null) return undefined;
+
+  const exp = (payload as { exp?: number }).exp;
+  if (typeof exp !== 'number') return undefined;
+
+  return Math.max(0, exp - Math.floor(Date.now() / 1000));
+}
+
 /** Clears it, so signing out closes the guide too. */
 guideSessionRouter.delete(
   '/session',
@@ -111,6 +153,45 @@ guideSessionRouter.delete(
 
 /** `/user-guide` — the files themselves, behind the cookie. */
 export const userGuideRouter = Router();
+
+/**
+ * The guide's own Content-Security-Policy, replacing the application's.
+ *
+ * The app-wide policy was written for a process that "serves JSON only", and
+ * helmet's defaults turn that into a header carrying `upgrade-insecure-requests`.
+ * That was free while nothing here was a page. It is not free now: the shipped
+ * stack is plain HTTP end to end — Compose publishes `${HTTP_PORT:-8080}:80` and
+ * there is no TLS anywhere in it — so on any real install the guide document's
+ * own policy rewrote its stylesheet, its two scripts and its twelve screenshots
+ * to `https://host:8080/…`, where nothing is listening.
+ *
+ * What that looked like: an unstyled page with no contents list, no pager and no
+ * images — and `guard.js` never running, so the second layer that returns the tab
+ * to `/login` after a sign-out in another tab was silently gone. Chrome exempts
+ * `localhost` from the upgrade, so it worked on the machine that took the
+ * screenshots and failed everywhere else.
+ *
+ * `useDefaults: false` because the point is to control the whole list rather than
+ * inherit a directive that is wrong here. Everything the guide loads is a file
+ * next to it, so same-origin is the whole policy; there are no inline styles or
+ * scripts in these pages, so neither needs an exception.
+ */
+userGuideRouter.use(
+  helmet.contentSecurityPolicy({
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'none'"],
+      baseUri: ["'none'"],
+      formAction: ["'none'"],
+      frameAncestors: ["'none'"],
+      objectSrc: ["'none'"],
+      imgSrc: ["'self'", 'data:'],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'"],
+      fontSrc: ["'self'", 'data:'],
+    },
+  }),
+);
 
 /**
  * The gate.
