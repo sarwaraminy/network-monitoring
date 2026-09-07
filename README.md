@@ -2012,11 +2012,16 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 1. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
    each other's findings. Cheap now and expensive once anyone has data.
-2. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
+2. **Internationalisation — English, German and Dari.** The largest item on this list, and
+   the part of it that gets more expensive every day is the same shape as `sensor_id`
+   above: findings are stored as English prose. See
+   [Internationalisation](#internationalisation--english-german-and-dari) below for the
+   four layers and the decisions each one needs.
+3. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
    type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
    `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
    `.bin`.
-3. **Small, and each independently useful:**
+4. **Small, and each independently useful:**
    - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,
@@ -2031,6 +2036,107 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
      first one's recorded row, and the runner reports a *changed migration* and refuses to
      apply anything. The message sends you looking for an edit that never happened. Caught
      this while adding V14, and the fix is a check before the first file is read.
+
+### Internationalisation — English, German and Dari
+
+Planned, not started. Written down in this much detail because two of the four layers are
+cheap now and expensive later, and because **Dari is right-to-left** — which makes this an
+architectural change rather than a string-extraction exercise.
+
+It also finally gives `users.lang_code` a meaning. The column exists, is `NOT NULL`,
+defaults to `en`, is written by sign-up and the user CLI, and is returned in every user
+DTO. Nothing reads it.
+
+**Recommended library: ICU MessageFormat** (`react-intl`/FormatJS, or `i18next` with the
+ICU plugin). Not a preference about syntax — the interface counts things constantly ("3
+findings", "1 device"), and English, German and Dari do not agree on plural categories.
+Hand-rolled `count === 1 ? … : …` is wrong in Dari on day one.
+
+#### The four layers, hardest first
+
+1. **Findings are stored English prose** (~4–6 d). `alerts.title` and `alerts.description`
+   are written at detection time by each detector — interpolated template strings, e.g.
+   ``` `ARP spoofing: ${ip} claimed by ${mac}` ```. Translating the interface does not
+   translate a single existing finding, and every day of capture adds rows that can never
+   be translated. **This is the one to decide before more data accumulates**, for exactly
+   the reason `sensor_id` is above it.
+
+   The shape: detectors emit a message **key plus a params object**, and the text is
+   rendered at display time. Much of what the titles interpolate is already structured —
+   `source_ip`, `source_mac`, `protocol`, `port` are columns and `evidence` is `jsonb` — but
+   the descriptions carry conditional clauses ("*and is currently using X*") and derived
+   values (`new-device` computes a vendor prefix from the MAC), so it is a per-detector
+   rewrite rather than a mechanical substitution. Roughly a dozen detectors across the
+   packet and flow pipelines.
+
+   Historical rows keep their stored prose as a fallback, deliberately: a finding from
+   before the change should stay readable in the language it was written in rather than
+   becoming a missing translation key.
+
+2. **Right-to-left, and bidi isolation** (~3–5 d). The mechanical part is ordinary — MUI's
+   `createTheme({ direction: 'rtl' })`, `stylis-plugin-rtl` for emotion, `dir` on the
+   document, and `@mui/x-charts` axes and the data grid checked by hand.
+
+   The part that will actually bite is **bidirectional text isolation**. An IP address, MAC,
+   CIDR, port, hostname or SQL fragment placed inside a right-to-left sentence renders in
+   the wrong visual order unless it is isolated — `<bdi>`, or U+2068/U+2069 around the
+   value. `192.168.1.10` can appear with its octets visually reordered, which for a network
+   tool is not a cosmetic bug: the operator reads an address that is not the one in the
+   finding.
+
+   This application is *mostly* technical identifiers, so this is the common case rather
+   than an edge case. Worth a single shared component — an `<Identifier>` that isolates and
+   sets `dir="ltr"` — plus a lint rule, rather than remembering it at each of several
+   hundred interpolation sites.
+
+3. **Server prose the interface displays verbatim** (~3–4 d). 49 `HttpError` call sites
+   feed 41 `describeError` uses, and the messages are deliberately specific — "Set in the
+   environment and cannot be changed here: `ADHOC_MAX_ROWS`" is the useful half of that
+   409.
+
+   The decision: **return a code plus params and translate in the browser**, rather than
+   localising on the server from the caller's `lang_code`. Three reasons — the same
+   endpoints are read by scripts and by CI, a localised error is one nobody can grep for or
+   search the issue tracker with, and it keeps `Accept-Language` out of the API contract.
+   The cost is that every one of those 49 sites gains a code.
+
+4. **The interface strings** (~4–5 d plus translation). 42 components. The most tedious
+   layer and the least risky, so it goes last: by then layers 1–3 have settled what the
+   catalogue has to hold.
+
+#### What deliberately stays in English
+
+- **The syslog/CEF export.** A SIEM parses it and correlates on it; a localised event name
+  breaks every downstream rule. Same for the JSON a webhook receives.
+- **`kind` values, `dedup_key`, and audit `action` names.** Identifiers that happen to be
+  readable, not text. The audit trail's *labels* are already a lookup map in
+  `audit-types.ts` and become keys for free; the stored `action` must not move.
+- **Server logs**, which are read with `grep` by whoever is on the host.
+- **Outbound notifications are an installation setting, not per-user.** An alert email goes
+  to a team address and a webhook has no account at all, so there is no `lang_code` to read.
+  One configured language for outbound, alongside the delivery settings.
+
+#### Decisions to make before starting
+
+- **Calendar for Dari.** Afghanistan uses the Solar Hijri (Jalali) calendar. Gregorian
+  dates with Dari month names may be acceptable for a trend axis; a date *picker* in
+  Gregorian is not, if the operators reading it think in Jalali.
+  `@mui/x-date-pickers` takes an adapter, so this is a choice rather than a rewrite — but it
+  is a choice, and guessing it wrong is a visible mistake.
+- **Digit shaping.** Eastern Arabic-Indic digits (۱۲۳) are idiomatic in Dari prose, but IP
+  addresses, ports, MACs and byte counts must stay ASCII: shaped digits stop being
+  copy-pasteable and stop matching what the switch, the firewall and `tcpdump` show.
+- **A font with Perso-Arabic coverage** — Vazirmatn or Noto Naskh Arabic. The current stack
+  has none, so Dari would render in whatever the browser substitutes.
+- **German is roughly 30% longer than English.** The dashboard tiles, the navigation rail
+  and the settings dialog's two-column grid are the places to check first.
+
+#### The user guide is a content job, not an engineering one
+
+16 topics, ~1,650 lines of prose, and the screenshots are of a translated interface — so
+three languages means three sets. `scripts/capture-screenshots.mjs` already takes a
+`SHOT_*` environment, so per-language capture is a loop rather than new tooling, but the
+translation itself is the bulk of the cost and does not shrink.
 
 ### Known gaps, named rather than left to be discovered
 
