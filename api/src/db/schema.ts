@@ -125,7 +125,7 @@ export const knownDevices = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.sensorId, table.macAddress] }),
-    // Serves retention's per-sensor `max(last_seen)` cutoff — see V16.
+    // Serves `listKnownDevices(sensor)`: filter on sensor, newest first — see V16.
     index('known_devices_sensor_last_seen_idx').on(table.sensorId, table.lastSeen.desc()),
   ],
 );

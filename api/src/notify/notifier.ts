@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
+import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
 import type { Finding, Severity } from '../packet/detect/types.js';
 import { BoundedMap } from '../packet/detect/types.js';
@@ -226,7 +227,14 @@ export class Notifier {
     } else {
       this.queue.push({
         dedupKey: throttleKey,
-        finding: toNotifiable(finding, occurrences, firstSeen, lastSeen, this.settings.includeEvidence),
+        finding: toNotifiable(
+          finding,
+          occurrences,
+          firstSeen,
+          lastSeen,
+          this.settings.includeEvidence,
+          env.sensorId,
+        ),
       });
     }
 
@@ -292,7 +300,14 @@ export class Notifier {
     }
 
     this.exportQueue.push(
-      toNotifiable(finding, occurrences, firstSeen, lastSeen, this.settings.syslogIncludeEvidence),
+      toNotifiable(
+        finding,
+        occurrences,
+        firstSeen,
+        lastSeen,
+        this.settings.syslogIncludeEvidence,
+        env.sensorId,
+      ),
     );
 
     if (this.exportQueue.length >= MAX_EXPORT_BATCH) {
@@ -377,6 +392,10 @@ export class Notifier {
       severity: 'info',
       findings: [
         {
+          // A test send names this sensor too: the question it answers is
+          // "did the message reach us, and from where?", and on a two-sensor
+          // installation the second half is the one in doubt.
+          sensorId: env.sensorId,
           kind: 'test',
           severity: 'info',
           title: 'Test notification from Network Monitoring',

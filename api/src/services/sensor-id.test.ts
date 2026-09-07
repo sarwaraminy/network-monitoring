@@ -179,6 +179,51 @@ describe('two sensors sharing one database', { skip: database.skip }, () => {
     );
   });
 
+  it('lists a sensor that has devices but has never raised a finding', async () => {
+    /*
+     * The identity has to outlive — and precede — the findings.
+     *
+     * A second sensor on a quiet segment learns devices and finds nothing. Read
+     * from `alerts` alone it does not exist, so no sensor column and no filter
+     * render anywhere, and the dashboard's device tile sums both sensors with
+     * nothing on screen to separate them — on exactly the installation this
+     * feature is for.
+     */
+    await seedDevice('sensor-b', 'aa:bb:cc:dd:ee:ff', new Date());
+
+    const sensors = await alertService.listSensors();
+
+    assert.deepEqual(
+      sensors.map((sensor) => [sensor.sensorId, sensor.alerts, sensor.latestAt]),
+      [
+        ['sensor-a', 0, null],
+        // Present, with an honest zero: `alerts` still counts alerts.
+        ['sensor-b', 0, null],
+      ],
+    );
+  });
+
+  it('keeps listing a sensor whose findings have been rolled up', async () => {
+    // The same rule from the other direction. Once retention rolls a sensor's
+    // alerts away, its rows still feed the trend chart through the rollup — so
+    // dropping it from the list would leave a sensor visible in the chart and
+    // unselectable in the filter.
+    const expired = new Date(Date.now() - (RETENTION_DAYS + 3) * DAY_MS);
+    await seedAlert('sensor-b', 'b-old', { lastSeen: expired });
+    await retention.sweepRetention();
+
+    const { rows } = await database.pool!.query<{ n: string }>(
+      "SELECT count(*) AS n FROM alerts WHERE sensor_id = 'sensor-b'",
+    );
+    assert.equal(rows[0]!.n, '0', 'the fixture must actually have been rolled up');
+
+    const sensors = await alertService.listSensors();
+    assert.ok(
+      sensors.some((sensor) => sensor.sensorId === 'sensor-b'),
+      'a sensor whose data moved to the rollup is still a sensor',
+    );
+  });
+
   it('rolls each sensor’s day into its own bucket', async () => {
     const expired = new Date(Date.now() - (RETENTION_DAYS + 3) * DAY_MS);
     await seedAlert('sensor-a', 'a-old', { lastSeen: expired, occurrences: 2 });

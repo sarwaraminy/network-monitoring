@@ -23,6 +23,15 @@ import type { Finding, Severity } from '../packet/detect/types.js';
 
 /** One finding, as it appears in a notification. */
 export interface NotifiableFinding {
+  /**
+   * Which sensor observed this.
+   *
+   * Carried on every notification because the alert table gained it and a paged
+   * administrator did not: with two sensors on one database and one shared
+   * `delivery_settings` row, "New device aa:bb:cc:dd:ee:ff" named no segment at
+   * all, while the table five feet away could.
+   */
+  sensorId: string;
   kind: string;
   severity: Severity;
   title: string;
@@ -89,8 +98,10 @@ export function toNotifiable(
   firstSeen: Date,
   lastSeen: Date,
   includeEvidence: boolean,
+  sensorId: string,
 ): NotifiableFinding {
   return {
+    sensorId,
     kind: finding.kind,
     severity: finding.severity,
     title: finding.title,
@@ -102,6 +113,23 @@ export function toNotifiable(
     lastSeen,
     evidence: includeEvidence ? finding.evidence : null,
   };
+}
+
+/**
+ * The sensor's name when it is worth showing a person, else null.
+ *
+ * `default` is the name an installation has when nobody has set `SENSOR_ID`,
+ * which is to say when there is only one sensor — and "Sensor: default" on every
+ * message is noise that trains people to skip the line the *named* deployments
+ * need. Naming a sensor is the operator's own signal that this deployment has
+ * more than one, so it is the signal used here.
+ *
+ * The SIEM renderers deliberately do NOT use this: a collector wants the field
+ * present on every event so a correlation rule can pin the producer, and it does
+ * its own filtering. Human channels are the ones that pay for noise.
+ */
+export function sensorLabel(finding: NotifiableFinding): string | null {
+  return finding.sensorId === 'default' ? null : finding.sensorId;
 }
 
 /** Lower index is more urgent, matching SEVERITY_RANK. */

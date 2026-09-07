@@ -127,7 +127,8 @@ export default function DashboardPage() {
                 select
                 size="small"
                 label="Sensor"
-                value={sensor}
+                // What is in force, not what was picked — see AlertsPage.
+                value={appliedSensor ?? ''}
                 onChange={(event) => setSensor(event.target.value)}
                 sx={{ minWidth: 170 }}
               >

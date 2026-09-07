@@ -71,21 +71,16 @@ ALTER TABLE alerts ADD CONSTRAINT alerts_sensor_dedup_key_key UNIQUE (sensor_id,
 ALTER TABLE known_devices DROP CONSTRAINT known_devices_pkey;
 ALTER TABLE known_devices ADD PRIMARY KEY (sensor_id, mac_address);
 
--- The index the per-sensor retention cutoff reads, added with the correlation
--- that needs it rather than after somebody notices.
+-- Serves the per-sensor device list: `listKnownDevices(sensor)` filters on
+-- `sensor_id` and orders by `last_seen DESC`, which is this index exactly.
 --
--- `forgetStaleDevices` derives each sensor's cutoff from `max(last_seen)` for
--- that sensor, evaluated against the row being considered for deletion. Nothing
--- already here serves that: V4's index is on `last_seen` alone, and the primary
--- key above leads with `sensor_id` but carries the MAC second, so a per-sensor
--- maximum would still have to read every row for the sensor. This one answers it
--- from the first entry of the sensor's range instead, which matters because the
--- table it is on is the one whose unbounded growth is the reason that sweep
--- exists, and the sweep runs nightly.
---
--- DESC to match the direction the maximum is read from; Postgres can scan either
--- way, but stating it keeps the index and the query obviously about the same
--- thing.
+-- It is deliberately NOT justified by the retention sweep. That was the original
+-- reason and it did not hold: the sweep's predicate compares each row against a
+-- cutoff derived from its own sensor, so no index can drive the delete, and the
+-- fix was to compute the cutoffs once in a CTE rather than to index around a
+-- correlated subquery. See `forgetStaleDevices`. V4's index on `last_seen` alone
+-- does not serve the sensor-scoped list, and the primary key above leads with
+-- `sensor_id` but carries the MAC second, so neither existing index answers it.
 CREATE INDEX known_devices_sensor_last_seen_idx
     ON known_devices (sensor_id, last_seen DESC);
 

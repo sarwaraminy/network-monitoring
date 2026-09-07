@@ -885,6 +885,20 @@ into the rows they were already merging into.
 | Findings, and their dedup keys | Suppression rules — a rule is a policy statement, not an observation |
 | Known devices, and therefore what counts as new | Delivery settings, the query console settings, accounts |
 | Daily rollups | The audit trail |
+| The sensor name on every notification | Delivery settings — but not the per-process rate limits, which apply per sensor |
+
+Delivery is the case worth spelling out, because the settings are shared and the *sending* is
+not. Every notification names its sensor — email, Teams, Slack and the plain-text digest print
+it only once somebody has set `SENSOR_ID`, since `default` is the name an installation has when
+there is only one and a line reading "sensor default" on every message is noise; the syslog/CEF
+feed carries `dvchost` unconditionally, because a SIEM correlating per segment needs the field
+on every event and does its own filtering.
+
+**The rate limits do not combine, and that is worth knowing before it surprises somebody.**
+`NOTIFY_MAX_PER_HOUR` and the per-finding throttle are held in memory by one notifier per
+process, so two sensors enforce the configured ceiling twice: `NOTIFY_MAX_PER_HOUR=10` with two
+sensors is up to twenty messages an hour to the same recipients, and the same finding can page
+from both inside one throttle window. Halve the ceiling per sensor, or expect the multiple.
 
 Reads default to **every** sensor. Sharing one database is what makes a second sensor worth
 having, and an interface showing only the sensor that happens to be serving it would hide the

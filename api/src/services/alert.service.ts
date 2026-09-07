@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { env } from '../config/env.js';
 import { db } from '../db/index.js';
-import { type AlertRow, alertRollupDaily, alerts } from '../db/schema.js';
+import { type AlertRow, alertRollupDaily, alerts, knownDevices } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
 import { notifier } from '../notify/notifier.js';
 import { type Finding, SEVERITY_RANK, type Severity } from '../packet/detect/types.js';
@@ -377,10 +377,23 @@ function severityRank() {
  * not exist. It is also the reason this returns a flag rather than a bare list —
  * the interface needs to say which of them it is talking to.
  *
- * Read from `alerts` rather than from a table of sensors, deliberately. There is no
- * registration step and there should not be one: a sensor is whatever wrote a
- * finding, so the list cannot drift from the data, and decommissioning one is
- * deleting its rows rather than remembering to tell a registry.
+ * Read from the data rather than from a table of sensors, deliberately. There is
+ * no registration step and there should not be one: a sensor is whatever has left
+ * a row behind, so the list cannot drift from what is stored, and decommissioning
+ * one is deleting its rows rather than remembering to tell a registry.
+ *
+ * **All three sensor-scoped tables, not just `alerts`.** Reading only `alerts`
+ * makes the identity shorter-lived than the data, and it fails in both
+ * directions. A second sensor on a quiet segment that has learned forty devices
+ * and found nothing would not appear at all — so no filter or column renders
+ * anywhere, and the dashboard's device tile silently sums both sensors with no
+ * way to separate them, on exactly the installation this feature is for. And once
+ * retention rolls a sensor's findings into `alert_rollup_daily`, it would drop out
+ * of this list while its rows go on feeding the trend chart: visible in the
+ * chart, unselectable in the filter.
+ *
+ * `alerts` and `latestAt` are still counted from `alerts` alone, because that is
+ * what they mean. A sensor can legitimately appear here with zero findings.
  */
 export interface SensorSummary {
   sensorId: string;
@@ -391,19 +404,26 @@ export interface SensorSummary {
 }
 
 export async function listSensors(): Promise<SensorSummary[]> {
-  const rows = await db
-    .select({
-      sensorId: alerts.sensorId,
-      total: count(),
-      latest: sql<string | null>`max(${alerts.lastSeen})`,
-    })
-    .from(alerts)
-    .groupBy(alerts.sensorId);
+  const result = await db.execute<{ sensor_id: string; alerts: number; latest: string | null }>(sql`
+    WITH known AS (
+      SELECT sensor_id FROM ${alerts}
+      UNION SELECT sensor_id FROM ${knownDevices}
+      UNION SELECT sensor_id FROM ${alertRollupDaily}
+    ),
+    counted AS (
+      SELECT sensor_id, count(*)::int AS alerts, max(last_seen) AS latest
+      FROM ${alerts} GROUP BY sensor_id
+    )
+    SELECT known.sensor_id,
+           coalesce(counted.alerts, 0) AS alerts,
+           counted.latest
+    FROM known LEFT JOIN counted ON counted.sensor_id = known.sensor_id
+  `);
 
-  const summaries = rows.map((row) => ({
-    sensorId: row.sensorId,
-    self: row.sensorId === env.sensorId,
-    alerts: Number(row.total),
+  const summaries = (result.rows ?? []).map((row) => ({
+    sensorId: row.sensor_id,
+    self: row.sensor_id === env.sensorId,
+    alerts: Number(row.alerts),
     latestAt: row.latest ? new Date(row.latest).toISOString() : null,
   }));
 

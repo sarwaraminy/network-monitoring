@@ -292,6 +292,52 @@ describe('evidence policy', () => {
     });
   });
 
+  it('names the sensor to a person only once somebody has named it', () => {
+    /*
+     * The paged administrator is the one reader who could not tell two sensors
+     * apart: one shared `delivery_settings` row, and "New device aa:bb:cc" names
+     * no segment, while the alert table does.
+     *
+     * But `default` is the name an installation has when nobody set SENSOR_ID —
+     * which is to say when there is only one sensor — so printing it on every
+     * message is noise that teaches people to skip the line the named
+     * deployments actually need. Naming a sensor is the operator's own signal
+     * that this deployment has more than one.
+     */
+    const one: Notification = {
+      severity: 'high',
+      findings: [
+        {
+          sensorId: 'default',
+          kind: 'port_scan',
+          severity: 'high',
+          title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
+          description: 'A single source attempted connections to many ports.',
+          sourceIp: '10.0.0.66',
+          targetIp: '10.0.0.89',
+          occurrences: 3,
+          firstSeen: AT,
+          lastSeen: AT,
+          evidence: null,
+        },
+      ],
+      omittedCount: 0,
+      countsBySeverity: { high: 1 },
+      generatedAt: AT,
+      dashboardUrl: null,
+      isTest: false,
+    };
+    const named: Notification = {
+      ...one,
+      findings: [{ ...one.findings[0]!, sensorId: 'branch-office' }],
+    };
+
+    assert.doesNotMatch(format.renderText(one), /sensor/i, 'an unnamed sensor is not worth a line');
+    assert.match(format.renderText(named), /sensor branch-office/);
+    assert.match(format.renderHtml(named), /sensor branch-office/);
+    assert.match(JSON.stringify(format.renderSlack(named)), /sensor .{0,2}branch-office/);
+  });
+
   it('never puts a password in a message, in any format', () => {
     // Detectors are built never to place a secret in evidence, and their own suite
     // asserts it. This re-checks at the boundary where data leaves the machine.
@@ -300,6 +346,7 @@ describe('evidence policy', () => {
       severity: 'critical',
       findings: [
         {
+          sensorId: 'default',
           kind: 'plaintext_credentials',
           severity: 'critical',
           title: 'Cleartext HTTP credentials for "alice" to 10.0.0.50',
@@ -342,6 +389,7 @@ describe('message formats', () => {
     severity: 'critical',
     findings: [
       {
+        sensorId: 'default',
         kind: 'arp_spoofing',
         severity: 'critical',
         title: 'ARP spoofing: 10.0.0.1 claimed by a new MAC',
@@ -603,6 +651,7 @@ describe('webhook transport', () => {
     severity: 'high',
     findings: [
       {
+        sensorId: 'default',
         kind: 'port_scan',
         severity: 'high',
         title: 'Port scan',
@@ -780,6 +829,7 @@ async function onlyNotification(): Promise<Notification> {
     severity: 'high',
     findings: [
       {
+        sensorId: 'default',
         kind: 'port_scan',
         severity: 'high',
         title: 'Port scan',

@@ -246,7 +246,13 @@ export default function AlertsPage() {
             select
             size="small"
             label="Sensor"
-            value={sensor}
+            // The applied filter, not the raw selection. They differ exactly when
+            // the chosen sensor has gone quiet, and binding the selection would
+            // render the box BLANK — reading as "All sensors" — over a table that
+            // really is unfiltered, plus an out-of-range warning from MUI. Blank
+            // meaning two different things is the ambiguity this whole derivation
+            // exists to remove.
+            value={appliedSensor}
             onChange={(event) => setSensor(event.target.value)}
             sx={{ minWidth: 170 }}
           >

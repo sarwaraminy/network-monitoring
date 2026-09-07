@@ -48,6 +48,7 @@ const NOTIFICATION: Notification = {
   severity: 'high',
   findings: [
     {
+      sensorId: 'default',
       kind: 'port_scan',
       severity: 'high',
       title: 'Port scan',

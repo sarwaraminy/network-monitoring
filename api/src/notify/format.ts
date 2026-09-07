@@ -1,5 +1,5 @@
 import type { Severity } from '../packet/detect/types.js';
-import { type Notification, SEVERITY_COLOR } from './types.js';
+import { type Notification, SEVERITY_COLOR, sensorLabel } from './types.js';
 
 /**
  * Message rendering.
@@ -47,6 +47,7 @@ export function renderText(notification: Notification): string {
     lines.push(`  ${finding.description}`);
 
     const where = [
+      sensorLabel(finding) ? `sensor ${sensorLabel(finding)}` : null,
       finding.sourceIp ? `source ${finding.sourceIp}` : null,
       finding.targetIp ? `target ${finding.targetIp}` : null,
       finding.occurrences > 1 ? `${finding.occurrences} occurrences` : null,
@@ -76,6 +77,7 @@ export function renderHtml(notification: Notification): string {
   const rows = notification.findings
     .map((finding) => {
       const meta = [
+        sensorLabel(finding) ? `sensor ${escapeHtml(sensorLabel(finding) as string)}` : null,
         finding.sourceIp ? `source ${escapeHtml(finding.sourceIp)}` : null,
         finding.targetIp ? `target ${escapeHtml(finding.targetIp)}` : null,
         finding.occurrences > 1 ? `${finding.occurrences} occurrences` : null,
@@ -146,6 +148,7 @@ export function renderSlack(notification: Notification): unknown {
 
   for (const finding of notification.findings) {
     const meta = [
+      sensorLabel(finding) ? `sensor \`${sensorLabel(finding)}\`` : null,
       finding.sourceIp ? `source \`${finding.sourceIp}\`` : null,
       finding.targetIp ? `target \`${finding.targetIp}\`` : null,
       finding.occurrences > 1 ? `${finding.occurrences} occurrences` : null,
