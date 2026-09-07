@@ -71,7 +71,14 @@ let loadAdhocSettings: typeof import('../services/adhoc-settings.service.js').lo
 const SETTINGS = '/api/adhoc/settings';
 
 interface SettingsBody {
-  settings: Record<string, { value: unknown; source: string; env: string }>;
+  /*
+   * `value` and `configured` are exclusive in practice — the resolver's
+   * redaction sends one or the other, never both — but both are optional here
+   * rather than a discriminated union: several assertions below check that the
+   * one that should be absent IS absent, and a union would make those
+   * unexpressible rather than merely untyped.
+   */
+  settings: Record<string, { value?: unknown; source: string; env: string; configured?: boolean }>;
   passwordConfigured: boolean;
   effective: Record<string, unknown>;
 }
@@ -232,6 +239,102 @@ describe('the query console settings endpoints', { skip: database.skip }, () => 
     assert.equal(response.status, 400);
     const body = await get(token);
     assert.equal(body.settings.maxRows?.source, 'default');
+  });
+
+  /**
+   * A password set through the interface rather than inherited from the
+   * environment — the case V15 added.
+   *
+   * `ADHOC_DB_PASSWORD` is removed for these: with it set the field is pinned and
+   * the API refuses the change with a 409, which is the correct behaviour and was
+   * how these two cases first failed.
+   */
+  describe('a password set here', () => {
+    let token: string;
+
+    before(async () => {
+      delete process.env.ADHOC_DB_PASSWORD;
+      await loadAdhocSettings();
+    });
+
+    after(async () => {
+      process.env.ADHOC_DB_PASSWORD = PASSWORD;
+      await loadAdhocSettings();
+    });
+
+    // Per test: the outer `beforeEach` truncates `users`.
+    beforeEach(async () => {
+      token = await seedAdmin('sets-password@example.test');
+    });
+
+    it('is never returned, however it was stored', async () => {
+      /*
+       * The other half of the leak assertion. The case above proves the
+       * ENVIRONMENT password does not escape; this proves a STORED one does not,
+       * which is the path V15 introduced and the one that goes through more
+       * code — the row, the cache, the resolution, `effective`, and the field's
+       * own entry.
+       */
+      const secret = 'stored-console-password-Q7x';
+
+      await expectOk(await put(token, { dbPassword: secret }), 'setting the password');
+
+      const response = await fetch(`${origin}${SETTINGS}`, { headers: authorised(token) });
+      const text = await response.text();
+
+      assert.equal(response.status, 200, text);
+      assert.ok(!text.includes(secret), `a stored password appeared in the response: ${text}`);
+      // Reported as set, which is what lets the form stop warning that the
+      // console cannot start.
+      const body = JSON.parse(text) as SettingsBody;
+      assert.equal(body.passwordConfigured, true);
+      assert.equal(body.settings.dbPassword?.configured, true);
+      assert.equal(body.settings.dbPassword?.value, undefined);
+    });
+
+    it('reaches the audit trail as [set], never as a value', async () => {
+      /*
+       * `audit_events` is append-only and never pruned, so this is the one place
+       * a credential must not reach: a row written here is written for good. The
+       * trail still has to say the password changed, because "who gave this
+       * database a SQL prompt" is exactly what it exists to answer.
+       */
+      const secret = 'audited-console-password-M4k';
+
+      await expectOk(await put(token, { dbPassword: secret }), 'setting the password');
+
+      const { rows } = await database.pool!.query<{ detail: unknown }>(
+        "SELECT detail FROM audit_events WHERE action = 'adhoc_settings.update'",
+      );
+
+      assert.equal(rows.length, 1);
+      assert.deepEqual(rows[0]!.detail, { changed: { dbPassword: '[set]' } });
+      assert.ok(!JSON.stringify(rows[0]!.detail).includes(secret), 'the password reached the audit trail');
+    });
+  });
+
+  it('keeps the password out of reach of the console it configures', async () => {
+    /*
+     * The credential is stored in the database the console can query, so the
+     * question is whether a console session could read it. V11 and V12 grant an
+     * explicit per-table allowlist that never included `adhoc_settings`, and V15
+     * revokes on it as well — asserted here against the real grants rather than
+     * trusted, because the obvious future convenience (`GRANT SELECT ON ALL
+     * TABLES`) would quietly hand the console its own password.
+     */
+    const { rows } = await database.pool!.query<{ role: string; allowed: boolean | null }>(
+      `SELECT rolname AS role,
+              has_table_privilege(rolname, 'adhoc_settings', 'SELECT') AS allowed
+         FROM pg_roles
+        WHERE rolname LIKE 'nm_adhoc%'`,
+    );
+
+    // Vacuously true if the roles are absent, which would make this prove
+    // nothing — so say so rather than pass quietly.
+    assert.ok(rows.length > 0, 'no nm_adhoc* roles exist in this database; V11/V12 did not run');
+    for (const { role, allowed } of rows) {
+      assert.equal(allowed, false, `${role} can read adhoc_settings, which holds the console password`);
+    }
   });
 
   it('refuses an unknown field rather than ignoring it', async () => {

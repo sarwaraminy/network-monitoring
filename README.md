@@ -910,14 +910,30 @@ Under the **settings gear**, visible to administrators only, there are two tools
 - **Query console settings** — the switches and limits, in force on save. No restart, which
   on a monitoring server would mean dropping a live capture to reconfigure a console.
 
-Two things deliberately did not become editable:
+The password is there too. It was environment-only at first, on the argument that it was
+what kept the decision to *have* a SQL prompt on the production database with whoever
+installed the server — an accurate description of what changed, and the trade was made
+deliberately so an administrator can provision the console without server access. What
+holds the line instead:
 
-- **`ADHOC_DB_PASSWORD` stays in the environment.** It is installed on the Postgres role at
-  boot with `ALTER ROLE`, a statement that has no parameterised form — so the value is part
-  of the statement text and the database's own log may record it. More importantly, it is
-  what keeps the decision to *have* a SQL prompt on the production database with whoever
-  installed the server. Without one, every switch above is inert, and the settings page says
-  so rather than letting somebody turn the console on and watch nothing happen.
+- **The environment still wins.** `ADHOC_DB_PASSWORD` set in the environment pins the
+  field: the control renders disabled and the API refuses a change with a 409. An
+  installation that wants the original behaviour sets the variable, and no browser session
+  can contradict it.
+- **The console cannot read the table its own credential is in.** V11 and V12 grant the
+  console roles an explicit per-table allowlist; `adhoc_settings` is in neither, and V15
+  revokes on it as well so a future blanket `GRANT` has to override a statement rather than
+  fill a silence. There is a standing test that asserts this against the real grants.
+- **It never leaves the server.** The API reports whether a password is set, never what it
+  is — redacted in the resolver rather than at the route, so a later endpoint cannot leak it
+  by forgetting. The audit trail records that the password changed, never the value: it is
+  append-only and never pruned, so a credential written there is written for good.
+- **An empty box means "leave it alone".** Since the value is never returned, a configured
+  password and an emptied field look identical; clearing is a separate button, so the
+  destructive reading is never the one that happens by accident.
+
+One thing deliberately did not become editable:
+
 - **Write mode still forces auditing to `all`.** A console that can `DELETE` and a trail
   that records none of it was previously unreachable only because both flags came from the
   environment and had to be set together on purpose. Now that either can be set in a
@@ -1586,15 +1602,14 @@ network-monitoring-ui/        React + TypeScript + Vite frontend
 | `FLOW_EXPORTERS`       | — (any source)                                 | Comma-separated allow-list of exporter addresses |
 | `ADHOC_ENABLED`        | `false`                                        | The SQL console. Off by default: switched on without thought, it is a prompt on the production database reachable from a browser session |
 | `ADHOC_WRITE_ENABLED`  | `false`                                        | Lets the console write. Selects a different Postgres role rather than relaxing a check in the app |
-| `ADHOC_DB_PASSWORD`    | *required when enabled*                        | Set on the console's role at boot. **The one setting with no interface** — see below |
+| `ADHOC_DB_PASSWORD`    | *required when enabled*                        | Set on the console's role at boot. Settable in the interface too; setting it here pins it there |
 | `ADHOC_AUDIT`          | `all`                                          | `all` / `refused` / `off`. Forced to `all` while writes are enabled |
 | `ADHOC_TIMEOUT_MS`     | `10000`                                        | A query stops here rather than running until somebody notices |
 | `ADHOC_MAX_ROWS`       | `1000`                                         | Rows returned to the browser. A grid, not an export |
 | `ADHOC_MAX_QUERY_LENGTH` | `20000`                                      | Characters accepted, so the body limit is not what rejects a query |
 
-Every `ADHOC_*` variable above except the password can also be set by an administrator in
-the interface, and **setting one here pins it**: the control renders disabled and names the
-variable. That is why the Compose file passes them through blank rather than defaulting them
+Every `ADHOC_*` variable above can be set by an administrator in the interface, and
+**setting one here pins it**: the control renders disabled and names the variable. That is why the Compose file passes them through blank rather than defaulting them
 — baking `:-false` in would have pinned all six on every deployment and left a settings page
 that accepted edits and changed nothing. The same three-layer rule as the delivery
 settings — [Configuring it without a shell](#configuring-it-without-a-shell).

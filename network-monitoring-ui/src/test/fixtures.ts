@@ -1,3 +1,4 @@
+import type { AdhocSettingField } from '../api/adhoc.api';
 import type {
   Alert,
   AlertDashboard,
@@ -435,8 +436,24 @@ export const ADHOC_SETTINGS = {
     maxRows: { value: 1000, source: 'default' as const, env: 'ADHOC_MAX_ROWS' },
     maxQueryLength: { value: 20_000, source: 'default' as const, env: 'ADHOC_MAX_QUERY_LENGTH' },
     audit: { value: 'all', source: 'default' as const, env: 'ADHOC_AUDIT' },
+    /*
+     * A credential, so `configured` rather than `value` — the server redacts it
+     * in the resolver and no endpoint returns it. Set in this fixture, so the
+     * default render is a healthy install and the missing-password warning is
+     * something a test has to ask for rather than the baseline.
+     */
+    dbPassword: {
+      source: 'database' as AdhocSettingField['source'],
+      env: 'ADHOC_DB_PASSWORD',
+      configured: true,
+    },
   },
   passwordConfigured: true,
+  /*
+   * No `dbPassword` here either: the route builds `effective` by omitting every
+   * secret field, so the credential is absent from this half of the response as
+   * well as from `settings`.
+   */
   effective: {
     enabled: false,
     writeEnabled: false,

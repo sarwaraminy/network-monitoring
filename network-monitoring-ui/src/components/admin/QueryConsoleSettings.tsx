@@ -24,19 +24,22 @@ import { monoSx } from '../../theme';
  * here, and a pinned field renders disabled with the variable named rather than
  * accepting an edit that changes nothing.
  *
- * What is deliberately absent is `ADHOC_DB_PASSWORD`. It is installed on a
- * Postgres role at boot, the statement text carries it so the database's own log
- * may capture it, and — the reason that matters — it is what keeps the decision
- * to *have* a SQL prompt on the production database with whoever installed the
- * server. Without one the console cannot start whatever these switches say, so
- * the panel says so rather than letting somebody turn it on and watch nothing
- * happen.
+ * The password is here too, since V15. It used to be environment-only, on the
+ * argument that it was what kept the decision to *have* a SQL prompt on the
+ * production database with whoever installed the server — an accurate
+ * description of what changed, and the trade was made deliberately so an
+ * administrator can provision the console without server access.
+ *
+ * It behaves unlike every other field, because a credential the server never
+ * returns cannot be prefilled: an empty box means "leave it as it is", not
+ * "clear it". Clearing is its own button, so the destructive reading of an empty
+ * field is never the one that happens by accident.
  */
 
 interface FieldDef {
   key: string;
   label: string;
-  kind: 'switch' | 'number' | 'select';
+  kind: 'switch' | 'number' | 'select' | 'password';
   help?: string;
   options?: readonly string[];
   min?: number;
@@ -66,7 +69,22 @@ const FIELDS: readonly FieldDef[] = [
     options: ['all', 'refused', 'off'],
     help: 'What reaches the audit trail. Forced to "all" while writes are allowed — a console that can DELETE and a trail that records none of it is the one combination this must not offer.',
   },
+  {
+    key: 'dbPassword',
+    label: 'Console role password',
+    kind: 'password',
+    help: 'Installed on the console’s Postgres role when it starts. Never shown back — the server reports only whether one is set. Saving a change reconnects the console, because the credential is installed at startup and would otherwise not take effect until the next restart.',
+  },
 ];
+
+/**
+ * Fields the server never returns, so the form cannot prefill them.
+ *
+ * Derived from the registry rather than written twice, so a second credential
+ * added to `FIELDS` gets the empty-means-unchanged rule without anybody
+ * remembering to add it here.
+ */
+const SECRET_KEYS = new Set(FIELDS.filter((field) => field.kind === 'password').map((field) => field.key));
 
 export default function QueryConsoleSettings() {
   const queryClient = useQueryClient();
@@ -99,7 +117,19 @@ export default function QueryConsoleSettings() {
   const current = settings.data;
   const valueFor = (key: string) => (key in draft ? draft[key] : current.settings[key]?.value);
   const isPinned = (key: string) => current.settings[key]?.source === 'environment';
-  const changed = Object.keys(draft);
+
+  /*
+   * An empty secret box is "leave it alone", not "clear it".
+   *
+   * The server never returns a credential, so a configured password and an
+   * emptied box are the same three characters on screen. Typing into the field
+   * and deleting it again would otherwise submit `''`, which the resolver reads
+   * as unset — silently clearing the credential and stopping the console,
+   * because the reader changed their mind about editing it. Clearing has its own
+   * button, which sets `null`.
+   */
+  const isNoOp = (key: string) => SECRET_KEYS.has(key) && draft[key] === '';
+  const changed = Object.keys(draft).filter((key) => !isNoOp(key));
 
   /*
    * Only the fields that moved, and never a pinned one.
@@ -127,12 +157,28 @@ export default function QueryConsoleSettings() {
       {!current.passwordConfigured && (
         <Alert severity="warning">
           <AlertTitle>No console password is set</AlertTitle>
-          <Box component="code" sx={monoSx}>
-            ADHOC_DB_PASSWORD
-          </Box>{' '}
-          is empty in the API environment, so the console cannot start whatever these settings say — it is the
-          credential installed on the Postgres role, and it stays in the environment on purpose. Set it there
-          and restart the API.
+          {/*
+           * The warning has to name the remedy, and since V15 the remedy is on
+           * this page. It used to end with "set it in the environment and
+           * restart the API", which was a dead end for the person reading it:
+           * an administrator without server access could do nothing with that
+           * sentence, and the switch above it looked like it should work.
+           */}
+          {isPinned('dbPassword') ? (
+            <>
+              The console cannot start until one is set, and it is pinned to{' '}
+              <Box component="code" sx={monoSx}>
+                {current.settings.dbPassword?.env}
+              </Box>{' '}
+              in the API environment — which is currently empty. Set a value there and restart the API, or
+              remove the line to set one here instead.
+            </>
+          ) : (
+            <>
+              The console cannot start until one is set, whatever the switches here say — it is the credential
+              installed on its Postgres role. Set one in <strong>Console role password</strong> below.
+            </>
+          )}
         </Alert>
       )}
 
@@ -165,6 +211,57 @@ export default function QueryConsoleSettings() {
               {helper && (
                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
                   {helper}
+                </Typography>
+              )}
+            </Box>
+          );
+        }
+
+        if (field.kind === 'password') {
+          const configured = current.settings[field.key]?.configured === true;
+          const typed = typeof draft[field.key] === 'string' ? (draft[field.key] as string) : '';
+
+          return (
+            <Box key={field.key}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  type="password"
+                  label={field.label}
+                  value={typed}
+                  disabled={pinned || save.isPending}
+                  /*
+                   * The placeholder carries the only cue there is. The server
+                   * never returns the value, so a configured password and an
+                   * empty box look identical — and without this, the safe
+                   * reading ("leave it alone") and the destructive one ("clear
+                   * it") are indistinguishable to the reader.
+                   */
+                  placeholder={configured ? 'Set — leave blank to keep it' : 'Not set'}
+                  helperText={pinnedNote ?? field.help}
+                  autoComplete="new-password"
+                  onChange={(event) => setDraft((now) => ({ ...now, [field.key]: event.target.value }))}
+                />
+                {configured && !pinned && (
+                  <Button
+                    size="small"
+                    color="warning"
+                    disabled={save.isPending}
+                    // Its own control, so clearing is never what an empty box
+                    // means by accident. Named for the field, because every
+                    // secret on the Delivery page shares the accessible name
+                    // "Clear" and that is already one ambiguity too many.
+                    onClick={() => setDraft((now) => ({ ...now, [field.key]: null }))}
+                  >
+                    Clear password
+                  </Button>
+                )}
+              </Stack>
+              {draft[field.key] === null && (
+                <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>
+                  Will be cleared on save. The console stops as soon as it is — it cannot authenticate without
+                  a password.
                 </Typography>
               )}
             </Box>

@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { env } from '../config/env.js';
 import { db, pool } from '../db/index.js';
 import type { NewAdhocSettingsRow } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
@@ -12,7 +11,14 @@ import {
   startAdhoc,
   stopAdhoc,
 } from '../services/adhoc.service.js';
-import { ADHOC_FIELDS, type AdhocField, adhocPinnedConflicts } from '../services/adhoc-settings.js';
+import {
+  ADHOC_FIELDS,
+  type AdhocField,
+  adhocPinnedConflicts,
+  auditableAdhocPatch,
+  isAdhocSecretField,
+  redactAdhocForApi,
+} from '../services/adhoc-settings.js';
 import {
   currentAdhocResolution,
   currentAdhocSettings,
@@ -75,32 +81,54 @@ adhocRouter.get(
  * a lie matters most. The response says `environment`, `database` or `default`
  * per field and the form disables the pinned ones.
  */
+/**
+ * The resolved settings, minus anything that is a credential.
+ *
+ * `currentAdhocSettings()` now contains the console's password, so returning it
+ * whole — which both handlers below used to do — would ship the credential to
+ * every administrator's browser. Built by omission from the field registry
+ * rather than by listing the safe fields, so a secret added later is excluded by
+ * default instead of included by oversight.
+ */
+function publicEffective(): Record<string, unknown> {
+  const settings = currentAdhocSettings() as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+
+  for (const field of Object.keys(ADHOC_FIELDS) as AdhocField[]) {
+    if (!isAdhocSecretField(field)) out[field] = settings[field];
+  }
+
+  return out;
+}
+
 adhocRouter.get(
   '/settings',
   asyncHandler(async (_req, res) => {
     const resolution = currentAdhocResolution();
 
     res.json({
-      settings: Object.fromEntries(
-        (Object.keys(ADHOC_FIELDS) as AdhocField[]).map((field) => [
-          field,
-          {
-            value: resolution[field].value,
-            source: resolution[field].source,
-            env: ADHOC_FIELDS[field].env,
-          },
-        ]),
-      ),
       /*
-       * Whether a password exists, never what it is.
+       * Redacted in the resolver, not here.
        *
-       * The one setting that stays in the environment, and the interface has to
-       * be able to say so: without it every switch here is inert, and an
-       * administrator turning the console on and watching nothing happen deserves
-       * to be told why rather than left to guess.
+       * `redactAdhocForApi` reports a secret field as `configured: true|false`
+       * and never carries its value, which is the same contract
+       * `notify/settings.ts` uses for the webhook URL and the SMTP password. Done
+       * there rather than in this handler so a second endpoint added later cannot
+       * leak the value by forgetting to strip it — and this handler is the proof
+       * of why that matters, since it previously returned `currentAdhocSettings()`
+       * whole and would have started shipping the password the moment V15 added
+       * it to that shape.
        */
-      passwordConfigured: env.adhoc.password !== '',
-      effective: currentAdhocSettings(),
+      settings: redactAdhocForApi(resolution),
+      /*
+       * Whether a password exists, never what it is. Kept alongside the field's
+       * own `configured` because the form needs the answer before it has decided
+       * which fields to render, and because it is the one thing that makes every
+       * other switch here inert — an administrator turning the console on and
+       * watching nothing happen deserves to be told why.
+       */
+      passwordConfigured: currentAdhocSettings().dbPassword !== '',
+      effective: publicEffective(),
     });
   }),
 );
@@ -143,21 +171,43 @@ adhocRouter.put(
       actor: actorOf(req.user).name,
       actorId: actorOf(req.user).id,
       action: 'adhoc_settings.update',
-      // Field names and their new values: none of these is a credential, and a
-      // trail saying only "the console settings changed" would be worth nothing
-      // for the one setting that decides whether a browser can run SQL.
-      detail: { changed: patch },
+      /*
+       * Field names and their new values, with credentials replaced by `[set]`
+       * or `[cleared]`.
+       *
+       * The trail has to record that the console's password changed — "who gave
+       * this database a SQL prompt" is exactly what it is for — and must never
+       * record what it changed to. `audit_events` is append-only and never
+       * pruned, so a credential written there is written for good.
+       */
+      detail: { changed: auditableAdhocPatch(patch) },
     });
 
-    if (before.enabled !== after.enabled || before.writeEnabled !== after.writeEnabled) {
+    /*
+     * A change to what the console IS, rather than to its limits, means
+     * reconnecting.
+     *
+     * The mode is a Postgres identity rather than an application check, so
+     * switching it means authenticating as a different role; and the password is
+     * installed on the role with `ALTER ROLE` at startup, so changing it has no
+     * effect at all until the pool is rebuilt. Leaving that out was the more
+     * likely bug: the save would report success, the console would keep working
+     * on the old credential, and the new one would take effect at the next
+     * restart — whenever that was.
+     */
+    if (
+      before.enabled !== after.enabled ||
+      before.writeEnabled !== after.writeEnabled ||
+      before.dbPassword !== after.dbPassword
+    ) {
       await stopAdhoc();
-      // Still refuses without a password, and still proves the sandbox before it
-      // will serve anything — this cannot enable more than the environment has
-      // already provisioned.
+      // Still proves the sandbox before it will serve anything: whatever is set
+      // here, the console does not start unless Postgres confirms its role is
+      // neither a superuser nor able to write.
       await startAdhoc(pool);
     }
 
-    res.json({ effective: currentAdhocSettings(), status: adhocStatus() });
+    res.json({ effective: publicEffective(), status: adhocStatus() });
   }),
 );
 

@@ -57,6 +57,7 @@ export async function loadAdhocSettings(): Promise<AdhocSettings> {
           maxRows: row.maxRows,
           maxQueryLength: row.maxQueryLength,
           audit: row.audit,
+          dbPassword: row.dbPassword,
         }
       : {};
 

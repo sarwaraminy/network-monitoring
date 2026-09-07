@@ -23,7 +23,7 @@
 
 export type SettingSource = 'environment' | 'database' | 'default';
 
-type FieldKind = 'boolean' | 'integer' | 'enum';
+type FieldKind = 'boolean' | 'integer' | 'enum' | 'string';
 
 interface FieldSpec {
   /** The environment variable that pins this field. */
@@ -34,6 +34,15 @@ interface FieldSpec {
   /** Inclusive bounds for `integer`, matching V14's CHECK constraints. */
   min?: number;
   max?: number;
+  /**
+   * A credential: reported as configured-or-not, never returned.
+   *
+   * Same marker and same meaning as `notify/settings.ts`, deliberately — the
+   * webhook URL and the SMTP password already needed exactly this, and a second
+   * vocabulary for "do not send this to a browser" is how one of them
+   * eventually gets it wrong.
+   */
+  secret?: boolean;
 }
 
 export const ADHOC_AUDIT_MODES = ['all', 'refused', 'off'] as const;
@@ -46,7 +55,27 @@ export const ADHOC_FIELDS = {
   maxRows: { env: 'ADHOC_MAX_ROWS', kind: 'integer', min: 1, max: 100_000 },
   maxQueryLength: { env: 'ADHOC_MAX_QUERY_LENGTH', kind: 'integer', min: 1, max: 1_000_000 },
   audit: { env: 'ADHOC_AUDIT', kind: 'enum', values: ADHOC_AUDIT_MODES },
+  /**
+   * The console role's password, installed with `ALTER ROLE` at startup.
+   *
+   * V14 left this out and argued that it was what kept the decision to *have* a
+   * SQL prompt on the production database with whoever installed the server.
+   * That description was accurate and the trade-off was then made deliberately:
+   * an administrator can now provision the console without server access. What
+   * still holds is that the environment wins — `ADHOC_DB_PASSWORD` set there
+   * pins the field — and that the value never leaves the server.
+   *
+   * Not bounded or validated beyond being a non-blank string. Postgres accepts
+   * anything as a role password, and rejecting a value the database would take
+   * would only teach somebody to work around this form.
+   */
+  dbPassword: { env: 'ADHOC_DB_PASSWORD', kind: 'string', secret: true },
 } as const satisfies Record<string, FieldSpec>;
+
+/** Fields that are credentials, so nothing returns them by accident. */
+export function isAdhocSecretField(field: AdhocField): boolean {
+  return 'secret' in ADHOC_FIELDS[field] && ADHOC_FIELDS[field].secret === true;
+}
 
 export type AdhocField = keyof typeof ADHOC_FIELDS;
 
@@ -57,6 +86,13 @@ export interface AdhocSettings {
   maxRows: number;
   maxQueryLength: number;
   audit: AdhocAuditMode;
+  /**
+   * Never sent to a browser and never logged. `withoutPassword` in
+   * `adhoc.service.ts` scrubs it out of anything Postgres says back, because
+   * `ALTER ROLE … PASSWORD` has no parameterised form and the value is part of
+   * the statement text.
+   */
+  dbPassword: string;
 }
 
 /**
@@ -72,6 +108,12 @@ export const ADHOC_DEFAULTS: AdhocSettings = {
   maxRows: 1000,
   maxQueryLength: 20_000,
   audit: 'all',
+  /*
+   * Empty, and that is the only sensible default: without a password the console
+   * cannot start whatever else is set, which is what keeps a fresh install from
+   * having a SQL prompt nobody asked for.
+   */
+  dbPassword: '',
 };
 
 export interface ResolvedField<T = unknown> {
@@ -111,6 +153,12 @@ export function parseFieldValue(field: AdhocField, raw: unknown): unknown {
     if (spec.min !== undefined && value < spec.min) return undefined;
     if (spec.max !== undefined && value > spec.max) return undefined;
     return value;
+  }
+
+  if (spec.kind === 'string') {
+    // Already known non-blank by the guard at the top, so a string field offers
+    // whatever it holds. Not trimmed: a password's whitespace is part of it.
+    return typeof raw === 'string' ? raw : String(raw);
   }
 
   const text = String(raw).trim();
@@ -160,9 +208,64 @@ export function effectiveAdhocSettings(resolution: AdhocResolution): AdhocSettin
     maxRows: resolution.maxRows.value,
     maxQueryLength: resolution.maxQueryLength.value,
     audit: resolution.audit.value,
+    dbPassword: resolution.dbPassword.value,
   };
 
   return settings.writeEnabled ? { ...settings, audit: 'all' } : settings;
+}
+
+/**
+ * The API-safe view: every field with its provenance, credentials reduced to a
+ * boolean.
+ *
+ * Redacting here rather than at the route is the same choice `notify/settings.ts`
+ * made for the webhook URL, and for the same reason: a second endpoint added
+ * later cannot leak the value by forgetting to strip it.
+ */
+export interface RedactedAdhocField {
+  source: SettingSource;
+  /** The environment variable that would pin it. */
+  env: string;
+  /** Non-secret fields only. */
+  value?: unknown;
+  /** Secret fields only: whether one is set, never what it is. */
+  configured?: boolean;
+}
+
+export function redactAdhocForApi(resolution: AdhocResolution): Record<string, RedactedAdhocField> {
+  const out: Record<string, RedactedAdhocField> = {};
+
+  for (const field of Object.keys(ADHOC_FIELDS) as AdhocField[]) {
+    const { value, source } = resolution[field];
+    const env = ADHOC_FIELDS[field].env;
+    out[field] = isAdhocSecretField(field)
+      ? { source, env, configured: typeof value === 'string' && value.trim() !== '' }
+      : { source, env, value };
+  }
+
+  return out;
+}
+
+/**
+ * A patch as the audit trail should record it.
+ *
+ * The trail has to say that the console's password changed — "who gave this
+ * database a SQL prompt" is precisely the question it exists to answer — and must
+ * never say what it changed to. `audit_events` is append-only and never pruned,
+ * so a credential written there is written for good.
+ *
+ * `[set]` and `[cleared]` rather than a length or a hash: both of those are
+ * facts about the credential, and neither helps anybody reading the trail.
+ */
+export function auditableAdhocPatch(patch: StoredAdhocSettings): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+
+  for (const [field, value] of Object.entries(patch) as [AdhocField, unknown][]) {
+    if (!(field in ADHOC_FIELDS)) continue;
+    out[field] = isAdhocSecretField(field) ? (value === null || value === '' ? '[cleared]' : '[set]') : value;
+  }
+
+  return out;
 }
 
 /** Fields the environment has pinned, which the interface must not offer to edit. */

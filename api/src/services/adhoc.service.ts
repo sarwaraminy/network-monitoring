@@ -211,11 +211,23 @@ export function adhocStatus(): AdhocStatus {
   };
 }
 
-/** Removes the configured password from anything on its way to a browser. */
+/**
+ * Removes the configured password from anything on its way to a browser.
+ *
+ * Both spellings, not just the one in force. `ALTER ROLE … PASSWORD` has no
+ * parameterised form, so the value is in the statement text and can come back in
+ * a Postgres error — and since V15 the password can come either from the
+ * environment or from the settings row. A save that changes it leaves the other
+ * value still capable of appearing in a message that was already in flight, and
+ * scrubbing only the resolved one would let the replaced credential through.
+ */
 function withoutPassword(text: string): string {
-  const password = env.adhoc.password;
-  if (password === '') return text;
-  return text.split(password).join('<ADHOC_DB_PASSWORD>');
+  let out = text;
+  for (const password of new Set([currentAdhocSettings().dbPassword, env.adhoc.password])) {
+    if (password === '') continue;
+    out = out.split(password).join('<ADHOC_DB_PASSWORD>');
+  }
+  return out;
 }
 
 /**
@@ -314,10 +326,12 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     return false;
   }
 
-  const password = env.adhoc.password;
+  // Resolved, not read from the environment: since V15 an administrator can set
+  // this in the interface, and the environment still wins where it is set.
+  const password = currentAdhocSettings().dbPassword;
   if (!password) {
     offReason = 'no-password';
-    log.warn('ADHOC_ENABLED is set but ADHOC_DB_PASSWORD is empty; the query console stays off');
+    log.warn('The query console is enabled but has no password to install on its role; it stays off');
     await revokeAdhocLogin(owner).catch(() => {});
     return false;
   }

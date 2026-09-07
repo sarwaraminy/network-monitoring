@@ -129,6 +129,17 @@ export const adhocSettingsPatchSchema = z
     maxRows: z.coerce.number().int().min(1).max(100_000).nullable(),
     maxQueryLength: z.coerce.number().int().min(1).max(1_000_000).nullable(),
     audit: z.enum(['all', 'refused', 'off']).nullable(),
+    /*
+     * The console role's password (V15). Bounded only in length, and 1024 is
+     * generous rather than meaningful — Postgres accepts anything as a role
+     * password, and rejecting a value the database would take teaches somebody to
+     * work around this form instead of using it.
+     *
+     * No `.trim()`: whitespace can be part of a password, and quietly changing a
+     * credential before storing it is how a value that was typed correctly stops
+     * working.
+     */
+    dbPassword: z.string().max(1024).nullable(),
   })
   .partial()
   .strict();

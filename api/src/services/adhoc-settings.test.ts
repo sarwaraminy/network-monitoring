@@ -4,7 +4,10 @@ import {
   ADHOC_FIELDS,
   adhocPinnedConflicts,
   adhocPinnedFields,
+  auditableAdhocPatch,
   effectiveAdhocSettings,
+  isAdhocSecretField,
+  redactAdhocForApi,
   resolveAdhocSettings,
 } from './adhoc-settings.js';
 
@@ -148,27 +151,83 @@ describe('values a layer offers but the table would refuse', () => {
 });
 
 describe('the password', () => {
-  it('is not one of these fields', () => {
-    /*
-     * Guarding the design rather than the code. Without a password the console
-     * cannot start whatever these settings say, which is what keeps the decision
-     * to *have* a SQL prompt with whoever installed the server. Adding it here
-     * would be the obvious next "improvement" and is the one thing this registry
-     * must not grow — so the absence is asserted rather than left to a comment.
-     */
-    const fields = Object.keys(ADHOC_FIELDS);
+  /*
+   * V14 kept this out of the registry and argued that it was what kept the
+   * decision to *have* a SQL prompt on the production database with whoever
+   * installed the server. That was an accurate description, and the trade was
+   * then made deliberately: V15 stores it so an administrator can provision the
+   * console without server access.
+   *
+   * These are the guarantees that replaced the absence, and they are the ones
+   * worth pinning down, because each is a place the credential could escape.
+   */
 
-    assert.ok(!fields.some((field) => /password/i.test(field)), `a password field appeared: ${fields}`);
+  it('is a field, so the interface can set one', () => {
+    assert.ok('dbPassword' in ADHOC_FIELDS);
+    assert.equal(ADHOC_FIELDS.dbPassword.env, 'ADHOC_DB_PASSWORD');
+  });
 
+  it('is marked as a credential, which is what every other guarantee keys on', () => {
+    // `isAdhocSecretField` is what the redaction, the audit detail and the
+    // effective-settings filter all consult. Lose the marker and all three start
+    // treating it as an ordinary string in the same commit.
+    assert.equal(isAdhocSecretField('dbPassword'), true);
+    assert.equal(isAdhocSecretField('maxRows'), false);
+  });
+
+  it('is never in the API view, set or unset', () => {
+    const set = redactAdhocForApi(resolveAdhocSettings({}, { dbPassword: 'hunter2-not-real' }));
+    assert.equal(set.dbPassword?.configured, true);
+    assert.equal(set.dbPassword?.value, undefined);
+    assert.ok(
+      !JSON.stringify(set).includes('hunter2'),
+      `the value reached the API view: ${JSON.stringify(set)}`,
+    );
+
+    const unset = redactAdhocForApi(resolveAdhocSettings({}, {}));
+    assert.equal(unset.dbPassword?.configured, false);
+    // An ordinary field still carries its value, so this is not passing because
+    // the whole view came back empty.
+    assert.equal(unset.maxRows?.value, 1000);
+  });
+
+  it('reaches the audit trail as [set] or [cleared], never as a value', () => {
     /*
-     * Widened to string[] on purpose. `ADHOC_FIELDS` is `as const`, so the union
-     * of variable names does not include this one and `tsc` rejects the
-     * comparison outright — the check is enforced at compile time before it is
-     * ever run here. Keeping the runtime assertion anyway, because the compiler's
-     * refusal is a type error somebody could silence with a cast, and this one
-     * fails the suite instead.
+     * `audit_events` is append-only and never pruned, so a credential written
+     * there is written for good. The trail still has to say the password
+     * changed — "who gave this database a SQL prompt" is the question it exists
+     * to answer.
      */
-    const variables: string[] = Object.values(ADHOC_FIELDS).map((spec) => spec.env);
-    assert.ok(!variables.includes('ADHOC_DB_PASSWORD'), `ADHOC_DB_PASSWORD became editable: ${variables}`);
+    assert.deepEqual(auditableAdhocPatch({ dbPassword: 'hunter2-not-real' }), { dbPassword: '[set]' });
+    assert.deepEqual(auditableAdhocPatch({ dbPassword: null }), { dbPassword: '[cleared]' });
+    assert.deepEqual(auditableAdhocPatch({ dbPassword: '' }), { dbPassword: '[cleared]' });
+    // Ordinary fields are recorded as they are: none of them is a credential,
+    // and a trail saying only "something changed" would be worth nothing.
+    assert.deepEqual(auditableAdhocPatch({ enabled: true, maxRows: 25 }), { enabled: true, maxRows: 25 });
+  });
+
+  it('lets the environment keep it, as with every other field', () => {
+    // An installation that wants V14's behaviour back sets the variable: the
+    // field is then pinned, the control renders disabled, and a change to it is
+    // refused with a 409.
+    const resolution = resolveAdhocSettings(
+      { ADHOC_DB_PASSWORD: 'from-the-environment' },
+      { dbPassword: 'from-the-row' },
+    );
+
+    assert.equal(resolution.dbPassword.source, 'environment');
+    assert.equal(effectiveAdhocSettings(resolution).dbPassword, 'from-the-environment');
+    assert.deepEqual(adhocPinnedConflicts(resolution, { dbPassword: 'x' }), ['ADHOC_DB_PASSWORD']);
+  });
+
+  it('keeps a password whose whitespace is part of it', () => {
+    // Trimming a credential before storing it is how a value that was typed
+    // correctly stops working, with nothing saying why. The blank-is-unset rule
+    // still applies to a value that is ONLY whitespace.
+    assert.equal(
+      effectiveAdhocSettings(resolveAdhocSettings({}, { dbPassword: '  pad  ' })).dbPassword,
+      '  pad  ',
+    );
+    assert.equal(effectiveAdhocSettings(resolveAdhocSettings({}, { dbPassword: '   ' })).dbPassword, '');
   });
 });

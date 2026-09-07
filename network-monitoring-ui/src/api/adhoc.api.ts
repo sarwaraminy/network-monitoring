@@ -116,20 +116,32 @@ export const isNumericOid = (oid: number): boolean => NUMERIC_OIDS.has(oid);
  * run SQL.
  */
 export interface AdhocSettingField {
-  value: boolean | number | string;
+  /** Absent for a credential — see `configured`. */
+  value?: boolean | number | string;
   source: 'environment' | 'database' | 'default';
   /** The variable that pins it, so the form can name what to remove. */
   env: string;
+  /**
+   * Credentials only: whether one is set, never what it is.
+   *
+   * The console's role password is stored (V15) so an administrator can
+   * provision the console without server access, and the server redacts it in
+   * the resolver rather than at the route — so no endpoint can leak it by
+   * forgetting. The form therefore never has a value to prefill, which is why
+   * an empty password box means "leave it alone" rather than "clear it".
+   */
+  configured?: boolean;
 }
 
 export interface AdhocSettingsResponse {
   settings: Record<string, AdhocSettingField>;
   /**
-   * Whether `ADHOC_DB_PASSWORD` is set. Never its value.
+   * Whether a console password is set at all, from either layer. Never its value.
    *
-   * The one setting that stays in the environment. Without it the console cannot
-   * start whatever the switches here say, so the form has to be able to explain
-   * why turning it on changed nothing.
+   * Without one the console cannot start whatever the switches here say, so the
+   * form has to be able to explain why turning it on changed nothing. Kept
+   * alongside the field's own `configured` because the warning is decided before
+   * the fields are walked.
    */
   passwordConfigured: boolean;
   effective: Record<string, boolean | number | string>;
