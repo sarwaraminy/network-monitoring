@@ -1,0 +1,16 @@
+# Synthetic indicator feed, for the demo recording only.
+#
+# Every address here is from a range RFC 5737 reserves for documentation, so no
+# line in this file can ever match a real host. That is the point: the recording
+# needs the threat intelligence screen to have something in it, and pasting a
+# real blocklist into the repository would put someone else's IP addresses in a
+# demo video with an implied accusation attached.
+#
+# Loaded by pointing the feed at this file, which needs no connectivity:
+#   INTEL_ENABLED=true INTEL_FEEDS=demo=scripts/demo/indicators.txt
+
+192.0.2.66    ; Cobalt Strike team server, synthetic
+192.0.2.101   ; credential harvesting host, synthetic
+198.51.100.24 ; ransomware payload staging, synthetic
+198.51.100.77 ; DNS tunnelling endpoint, synthetic
+203.0.113.13  ; botnet controller, synthetic

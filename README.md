@@ -34,6 +34,56 @@ application itself at `/user-guide/` — behind a signed-in session, like every 
 which is why it lives here and not in `network-monitoring-ui/public/` where the web server
 would hand it out unauthenticated. Reachable in the product from the help icon in the header.
 
+## Watch it instead
+
+Before any of what follows: the application being used. Signing in, a scan turning up in
+the alerts table, the evidence behind it, a rule that declares the next one expected, and
+where a finding goes when it leaves here.
+
+[![A tour of the application: the dashboard, a finding and its evidence, threat intelligence, suppression rules, delivery and the audit trail](./user-guide/video/nmt-tour-poster.png)](./user-guide/video/nmt-tour.mp4)
+
+**[Play the tour](./user-guide/video/nmt-tour.mp4)** &mdash; 4 min 18 s, narrated, and every
+spoken line is captioned on screen so it works muted. GitHub plays it in the browser; in a
+clone it is `user-guide/video/nmt-tour.mp4`. The [user guide](user-guide/index.html)
+embeds it on its first page, which is where an operator will look for it.
+
+Everything in it is the real application against a demo database. The findings are real
+detector output rather than fixtures: `scripts/demo/traffic.mts` sends synthetic NetFlow
+over UDP and the detectors judge it exactly as they judge a switch's, so the port scan on
+screen crossed the same threshold a real one has to. Recorded by
+[`scripts/record-demo.mjs`](scripts/record-demo.mjs) for the same reason the
+[screenshots](#screenshots) are captured by a script rather than by hand &mdash; a tour of
+a screen that no longer exists is the one a reader trusts over the application in front of
+them:
+
+```bash
+npm i -D playwright ffmpeg-static && npx playwright install chromium   # once
+
+# One terminal: the application, with flow collection and the demo feed on.
+FLOW_ENABLED=true INTEL_ENABLED=true INTEL_FEEDS=demo=scripts/demo/indicators.txt npm run dev
+
+# An account that exists only to be filmed, because the tour types it on camera.
+npm run user -- create --email demo@example.com --password '...' --role ADMIN
+
+# Another terminal: fill the screens, then record. FFMPEG only if none is on PATH.
+npx tsx scripts/demo/traffic.mts
+DEMO_EMAIL=demo@example.com DEMO_PASSWORD='...' FFMPEG=./node_modules/ffmpeg-static/ffmpeg.exe node scripts/record-demo.mjs
+```
+
+The voice is the speech engine that ships with Windows, driven offline by
+`scripts/demo/narrate.ps1`. It sounds like what it is &mdash; a computer reading &mdash;
+and that is the trade being made on purpose: the narration is fifteen strings in the
+recording script, so correcting a line is a text edit rather than a studio booking, and a
+tool built for networks with no outbound internet does not send its own script to a cloud
+voice service to be read back. `DEMO_SILENT=1` records the tour without narration, and
+`DEMO_RATE`, between -10 and 10, changes how fast it is read &mdash; the default sits a
+little under normal speed, which is most of why the runtime is what it is.
+
+Point it at a demo installation and sign in with a throwaway administrator. The tour types
+the address into the login form on camera, and it *writes* &mdash; the suppressions beat
+fills in the new-rule dialog and saves it, because a recording of a screen that says "no
+rules" does not show what suppression is for.
+
 ## What it detects
 
 Each detector produces an **alert**: a finding with a severity, an occurrence count and

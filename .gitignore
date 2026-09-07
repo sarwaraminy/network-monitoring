@@ -17,3 +17,9 @@ npm-debug.log*
 .DS_Store
 .idea/
 api/.cache/
+
+# The tour recorder's scratch directory: the raw WebM and the narration clips.
+# Deleted at the end of a run, and left behind by an interrupted one. Biome
+# reads this file too, so ignoring it here also keeps `npm run lint` from
+# failing on a half-finished recording.
+user-guide/video/.raw/
