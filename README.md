@@ -2018,18 +2018,35 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 ### Next, in order
 
-1. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
+1. **Revoke *both* console roles, not just the read one** (~half a day, and first because
+   it is a credential that outlives the authorisation to use it). `revokeAdhocLogin` takes
+   `adhocRole()`'s default `mode: 'read'`, so every path that switches the console off only
+   strips `LOGIN` from `nm_adhoc_<database>`. Broader than the off-path: `stopAdhoc` revokes
+   nothing by design, and a write→read switch re-installs the password on the read role
+   without touching the write one — so **no supported operator action ever revokes
+   `nm_adhocrw_<database>`**, which keeps `LOGIN`, the last write-mode password, and
+   `INSERT`/`UPDATE`/`DELETE` on the operational tables from V12. Rotating the password in
+   read mode does not reach it either; only re-entering write mode updates it. The docblock
+   above the function asserts the opposite ("Both 'off' paths revoke, and that is the
+   point") — the file describes, for one of its two roles, exactly the bug it still has.
+   The fix is to loop the two modes the way `V15__Adhoc_password.sql` already does in its
+   `DO` block, revoke the non-active role on a successful `startAdhoc` so a mode switch
+   leaves nothing behind, and prefer `NOLOGIN PASSWORD NULL` so the credential is destroyed
+   rather than disabled. `adhoc-disabled.test.ts` checks only `adhocRole(name)`, which is
+   why this was invisible: extend it to assert `rolcanlogin` on **both** roles after an off
+   and after a write→read switch.
+2. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
    each other's findings. Cheap now and expensive once anyone has data.
-2. **Internationalisation — English, German and Dari.** The largest item on this list, and
+3. **Internationalisation — English, German and Dari.** The largest item on this list, and
    the part of it that gets more expensive every day is the same shape as `sensor_id`
    above: findings are stored as English prose. See
    [Internationalisation](#internationalisation--english-german-and-dari) below for the
    four layers and the decisions each one needs.
-3. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
+4. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
    type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
    `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
    `.bin`.
-4. **Small, and each independently useful:**
+5. **Small, and each independently useful:**
    - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,
@@ -2039,6 +2056,22 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
      reads as "rolled up" rather than "quiet".
    - "Suppress this" from an alert row — left out of the suppression PR to keep it
      reviewable, and the obvious next touch on that page.
+   - Derive the write-mode audit force from the same fact the write decision uses. The force
+     is computed from the settings (`effectiveAdhocSettings`, so `writeEnabled` implies
+     `audit: 'all'`), while whether a statement actually writes is read from the live pool's
+     identity (`activeMode`). `PUT /api/adhoc/settings` updates the settings cache and only
+     restarts the pool an awaited `recordAudit` INSERT later, so there is a window — one
+     round trip wide — in which `audit` reads `'off'` while `activeMode` is still `'write'`,
+     and a `DELETE` in it commits with no `adhoc.query` row. Not a security finding: the only
+     actor who can reach it is an ADMIN whom write mode already authorises to run that
+     `DELETE`, and who can anyway set `dbPassword` and do it from `psql` unrecorded. But the
+     docblock states the invariant as absolute ("the one combination this feature must not
+     offer"), so either the force moves into `runAdhocQuery` behind `activeMode`, or the
+     route becomes `stopAdhoc()` → save → `startAdhoc()`.
+   - `POST /api/adhoc/recheck`'s docblock still says it "can only discover that the
+     environment already did" enable the console. Stale since V15 made the stored row a
+     source too. No privilege gained, but a comment stating the opposite of the code is the
+     failure mode this repository keeps finding.
    - A duplicate-version guard in the migration runner. Two files sharing a `V14__` prefix
      are not detected as a collision: the second one's checksum is compared against the
      first one's recorded row, and the runner reports a *changed migration* and refuses to
