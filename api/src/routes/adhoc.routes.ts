@@ -1,16 +1,25 @@
 import { Router } from 'express';
 import { env } from '../config/env.js';
 import { db, pool } from '../db/index.js';
+import type { NewAdhocSettingsRow } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import { asyncHandler } from '../middleware/error-handler.js';
+import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import {
   adhocReady,
   adhocStatus,
   assertRunnable,
   runAdhocQuery,
   startAdhoc,
+  stopAdhoc,
 } from '../services/adhoc.service.js';
+import { ADHOC_FIELDS, type AdhocField, adhocPinnedConflicts } from '../services/adhoc-settings.js';
+import {
+  currentAdhocResolution,
+  currentAdhocSettings,
+  saveAdhocSettings,
+} from '../services/adhoc-settings.service.js';
 import { actorOf, recordAudit } from '../services/audit.service.js';
+import { adhocSettingsPatchSchema } from './validation.js';
 
 /**
  * The Ad Hoc Query console. Mounted at /api/adhoc.
@@ -54,6 +63,101 @@ adhocRouter.get(
      * report the role name and a sandbox failure's own message here.
      */
     res.json(adhocStatus());
+  }),
+);
+
+/**
+ * GET /api/adhoc/settings — what applies, and where each value came from.
+ *
+ * Provenance is part of the contract, not decoration: a field the environment
+ * pins cannot be changed here, and an interface that accepted the edit anyway
+ * would be this codebase's recurring bug in the one place where the control being
+ * a lie matters most. The response says `environment`, `database` or `default`
+ * per field and the form disables the pinned ones.
+ */
+adhocRouter.get(
+  '/settings',
+  asyncHandler(async (_req, res) => {
+    const resolution = currentAdhocResolution();
+
+    res.json({
+      settings: Object.fromEntries(
+        (Object.keys(ADHOC_FIELDS) as AdhocField[]).map((field) => [
+          field,
+          {
+            value: resolution[field].value,
+            source: resolution[field].source,
+            env: ADHOC_FIELDS[field].env,
+          },
+        ]),
+      ),
+      /*
+       * Whether a password exists, never what it is.
+       *
+       * The one setting that stays in the environment, and the interface has to
+       * be able to say so: without it every switch here is inert, and an
+       * administrator turning the console on and watching nothing happen deserves
+       * to be told why rather than left to guess.
+       */
+      passwordConfigured: env.adhoc.password !== '',
+      effective: currentAdhocSettings(),
+    });
+  }),
+);
+
+/**
+ * PUT /api/adhoc/settings — change what an administrator is allowed to change.
+ *
+ * `null` clears a field so it falls back to the environment or the default.
+ * A pinned field is refused with a 409 naming the environment variable, because
+ * the variable is what somebody can grep for — the field key helped nobody when
+ * the delivery settings made that mistake.
+ *
+ * A change that alters whether the console runs, or which role it runs as,
+ * restarts the pool: the mode is a Postgres identity rather than an application
+ * check, so switching it means authenticating again. Done here rather than in the
+ * settings service, which must not depend on the console it configures.
+ */
+adhocRouter.put(
+  '/settings',
+  asyncHandler(async (req, res) => {
+    const parsed = adhocSettingsPatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+    }
+
+    const patch = parsed.data as Partial<NewAdhocSettingsRow>;
+    const conflicts = adhocPinnedConflicts(currentAdhocResolution(), patch);
+    if (conflicts.length > 0) {
+      throw new HttpError(
+        409,
+        `Set in the environment and cannot be changed here: ${conflicts.join(', ')}. ` +
+          'Remove the variable and restart the API to manage it from this page.',
+      );
+    }
+
+    const before = currentAdhocSettings();
+    const after = await saveAdhocSettings(patch, actorOf(req.user).name);
+
+    await recordAudit(db, {
+      actor: actorOf(req.user).name,
+      actorId: actorOf(req.user).id,
+      action: 'adhoc_settings.update',
+      // Field names and their new values: none of these is a credential, and a
+      // trail saying only "the console settings changed" would be worth nothing
+      // for the one setting that decides whether a browser can run SQL.
+      detail: { changed: patch },
+    });
+
+    if (before.enabled !== after.enabled || before.writeEnabled !== after.writeEnabled) {
+      await stopAdhoc();
+      // Still refuses without a password, and still proves the sandbox before it
+      // will serve anything — this cannot enable more than the environment has
+      // already provisioned.
+      await startAdhoc(pool);
+    }
+
+    res.json({ effective: currentAdhocSettings(), status: adhocStatus() });
   }),
 );
 
@@ -162,13 +266,13 @@ adhocRouter.post(
      * mid-query records nothing. Worth stating, because it is the one thing the
      * quieter mode gives up.
      */
-    if (env.adhoc.audit === 'all') await record({ sql });
+    if (currentAdhocSettings().audit === 'all') await record({ sql });
 
     let result: Awaited<ReturnType<typeof runAdhocQuery>>;
     try {
       result = await runAdhocQuery(sql);
     } catch (error) {
-      if (env.adhoc.audit === 'refused') {
+      if (currentAdhocSettings().audit === 'refused') {
         await record({ sql, refused: (error as Error).message });
       }
       throw error;

@@ -105,3 +105,47 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
 const NUMERIC_OIDS = new Set([20, 21, 23, 26, 700, 701, 1700]);
 
 export const isNumericOid = (oid: number): boolean => NUMERIC_OIDS.has(oid);
+
+/**
+ * One of the query console's settings, and where its value came from.
+ *
+ * Provenance is part of the contract rather than decoration: a field the
+ * environment pins cannot be changed here, and a form that accepted the edit
+ * anyway would be a control that does nothing — this codebase's recurring bug,
+ * in the one place where the control being a lie decides whether a browser can
+ * run SQL.
+ */
+export interface AdhocSettingField {
+  value: boolean | number | string;
+  source: 'environment' | 'database' | 'default';
+  /** The variable that pins it, so the form can name what to remove. */
+  env: string;
+}
+
+export interface AdhocSettingsResponse {
+  settings: Record<string, AdhocSettingField>;
+  /**
+   * Whether `ADHOC_DB_PASSWORD` is set. Never its value.
+   *
+   * The one setting that stays in the environment. Without it the console cannot
+   * start whatever the switches here say, so the form has to be able to explain
+   * why turning it on changed nothing.
+   */
+  passwordConfigured: boolean;
+  effective: Record<string, boolean | number | string>;
+}
+
+/** Absent leaves a field alone; null clears it, so it falls back to env or default. */
+export type AdhocSettingsPatch = Record<string, boolean | number | string | null>;
+
+export async function fetchAdhocSettings(): Promise<AdhocSettingsResponse> {
+  const { data } = await api.get<AdhocSettingsResponse>('/api/adhoc/settings');
+  return data;
+}
+
+export async function saveAdhocSettings(
+  patch: AdhocSettingsPatch,
+): Promise<{ effective: Record<string, unknown> }> {
+  const { data } = await api.put<{ effective: Record<string, unknown> }>('/api/adhoc/settings', patch);
+  return data;
+}

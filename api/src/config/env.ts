@@ -357,6 +357,25 @@ export const env = {
    * turning every restriction off while the feature still appeared to work. See
    * `adhoc.service.ts`, which additionally refuses to start unless the database
    * confirms the role is neither a superuser nor able to write.
+   *
+   * ---
+   *
+   * **Do not read these values to decide what the console does.** Since V14 they
+   * are one layer of three — environment, then the stored row, then the code
+   * default — and `adhoc-settings.service.ts` is the only correct reader. An
+   * administrator can change all of them except the password from the interface,
+   * without the restart that on a monitoring server means dropping a live
+   * capture. `env.adhoc.password` is the exception and is still read directly:
+   * it is installed on the role at boot and is deliberately not editable, which
+   * is what keeps the decision to *have* a SQL prompt on production with whoever
+   * installed the server.
+   *
+   * What this block is still for is boot-time validation. `int()` throws on
+   * `ADHOC_MAX_ROWS=lots`, which the resolver would only ignore, and being told
+   * at startup beats a limit quietly not applying. Note the one gap: a value
+   * that parses but falls outside V14's CHECK bounds passes here and is then
+   * ignored by the resolver, so the field reports itself as unpinned. Refusing
+   * to boot over a console limit seemed the worse trade.
    */
   adhoc: {
     enabled: bool('ADHOC_ENABLED', false),

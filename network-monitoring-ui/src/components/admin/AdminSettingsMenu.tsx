@@ -1,5 +1,6 @@
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import StorageOutlinedIcon from '@mui/icons-material/StorageOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
@@ -11,6 +12,7 @@ import Typography from '@mui/material/Typography';
 import { type ComponentType, type ReactElement, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import AppDialog from '../AppDialog';
+import QueryConsoleSettings from './QueryConsoleSettings';
 import QueryConsoleStatus from './QueryConsoleStatus';
 
 /**
@@ -59,6 +61,14 @@ export const ADMIN_GROUPS: AdminGroup[] = [
         description: 'Whether the ad hoc SQL console can start, and why not.',
         title: 'Query console',
         Component: QueryConsoleStatus,
+      },
+      {
+        id: 'query-console-settings',
+        icon: <TuneOutlinedIcon fontSize="small" />,
+        label: 'Query console settings',
+        description: 'Switch it on or off, and set its limits, without a restart.',
+        title: 'Query console settings',
+        Component: QueryConsoleSettings,
       },
     ],
   },

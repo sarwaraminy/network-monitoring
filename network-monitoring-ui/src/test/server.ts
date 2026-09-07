@@ -2,6 +2,7 @@ import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import {
   ADHOC_OFF,
+  ADHOC_SETTINGS,
   ADMIN_USER,
   ALERTS,
   AUDIT_ACTIONS,
@@ -168,6 +169,8 @@ export const handlers = [
    * to explain.
    */
   http.get('/api/adhoc', () => HttpResponse.json(ADHOC_OFF)),
+  http.get('/api/adhoc/settings', () => HttpResponse.json(ADHOC_SETTINGS)),
+  http.put('/api/adhoc/settings', () => HttpResponse.json({ effective: ADHOC_SETTINGS.effective })),
   http.post('/api/adhoc/recheck', () => HttpResponse.json(ADHOC_OFF)),
   http.get('/api/audit/actions', () => HttpResponse.json(AUDIT_ACTIONS)),
   // Filtering and paging are the server's job; the handler honours the filter so a

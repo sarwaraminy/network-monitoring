@@ -65,11 +65,24 @@ describe('turning the ad hoc console off', { skip: database.skip }, () => {
   });
 
   it('takes the login away when the feature is switched off', async () => {
-    // What an operator does: set the flag false and restart. `env` is read once
-    // at import, so the flag is flipped on the frozen object the service reads —
-    // the same state a restart would produce, without a second process.
-    const { env } = await import('../config/env.js');
-    (env.adhoc as { enabled: boolean }).enabled = false;
+    /*
+     * What an operator does: set the flag false and restart.
+     *
+     * This used to flip `env.adhoc.enabled` on the frozen object, which stopped
+     * representing the path once the console started reading its settings from
+     * three layers — the environment variable, a stored row, then the default.
+     * Setting the variable and re-resolving is what a restart actually does, and
+     * the environment wins over the row, so this is also the assertion that the
+     * layering cannot be used to switch the console on where a deployment pinned
+     * it off.
+     *
+     * `loadAdhocSettings` re-reads the row too; if that read fails it falls back
+     * to the environment and the defaults, which for this suite is the same
+     * answer.
+     */
+    process.env.ADHOC_ENABLED = 'false';
+    const { loadAdhocSettings } = await import('./adhoc-settings.service.js');
+    await loadAdhocSettings();
 
     try {
       assert.equal(await adhoc.startAdhoc(database.pool!), false, 'a disabled console started');
@@ -79,7 +92,8 @@ describe('turning the ad hoc console off', { skip: database.skip }, () => {
         'the role can still log in with the configured password after the console was switched off',
       );
     } finally {
-      (env.adhoc as { enabled: boolean }).enabled = true;
+      process.env.ADHOC_ENABLED = 'true';
+      await loadAdhocSettings();
     }
   });
 });

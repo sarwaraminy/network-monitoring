@@ -898,6 +898,35 @@ There is no connection-string setting on purpose. One would be one an operator c
 at `postgres` — the owner this application connects as, a superuser in the default Compose
 file — turning every restriction off while the feature still appeared to work.
 
+### Switching it on
+
+Under the **settings gear**, visible to administrators only, there are two tools:
+
+- **Query console** — whether it is running, and if not, which of three reasons: nobody
+  asked for it, there is no password to install on the role, or the database would not
+  confirm the role is sandboxed. It also re-runs the startup check, for the case where the
+  role's grants were wrong and have since been fixed. Previously all three states shared
+  one sentence and the only way to tell them apart was the server log.
+- **Query console settings** — the switches and limits, in force on save. No restart, which
+  on a monitoring server would mean dropping a live capture to reconfigure a console.
+
+Two things deliberately did not become editable:
+
+- **`ADHOC_DB_PASSWORD` stays in the environment.** It is installed on the Postgres role at
+  boot with `ALTER ROLE`, a statement that has no parameterised form — so the value is part
+  of the statement text and the database's own log may record it. More importantly, it is
+  what keeps the decision to *have* a SQL prompt on the production database with whoever
+  installed the server. Without one, every switch above is inert, and the settings page says
+  so rather than letting somebody turn the console on and watch nothing happen.
+- **Write mode still forces auditing to `all`.** A console that can `DELETE` and a trail
+  that records none of it was previously unreachable only because both flags came from the
+  environment and had to be set together on purpose. Now that either can be set in a
+  browser, the rule is applied where both are read.
+
+Every field says where its value came from, and one the environment pins is shown disabled
+with the variable named — the same contract as the delivery settings, for the same reason: a
+control that accepts an edit and changes nothing is worse than one that is visibly locked.
+
 Neither role can:
 
 - **read the columns holding secrets** — `users.password`, `delivery_settings.email_password`,
@@ -1557,11 +1586,18 @@ network-monitoring-ui/        React + TypeScript + Vite frontend
 | `FLOW_EXPORTERS`       | — (any source)                                 | Comma-separated allow-list of exporter addresses |
 | `ADHOC_ENABLED`        | `false`                                        | The SQL console. Off by default: switched on without thought, it is a prompt on the production database reachable from a browser session |
 | `ADHOC_WRITE_ENABLED`  | `false`                                        | Lets the console write. Selects a different Postgres role rather than relaxing a check in the app |
-| `ADHOC_DB_PASSWORD`    | *required when enabled*                        | Set on the console's role at boot                |
+| `ADHOC_DB_PASSWORD`    | *required when enabled*                        | Set on the console's role at boot. **The one setting with no interface** — see below |
 | `ADHOC_AUDIT`          | `all`                                          | `all` / `refused` / `off`. Forced to `all` while writes are enabled |
 | `ADHOC_TIMEOUT_MS`     | `10000`                                        | A query stops here rather than running until somebody notices |
 | `ADHOC_MAX_ROWS`       | `1000`                                         | Rows returned to the browser. A grid, not an export |
 | `ADHOC_MAX_QUERY_LENGTH` | `20000`                                      | Characters accepted, so the body limit is not what rejects a query |
+
+Every `ADHOC_*` variable above except the password can also be set by an administrator in
+the interface, and **setting one here pins it**: the control renders disabled and names the
+variable. That is why the Compose file passes them through blank rather than defaulting them
+— baking `:-false` in would have pinned all six on every deployment and left a settings page
+that accepted edits and changed nothing. The same three-layer rule as the delivery
+settings — [Configuring it without a shell](#configuring-it-without-a-shell).
 
 Detection thresholds, shared by the packet and flow detectors and all tunable per network:
 
@@ -1890,6 +1926,8 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **Administration settings, and the query console among them** — an admin-only settings gear holding a diagnostics panel that distinguishes the console's three off-states, and a settings form that switches it on and tunes its limits without a restart; the same three-layer resolution as the delivery settings, and `ADHOC_DB_PASSWORD` deliberately left out of it | #53 |
+| **A draggable dialog, used everywhere** — `AppDialog`, ported from the sibling `professional` project, so a tool can sit over the page whose numbers it is being reconciled with | #53 |
 | **SMTP that modern mailboxes accept** — XOAUTH2 with a refresh token, so a Microsoft 365 or Google mailbox works without basic SMTP AUTH; a half-filled setup names its missing variables instead of opening a socket, and the same `535` is explained differently depending on which auth method is in force | #53 |
 | **Postgres in CI** — the SQL-level claims stop being probes run by hand: a service container, a harness that refuses any database not named `_test`, and standing tests for the four retention bugs review caught, each verified by reintroducing the bug | #51 |
 | **Grouped sidebar navigation** — eight tabs in one header strip became a bordered panel with named sections, ported whole from the PRO 2.0 sidebar in the sibling `professional` project; collapses to a rail, remembers that, and spends no vertical room, which is the axis the tables need | #50 |
@@ -1921,6 +1959,11 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
      reads as "rolled up" rather than "quiet".
    - "Suppress this" from an alert row — left out of the suppression PR to keep it
      reviewable, and the obvious next touch on that page.
+   - A duplicate-version guard in the migration runner. Two files sharing a `V14__` prefix
+     are not detected as a collision: the second one's checksum is compared against the
+     first one's recorded row, and the runner reports a *changed migration* and refuses to
+     apply anything. The message sends you looking for an edit that never happened. Caught
+     this while adding V14, and the fix is a check before the first file is read.
 
 ### Known gaps, named rather than left to be discovered
 

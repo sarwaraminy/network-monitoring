@@ -9,6 +9,7 @@ import { reloadNotifier } from './notify/notifier.js';
 import { loadDeliverySettings, seedFromEnvironment } from './notify/settings.service.js';
 import { libraryVersion } from './packet/libpcap.js';
 import { startAdhoc, stopAdhoc } from './services/adhoc.service.js';
+import { seedAdhocSettingsFromEnvironment } from './services/adhoc-settings.service.js';
 import { stopAllCaptures } from './services/packet-capture.registry.js';
 import { retentionIdle, startRetention, stopRetention } from './services/retention.service.js';
 import { flushSuppressionCounters, refreshSuppressions } from './services/suppression.service.js';
@@ -90,6 +91,20 @@ async function main(): Promise<void> {
    * rather than fired and forgotten, so the log line below is the truth about what
    * this process is offering rather than a guess made before the checks finished.
    */
+  /*
+   * Settings before the console, because the console reads them.
+   *
+   * Seeding first copies whatever the environment already configures into the
+   * row, so an installation that has only ever used environment variables can
+   * still manage the console from the interface — every field would otherwise
+   * read "set in the environment" and refuse to be changed, which is correct and
+   * useless. `startAdhoc` then resolves against a row that already reflects
+   * reality.
+   */
+  await seedAdhocSettingsFromEnvironment().catch((error: unknown) => {
+    log.warn({ err: error }, 'Could not seed the query console settings; the environment still applies');
+  });
+
   if (await startAdhoc(pool)) {
     log.warn('Ad hoc SQL console is ENABLED: administrators can run read-only queries against this database');
   }

@@ -326,6 +326,14 @@ describe('deployment defaults match the code', () => {
         if (ALLOWED_TO_DIFFER.has(name)) continue;
         // Only booleans: an example may reasonably show a sample port or path.
         if (expected !== 'true' && expected !== 'false') continue;
+        /*
+         * `NAME=` is the code default, not a contradiction — `bool()` falls back
+         * on blank as well as on unset. Written that way for the ADHOC_* settings
+         * so the line is still discoverable in the file an operator copies, while
+         * leaving the field editable in the interface: a variable that is SET
+         * pins it. `NAME=true` against a default of false still fails.
+         */
+        if (value === '') continue;
 
         assert.equal(
           value,
@@ -409,12 +417,23 @@ describe('deployment defaults match the code', () => {
       if (expected === undefined) continue;
       if (ALLOWED_TO_DIFFER.has(name)) continue;
       if (expected !== 'true' && expected !== 'false') continue;
+      /*
+       * A blank default is not a contradiction. `bool()` falls back on unset AND
+       * on blank (env.ts, `raw.trim() === ''`), so `${NAME:-}` yields exactly the
+       * code default — which is why the ADHOC_* settings are passed that way:
+       * a variable that is SET pins its field against the settings interface, and
+       * `:-false` would have pinned all six on every Compose deployment.
+       *
+       * Narrow on purpose. `${NAME:-true}` against a default of false still
+       * fails, which is the mistake this check was written for.
+       */
+      if (value === '') continue;
 
       assert.equal(
         value,
         expected,
         `docker-compose.yml passes ${name}=${value}, overriding the code default of ${expected}. ` +
-          'Compose passes the literal, and bool() only falls back when a variable is unset.',
+          'Compose passes the literal through, and a non-blank one wins over the fallback.',
       );
     }
   });

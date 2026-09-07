@@ -17,10 +17,15 @@ import QueryConsoleStatus from './QueryConsoleStatus';
  * happened. Three situations, one sentence, and the only way to tell them apart
  * was to read the server log.
  *
- * What is deliberately absent is a switch. The console is environment-only on
- * purpose, and a control here would move the decision to have a SQL prompt on
- * the production database from somebody with server access to anybody holding an
- * admin session.
+ * Two tools now: this panel diagnoses, and `QueryConsoleSettings` edits. The
+ * split is deliberate — the diagnostics have to be readable when the console is
+ * off and nothing can be changed, and they are the same component the console
+ * page itself shows.
+ *
+ * What no amount of editing can supply is `ADHOC_DB_PASSWORD`. It stays in the
+ * environment, so the decision to *have* a SQL prompt on the production database
+ * remains with whoever installed the server; what an administrator gained is
+ * switching a provisioned console on and off without a restart.
  */
 
 function asNonAdmin() {
@@ -65,12 +70,37 @@ describe('AdminSettingsMenu', () => {
     await user.click(await screen.findByRole('button', { name: /administration settings/i }));
 
     expect(screen.getByText('Database')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /query console/i }));
+    // By its label rather than its accessible name: the row's name includes its
+    // description, and the panel now holds a second row whose label starts the
+    // same way, so a substring match on the name matches both.
+    await user.click(screen.getByText('Query console'));
 
     // The tool's own content, not just its title: opening a row that renders
     // nothing would look identical from the panel's side.
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByText(/has not been switched on/i)).toBeInTheDocument();
+  });
+
+  it('opens the settings tool, in a dialog that can be dragged', async () => {
+    /*
+     * The second tool, reached the way an administrator reaches it. A component
+     * that only its own test file renders is a component nobody can get to, and
+     * this one is the whole point of the panel — the diagnostics say what is
+     * wrong, the settings are where it gets fixed.
+     *
+     * The drag handle is asserted here rather than in `AppDialog`'s own tests
+     * because it is what makes the tool usable at all: the settings sit over the
+     * page whose numbers an operator is trying to reconcile with them.
+     */
+    const user = userEvent.setup();
+    renderApp(<AdminSettingsMenu />, { authenticated: true });
+
+    await user.click(await screen.findByRole('button', { name: /administration settings/i }));
+    await user.click(screen.getByText('Query console settings'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByRole('switch', { name: 'Query console' })).toBeInTheDocument();
+    expect(dialog.querySelector('[data-drag-handle]')).not.toBeNull();
   });
 });
 
@@ -153,13 +183,15 @@ describe('QueryConsoleStatus', () => {
     expect(await screen.findByText(/may be in the postgres log/i)).toBeInTheDocument();
   });
 
-  it('does not offer a switch', async () => {
+  it('diagnoses without offering to change anything', async () => {
     /*
-     * Guarding the design decision, not the code. The console is environment-only
-     * because switching it on is an installation's choice rather than a click in
-     * a browser session, and the obvious "improvement" to this panel is the one
-     * thing it must not grow. "Check again" re-runs the startup check; it cannot
-     * enable anything.
+     * The split between the two tools, asserted from this side. This component is
+     * also the explanation the console page itself renders when the console is
+     * off, and that page must stay readable without offering to change anything:
+     * a switch there would be a second copy of the one in the settings tool, and
+     * two copies eventually disagree about what is in force. "Check again"
+     * re-runs the startup check against the environment as it stands; it grants
+     * nothing, which is why it is not a control.
      */
     renderApp(<QueryConsoleStatus />, { authenticated: true });
     await screen.findByText(/has not been switched on/i);

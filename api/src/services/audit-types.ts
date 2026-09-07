@@ -34,6 +34,7 @@ export const AUDIT_ACTIONS = {
   // cannot read a secret, so the text cannot contain one.
   'adhoc.query': 'Ran an ad hoc SQL query',
   'adhoc.recheck': 'Re-checked whether the query console can start',
+  'adhoc_settings.update': 'Changed the query console settings',
 } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;

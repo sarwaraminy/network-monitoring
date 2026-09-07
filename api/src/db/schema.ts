@@ -258,6 +258,28 @@ export const auditEvents = pgTable(
   (table) => [index('audit_events_action_id_idx').on(table.action, table.id.desc())],
 );
 
+/**
+ * The query console's settings — see V14__Adhoc_settings.sql.
+ *
+ * One row, every column nullable: NULL means "nobody has chosen", so the value
+ * falls through to the environment variable and then to the code default, and the
+ * environment always wins over what is stored here. `ADHOC_DB_PASSWORD` is
+ * deliberately not a column.
+ */
+export const adhocSettings = pgTable('adhoc_settings', {
+  id: smallint('id').primaryKey().default(1),
+  enabled: boolean('enabled'),
+  writeEnabled: boolean('write_enabled'),
+  timeoutMs: integer('timeout_ms'),
+  maxRows: integer('max_rows'),
+  maxQueryLength: integer('max_query_length'),
+  audit: varchar('audit', { length: 16 }),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  updatedBy: varchar('updated_by', { length: 200 }),
+});
+
+export type AdhocSettingsRow = typeof adhocSettings.$inferSelect;
+export type NewAdhocSettingsRow = typeof adhocSettings.$inferInsert;
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 export type LogRow = typeof logs.$inferSelect;

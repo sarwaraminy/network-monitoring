@@ -422,3 +422,27 @@ export const ADHOC_RUNNING = {
   mode: 'read' as const,
   passwordMayBeLogged: false,
 };
+
+/**
+ * Query console settings as a fresh install resolves them: nothing stored,
+ * nothing pinned, so every field reads from the code default.
+ */
+export const ADHOC_SETTINGS = {
+  settings: {
+    enabled: { value: false, source: 'default' as const, env: 'ADHOC_ENABLED' },
+    writeEnabled: { value: false, source: 'default' as const, env: 'ADHOC_WRITE_ENABLED' },
+    timeoutMs: { value: 10_000, source: 'default' as const, env: 'ADHOC_TIMEOUT_MS' },
+    maxRows: { value: 1000, source: 'default' as const, env: 'ADHOC_MAX_ROWS' },
+    maxQueryLength: { value: 20_000, source: 'default' as const, env: 'ADHOC_MAX_QUERY_LENGTH' },
+    audit: { value: 'all', source: 'default' as const, env: 'ADHOC_AUDIT' },
+  },
+  passwordConfigured: true,
+  effective: {
+    enabled: false,
+    writeEnabled: false,
+    timeoutMs: 10_000,
+    maxRows: 1000,
+    maxQueryLength: 20_000,
+    audit: 'all',
+  },
+};

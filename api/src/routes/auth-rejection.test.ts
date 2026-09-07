@@ -350,6 +350,7 @@ const EXPECTED: readonly string[] = [
   'DELETE /api/suppressions/1',
   'DELETE /api/user-guide/session',
   'GET /api/adhoc',
+  'GET /api/adhoc/settings',
   'GET /api/alerts',
   'GET /api/alerts/dashboard',
   'GET /api/alerts/devices',
@@ -390,6 +391,7 @@ const EXPECTED: readonly string[] = [
   'POST /api/suppressions',
   'POST /api/suppressions/preview',
   'POST /api/user-guide/session',
+  'PUT /api/adhoc/settings',
   'PUT /api/log/1',
   'PUT /api/notify/settings',
 ];

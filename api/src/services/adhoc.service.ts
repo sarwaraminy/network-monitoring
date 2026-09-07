@@ -3,6 +3,7 @@ import pg from 'pg';
 import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
 import { HttpError } from '../middleware/error-handler.js';
+import { currentAdhocSettings } from './adhoc-settings.service.js';
 
 const log = componentLogger('adhoc');
 
@@ -307,7 +308,7 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
   activeRole = null;
   loggingSuppressed = true;
 
-  if (!env.adhoc.enabled) {
+  if (!currentAdhocSettings().enabled) {
     offReason = 'disabled';
     await revokeAdhocLogin(owner).catch(() => {});
     return false;
@@ -347,7 +348,7 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     // Asked of the connection rather than parsed out of the URL, so the role
     // always matches the database the migrations actually ran against.
     const { rows: current } = await owner.query<{ name: string }>('SELECT current_database() AS name');
-    mode = env.adhoc.write ? 'write' : 'read';
+    mode = currentAdhocSettings().writeEnabled ? 'write' : 'read';
     role = adhocRole(current[0]!.name, mode);
 
     /*
@@ -679,7 +680,7 @@ async function revokeLogin(owner: pg.Pool, role: string): Promise<void> {
  * Everything that can be refused before the query is recorded or run.
  *
  * Exported so the route can call it BEFORE writing to the audit trail. Auditing
- * first meant `env.adhoc.maxLength` was not what bounded the recorded text — the
+ * first meant the configured length limit was not what bounded the recorded text — the
  * 1 MB JSON body limit was, so a caller could put fifty times the accepted
  * length into `audit_events` on a request that was always going to be rejected.
  * It also wrote an `adhoc.query` row for every POST while the console was
@@ -694,14 +695,15 @@ export function assertRunnable(sql: unknown): string {
 
   const trimmed = sql.trim();
   if (trimmed === '') throw new AdhocError('Enter a query to run.');
-  if (trimmed.length > env.adhoc.maxLength) {
-    throw new AdhocError(`Queries are limited to ${env.adhoc.maxLength} characters.`);
+  const { maxQueryLength } = currentAdhocSettings();
+  if (trimmed.length > maxQueryLength) {
+    throw new AdhocError(`Queries are limited to ${maxQueryLength} characters.`);
   }
   return trimmed;
 }
 
 /**
- * Runs one statement and returns at most `env.adhoc.maxRows` rows.
+ * Runs one statement and returns at most the configured row cap.
  *
  * The cap is applied with a CURSOR rather than by wrapping the query in
  * `SELECT * FROM (...) LIMIT n`. Wrapping changes the user's SQL — it breaks
@@ -729,6 +731,15 @@ export function assertRunnable(sql: unknown): string {
  * would be lying about what it did.
  */
 export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
+  /*
+   * Read once for the whole query rather than per use.
+   *
+   * The timeout, the row cap and the fetch size have to describe the same query:
+   * a save landing between two of those reads would set a timeout from the old
+   * settings and a cap from the new one, and the message about truncation would
+   * then name a number that was never applied.
+   */
+  const settings = currentAdhocSettings();
   const trimmed = assertRunnable(sql);
   // `assertRunnable` has already refused a null pool; re-reading it here is what
   // narrows the type, and it also closes the window where `stopAdhoc` runs
@@ -765,7 +776,7 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
      * tables. See V12.
      */
     await client.query(writing ? 'BEGIN' : 'BEGIN READ ONLY');
-    await client.query(`SET LOCAL statement_timeout = ${env.adhoc.timeoutMs}`);
+    await client.query(`SET LOCAL statement_timeout = ${settings.timeoutMs}`);
     // Nothing here should ever wait on another transaction's lock; if it does,
     // the answer is "no" rather than a console that hangs holding a connection.
     await client.query('SET LOCAL lock_timeout = 1000');
@@ -806,10 +817,10 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
     // console reporting "12 rows" and changing nothing.
     if (writing) await client.query('COMMIT');
 
-    const truncated = result.rows.length > env.adhoc.maxRows;
+    const truncated = result.rows.length > settings.maxRows;
     return {
       columns: result.fields.map((field) => ({ name: field.name, dataTypeId: field.dataTypeID })),
-      rows: truncated ? result.rows.slice(0, env.adhoc.maxRows) : result.rows,
+      rows: truncated ? result.rows.slice(0, settings.maxRows) : result.rows,
       truncated,
       durationMs: Date.now() - started,
       // `FETCH` is our cursor, not the operator's statement. Reporting it would
@@ -896,7 +907,7 @@ async function declareAndFetchStrict(client: pg.PoolClient, sql: string) {
   // `rowMode: 'array'` for the reason in `AdhocResult.rows`: positional rows
   // cannot collide on a repeated column name.
   return client.query({
-    text: `FETCH ${env.adhoc.maxRows + 1} FROM adhoc_result`,
+    text: `FETCH ${currentAdhocSettings().maxRows + 1} FROM adhoc_result`,
     rowMode: 'array',
   });
 }
@@ -917,7 +928,7 @@ function translate(error: unknown): AdhocError {
 
   if (code === '57014') {
     return new AdhocError(
-      `The query ran longer than ${env.adhoc.timeoutMs} ms and was stopped. Narrow it, or add a LIMIT.`,
+      `The query ran longer than ${currentAdhocSettings().timeoutMs} ms and was stopped. Narrow it, or add a LIMIT.`,
     );
   }
   // Not a Postgres code at all: `pg` rejects a pool acquisition with a plain

@@ -112,6 +112,27 @@ const MAX_TREND_DAYS = Math.max(1825, env.retention.alertDays + 1);
  * is a 400 rather than a silently empty page — and adding an action in one place
  * cannot leave the filter rejecting it.
  */
+/**
+ * A change to the query console's settings.
+ *
+ * Every field optional and nullable: absent leaves the stored value alone, null
+ * clears it so the value falls back to the environment or the default. The bounds
+ * match V14's CHECK constraints, so a value this accepts is a value the table
+ * accepts — the two disagreeing is how an interface reports success for a write
+ * the database refused.
+ */
+export const adhocSettingsPatchSchema = z
+  .object({
+    enabled: z.boolean().nullable(),
+    writeEnabled: z.boolean().nullable(),
+    timeoutMs: z.coerce.number().int().min(100).max(600_000).nullable(),
+    maxRows: z.coerce.number().int().min(1).max(100_000).nullable(),
+    maxQueryLength: z.coerce.number().int().min(1).max(1_000_000).nullable(),
+    audit: z.enum(['all', 'refused', 'off']).nullable(),
+  })
+  .partial()
+  .strict();
+
 export const auditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   action: z.enum(Object.keys(AUDIT_ACTIONS) as [AuditAction, ...AuditAction[]]).optional(),
