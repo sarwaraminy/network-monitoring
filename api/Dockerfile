@@ -28,6 +28,9 @@ RUN npm ci --workspaces --include-workspace-root --ignore-scripts
 
 COPY tsconfig*.json ./
 COPY api ./api
+# The user guide is served by the API, behind its session gate — see
+# api/src/routes/user-guide.routes.ts. It is not compiled, only copied.
+COPY user-guide ./user-guide
 
 RUN npx tsc -p api/tsconfig.json \
   && node api/scripts/copy-migrations.mjs
@@ -52,6 +55,7 @@ ENV PORT=8080
 # api/node_modules to copy — Node resolves upward from api/dist to /app/node_modules.
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/api/dist ./api/dist
+COPY --from=build /repo/user-guide ./user-guide
 COPY --from=build /repo/api/package.json ./api/package.json
 COPY --from=build /repo/package.json ./package.json
 

@@ -18,7 +18,10 @@ see payload. Both feed the same detectors and the same alert table.
 
 This README is written for whoever installs and changes the thing. For whoever *uses* it —
 the screens, what each one is telling you, and what each role may do — there is a
-**[user guide](user-guide/index.html)**; open `user-guide/index.html` in a browser.
+**[user guide](user-guide/index.html)**. It is served by the
+application itself at `/user-guide/` — behind a signed-in session, like every other screen,
+which is why it lives here and not in `network-monitoring-ui/public/` where the web server
+would hand it out unauthenticated. Reachable in the product from the help icon in the header.
 
 ## What it detects
 
@@ -1764,69 +1767,69 @@ you, and which actions each role is allowed to take.
 
 **Dashboard** — what the detectors found, and which hosts keep appearing
 
-![Dashboard](./screenshots/dashboard.png)
+![Dashboard](./user-guide/screenshots/dashboard.png)
 
 **Security alerts** — every finding, newest first, with the severity tiles doubling as filters
 
-![Security alerts](./screenshots/alerts.png)
+![Security alerts](./user-guide/screenshots/alerts.png)
 
 **A finding, expanded** — what it means, and the evidence behind it. Evidence never contains
 passwords or payloads; the cleartext-credential detector records a username and the secret's
 *length*, and the tests assert it.
 
-![A finding, expanded](./screenshots/alert-detail.png)
+![A finding, expanded](./user-guide/screenshots/alert-detail.png)
 
 **IP lookup** — reverse DNS, geolocation and WHOIS for any address in a finding, from the
 magnifier beside it
 
-![IP information](./screenshots/ip-lookup.png)
+![IP information](./user-guide/screenshots/ip-lookup.png)
 
 **Suppression rules** — findings you have declared expected. A matching finding is dropped
 before storage, not hidden behind a filter, and every rule carries the reason it exists.
 
-![Suppression rules](./screenshots/suppressions.png)
+![Suppression rules](./user-guide/screenshots/suppressions.png)
 
 **Alert delivery** — where findings go and whether they are getting there, with the four
 limits that decide whether a message is sent stated on the page rather than buried in a
 config file
 
-![Alert delivery](./screenshots/delivery.png)
+![Alert delivery](./user-guide/screenshots/delivery.png)
 
 **Delivery settings** — changed here and in force immediately, no file to edit and no
 restart. A field pinned in the environment renders disabled and names the variable that pins
 it (the padlocked chips), because a control that accepts an edit and changes nothing is worse
 than no control.
 
-![Delivery settings](./screenshots/delivery-settings.png)
+![Delivery settings](./user-guide/screenshots/delivery-settings.png)
 
 **SMTP over OAuth2** — switching authentication to `oauth2` reveals what XOAUTH2 needs and
 hides what it does not. The client secret and refresh token are write-only: the API reports
 whether each is set and never returns it.
 
-![Delivery settings, OAuth2](./screenshots/delivery-settings-oauth2.png)
+![Delivery settings, OAuth2](./user-guide/screenshots/delivery-settings-oauth2.png)
 
 **Threat intelligence** — off by default, because which feeds to trust is your decision and a
 security tool should not start making outbound requests to a list nobody chose. The page says
 exactly how to switch it on.
 
-![Threat intelligence](./screenshots/threat-intel.png)
+![Threat intelligence](./user-guide/screenshots/threat-intel.png)
 
 **Ad hoc query** — read-only SQL against this system's own database, gated by role and its own
 flag, with every query recorded in the audit trail. The columns holding secrets are refused by
 the database, not by this page.
 
-![Ad hoc query](./screenshots/adhoc-query.png)
+![Ad hoc query](./user-guide/screenshots/adhoc-query.png)
 
 **Packet capture** — shown idle on purpose: a live capture on the machine that took these
 would put its real addresses and MACs in a public README.
 
-![Packet capture](./screenshots/capture.png)
+![Packet capture](./user-guide/screenshots/capture.png)
 
 **Sign in** — no account ships with the product. `V5__Remove_seeded_accounts.sql` deletes any
 row still carrying the bcrypt hash this repository used to publish, and the first account is
 created with `npm run user`.
 
-![Sign in](./screenshots/login.png)
+![Sign in](./user-guide/screenshots/login.png)
 
 ---
 

@@ -315,6 +315,7 @@ let intelRouter: Router;
 let logsRouter: Router;
 let auditRouter: Router;
 let adhocRouter: Router;
+let guideSessionRouter: Router;
 
 before(async () => {
   // These routers pull in the services, which construct a connection pool at
@@ -330,6 +331,7 @@ before(async () => {
   ({ logsRouter } = await import('./logs.routes.js'));
   ({ auditRouter } = await import('./audit.routes.js'));
   ({ adhocRouter } = await import('./adhoc.routes.js'));
+  ({ guideSessionRouter } = await import('./user-guide.routes.js'));
 
   const { createPacketRouter } = await import('./packets.routes.js');
   const { interfaceCapture } = await import('../services/packet-capture.registry.js');
@@ -596,6 +598,33 @@ const ROUTERS: RouterPosture[] = [
     // Preview writes nothing; it is a POST because the rule being tried out is a
     // body rather than a query string.
     ungatedMutations: ['POST /preview'],
+  },
+  {
+    file: 'user-guide.routes.ts',
+    router: () => guideSessionRouter,
+    /*
+     * Minting the guide's session cookie. No mutating routes in the sense this
+     * file means — `POST /session` writes a `Set-Cookie` for the caller and
+     * nothing else — and it must be reachable by any signed-in account, because
+     * the guide is documentation rather than an administrative tool.
+     *
+     * The OTHER router in this file, `userGuideRouter`, is not declared here and
+     * cannot be: it is the one router in the application without `requireAuth`,
+     * gated instead by the cookie this one issues, because a browser following a
+     * link to a page sends no `Authorization` header for anything on it. Every
+     * assertion this file would make about it would be about the wrong mechanism.
+     * Its gate is asserted directly in user-guide.test.ts, over real HTTP, in both
+     * directions.
+     */
+    role: 'admin',
+    readsAreOpen: true,
+    /*
+     * Both routes write a `Set-Cookie` for the caller and nothing else — no state
+     * of the system changes — and both must be reachable by any signed-in account,
+     * because the guide is documentation rather than an administrative tool.
+     * Requiring ADMIN to read the manual would be a strange place to put a guard.
+     */
+    ungatedMutations: ['POST /session', 'DELETE /session'],
   },
 ];
 

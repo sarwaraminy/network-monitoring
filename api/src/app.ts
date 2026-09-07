@@ -18,6 +18,7 @@ import { logsRouter } from './routes/logs.routes.js';
 import { notifyRouter } from './routes/notify.routes.js';
 import { createPacketRouter } from './routes/packets.routes.js';
 import { suppressionsRouter } from './routes/suppressions.routes.js';
+import { guideSessionRouter, userGuideRouter } from './routes/user-guide.routes.js';
 import { filteredIpCapture, interfaceCapture } from './services/packet-capture.registry.js';
 
 /** Replaces NetworkMonitoringApplication + WebMvcConfig + SecurityConfig. */
@@ -126,11 +127,20 @@ export function createApp(): Express {
   app.use('/api/intel', intelRouter);
   app.use('/api/notify', notifyRouter);
   app.use('/api/suppressions', suppressionsRouter);
+  app.use('/api/user-guide', guideSessionRouter);
   app.use('/api/packets', createPacketRouter(interfaceCapture, { requireIpFilter: false }));
   app.use('/api/ip/packets', createPacketRouter(filteredIpCapture, { requireIpFilter: true }));
   // Legacy: the per-packet anomaly log that `alerts` supersedes. Kept so existing
   // history stays reachable; nothing writes to it any more.
   app.use('/api', logsRouter);
+
+  /*
+   * The user guide's own files, outside `/api` because they are pages a browser
+   * navigates to rather than an interface the application calls. Mounted after
+   * the API so nothing here can shadow a route, and gated by its own cookie —
+   * see routes/user-guide.routes.ts for why a Bearer token cannot do this job.
+   */
+  app.use('/user-guide', userGuideRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

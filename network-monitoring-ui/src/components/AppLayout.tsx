@@ -1,3 +1,4 @@
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
@@ -161,6 +162,26 @@ export default function AppLayout() {
           </Stack>
 
           <Box sx={{ flexGrow: 1 }} />
+
+          {/*
+            The user guide, which ships with the application rather than living
+            somewhere it has to be found. A plain anchor, not a router link: it is
+            static HTML served alongside the bundle at /user-guide/, not a route
+            this app knows about, so React Router would swallow it and render the
+            not-found redirect instead.
+          */}
+          <Tooltip title="User guide">
+            <IconButton
+              component="a"
+              href="/user-guide/index.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              color="inherit"
+              aria-label="User guide (opens in a new tab)"
+            >
+              <HelpOutlineIcon />
+            </IconButton>
+          </Tooltip>
 
           <Tooltip title={user?.email ?? 'Account'}>
             <IconButton onClick={(event) => setMenuAnchor(event.currentTarget)} sx={{ p: 0.5 }}>

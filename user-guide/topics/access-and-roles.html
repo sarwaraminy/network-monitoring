@@ -88,6 +88,19 @@ show which registration is in use.</p>
 values &mdash; a trail holding credentials would be a second place to read them, one that
 is never pruned.</p>
 
+<h2>This guide is behind the same door</h2>
+
+<p>The pages you are reading are served by the application itself and require a signed-in
+session, the same as any screen. Opening one without signing in lands on the sign-in page,
+and the screenshots and stylesheet are refused outright &mdash; they show a real dashboard,
+a delivery configuration and the shape of an alerts table, which is not something to leave
+readable by anybody who guesses a URL.</p>
+
+<p>The session for the guide is a separate, short-lived cookie scoped to
+<code>/user-guide</code>, because a page a browser navigates to cannot carry the token the
+application uses for everything else. Signing out clears it, and a guide tab left open
+returns itself to the sign-in page when it notices you have signed out elsewhere.</p>
+
 <div class="note">
   <span class="label">Note</span>
   <p>Roles are checked against the account as it exists at the moment of the
@@ -97,6 +110,7 @@ is never pruned.</p>
 </div>
   </main>
 </div>
+<script src="../assets/guard.js"></script>
 <script src="../assets/nav.js"></script>
 </body>
 </html>

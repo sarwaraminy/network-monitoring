@@ -76,6 +76,7 @@ before(async () => {
     suppressions,
     packets,
     logs,
+    userGuide,
     registry,
   ] = await Promise.all([
     import('../app.js'),
@@ -89,6 +90,7 @@ before(async () => {
     import('./suppressions.routes.js'),
     import('./packets.routes.js'),
     import('./logs.routes.js'),
+    import('./user-guide.routes.js'),
     import('../services/packet-capture.registry.js'),
   ]);
 
@@ -113,6 +115,16 @@ before(async () => {
       router: () => packets.createPacketRouter(registry.filteredIpCapture, { requireIpFilter: true }),
     },
     { at: '/api', router: () => logs.logsRouter },
+    { at: '/api/user-guide', router: () => userGuide.guideSessionRouter },
+    /*
+     * The guide's files. Declared so the mount count matches, but deliberately
+     * contributing no targets to the sweep below: it is the one router NOT gated
+     * by `requireAuth`, because a browser navigating to a page cannot send a
+     * bearer token. It is gated by a session cookie instead, and that gate has its
+     * own suite in user-guide.test.ts — which asserts an anonymous reader is
+     * refused the pages AND the assets, the case this file exists to catch.
+     */
+    { at: '/user-guide', router: () => userGuide.userGuideRouter },
   ];
 
   app = createApp();
@@ -308,6 +320,7 @@ const EXPECTED: readonly string[] = [
   'DELETE /api/alerts/devices/aa:bb:cc:dd:ee:ff',
   'DELETE /api/log/1',
   'DELETE /api/suppressions/1',
+  'DELETE /api/user-guide/session',
   'GET /api/adhoc',
   'GET /api/alerts',
   'GET /api/alerts/dashboard',
@@ -347,6 +360,7 @@ const EXPECTED: readonly string[] = [
   'POST /api/packets/stop',
   'POST /api/suppressions',
   'POST /api/suppressions/preview',
+  'POST /api/user-guide/session',
   'PUT /api/log/1',
   'PUT /api/notify/settings',
 ];
