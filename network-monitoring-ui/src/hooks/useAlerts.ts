@@ -62,10 +62,25 @@ export function useDeleteAlert() {
   });
 }
 
-export function useKnownDevices() {
+/**
+ * How many distinct machines the device rows describe.
+ *
+ * Not `rows.length`. `known_devices` is keyed on (sensor, MAC) since V16, so one
+ * physical device seen by two sensors is two rows — and every caption this number
+ * appears under talks about addresses, not rows. Counting rows would inflate it by
+ * exactly the overlap between sensors, on precisely the installations that have
+ * overlapping coverage and therefore care.
+ *
+ * Exported and pure so it can be asserted without rendering a page full of charts.
+ */
+export function distinctMacCount(devices: readonly { macAddress: string }[]): number {
+  return new Set(devices.map((device) => device.macAddress)).size;
+}
+
+export function useKnownDevices(sensor?: string) {
   return useQuery({
-    queryKey: queryKeys.knownDevices,
-    queryFn: () => alertsApi.fetchKnownDevices(),
+    queryKey: queryKeys.knownDevices(sensor),
+    queryFn: () => alertsApi.fetchKnownDevices(sensor),
     staleTime: 60_000,
   });
 }

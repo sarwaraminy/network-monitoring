@@ -23,7 +23,7 @@ import { useChartPalette } from '../charts/useChartPalette';
 import { KIND_LABEL } from '../components/SeverityChip';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
-import { useKnownDevices, useSensors } from '../hooks/useAlerts';
+import { distinctMacCount, useKnownDevices, useSensors } from '../hooks/useAlerts';
 import type { AlertKind } from '../types';
 
 /**
@@ -69,12 +69,6 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const palette = useChartPalette();
 
-  const dashboard = useQuery({
-    queryKey: ['alerts', 'dashboard', days, sensor || 'all'],
-    queryFn: () => fetchAlertDashboard(days, sensor || undefined),
-    refetchInterval: 30_000,
-  });
-
   // Shown only once a second sensor has written something — see AlertsPage for
   // the reasoning. A dashboard that merges two segments into one trend is the
   // readable answer while there is one segment and a misleading one after that,
@@ -83,13 +77,31 @@ export default function DashboardPage() {
   const sensors = sensorsQuery.data ?? [];
   const multiSensor = sensors.length > 1;
 
+  /*
+   * Derived, never applied straight from the state — see AlertsPage, which
+   * carries the full reasoning. `sensors` shrinks in ordinary operation, and a
+   * filter that goes on applying after its control has been unmounted presents
+   * as an empty dashboard with no visible cause.
+   */
+  const appliedSensor = multiSensor ? sensor || undefined : undefined;
+
+  const dashboard = useQuery({
+    queryKey: ['alerts', 'dashboard', days, appliedSensor ?? 'all'],
+    queryFn: () => fetchAlertDashboard(days, appliedSensor),
+    refetchInterval: 30_000,
+  });
+
   const interfaceStatus = useQuery({
     queryKey: queryKeys.captureStatus('interface'),
     queryFn: () => fetchCaptureStatus('interface'),
     refetchInterval: 10_000,
   });
 
-  const devices = useKnownDevices();
+  const devices = useKnownDevices(appliedSensor);
+
+  // Distinct addresses, not rows — see `distinctMacCount`. The tile's caption
+  // says "MAC addresses seen", and since V16 a row is a (sensor, MAC) pair.
+  const knownMacCount = distinctMacCount(devices.data ?? []);
 
   const data = dashboard.data;
   const loading = dashboard.isPending;
@@ -199,7 +211,7 @@ export default function DashboardPage() {
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
             label="Known devices"
-            value={devices.data?.length ?? 0}
+            value={knownMacCount}
             caption="MAC addresses seen"
             icon={<DevicesOtherIcon />}
             loading={devices.isPending}

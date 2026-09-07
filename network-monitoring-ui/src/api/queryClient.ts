@@ -48,7 +48,7 @@ export const queryKeys = {
   // another. `all` rather than `undefined`, which would not survive the key.
   alertSummary: (sensor?: string) => ['alerts', 'summary', sensor ?? 'all'] as const,
   sensors: ['alerts', 'sensors'] as const,
-  knownDevices: ['alerts', 'devices'] as const,
+  knownDevices: (sensor?: string) => ['alerts', 'devices', sensor ?? 'all'] as const,
   interfaces: (scope: string) => ['packets', scope, 'interfaces'] as const,
   captureStatus: (scope: string) => ['packets', scope, 'status'] as const,
   packets: (scope: string) => ['packets', scope, 'list'] as const,

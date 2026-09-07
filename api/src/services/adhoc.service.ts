@@ -582,12 +582,18 @@ async function proveSandbox(candidate: pg.Pool, role: string, mode: AdhocMode): 
    * someone having "re-granted since"; this is that case.
    *
    * Both probes name every NOT NULL column, `sensor_id` included, and that is
-   * load-bearing rather than tidy. A probe the database rejects for a missing
-   * column never reaches the grant it is testing: `mustBeRefused` would be
-   * satisfied by the constraint error and report a read-only role whatever its
-   * privileges actually were. V16 added that column, and this is the statement it
-   * could have quietly disarmed — the repository's recurring shape of a guard that
-   * cannot see the thing it guards, one schema change away.
+   * load-bearing rather than tidy: a probe the database rejects for a missing
+   * column never reaches the grant it is meant to test, so it stops proving
+   * anything about the sandbox while still looking like a check.
+   *
+   * What it does NOT do is pass silently, and the distinction is worth stating
+   * because this file is a security boundary and somebody will read this comment
+   * deciding whether a future refactor is safe. `mustBeRefused` swallows `42501`
+   * and rethrows everything else, so a `23502` from an unnamed NOT NULL column
+   * fails `proveSandbox`, and `startAdhoc` refuses to bring the console up. The
+   * code check is what makes that loud; the column list is what keeps the probe
+   * reaching the grant at all. Keep both, and expect a schema change here to
+   * surface as a console that will not start.
    */
   if (mode === 'read') {
     await mustBeRefused(

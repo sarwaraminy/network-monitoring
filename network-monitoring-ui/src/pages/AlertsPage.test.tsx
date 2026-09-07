@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { useAuth } from '../contexts/AuthContext';
-import { ADMIN_USER } from '../test/fixtures';
+import { ADMIN_USER, CRITICAL_ALERT, HIGH_ALERT } from '../test/fixtures';
 import { renderApp } from '../test/render';
 import { server } from '../test/server';
 import AlertsPage from './AlertsPage';
@@ -16,6 +16,8 @@ import AlertsPage from './AlertsPage';
  * panel renders whatever the API sends. A regression that started shipping secrets
  * would otherwise be invisible.
  */
+
+const ALERTS = [CRITICAL_ALERT, HIGH_ALERT];
 
 async function renderAlerts() {
   const result = renderApp(<AlertsPage />, { authenticated: true });
@@ -295,6 +297,52 @@ describe('AlertsPage', () => {
     await waitFor(() => expect(screen.getByText(/nothing to report/i)).toBeInTheDocument(), {
       timeout: 10_000,
     });
+  });
+
+  it('stops applying the sensor filter when the sensor list shrinks under it', async () => {
+    /*
+     * The failure this prevents looks like "the alerts are gone".
+     *
+     * `listSensors` reads the `alerts` table, so the list shrinks in ordinary
+     * operation — Clear All empties it, and retention rolls a quiet sensor's rows
+     * away. Hiding the control does not clear what it selected, so without the
+     * derivation in AlertsPage the filter goes on applying with nothing on screen
+     * to undo it and no cause an operator can see. A reload does not help either,
+     * since the state is rebuilt from the same data.
+     *
+     * Driven here through acknowledging, which is the most ordinary action on
+     * this page and invalidates `['alerts']` — the prefix the sensor list is
+     * cached under, so it refetches and the second sensor is gone.
+     */
+    const requested: string[] = [];
+    let sensorRows = [
+      { sensorId: 'branch-office', self: false, alerts: 1, latestAt: null },
+      { sensorId: 'default', self: true, alerts: 2, latestAt: null },
+    ];
+
+    server.use(
+      http.get('/api/alerts/sensors', () => HttpResponse.json(sensorRows)),
+      http.get('/api/alerts', ({ request }) => {
+        const url = new URL(request.url);
+        requested.push(url.searchParams.get('sensor') ?? '');
+        return HttpResponse.json(ALERTS.filter((alert) => alert.acknowledgedAt === null));
+      }),
+    );
+
+    const user = userEvent.setup();
+    await renderAlerts();
+
+    await user.click(await screen.findByRole('combobox', { name: /sensor/i }));
+    await user.click(await screen.findByRole('option', { name: /branch-office/i }));
+    await waitFor(() => expect(requested.at(-1)).toBe('branch-office'));
+
+    // The second sensor goes quiet, and something invalidates the list.
+    sensorRows = [{ sensorId: 'default', self: true, alerts: 2, latestAt: null }];
+    await user.click(screen.getAllByRole('button', { name: /^acknowledge$|^reopen$/i })[0]!);
+
+    await waitFor(() => expect(screen.queryByRole('combobox', { name: /sensor/i })).not.toBeInTheDocument());
+    // The control is gone, and so is the filter it was driving.
+    await waitFor(() => expect(requested.at(-1)).toBe(''));
   });
 
   it('looks up an IP address from the table', async () => {

@@ -2161,6 +2161,10 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
      somebody who did not make it. `saveAdhocSettings` skips the write as well; its docblock
      calls that "a step further than the delivery path", which is true and is the gap. Same
      defect, one severity lower, and the fix is already written next door.
+   - A way to decommission a sensor: drop its findings, its devices and its rollups in one
+     audited action. There is none today, so a sensor retired after a hardware swap leaves its
+     rows behind for ever — retention cannot reclaim the newest of them, because each sensor's
+     staleness cutoff is derived from its own last sighting and that stops advancing with it.
    - A duplicate-version guard in the migration runner. Two files sharing a `V14__` prefix
      are not detected as a collision: the second one's checksum is compared against the
      first one's recorded row, and the runner reports a *changed migration* and refuses to
@@ -2278,6 +2282,11 @@ translation itself is the bulk of the cost and does not shrink.
   every modern phone using MAC-address randomisation raises a new-device alert.
 - **Delivery settings have no history** beyond `updated_by` and the audit entry naming which
   fields changed. Reconstructing a past configuration is not possible.
+- **A retired sensor's newest devices are never reclaimed.** Device staleness is measured from
+  each sensor's own `max(last_seen)`, so a sensor that stops writing stops advancing its own
+  cutoff and keeps everything inside the last window. That is the cost of not letting one
+  sensor's clock sweep another's devices; there is no way to decommission a sensor yet, so the
+  rows stay for the life of the installation unless somebody deletes them by hand.
 - **This has never run against real hostile traffic for a sustained period.** Running it on
   one real network for a month and writing down exactly what it said is worth more than the
   next three features on this list.

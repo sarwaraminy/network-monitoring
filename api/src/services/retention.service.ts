@@ -381,6 +381,19 @@ async function expiredDays(cutoff: Date): Promise<string[]> {
  * one sweep — the mass re-alert this function is built to prevent, arriving from a
  * third direction. Correlated on `sensor_id`, each sensor keeps its own clock, and a
  * sensor with no rows at all has no cutoff and loses nothing.
+ *
+ * **A retired sensor keeps its newest devices for ever, and that is the cost of
+ * the correlation rather than a bug in it.** Each cutoff is derived only from that
+ * sensor's own rows, so the rows AT its `max(last_seen)` can never fall behind it;
+ * once the sensor stops writing, the cutoff stops advancing and everything inside
+ * the last window stays. Before the correlation a surviving sensor's clock
+ * eventually swept them — which is precisely the mass delete this exists to
+ * prevent, so the trade is deliberate. What makes it worth naming is that there is
+ * no other way out: `forgetDevice` takes one MAC, this is the only bulk reclaim,
+ * and nothing removes a sensor. A sensor retired after a hardware swap leaves its
+ * device rows for the life of the installation. Giving an operator a way to drop a
+ * sensor is on the roadmap; until then the escape hatch is a DELETE by
+ * `sensor_id`, which the query console in write mode can run.
  */
 async function forgetStaleDevices(days: number): Promise<number> {
   // rowCount, not .returning(): the MACs are never read, and this table exists

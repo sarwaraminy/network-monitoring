@@ -75,26 +75,6 @@ export default function AlertsPage() {
    */
   const isAdmin = user?.role === 'ADMIN';
 
-  // The filter values are part of the query key, so changing one refetches and
-  // caches independently — no manual reload, and going back to a previous filter
-  // is served from cache.
-  const filters = useMemo(
-    () => ({
-      ...(severity === 'all' ? {} : { severity }),
-      ...(kind ? { kind } : {}),
-      ...(sensor ? { sensor } : {}),
-      ...(since ? { since } : {}),
-      ...(hideAcknowledged ? { acknowledged: false } : {}),
-      limit: 500,
-    }),
-    [severity, kind, sensor, since, hideAcknowledged],
-  );
-
-  const alertsQuery = useAlerts(filters);
-  // The tiles follow the sensor filter. Leaving them global would put a total on
-  // screen that the list underneath could never account for — the same mismatch
-  // `summarizeAlerts` refuses to create by folding in rollups.
-  const summaryQuery = useAlertSummary(sensor || undefined);
   const sensorsQuery = useSensors();
 
   /*
@@ -107,6 +87,47 @@ export default function AlertsPage() {
    */
   const sensors = sensorsQuery.data ?? [];
   const multiSensor = sensors.length > 1;
+
+  /*
+   * The filter that is actually applied, derived rather than read from the state.
+   *
+   * Hiding the control does not clear what it selected, and the sensor list
+   * SHRINKS in ordinary operation: it is read from the `alerts` table, so Clear
+   * All empties it and retention rolls a quiet sensor's rows into
+   * `alert_rollup_daily` and deletes them. Either takes the list back to one
+   * entry while `sensor` still names the sensor that just went quiet — and then
+   * the filter keeps applying with no control on screen to undo it, no cause an
+   * operator can see, and no help from a reload, since the state is rebuilt from
+   * the same data. It presents as "the alerts are gone".
+   *
+   * Derived rather than reset in an effect so there is no render in which the
+   * hidden filter is still applied. If a second sensor returns, the control comes
+   * back carrying the old selection — visible, and therefore clearable, which is
+   * the difference that matters.
+   */
+  const appliedSensor = multiSensor ? sensor : '';
+
+  // The filter values are part of the query key, so changing one refetches and
+  // caches independently — no manual reload, and going back to a previous filter
+  // is served from cache.
+  const filters = useMemo(
+    () => ({
+      ...(severity === 'all' ? {} : { severity }),
+      ...(kind ? { kind } : {}),
+      ...(appliedSensor ? { sensor: appliedSensor } : {}),
+      ...(since ? { since } : {}),
+      ...(hideAcknowledged ? { acknowledged: false } : {}),
+      limit: 500,
+    }),
+    [severity, kind, appliedSensor, since, hideAcknowledged],
+  );
+
+  const alertsQuery = useAlerts(filters);
+  // The tiles follow the sensor filter. Leaving them global would put a total on
+  // screen that the list underneath could never account for — the same mismatch
+  // `summarizeAlerts` refuses to create by folding in rollups.
+  const summaryQuery = useAlertSummary(appliedSensor || undefined);
+
   const acknowledge = useAcknowledgeAlert();
   const remove = useDeleteAlert();
 
