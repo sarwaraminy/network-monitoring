@@ -94,6 +94,35 @@ describe('the user guide', () => {
     );
   });
 
+  it('loads the sign-out guard on every page', () => {
+    /*
+     * `guard.js` is the cross-tab sign-out layer: it notices that the session
+     * ended elsewhere and returns the tab to `/login`. A page that omits it stays
+     * open and readable until the cookie expires — up to twelve hours — which for
+     * this guide means the delivery destinations and the SQL console's
+     * configuration are on screen for whoever next sits down at the machine.
+     *
+     * The administration-settings topic shipped without it: one page out of
+     * seventeen, and the worst one to miss, because it carries exactly those two
+     * screenshots. Nothing failed, because a missing `<script>` is not an error —
+     * it is a feature that silently does not run, which is the second defect of
+     * that shape in this guide.
+     *
+     * Asserted over every page including the index, not a hardcoded list, so the
+     * next topic added is covered by writing it.
+     */
+    const unguarded = guidePages()
+      .filter((page) => !readFileSync(page, 'utf8').includes('assets/guard.js'))
+      .map((page) => page.slice(GUIDE.length + 1));
+
+    assert.deepEqual(
+      unguarded,
+      [],
+      `these guide pages do not load assets/guard.js: ${unguarded.join(', ')}. ` +
+        'Without it a signed-out reader keeps the page, and its screenshots, until the cookie expires.',
+    );
+  });
+
   it('lists only topics that exist, and every topic it lists', () => {
     /*
      * `nav.js` is the table of contents, written by hand alongside the topics. A

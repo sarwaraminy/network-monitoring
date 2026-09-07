@@ -85,6 +85,26 @@ const FIELDS: readonly FieldDef[] = [
  * remembering to add it here.
  */
 const SECRET_KEYS = new Set(FIELDS.filter((field) => field.kind === 'password').map((field) => field.key));
+const NUMBER_KEYS = new Set(FIELDS.filter((field) => field.kind === 'number').map((field) => field.key));
+
+/**
+ * A draft value as the API wants it, with an emptied field spelled `null`.
+ *
+ * `null` is how this API and V14 spell "stop deciding this here, fall back to
+ * the environment or the default", and it has to be reachable from the form or
+ * the whole nullable-column design is unusable from the one place that uses it.
+ *
+ * Number fields keep their raw text in the draft precisely so this can tell an
+ * emptied box from a typed zero — `Number('')` is `0`, which is what made the
+ * two indistinguishable before. Mirrors `DeliverySettingsForm.toPatchValue`.
+ */
+function toPatchValue(key: string, raw: boolean | number | string | null | undefined) {
+  if (raw === null || raw === undefined) return null;
+  if (!NUMBER_KEYS.has(key)) return raw;
+
+  const text = String(raw).trim();
+  return text === '' ? null : Number(text);
+}
 
 export default function QueryConsoleSettings() {
   const queryClient = useQueryClient();
@@ -142,7 +162,7 @@ export default function QueryConsoleSettings() {
   const submit = () => {
     const patch: AdhocSettingsPatch = {};
     for (const key of changed) {
-      if (!isPinned(key)) patch[key] = draft[key] ?? null;
+      if (!isPinned(key)) patch[key] = toPatchValue(key, draft[key]);
     }
     if (Object.keys(patch).length === 0) {
       setMessage({ severity: 'error', text: 'Every changed field is now set in the environment.' });
@@ -299,7 +319,17 @@ export default function QueryConsoleSettings() {
             disabled={pinned || save.isPending}
             helperText={helper}
             slotProps={{ htmlInput: { min: field.min, max: field.max } }}
-            onChange={(event) => setDraft((now) => ({ ...now, [field.key]: Number(event.target.value) }))}
+            /*
+             * The RAW text, not `Number(...)`. `Number('')` is `0`, so emptying
+             * the box used to store zero — which made the `?? null` fallback
+             * below unreachable, snapped the field to `0` mid-edit, and earned a
+             * 400 against the schema's `min` bound on save. So "unset this and
+             * fall back to the environment or the default" was expressible in
+             * the migration, the schema and the route, and from nowhere in the
+             * only interface that reaches them. Converted in `submit` instead,
+             * the way `DeliverySettingsForm.toPatchValue` already does it.
+             */
+            onChange={(event) => setDraft((now) => ({ ...now, [field.key]: event.target.value }))}
           />
         );
       })}

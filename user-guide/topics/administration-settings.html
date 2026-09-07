@@ -87,6 +87,16 @@ said was copied into the stored settings the first time the server started, so r
 line keeps the behaviour you had rather than reverting to a default nobody chose.</p>
 
 <div class="note">
+  <span class="label">The off switch</span>
+  <p><strong>Deleting a line from the server's configuration does not switch a setting
+  off.</strong> Whatever those variables said was copied into the stored settings the
+  first time the server started, so removing one leaves the stored copy in force and the
+  behaviour unchanged &mdash; which is the point, for most settings. But for the query
+  console it means <em>removing</em> <code>ADHOC_ENABLED</code> does not stop it. Switch
+  it off here, or set <code>ADHOC_ENABLED=false</code> rather than deleting it.</p>
+</div>
+
+<div class="note">
   <span class="label">Worth knowing</span>
   <p><strong>A blank value counts as unset.</strong> <code>NOTIFY_ENABLED=</code> with
   nothing after it is somebody who has not decided, not somebody who chose "no" &mdash;
@@ -108,6 +118,7 @@ be there for good.</p>
 </div>
   </main>
 </div>
+<script src="../assets/guard.js"></script>
 <script src="../assets/nav.js"></script>
 </body>
 </html>

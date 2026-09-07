@@ -752,6 +752,17 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
    * a save landing between two of those reads would set a timeout from the old
    * settings and a cap from the new one, and the message about truncation would
    * then name a number that was never applied.
+   *
+   * `settings` is therefore THREADED to everything downstream that needs it —
+   * `declareAndFetch` takes `maxRows` and `translate` takes `timeoutMs` — rather
+   * than each of them calling `currentAdhocSettings()` again. That is the whole
+   * point of taking a snapshot, and it was reported three times before the code
+   * caught up with this comment: the snapshot was taken here and both of those
+   * call sites re-read, so a save landing between the DECLARE and the FETCH
+   * produced exactly the split described above. A lowered cap reported a
+   * truncated result as complete; a raised one sliced 1001 rows to 10.
+   *
+   * If you add a downstream reader of these values, take it from `settings`.
    */
   const settings = currentAdhocSettings();
   const trimmed = assertRunnable(sql);
@@ -810,7 +821,7 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
      */
     const result = UNWRAPPABLE.test(trimmed)
       ? await client.query({ text: trimmed, rowMode: 'array' })
-      : await declareAndFetch(client, trimmed, writing);
+      : await declareAndFetch(client, trimmed, writing, settings.maxRows);
 
     /*
      * The unwrapped branch's half of the same check.
@@ -846,7 +857,7 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
     };
   } catch (error) {
     // Ours already says exactly what happened; only driver errors need translating.
-    throw error instanceof AdhocError ? error : translate(error);
+    throw error instanceof AdhocError ? error : translate(error, settings.timeoutMs);
   } finally {
     // Always ROLLBACK: the transaction is read-only, so there is nothing to
     // commit, and rolling back releases the cursor and any locks in one step.
@@ -887,21 +898,34 @@ const CHANGES_ROWS = new Set(['INSERT', 'UPDATE', 'DELETE']);
  * The savepoint is what makes the retry possible at all — a failed statement
  * aborts the transaction, so without it the fallback would meet 25P02.
  */
-async function declareAndFetch(client: pg.PoolClient, sql: string, writing: boolean) {
+async function declareAndFetch(
+  client: pg.PoolClient,
+  sql: string,
+  writing: boolean,
+  /*
+   * The caller's snapshot, threaded rather than re-read.
+   *
+   * Third time this line has been reported, and the previous two rounds rewrote
+   * the comment at the snapshot instead of the code here — which is the whole
+   * reason it kept coming back. The snapshot existed and nothing downstream
+   * used it.
+   */
+  maxRows: number,
+) {
   if (writing) {
     await client.query('SAVEPOINT adhoc_try_cursor');
     try {
-      return await declareAndFetchStrict(client, sql);
+      return await declareAndFetchStrict(client, sql, maxRows);
     } catch (error) {
       if ((error as { code?: string }).code !== '42601') throw error;
       await client.query('ROLLBACK TO SAVEPOINT adhoc_try_cursor');
       return client.query({ text: sql, rowMode: 'array' });
     }
   }
-  return declareAndFetchStrict(client, sql);
+  return declareAndFetchStrict(client, sql, maxRows);
 }
 
-async function declareAndFetchStrict(client: pg.PoolClient, sql: string) {
+async function declareAndFetchStrict(client: pg.PoolClient, sql: string, maxRows: number) {
   /*
    * Checked on the DECLARE, because that is where the chain shows up here.
    *
@@ -921,7 +945,7 @@ async function declareAndFetchStrict(client: pg.PoolClient, sql: string) {
   // `rowMode: 'array'` for the reason in `AdhocResult.rows`: positional rows
   // cannot collide on a repeated column name.
   return client.query({
-    text: `FETCH ${currentAdhocSettings().maxRows + 1} FROM adhoc_result`,
+    text: `FETCH ${maxRows + 1} FROM adhoc_result`,
     rowMode: 'array',
   });
 }
@@ -937,12 +961,15 @@ async function declareAndFetchStrict(client: pg.PoolClient, sql: string) {
  * The two codes given extra help are the ones whose message alone reads as a
  * malfunction rather than as a rule being applied.
  */
-function translate(error: unknown): AdhocError {
+function translate(error: unknown, timeoutMs: number): AdhocError {
   const { code, message } = error as { code?: string; message?: string };
 
   if (code === '57014') {
+    // The snapshot's timeout, not the current one: this message names the number
+    // that was set on THIS statement, and a save landing mid-query would
+    // otherwise have it report a limit the query was never run under.
     return new AdhocError(
-      `The query ran longer than ${currentAdhocSettings().timeoutMs} ms and was stopped. Narrow it, or add a LIMIT.`,
+      `The query ran longer than ${timeoutMs} ms and was stopped. Narrow it, or add a LIMIT.`,
     );
   }
   // Not a Postgres code at all: `pg` rejects a pool acquisition with a plain

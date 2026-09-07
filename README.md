@@ -946,6 +946,14 @@ holds the line instead:
   password and an emptied field look identical; clearing is a separate button, so the
   destructive reading is never the one that happens by accident.
 
+> **Removing the variable is not the off switch.** Whatever the environment said is
+> copied into the stored settings at first boot — so deleting `ADHOC_ENABLED` or
+> `ADHOC_DB_PASSWORD` later leaves the row holding the copy, and the console goes on
+> running. That is the seeding rule working as designed (deleting a line keeps the
+> behaviour you had), but for the two fields that decide whether a browser can run SQL it
+> is the opposite of what most people will expect. To turn the console off, set
+> `ADHOC_ENABLED=false` explicitly, or switch it off in the interface.
+
 One thing deliberately did not become editable:
 
 - **Write mode still forces auditing to `all`.** A console that can `DELETE` and a trail

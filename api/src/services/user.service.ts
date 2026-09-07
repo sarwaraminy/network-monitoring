@@ -170,8 +170,24 @@ export async function setUserRole(
      * reads reflects the other transaction's outcome rather than its own start.
      * The target is included in this set when it is an admin, which is the case
      * the count is about.
+     *
+     * `upper(role)`, not `eq(users.role, 'ADMIN')`, and the difference is a bug
+     * this had: `role` is a plain `varchar` with no constraint on its case, and
+     * every other reader in the system normalises — `requireRole` lowercases
+     * both sides, `auth.routes.ts` upper-cases, and the target's own role is
+     * upper-cased five lines below. A row storing `Admin` was therefore an
+     * administrator everywhere except in the count that decides whether one is
+     * left, so with two administrators and one of them mixed-case, demoting
+     * either counted one row and refused with a message that was not true. It
+     * failed closed, which is the right direction to be wrong, but it also
+     * excluded that row from the lock — and the comment above claims it is in
+     * this set.
      */
-    const admins = await tx.select({ id: users.id }).from(users).where(eq(users.role, 'ADMIN')).for('update');
+    const admins = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`upper(${users.role}) = 'ADMIN'`)
+      .for('update');
 
     const [target] = await tx.select().from(users).where(eq(users.id, id)).limit(1).for('update');
     if (!target) throw new UserNotFoundError(id);

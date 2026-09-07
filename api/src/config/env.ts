@@ -363,12 +363,30 @@ export const env = {
    * **Do not read these values to decide what the console does.** Since V14 they
    * are one layer of three — environment, then the stored row, then the code
    * default — and `adhoc-settings.service.ts` is the only correct reader. An
-   * administrator can change all of them except the password from the interface,
-   * without the restart that on a monitoring server means dropping a live
-   * capture. `env.adhoc.password` is the exception and is still read directly:
-   * it is installed on the role at boot and is deliberately not editable, which
-   * is what keeps the decision to *have* a SQL prompt on production with whoever
-   * installed the server.
+   * administrator can change **all of them, including the password**, from the
+   * interface, without the restart that on a monitoring server means dropping a
+   * live capture.
+   *
+   * This paragraph used to say the password was the exception, on the grounds
+   * that keeping it here is what kept the decision to *have* a SQL prompt on
+   * production with whoever installed the server. That was true when it was
+   * written and V15 reversed it deliberately — see `adhoc-settings.ts`, which
+   * argues the trade and lists what holds the line instead. The text was simply
+   * left behind, which matters more here than in most comments: this is the
+   * paragraph an operator reads to decide whether shipping `ADHOC_DB_PASSWORD`
+   * in their environment is what gates console access. Setting it here still
+   * PINS the field, so it is still an answer — just no longer the only one.
+   *
+   * **One consequence neither layer states, and it is the surprising one:**
+   * because `seedAdhocSettingsFromEnvironment` copies whatever the environment
+   * says into the row at first boot, *removing* `ADHOC_ENABLED` or
+   * `ADHOC_DB_PASSWORD` later does not turn the console off. The row keeps the
+   * copy and the console goes on running. That follows from the seed's stated
+   * intent — deleting a line should keep the behaviour you had rather than
+   * revert to a default nobody chose — but for the two fields that decide
+   * whether a browser can run SQL, an operator will reasonably expect deleting
+   * the line to be the off switch. It is not. Set `ADHOC_ENABLED=false`
+   * explicitly, or clear the setting in the interface.
    *
    * What this block is still for is boot-time validation. `int()` throws on
    * `ADHOC_MAX_ROWS=lots`, which the resolver would only ignore, and being told

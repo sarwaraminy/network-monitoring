@@ -84,6 +84,53 @@ describe('editing the settings', () => {
     expect(sent[0]).toEqual({ maxRows: 50 });
   });
 
+  it('clears a number back to the environment or the default', async () => {
+    /*
+     * `null` is how this API and V14 spell "stop deciding this here". It was
+     * unreachable from the form: the number input stored `Number(value)`, and
+     * `Number('')` is `0` — so emptying the box stored a zero, the field snapped
+     * to `0` while you were still editing, and Save returned a 400 against the
+     * schema's `min` bound. The nullable column was usable from the migration,
+     * the schema and the route, and from nowhere in the only interface that
+     * reaches them.
+     */
+    const user = userEvent.setup();
+    const sent = capture();
+    renderApp(<QueryConsoleSettings />, { authenticated: true });
+
+    const rowCap = await screen.findByLabelText('Row cap');
+    await user.clear(rowCap);
+
+    // Stays empty rather than showing 0 — the state that made this look like a
+    // display glitch instead of an unsendable value.
+    expect(rowCap).toHaveValue(null);
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({ maxRows: null });
+  });
+
+  it('still sends a typed zero as a zero, not as a clear', async () => {
+    /*
+     * The other side of the same distinction, and the reason the draft keeps raw
+     * text: an emptied box and a typed `0` must not collapse into one value. The
+     * server refuses zero against V14's `BETWEEN 1 AND 100000`, which is correct
+     * and is a different answer from "unset".
+     */
+    const user = userEvent.setup();
+    const sent = capture();
+    renderApp(<QueryConsoleSettings />, { authenticated: true });
+
+    const rowCap = await screen.findByLabelText('Row cap');
+    await user.clear(rowCap);
+    await user.type(rowCap, '0');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({ maxRows: 0 });
+  });
+
   it('has nothing to save until something changes', async () => {
     renderApp(<QueryConsoleSettings />, { authenticated: true });
 

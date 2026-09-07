@@ -55,6 +55,23 @@ async function seed(email: string, role: 'ADMIN' | 'USER'): Promise<Seeded> {
   return { id, email, token: signAccessToken({ sub: email, uid: id, role }) };
 }
 
+/**
+ * Seeds a row whose `role` is stored in a case the application does not write.
+ *
+ * `users.role` is a plain `varchar` with no case constraint, and every reader in
+ * the system normalises — so `Admin` is a legitimate row that an older import, a
+ * hand-written INSERT or the Java predecessor could have left behind.
+ */
+async function seedRawRole(email: string, role: string): Promise<number> {
+  const { rows } = await database.pool!.query<{ id: number }>(
+    `INSERT INTO users (email, password, role, lang_code, firstname, lastname)
+     VALUES ($1, 'not-a-real-hash', $2, 'en', 'Test', 'User')
+     RETURNING id`,
+    [email, role],
+  );
+  return rows[0]!.id;
+}
+
 /** PATCHes a role and hands back the status with the body, read once. */
 async function setRole(
   actor: Seeded,
@@ -242,6 +259,47 @@ describe('changing an account role', { skip: database.skip }, () => {
 
     assert.equal(status, 403);
     assert.equal(await roleOf(target.id), 'USER');
+  });
+
+  it('counts an administrator whose role is stored in a different case', async () => {
+    /*
+     * `role` is a plain varchar with no case constraint, and every other reader
+     * normalises: `requireRole` lowercases both sides, `auth.routes.ts`
+     * upper-cases, and this function upper-cases the target's own role. The
+     * admin COUNT did not, so a row storing `Admin` was an administrator
+     * everywhere in the system except in the check that decides whether one is
+     * left.
+     *
+     * The visible failure: two administrators, one of them mixed-case, and
+     * demoting either one counted a single row, hit `admins.length <= 1` and
+     * refused with "this is the only administrator left" — which was false.
+     */
+    const admin = await seed('normal-case@example.test', 'ADMIN');
+    await seedRawRole('mixed-case@example.test', 'Admin');
+
+    const { status, body } = await setRole(admin, admin.id, 'ADMIN');
+    // Re-asserting the actor's own role is a no-op and must succeed; the point is
+    // that a real demotion of the OTHER admin is now allowed.
+    assert.equal(status, 200, JSON.stringify(body));
+
+    const mixed = await database.pool!.query<{ id: number }>(
+      "SELECT id FROM users WHERE email = 'mixed-case@example.test'",
+    );
+    const demotion = await setRole(admin, mixed.rows[0]!.id, 'USER');
+
+    assert.equal(demotion.status, 200, `a legitimate demotion was refused: ${JSON.stringify(demotion.body)}`);
+    assert.equal(await roleOf(mixed.rows[0]!.id), 'USER');
+  });
+
+  it('still refuses when the only administrator is stored in a different case', async () => {
+    // The other direction, so the fix cannot be "count everything". A single
+    // mixed-case administrator is still the last one.
+    const admin = await seed('sole-normal@example.test', 'ADMIN');
+    await seedRawRole('a-plain-user@example.test', 'USER');
+
+    const { status } = await setRole(admin, admin.id, 'USER');
+
+    assert.equal(status, 409, 'the last administrator was allowed to demote themselves');
   });
 
   it('cannot be raced into leaving no administrator', async () => {
