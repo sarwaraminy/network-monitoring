@@ -1,9 +1,15 @@
 import { Router } from 'express';
 import { env } from '../config/env.js';
-import { db } from '../db/index.js';
+import { db, pool } from '../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error-handler.js';
-import { adhocReady, assertRunnable, runAdhocQuery } from '../services/adhoc.service.js';
+import {
+  adhocReady,
+  adhocStatus,
+  assertRunnable,
+  runAdhocQuery,
+  startAdhoc,
+} from '../services/adhoc.service.js';
 import { actorOf, recordAudit } from '../services/audit.service.js';
 
 /**
@@ -35,7 +41,74 @@ adhocRouter.use(requireRole('ADMIN'));
 adhocRouter.get(
   '/',
   asyncHandler(async (_req, res) => {
-    res.json({ enabled: adhocReady() });
+    /*
+     * The whole status, not just the boolean.
+     *
+     * "Off" is three situations needing three different actions — nobody asked
+     * for it, somebody asked without a password, or the database would not
+     * confirm the sandbox — and the reasons used to exist only in the boot log.
+     * An administrator reading a page that says "not enabled" should not have to
+     * go and read logs to find out which one they are in.
+     *
+     * ADMIN-only by the router's guard, which is what makes it reasonable to
+     * report the role name and a sandbox failure's own message here.
+     */
+    res.json(adhocStatus());
+  }),
+);
+
+/**
+ * POST /api/adhoc/recheck — try the startup provisioning again.
+ *
+ * For the case an administrator can actually resolve: the environment says the
+ * console should be on, but the boot attempt failed — the database was briefly
+ * unreachable, or the role had not been created yet, or its grants were wrong and
+ * have since been fixed. Without this the only remedy is a restart of the API,
+ * which on a monitoring server means dropping a live capture to fix a console.
+ *
+ * It grants nothing new, and that is deliberate: it re-runs the same
+ * `startAdhoc` the boot ran, against the same environment, and `startAdhoc`
+ * refuses without `ADHOC_ENABLED` and without a password exactly as it does at
+ * startup. There is no request body and nothing to configure — this cannot turn
+ * the console on, it can only discover that the environment already did.
+ *
+ * Refuses while the console is running rather than restarting it. A recheck is
+ * for something that is broken, and re-provisioning a working console would
+ * interrupt somebody's session to answer a question nobody asked.
+ */
+adhocRouter.post(
+  '/recheck',
+  asyncHandler(async (req, res) => {
+    if (adhocReady()) {
+      res.json(adhocStatus());
+      return;
+    }
+
+    const before = adhocStatus();
+    // The boolean is not read: the status carries the same answer with the reason
+    // attached, and a `? :` whose branches were identical said nothing.
+    await startAdhoc(pool);
+    const status = adhocStatus();
+
+    /*
+     * Audited, because it is an administrator action that can change what the
+     * server can do — and because a console that came up outside a restart is
+     * exactly the kind of state change somebody reading the trail later will want
+     * explained. The detail records what it moved from and to rather than the
+     * whole status: a sandbox failure's message can be long and is already in the
+     * log.
+     */
+    await recordAudit(db, {
+      actor: actorOf(req.user).name,
+      actorId: actorOf(req.user).id,
+      action: 'adhoc.recheck',
+      detail: {
+        from: before.reason ?? 'running',
+        to: status.reason ?? 'running',
+      },
+    });
+
+    res.json(status);
   }),
 );
 

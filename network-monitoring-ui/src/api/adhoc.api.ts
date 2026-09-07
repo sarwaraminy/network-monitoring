@@ -40,8 +40,48 @@ export interface AdhocResult {
  * something. The server runs every query as a role that can only SELECT, and
  * cannot read the columns holding secrets.
  */
-export async function fetchAdhocAvailability(): Promise<{ enabled: boolean }> {
-  const { data } = await api.get<{ enabled: boolean }>('/api/adhoc');
+/**
+ * Why the console is off, matching the server's own vocabulary.
+ *
+ *  - `disabled` — nobody asked for it. The default, and not a fault.
+ *  - `no-password` — asked for, but no credential to install on the role.
+ *  - `sandbox-failed` — asked for and provisioned, but the database would not
+ *    confirm the role is neither a superuser nor able to write.
+ *
+ * Three situations needing three different actions, which is the whole reason
+ * the server reports a reason rather than a boolean.
+ */
+export type AdhocOffReason = 'disabled' | 'no-password' | 'sandbox-failed';
+
+export interface AdhocStatus {
+  enabled: boolean;
+  /** The Postgres role the live pool holds, and so what it may do. */
+  role: string | null;
+  mode: 'read' | 'write' | null;
+  reason?: AdhocOffReason;
+  /** A sandbox failure's own message, with the configured password stripped out. */
+  detail?: string;
+  /** The password could not be kept out of the Postgres log. A caveat, not a fault. */
+  passwordMayBeLogged: boolean;
+}
+
+export async function fetchAdhocStatus(): Promise<AdhocStatus> {
+  const { data } = await api.get<AdhocStatus>('/api/adhoc');
+  return data;
+}
+
+/**
+ * Asks the server to try its startup provisioning again.
+ *
+ * Grants nothing: it re-runs the same check the boot ran, against the same
+ * environment, and the server refuses without `ADHOC_ENABLED` and without a
+ * password exactly as it does at startup. It is for the case an administrator
+ * can actually resolve — the role was missing or its grants were wrong and have
+ * since been fixed — where the only other remedy is restarting the API, which on
+ * a monitoring server means dropping a live capture to fix a console.
+ */
+export async function recheckAdhoc(): Promise<AdhocStatus> {
+  const { data } = await api.post<AdhocStatus>('/api/adhoc/recheck');
   return data;
 }
 

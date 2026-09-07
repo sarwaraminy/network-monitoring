@@ -1,6 +1,7 @@
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import {
+  ADHOC_OFF,
   ADMIN_USER,
   ALERTS,
   AUDIT_ACTIONS,
@@ -161,6 +162,13 @@ export const handlers = [
   http.post('*/packets/start', () => HttpResponse.json(IDLE_STATUS)),
   http.post('*/packets/stop', () => HttpResponse.json(IDLE_STATUS)),
   http.post('*/packets/clear', () => new HttpResponse(null, { status: 204 })),
+  /*
+   * The query console, off by default — which is what a real installation looks
+   * like until somebody decides otherwise, and the state the diagnostics exist
+   * to explain.
+   */
+  http.get('/api/adhoc', () => HttpResponse.json(ADHOC_OFF)),
+  http.post('/api/adhoc/recheck', () => HttpResponse.json(ADHOC_OFF)),
   http.get('/api/audit/actions', () => HttpResponse.json(AUDIT_ACTIONS)),
   // Filtering and paging are the server's job; the handler honours the filter so a
   // test can assert the page asked for it, and returns no cursor so "load older"

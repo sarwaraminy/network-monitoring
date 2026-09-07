@@ -374,6 +374,7 @@ const EXPECTED: readonly string[] = [
   'GET /auth/users',
   'PATCH /api/suppressions/1',
   'POST /api/adhoc/query',
+  'POST /api/adhoc/recheck',
   'POST /api/alerts/1/acknowledge',
   'POST /api/alerts/1/unacknowledge',
   'POST /api/intel/reload',

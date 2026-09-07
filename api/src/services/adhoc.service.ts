@@ -141,9 +141,80 @@ let pool: pg.Pool | null = null;
 /** Which role the live pool authenticated as. Cleared with it. */
 let activeMode: AdhocMode = 'read';
 
+/**
+ * Why the console is off, for an administrator who is looking at a page that
+ * tells them it is.
+ *
+ * The reasons were only ever in the server log. "Off" is three different
+ * situations — nobody asked for it, somebody asked without a password, or the
+ * sandbox proof failed — and they need three different actions, so a UI that
+ * says only "not enabled" sends an operator to read logs to find out which one
+ * they are in. Recorded here as `startAdhoc` decides, and reported by
+ * `adhocStatus`.
+ */
+export type AdhocOffReason =
+  /** `ADHOC_ENABLED` is not set. The default, and not a fault. */
+  | 'disabled'
+  /** Asked for, but `ADHOC_DB_PASSWORD` is empty, so there is no credential to install. */
+  | 'no-password'
+  /** Asked for and provisioned, but the database would not confirm the role is sandboxed. */
+  | 'sandbox-failed';
+
+let offReason: AdhocOffReason | null = 'disabled';
+let offDetail: string | null = null;
+/** The role the live pool authenticated as, for the status page. */
+let activeRole: string | null = null;
+/**
+ * Whether `ALTER ROLE … PASSWORD` could be kept out of the Postgres log.
+ *
+ * A caveat rather than a failure — the console works either way — and the one
+ * thing about this feature an operator cannot discover for themselves, so the
+ * status reports it instead of leaving it in a boot log nobody re-reads.
+ */
+let loggingSuppressed = true;
+
+export interface AdhocStatus {
+  enabled: boolean;
+  /** Which role the live pool holds, and therefore what it may do. Null when off. */
+  role: string | null;
+  mode: AdhocMode | null;
+  /** Absent when the console is running. */
+  reason?: AdhocOffReason;
+  /**
+   * The failure's own message, for `sandbox-failed` only.
+   *
+   * The configured password is stripped out before this leaves the process. A
+   * Postgres error is not expected to quote the statement it came from, but the
+   * one statement this code builds contains a credential, and "not expected to"
+   * is not a property worth relying on for something shown in a browser.
+   */
+  detail?: string;
+  /** True when the password could not be kept out of the Postgres log. See above. */
+  passwordMayBeLogged: boolean;
+}
+
 /** True once `startAdhoc` has proved the sandbox holds. */
 export function adhocReady(): boolean {
   return pool !== null;
+}
+
+/** Everything an administrator needs to know about why the console is or is not up. */
+export function adhocStatus(): AdhocStatus {
+  return {
+    enabled: pool !== null,
+    role: pool === null ? null : activeRole,
+    mode: pool === null ? null : activeMode,
+    ...(offReason ? { reason: offReason } : {}),
+    ...(offDetail ? { detail: offDetail } : {}),
+    passwordMayBeLogged: pool !== null && !loggingSuppressed,
+  };
+}
+
+/** Removes the configured password from anything on its way to a browser. */
+function withoutPassword(text: string): string {
+  const password = env.adhoc.password;
+  if (password === '') return text;
+  return text.split(password).join('<ADHOC_DB_PASSWORD>');
 }
 
 /**
@@ -232,13 +303,19 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
    * Best effort: this runs at boot, the role may not exist yet on a fresh
    * install, and a console that is off is off either way.
    */
+  offDetail = null;
+  activeRole = null;
+  loggingSuppressed = true;
+
   if (!env.adhoc.enabled) {
+    offReason = 'disabled';
     await revokeAdhocLogin(owner).catch(() => {});
     return false;
   }
 
   const password = env.adhoc.password;
   if (!password) {
+    offReason = 'no-password';
     log.warn('ADHOC_ENABLED is set but ADHOC_DB_PASSWORD is empty; the query console stays off');
     await revokeAdhocLogin(owner).catch(() => {});
     return false;
@@ -330,6 +407,7 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
       `SELECT current_setting('is_superuser') AS superuser`,
     );
     const canSuppressLogging = privilege[0]?.superuser === 'on';
+    loggingSuppressed = canSuppressLogging;
     if (!canSuppressLogging) {
       log.warn(
         { role },
@@ -383,10 +461,15 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     } else {
       log.info({ role }, 'Ad hoc query console enabled');
     }
+    offReason = null;
+    activeRole = role;
     return true;
   } catch (error) {
     log.error({ err: error }, 'Ad hoc query console failed its safety checks and stays off');
+    offReason = 'sandbox-failed';
+    offDetail = withoutPassword(error instanceof Error ? error.message : String(error));
     pool = null;
+    activeRole = null;
     /*
      * Take the login away again. Anything that fails after the ALTER above
      * leaves a role that can authenticate with a password from the environment
@@ -547,6 +630,7 @@ export async function stopAdhoc(): Promise<void> {
   const closing = pool;
   pool = null;
   activeMode = 'read';
+  activeRole = null;
   await closing?.end().catch(() => {});
 }
 

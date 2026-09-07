@@ -12,8 +12,9 @@ import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
 import type { MRT_ColumnDef } from 'material-react-table';
 import { useMemo, useState } from 'react';
-import { type AdhocResult, fetchAdhocAvailability, isNumericOid, runAdhocQuery } from '../api/adhoc.api';
+import { type AdhocResult, fetchAdhocStatus, isNumericOid, runAdhocQuery } from '../api/adhoc.api';
 import { describeError } from '../api/client';
+import QueryConsoleStatus from '../components/admin/QueryConsoleStatus';
 import DataGrid from '../components/DataGrid';
 import { DisclosureCaret } from '../components/DisclosureCaret';
 import SurfaceCard from '../components/SurfaceCard';
@@ -91,8 +92,10 @@ export default function AdhocPage() {
   const onLayoutSettled = () => setLayoutSettled((tick) => tick + 1);
 
   const availability = useQuery({
-    queryKey: ['adhoc', 'availability'],
-    queryFn: fetchAdhocAvailability,
+    // The same key the administration panel's status tool uses, so the two share
+    // one answer rather than asking the same endpoint twice and disagreeing.
+    queryKey: ['adhoc', 'status'],
+    queryFn: fetchAdhocStatus,
     staleTime: Number.POSITIVE_INFINITY,
   });
 
@@ -189,21 +192,13 @@ export default function AdhocPage() {
       <SurfaceCard title="Ad Hoc Query" titleComponent="h1" titleVariant="h5">
         {/*
           "Off" is a normal state, not a fault, so it is explained rather than
-          reported as an error — and the server also refuses to enable the console
-          if its sandbox does not hold, so "off" can mean either. Both are the
-          operator's business, and neither is something this page can fix.
+          reported as an error. The explanation lives in the administration
+          panel's own tool rather than being written out again here: it needs the
+          reason the server gives, and two copies of that text would eventually
+          say different things. This is the same component an administrator opens
+          from the gear in the header.
         */}
-        <Alert severity="info">
-          The query console is not enabled on this server. An administrator turns it on by setting{' '}
-          <Box component="code" sx={monoSx}>
-            ADHOC_ENABLED
-          </Box>{' '}
-          and{' '}
-          <Box component="code" sx={monoSx}>
-            ADHOC_DB_PASSWORD
-          </Box>
-          . It also stays off if the database cannot confirm that the console's role is read-only.
-        </Alert>
+        <QueryConsoleStatus />
       </SurfaceCard>
     );
   }

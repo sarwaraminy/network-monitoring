@@ -400,3 +400,25 @@ export const AUDIT_EVENTS = [
     detail: { deleted: 1204, bySeverity: { critical: 3, high: 40 } },
   },
 ];
+
+/**
+ * The query console as shipped: off because nobody asked for it.
+ *
+ * `reason` is the part that matters — "off" is three situations needing three
+ * different actions, and the default fixture is the one an installation starts in.
+ */
+export const ADHOC_OFF = {
+  enabled: false,
+  role: null,
+  mode: null,
+  reason: 'disabled' as const,
+  passwordMayBeLogged: false,
+};
+
+/** Running, read-only, with nothing to warn about. */
+export const ADHOC_RUNNING = {
+  enabled: true,
+  role: 'nm_adhoc_netminitoring',
+  mode: 'read' as const,
+  passwordMayBeLogged: false,
+};
