@@ -53,6 +53,17 @@ interface FieldDef {
   options?: readonly string[];
   /** Rendered narrow, so a port does not get a full-width box. */
   narrow?: true;
+  /**
+   * Shown only while another field holds this value.
+   *
+   * Used for the two SMTP auth methods, whose fields are mutually exclusive: a
+   * password box on an OAuth2 mailbox and a client secret on a relay are both
+   * controls that accept an edit and change nothing, which is rule 1 of this
+   * component in a different disguise. A hidden field's unsaved edit is not sent —
+   * see `visibleFields` — so switching the method back and forth cannot save a
+   * value the operator can no longer see.
+   */
+  showWhen?: { key: string; equals: string };
 }
 
 interface Section {
@@ -149,16 +160,58 @@ const SECTIONS: Section[] = [
       { key: 'emailFrom', label: 'From address', kind: 'text' },
       { key: 'emailTo', label: 'Recipients', kind: 'list', help: 'One per line, or comma-separated.' },
       {
+        key: 'emailAuthMethod',
+        label: 'Authentication',
+        kind: 'select',
+        options: ['password', 'oauth2'],
+        narrow: true,
+        help: 'OAuth2 is XOAUTH2 with a refresh token, for a Microsoft 365 or Google tenant that permits nothing else.',
+      },
+      {
         key: 'emailUser',
         label: 'Username',
         kind: 'text',
-        help: 'Leave empty for a relay that needs no authentication.',
+        help: 'Leave empty for a relay that needs no authentication. Under OAuth2 this is the mailbox being sent from, and is required.',
       },
       {
         key: 'emailPassword',
         label: 'Password',
         kind: 'secret',
+        showWhen: { key: 'emailAuthMethod', equals: 'password' },
         help: 'Microsoft 365 and Google disable basic SMTP AUTH by default, so a correct password can still be rejected.',
+      },
+      {
+        key: 'emailOauthTokenUrl',
+        label: 'Token endpoint',
+        kind: 'text',
+        showWhen: { key: 'emailAuthMethod', equals: 'oauth2' },
+        help: 'Microsoft: https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token — Google: https://oauth2.googleapis.com/token',
+      },
+      {
+        key: 'emailOauthClientId',
+        label: 'Client ID',
+        kind: 'text',
+        showWhen: { key: 'emailAuthMethod', equals: 'oauth2' },
+      },
+      {
+        key: 'emailOauthClientSecret',
+        label: 'Client secret',
+        kind: 'secret',
+        showWhen: { key: 'emailAuthMethod', equals: 'oauth2' },
+      },
+      {
+        key: 'emailOauthRefreshToken',
+        label: 'Refresh token',
+        kind: 'secret',
+        showWhen: { key: 'emailAuthMethod', equals: 'oauth2' },
+        help: 'Obtained once, by consenting to the app registration. Nodemailer exchanges it for an access token and renews that on its own.',
+      },
+      {
+        key: 'emailOauthScope',
+        label: 'Scope',
+        kind: 'text',
+        showWhen: { key: 'emailAuthMethod', equals: 'oauth2' },
+        help: 'Optional. Google ignores it; some Microsoft tenants need https://outlook.office.com/SMTP.Send offline_access.',
       },
     ],
   },
@@ -222,6 +275,12 @@ const ENV_NAMES: Record<string, string> = {
   emailPassword: 'SMTP_PASSWORD',
   emailFrom: 'NOTIFY_EMAIL_FROM',
   emailTo: 'NOTIFY_EMAIL_TO',
+  emailAuthMethod: 'SMTP_AUTH_METHOD',
+  emailOauthClientId: 'SMTP_OAUTH_CLIENT_ID',
+  emailOauthClientSecret: 'SMTP_OAUTH_CLIENT_SECRET',
+  emailOauthRefreshToken: 'SMTP_OAUTH_REFRESH_TOKEN',
+  emailOauthTokenUrl: 'SMTP_OAUTH_TOKEN_URL',
+  emailOauthScope: 'SMTP_OAUTH_SCOPE',
 };
 
 /** The form's own state: what the user has typed, keyed by field. */
@@ -324,8 +383,45 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
     return null;
   })();
 
+  /**
+   * Whether a field applies to the configuration as it currently stands.
+   *
+   * Only the two SMTP auth methods use this. It reads the *current* value rather
+   * than the saved one, so switching the method reveals its fields before saving —
+   * the alternative would need a save to find out what the other method even asks
+   * for.
+   */
+  const isVisible = (field: FieldDef): boolean =>
+    !field.showWhen || currentValue(field.showWhen.key, 'select') === field.showWhen.equals;
+
+  /**
+   * Every field that applies, across all sections.
+   *
+   * Both the unsaved count and the patch are built from this rather than from the
+   * whole form: an edit to a field that is no longer shown must not be counted as
+   * "1 unsaved" against nothing visible, and must not be saved by a later click on
+   * a form where it cannot be seen. It stays in `draft`, so switching the method
+   * back brings the typed value with it.
+   */
+  /**
+   * A secret belonging to the *other* authentication method, still stored.
+   *
+   * Switching from OAuth2 back to a password hid the refresh token along with its
+   * Clear button, and the server still had it: a credential with no path in the
+   * interface to revoke it. It stays on screen while it is stored, so it can be
+   * cleared and nothing else — see the rendering below, which disables the box.
+   *
+   * Deliberately *not* part of `visibleFields`, which is what builds the patch: a
+   * value typed into a field the current method does not use must still never be
+   * saved. `clearSecret` sends its one key directly and so is unaffected.
+   */
+  const isStranded = (field: FieldDef): boolean =>
+    field.kind === 'secret' && !isVisible(field) && settings.data?.settings[field.key]?.configured === true;
+
+  const visibleFields = SECTIONS.flatMap((section) => section.fields).filter(isVisible);
+
   const changedFields = Object.keys(draft).filter((key) => {
-    const def = SECTIONS.flatMap((section) => section.fields).find((field) => field.key === key);
+    const def = visibleFields.find((field) => field.key === key);
     if (!def) return false;
     // A secret counts as changed only when something was typed into it.
     if (def.kind === 'secret') return String(draft[key] ?? '') !== '';
@@ -335,7 +431,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
   const submit = () => {
     const patch: DeliverySettingsPatch = {};
     for (const key of changedFields) {
-      const def = SECTIONS.flatMap((section) => section.fields).find((field) => field.key === key);
+      const def = visibleFields.find((field) => field.key === key);
       if (!def || pinned.has(key)) continue;
       patch[key] = toPatchValue(def.kind, draft[key]!);
     }
@@ -470,123 +566,139 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
               whole row — only the fields marked `narrow` share one.
             */}
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-              {section.fields.map((field) => {
-                const isPinned = pinned.has(field.key);
-                const state = settings.data?.settings[field.key];
-                // The pinned chip (with its own tooltip naming the variable) sits next to
-                // every pinned field already, so the helper text only needs to say
-                // whatever is specific to the field, not restate that it is pinned.
-                const helper = field.help;
-                const fullRowSx = { flex: '1 1 100%', minWidth: 0 };
-                const narrowSx = { flex: '0 1 200px', minWidth: 160 };
+              {section.fields
+                .filter((field) => isVisible(field) || isStranded(field))
+                .map((field) => {
+                  const isPinned = pinned.has(field.key);
+                  const state = settings.data?.settings[field.key];
+                  // The pinned chip (with its own tooltip naming the variable) sits next to
+                  // every pinned field already, so the helper text only needs to say
+                  // whatever is specific to the field, not restate that it is pinned.
+                  const helper = field.help;
+                  const fullRowSx = { flex: '1 1 100%', minWidth: 0 };
+                  const narrowSx = { flex: '0 1 200px', minWidth: 160 };
 
-                if (field.kind === 'switch') {
-                  return (
-                    <Box key={field.key} sx={fullRowSx}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={currentValue(field.key, 'switch') === true}
-                            disabled={isPinned || save.isPending}
+                  if (field.kind === 'switch') {
+                    return (
+                      <Box key={field.key} sx={fullRowSx}>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={currentValue(field.key, 'switch') === true}
+                              disabled={isPinned || save.isPending}
+                              onChange={(event) =>
+                                setDraft((current) => ({ ...current, [field.key]: event.target.checked }))
+                              }
+                              slotProps={{ input: { 'aria-label': field.label } }}
+                            />
+                          }
+                          label={
+                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                              <span>{field.label}</span>
+                              {isPinned && <PinnedChip name={ENV_NAMES[field.key]} />}
+                            </Stack>
+                          }
+                        />
+                        {helper && (
+                          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                            {helper}
+                          </Typography>
+                        )}
+                      </Box>
+                    );
+                  }
+
+                  if (field.kind === 'secret') {
+                    const stranded = isStranded(field);
+                    return (
+                      <Box key={field.key} sx={fullRowSx}>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+                          <TextField
+                            label={field.label}
+                            size="small"
+                            fullWidth={!field.narrow}
+                            type="password"
+                            autoComplete="new-password"
+                            value={stranded ? '' : currentValue(field.key, 'secret')}
+                            // A stranded secret is shown to be removed, not edited:
+                            // the current method does not use it, so replacing it
+                            // would store a credential nothing reads.
+                            disabled={stranded || isPinned || save.isPending}
                             onChange={(event) =>
-                              setDraft((current) => ({ ...current, [field.key]: event.target.checked }))
+                              setDraft((current) => ({ ...current, [field.key]: event.target.value }))
                             }
-                            slotProps={{ input: { 'aria-label': field.label } }}
+                            placeholder={
+                              stranded
+                                ? 'stored, and not used by the current method'
+                                : state?.configured
+                                  ? 'configured — type to replace'
+                                  : 'not configured'
+                            }
+                            helperText={
+                              stranded
+                                ? 'The current authentication method does not use this. It is still stored — clear it unless you plan to switch back.'
+                                : helper
+                            }
                           />
+                          {state?.configured && !isPinned && (
+                            <Button
+                              size="small"
+                              onClick={() => clearSecret(field.key)}
+                              disabled={save.isPending}
+                            >
+                              Clear
+                            </Button>
+                          )}
+                        </Stack>
+                        <Stack direction="row" spacing={1} sx={{ mt: 0.5, alignItems: 'center' }}>
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            color={state?.configured ? 'success' : 'default'}
+                            label={state?.configured ? 'Configured' : 'Not set'}
+                          />
+                          {isPinned && <PinnedChip name={ENV_NAMES[field.key]} />}
+                        </Stack>
+                      </Box>
+                    );
+                  }
+
+                  const isSelect = field.kind === 'select';
+                  const isList = field.kind === 'list';
+
+                  return (
+                    <Box key={field.key} sx={field.narrow ? narrowSx : fullRowSx}>
+                      <TextField
+                        label={field.label}
+                        size="small"
+                        select={isSelect}
+                        multiline={isList}
+                        minRows={isList ? 2 : undefined}
+                        type={field.kind === 'number' ? 'number' : 'text'}
+                        fullWidth
+                        value={currentValue(field.key, field.kind)}
+                        disabled={isPinned || save.isPending}
+                        onChange={(event) =>
+                          setDraft((current) => ({ ...current, [field.key]: event.target.value }))
                         }
-                        label={
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                            <span>{field.label}</span>
-                            {isPinned && <PinnedChip name={ENV_NAMES[field.key]} />}
-                          </Stack>
-                        }
-                      />
-                      {helper && (
-                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-                          {helper}
-                        </Typography>
+                        helperText={helper}
+                        slotProps={isList ? { inputLabel: { shrink: true } } : undefined}
+                      >
+                        {isSelect &&
+                          field.options?.map((option) => (
+                            <MenuItem key={option} value={option}>
+                              {option}
+                            </MenuItem>
+                          ))}
+                      </TextField>
+                      {isPinned && (
+                        <Box sx={{ mt: 0.5 }}>
+                          <PinnedChip name={ENV_NAMES[field.key]} />
+                        </Box>
                       )}
                     </Box>
                   );
-                }
-
-                if (field.kind === 'secret') {
-                  return (
-                    <Box key={field.key} sx={fullRowSx}>
-                      <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
-                        <TextField
-                          label={field.label}
-                          size="small"
-                          fullWidth={!field.narrow}
-                          type="password"
-                          autoComplete="new-password"
-                          value={currentValue(field.key, 'secret')}
-                          disabled={isPinned || save.isPending}
-                          onChange={(event) =>
-                            setDraft((current) => ({ ...current, [field.key]: event.target.value }))
-                          }
-                          placeholder={state?.configured ? 'configured — type to replace' : 'not configured'}
-                          helperText={helper}
-                        />
-                        {state?.configured && !isPinned && (
-                          <Button
-                            size="small"
-                            onClick={() => clearSecret(field.key)}
-                            disabled={save.isPending}
-                          >
-                            Clear
-                          </Button>
-                        )}
-                      </Stack>
-                      <Stack direction="row" spacing={1} sx={{ mt: 0.5, alignItems: 'center' }}>
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          color={state?.configured ? 'success' : 'default'}
-                          label={state?.configured ? 'Configured' : 'Not set'}
-                        />
-                        {isPinned && <PinnedChip name={ENV_NAMES[field.key]} />}
-                      </Stack>
-                    </Box>
-                  );
-                }
-
-                const isSelect = field.kind === 'select';
-                const isList = field.kind === 'list';
-
-                return (
-                  <Box key={field.key} sx={field.narrow ? narrowSx : fullRowSx}>
-                    <TextField
-                      label={field.label}
-                      size="small"
-                      select={isSelect}
-                      multiline={isList}
-                      minRows={isList ? 2 : undefined}
-                      type={field.kind === 'number' ? 'number' : 'text'}
-                      fullWidth
-                      value={currentValue(field.key, field.kind)}
-                      disabled={isPinned || save.isPending}
-                      onChange={(event) =>
-                        setDraft((current) => ({ ...current, [field.key]: event.target.value }))
-                      }
-                      helperText={helper}
-                      slotProps={isList ? { inputLabel: { shrink: true } } : undefined}
-                    >
-                      {isSelect &&
-                        field.options?.map((option) => (
-                          <MenuItem key={option} value={option}>
-                            {option}
-                          </MenuItem>
-                        ))}
-                    </TextField>
-                    {isPinned && (
-                      <Box sx={{ mt: 0.5 }}>
-                        <PinnedChip name={ENV_NAMES[field.key]} />
-                      </Box>
-                    )}
-                  </Box>
-                );
-              })}
+                })}
             </Box>
           </Box>
         ))}

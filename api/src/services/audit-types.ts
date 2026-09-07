@@ -33,6 +33,11 @@ export const AUDIT_ACTIONS = {
   // "ran a query" without saying which one records nothing. The console's role
   // cannot read a secret, so the text cannot contain one.
   'adhoc.query': 'Ran an ad hoc SQL query',
+  'adhoc.recheck': 'Re-checked whether the query console can start',
+  'adhoc_settings.update': 'Changed the query console settings',
+  // `detail` carries the old and new role. Which way a role moved is the whole
+  // content of the event, and "changed a role" without it records nothing.
+  'user.role_change': "Changed an account's role",
 } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTIONS;

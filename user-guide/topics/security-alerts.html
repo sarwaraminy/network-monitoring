@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security alerts &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Security alerts</h1>
+<p class="lede">Every finding the detectors raised, newest first.</p>
+
+<figure>
+  <img src="../screenshots/alerts.png" alt="The alerts list, with the severity tiles acting as filters.">
+  <figcaption>The alerts list, with the severity tiles acting as filters.</figcaption>
+</figure>
+
+<h2>Narrowing the list</h2>
+
+<ul>
+  <li>The <strong>severity tiles</strong> along the top are filters as well as counts.
+    Click <span class="ui">Critical</span> to see only critical findings; click the same
+    tile again, or <span class="ui">All alerts</span>, to clear it.</li>
+  <li><span class="ui">Detector</span> limits the list to one kind of check.</li>
+  <li><span class="ui">Period</span> limits it to findings last seen inside a
+    window.</li>
+  <li><span class="ui">Open only</span> hides findings somebody has already
+    acknowledged. It is on by default, which is why the list can look empty on a
+    system where everything has been dealt with.</li>
+  <li><span class="ui">Search findings</span> matches across the whole row.</li>
+</ul>
+
+<h2>Reading a finding</h2>
+
+<p>Click the chevron at the left of a row to expand it.</p>
+
+<figure>
+  <img src="../screenshots/alert-detail.png" alt="An expanded finding: what it means, and the evidence behind it.">
+  <figcaption>An expanded finding: what it means, and the evidence behind it.</figcaption>
+</figure>
+
+<ul>
+  <li><strong>What this means</strong> &mdash; the finding in a sentence, in terms of the
+    hosts involved.</li>
+  <li><strong>Evidence</strong> &mdash; what the detector actually saw. This is the part
+    to check before acting: the claimed address and the two MAC addresses for an ARP
+    finding, the port count and window for a scan, the feed name for a threat-intel
+    match.</li>
+  <li><strong>First seen</strong>, <strong>Last seen</strong> and
+    <strong>Occurrences</strong> &mdash; repeats of the same finding are aggregated into
+    one row rather than flooding the list, so a count of 12 means the same thing was
+    seen twelve times between those two times.</li>
+</ul>
+
+<div class="note">
+  <span class="label">Note</span>
+  <p><strong>Evidence never contains a password or a packet payload.</strong>
+  The cleartext-credential detector records the username and the length of the secret,
+  never the secret. It does contain internal addresses, MAC addresses and usernames,
+  which is why sending it to a third-party chat service is a separate decision &mdash;
+  see <a href="delivery-settings.html">Delivery settings</a>.</p>
+</div>
+
+<h2>Looking up an address</h2>
+
+<p>Every address in the table is a link. Click one to run a reverse DNS, geolocation and
+WHOIS lookup against it, without leaving the page.</p>
+
+<figure>
+  <img src="../screenshots/ip-lookup.png" alt="The IP information dialog, from the magnifier beside an address.">
+  <figcaption>The IP information dialog, from the magnifier beside an address.</figcaption>
+</figure>
+
+<p>Useful mostly for external addresses &mdash; the owner of a destination one of your
+hosts has been talking to. An address on your own network has no public registration and
+will come back mostly empty, which is itself an answer.</p>
+
+<h2>Acknowledging and deleting</h2>
+
+<p><strong>Acknowledging</strong> a finding marks it as dealt with and takes it out of
+the default view. It does not delete anything, and it records who did it. Use the tick
+at the end of the row; the same control reads <span class="ui">Reopen</span> for a
+finding already acknowledged.</p>
+
+<p><strong>Deleting</strong> a finding removes it and its evidence permanently. There is
+no undo, and the deletion itself is recorded in the <a href="audit-trail.html">audit
+trail</a> &mdash; who deleted what, and when.</p>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <ul>
+    <li>Any signed-in account can view findings, filter them, look up an address, and
+      <strong>acknowledge or reopen</strong> a finding.</li>
+    <li><strong>Deleting</strong> a finding, deleting every finding, and removing a known
+      device are restricted to administrators.</li>
+  </ul>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

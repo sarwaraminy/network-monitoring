@@ -10,6 +10,11 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'http://localhost:8080', changeOrigin: true },
       '/auth': { target: 'http://localhost:8080', changeOrigin: true },
+      // The user guide is served BY THE API, behind its own session cookie, and
+      // is deliberately not in `public/` where this dev server (and nginx) would
+      // hand it out unauthenticated. Proxied so development exercises the same
+      // gate production does rather than a second one that can drift.
+      '/user-guide': { target: 'http://localhost:8080', changeOrigin: true },
     },
   },
   build: {

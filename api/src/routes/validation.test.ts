@@ -555,6 +555,32 @@ describe('delivery settings patch', () => {
     assert.equal(deliverySettingsPatchSchema.safeParse({}).success, false);
   });
 
+  it('requires https for the OAuth2 token endpoint, where the webhook URL allows http', () => {
+    // Not the same allowlist, and deliberately so: the client secret and refresh
+    // token are POSTed to this URL on every refresh, so an http: value would put
+    // long-lived credentials on the wire in cleartext, repeatedly and invisibly. A
+    // webhook URL carries only itself, and an internal http endpoint is a real
+    // configuration.
+    const https = 'https://login.microsoftonline.com/tenant/oauth2/v2.0/token';
+    assert.equal(deliverySettingsPatchSchema.safeParse({ emailOauthTokenUrl: https }).success, true);
+    assert.equal(
+      deliverySettingsPatchSchema.safeParse({ emailOauthTokenUrl: 'http://idp.internal/token' }).success,
+      false,
+    );
+    assert.equal(
+      deliverySettingsPatchSchema.safeParse({ webhookUrl: 'http://hooks.internal/x' }).success,
+      true,
+    );
+
+    // Still a URL, not a hostname somebody pasted half of.
+    assert.equal(
+      deliverySettingsPatchSchema.safeParse({ emailOauthTokenUrl: 'login.example.com' }).success,
+      false,
+    );
+    // And still clearable, which is how "fall back to the environment" is spelled.
+    assert.equal(deliverySettingsPatchSchema.safeParse({ emailOauthTokenUrl: null }).success, true);
+  });
+
   it('refuses an unknown key rather than ignoring it', () => {
     // `minSeverety` would otherwise return 200 having changed nothing.
     assert.equal(deliverySettingsPatchSchema.safeParse({ minSeverety: 'high' }).success, false);

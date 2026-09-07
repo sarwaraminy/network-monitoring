@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit trail &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Audit trail</h1>
+<p class="lede">Who deleted, changed or redirected something.</p>
+
+<p>The audit trail answers questions that no other screen can: <em>who turned delivery
+off</em>, <em>who deleted that finding</em>, <em>when did the recipients change</em>. It
+is <strong>append-only and never pruned</strong>, and the append-only property is
+enforced by the database rather than by the application &mdash; an entry cannot be edited
+or removed, including by an administrator, and including from the
+<a href="adhoc-query.html">Ad Hoc Query</a> console.</p>
+
+<p>Each entry is written in the same transaction as the act it records, so an action that
+succeeded is on the trail and an action that failed is not.</p>
+
+<h2>Reading it</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Column</th><th>Holds</th></tr></thead>
+  <tbody>
+    <tr><td><strong>When</strong></td><td>The time of the act, in your timezone.</td></tr>
+    <tr><td><strong>Who</strong></td><td>The account that performed it.</td></tr>
+    <tr><td><strong>What</strong></td><td>The action in words, with its internal name
+      beneath &mdash; useful when asking for support.</td></tr>
+    <tr><td><strong>Which</strong></td><td>The thing acted on, where one identifier
+      describes it.</td></tr>
+    <tr><td><strong>Detail</strong></td><td>What distinguishes this entry from the next
+      &mdash; for a settings change, the list of fields that moved.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>The <span class="ui">Action</span> control at the top right filters to one kind of
+event.</p>
+
+<div class="note">
+  <span class="label">Note</span>
+  <p><strong>Values are deliberately absent from the Detail column for
+  settings changes.</strong> A change records that <code>webhookUrl</code> and
+  <code>emailPassword</code> were altered, never what they were altered to &mdash;
+  otherwise this table would be a second place to read credentials, one that cannot be
+  pruned and that every administrator can read in full.</p>
+</div>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p><strong>Administrators only.</strong> The entry is hidden from the
+  navigation panel for other accounts, and the underlying address refuses them
+  too.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

@@ -40,6 +40,33 @@ import jwt from 'jsonwebtoken';
 
 const SECRET = 'auth-rejection-suite-secret';
 
+/*
+ * Set and loaded here rather than in `before`, because `guide-session.ts` derives
+ * its signing key at module load — and the guide token below has to be minted by
+ * the real thing. Deriving it a second time in this file would be a copy of a
+ * security-relevant constant, which is how the two drift apart.
+ */
+process.env.JWT_SECRET = SECRET;
+/*
+ * BEFORE the import below, not in a hook — and this was wrong until a route was
+ * added and the suite went over the limit.
+ *
+ * `rate-limit.ts` computes `disabled = env.nodeEnv === 'test'` once at module
+ * load, and the import on the next line pulls in `env.ts`. Setting NODE_ENV in
+ * `before` therefore ran after the decision had been made: the limiter was LIVE
+ * for this whole suite, and the comment in the hook saying it was disabled was
+ * exactly inverted. It stayed green only because a few hundred requests from one
+ * address sat under the backstop limit — so adding one route per credential
+ * tipped `GET /auth/me` into 429 and the assertion became about the limiter
+ * rather than about authentication.
+ *
+ * `auth-admission.test.ts` records fixing the identical bug in the identical
+ * place, which is the argument for doing it the same way rather than raising a
+ * limit.
+ */
+process.env.NODE_ENV = 'test';
+const { signGuideSession } = await import('../services/guide-session.js');
+
 let app: Express;
 let server: Server;
 let origin: string;
@@ -54,11 +81,8 @@ let mounts: Mount[];
 
 before(async () => {
   process.env.JWT_SECRET = SECRET;
-  // Rate limits are disabled under `test`, and this suite makes a few hundred
-  // requests from one address. Without it the backstop limiter would start
-  // answering 429 partway through and every remaining assertion would be about
-  // the limiter instead of about authentication.
-  process.env.NODE_ENV = 'test';
+  // NODE_ENV is set at the top of this file, not here: see the comment there for
+  // why a hook is too late to disable the limiter.
   // Unreachable on purpose. Nothing here should reach a query — see the docblock —
   // and if a request ever does, this makes it a connection error rather than a
   // silent read of whatever database the developer had configured.
@@ -76,6 +100,7 @@ before(async () => {
     suppressions,
     packets,
     logs,
+    userGuide,
     registry,
   ] = await Promise.all([
     import('../app.js'),
@@ -89,6 +114,7 @@ before(async () => {
     import('./suppressions.routes.js'),
     import('./packets.routes.js'),
     import('./logs.routes.js'),
+    import('./user-guide.routes.js'),
     import('../services/packet-capture.registry.js'),
   ]);
 
@@ -113,6 +139,16 @@ before(async () => {
       router: () => packets.createPacketRouter(registry.filteredIpCapture, { requireIpFilter: true }),
     },
     { at: '/api', router: () => logs.logsRouter },
+    { at: '/api/user-guide', router: () => userGuide.guideSessionRouter },
+    /*
+     * The guide's files. Declared so the mount count matches, but deliberately
+     * contributing no targets to the sweep below: it is the one router NOT gated
+     * by `requireAuth`, because a browser navigating to a page cannot send a
+     * bearer token. It is gated by a session cookie instead, and that gate has its
+     * own suite in user-guide.test.ts — which asserts an anonymous reader is
+     * refused the pages AND the assets, the case this file exists to catch.
+     */
+    { at: '/user-guide', router: () => userGuide.userGuideRouter },
   ];
 
   app = createApp();
@@ -253,6 +289,25 @@ const REJECTED: { name: string; header?: string; why: string }[] = [
     why: 'an unsigned token with valid claims must not be accepted',
   },
   {
+    name: 'a user-guide session presented as a Bearer token',
+    header: `Bearer ${signGuideSession('admin@example.com').value}`,
+    /*
+     * The one that was not refused.
+     *
+     * The guide session is a credential the browser carries by itself: an HttpOnly
+     * cookie, attached automatically to a static-file route, deliberately outliving
+     * a privileged token because the harm in it leaking was priced as "somebody
+     * reads the manual". It was signed with `JWT_SECRET` and distinguished from an
+     * access token only by a `purpose` claim that `verifyAccessToken` never looked
+     * at — so it worked as `Authorization: Bearer` on every route here, ADMIN ones
+     * included, for twelve hours. Every trade-off made for it was priced wrong.
+     *
+     * Swept across all routes rather than checked once, because the failure was not
+     * in any route: it was in what the two token types had in common.
+     */
+    why: 'a credential issued for reading documentation must not be API access',
+  },
+  {
     name: 'a token signed with a weaker algorithm than this server uses',
     header: `Bearer ${jwt.sign({ sub: 'attacker@example.com' }, SECRET, { algorithm: 'HS256' })}`,
     /*
@@ -308,7 +363,9 @@ const EXPECTED: readonly string[] = [
   'DELETE /api/alerts/devices/aa:bb:cc:dd:ee:ff',
   'DELETE /api/log/1',
   'DELETE /api/suppressions/1',
+  'DELETE /api/user-guide/session',
   'GET /api/adhoc',
+  'GET /api/adhoc/settings',
   'GET /api/alerts',
   'GET /api/alerts/dashboard',
   'GET /api/alerts/devices',
@@ -332,7 +389,9 @@ const EXPECTED: readonly string[] = [
   'GET /auth/me',
   'GET /auth/users',
   'PATCH /api/suppressions/1',
+  'PATCH /auth/users/1/role',
   'POST /api/adhoc/query',
+  'POST /api/adhoc/recheck',
   'POST /api/alerts/1/acknowledge',
   'POST /api/alerts/1/unacknowledge',
   'POST /api/intel/reload',
@@ -347,6 +406,8 @@ const EXPECTED: readonly string[] = [
   'POST /api/packets/stop',
   'POST /api/suppressions',
   'POST /api/suppressions/preview',
+  'POST /api/user-guide/session',
+  'PUT /api/adhoc/settings',
   'PUT /api/log/1',
   'PUT /api/notify/settings',
 ];

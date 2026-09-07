@@ -1,5 +1,4 @@
 import ChatOutlinedIcon from '@mui/icons-material/ChatOutlined';
-import CloseIcon from '@mui/icons-material/Close';
 import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
@@ -8,24 +7,16 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import Dialog from '@mui/material/Dialog';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
 import Grid from '@mui/material/Grid';
-import IconButton from '@mui/material/IconButton';
 import Skeleton from '@mui/material/Skeleton';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { describeError } from '../api/client';
 import { fetchNotifyStatus, sendNotifyTest } from '../api/notify.api';
-import DeliverySettingsForm from '../components/DeliverySettingsForm';
-import DraggableDialogPaper from '../components/DraggableDialogPaper';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
-import { RADIUS, SURFACE } from '../theme';
 
 /**
  * Alert delivery.
@@ -44,6 +35,13 @@ import { RADIUS, SURFACE } from '../theme';
  * a SIEM, which correlates and deduplicates itself and needs the complete
  * stream, so it is ungated and shown apart from those numbers. Listing it beside
  * "min severity: high" would be actively misleading.
+ *
+ * **Editing them is no longer here.** The settings form moved to the
+ * administration gear, so there is one place to change delivery rather than two
+ * — and this page keeps the half nothing else does: whether it is working, and
+ * the test send. The banner below points a reader who used to edit here at where
+ * the form went, because "the Settings button is gone" is otherwise indis-
+ * tinguishable from a page that broke.
  */
 
 /** Only the two that need explaining; the rest read fine as a number. */
@@ -57,7 +55,6 @@ export default function DeliveryPage() {
   const isAdmin = user?.role === 'ADMIN';
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const status = useQuery({
     queryKey: ['notify', 'status'],
@@ -101,14 +98,6 @@ export default function DeliveryPage() {
               <Button
                 size="small"
                 variant="outlined"
-                startIcon={<SettingsOutlinedIcon />}
-                onClick={() => setSettingsOpen(true)}
-              >
-                Settings
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
                 startIcon={<SendOutlinedIcon />}
                 onClick={() => test.mutate()}
                 disabled={test.isPending || (data?.channels.length ?? 0) === 0}
@@ -119,6 +108,23 @@ export default function DeliveryPage() {
           ) : null
         }
       />
+
+      {/*
+        Where the form went.
+        
+        Shown to administrators only, because it is the only audience that could
+        edit here before and the only one that can edit anywhere now. "The
+        Settings button is gone" is otherwise indistinguishable from a page that
+        broke — and the gear is in the header, which is not where somebody who
+        knew this page would look.
+      */}
+      {isAdmin && (
+        <Alert severity="info" icon={<SettingsOutlinedIcon fontSize="small" />}>
+          Delivery settings moved to <strong>Administration settings</strong> — the gear in the header — so
+          there is one place to change them rather than two. This page keeps what nothing else has: whether
+          delivery is working, and the test send.
+        </Alert>
+      )}
 
       {status.error && (
         <Alert severity="error">{describeError(status.error, 'Could not read delivery status')}</Alert>
@@ -134,8 +140,8 @@ export default function DeliveryPage() {
         <Alert severity="warning">
           Nothing is configured, so findings are recorded and nobody is told.
           {isAdmin
-            ? ' Set a collector host, a webhook URL, or an SMTP host with recipients in Settings above — no file to edit and no restart.'
-            : ' An administrator can configure a webhook, email or a syslog collector on this page.'}
+            ? ' Set a collector host, a webhook URL, or an SMTP host with recipients under the settings gear — no file to edit and no restart.'
+            : ' An administrator can configure a webhook, email or a syslog collector.'}
         </Alert>
       )}
 
@@ -147,7 +153,7 @@ export default function DeliveryPage() {
       {!loading && data && !data.enabled && data.channels.length > 0 && (
         <Alert severity="info">
           Channels are configured but delivery is switched off, so no alert will be sent.
-          {isAdmin ? ' Turn on "Deliver alerts" in Settings above.' : ''} A test send still works — it
+          {isAdmin ? ' Turn on "Deliver alerts" under the settings gear.' : ''} A test send still works — it
           deliberately bypasses this, since the question it answers is whether delivery reaches you at all.
           {data.syslog.configured && ' Syslog is unaffected: it is independent of this switch.'}
         </Alert>
@@ -179,7 +185,11 @@ export default function DeliveryPage() {
                 detail={
                   data?.email.configured
                     ? `${data.email.recipients} recipient${data.email.recipients === 1 ? '' : 's'}`
-                    : 'SMTP host, sender and at least one recipient'
+                    : // The server's own reason when it has one. An OAuth2 mailbox
+                      // missing its refresh token has a host, a sender and recipients
+                      // already, so the standing sentence would name the three things
+                      // that are not the problem.
+                      (data?.email.reason ?? 'SMTP host, sender and at least one recipient')
                 }
                 loading={loading}
               />
@@ -265,68 +275,6 @@ export default function DeliveryPage() {
           </SurfaceCard>
         </Grid>
       </Grid>
-
-      {/*
-        A dialog rather than inline: the question this page answers is "is anything
-        reaching anyone", and the status above should be what somebody sees first —
-        especially someone who arrived because an alert did not arrive. Settings are
-        one click away, not something to scroll past.
-      */}
-      {isAdmin && (
-        <Dialog
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-          fullWidth
-          maxWidth="md"
-          scroll="paper"
-          PaperComponent={DraggableDialogPaper}
-          slotProps={{
-            paper: {
-              // Same flat-surface language as every card on the page — a hairline
-              // and a rounded corner, no drop shadow — rather than the generic
-              // elevated-white-box a bare Dialog otherwise ships with.
-              sx: { borderRadius: `${RADIUS.card}px`, boxShadow: 'none', overflow: 'hidden' },
-            },
-          }}
-          aria-labelledby="delivery-settings-dialog-title"
-        >
-          <DialogTitle
-            id="delivery-settings-dialog-title"
-            data-drag-handle=""
-            sx={(theme) => ({
-              cursor: 'move',
-              userSelect: 'none',
-              pr: 6,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              backgroundColor: SURFACE.light.cardHeader,
-              color: SURFACE.light.cardHeaderInk,
-              borderBottom: '1px solid',
-              borderColor: SURFACE.light.cardBorder,
-              ...theme.applyStyles('dark', {
-                backgroundColor: SURFACE.dark.cardHeader,
-                color: SURFACE.dark.cardHeaderInk,
-                borderColor: SURFACE.dark.cardBorder,
-              }),
-            })}
-          >
-            <SettingsOutlinedIcon fontSize="small" />
-            <span>Delivery settings</span>
-            <IconButton
-              onClick={() => setSettingsOpen(false)}
-              aria-label="Close"
-              size="small"
-              sx={{ position: 'absolute', right: 8, top: 8, color: 'inherit' }}
-            >
-              <CloseIcon fontSize="small" />
-            </IconButton>
-          </DialogTitle>
-          <DialogContent dividers sx={{ p: 0 }}>
-            <DeliverySettingsForm embedded />
-          </DialogContent>
-        </Dialog>
-      )}
     </>
   );
 }

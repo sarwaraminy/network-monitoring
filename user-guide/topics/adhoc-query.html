@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ad hoc query &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Ad hoc query</h1>
+<p class="lede">SQL against this system's own database, for the question no screen
+answers.</p>
+
+<figure>
+  <img src="../screenshots/adhoc-query.png" alt="A query and its result. The editor collapses once the result arrives.">
+  <figcaption>A query and its result. The editor collapses once the result arrives.</figcaption>
+</figure>
+
+<h2>Running a query</h2>
+
+<ol>
+  <li>Type SQL into the editor.</li>
+  <li>Click <span class="ui">Run</span>, or press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+    (<kbd>Cmd</kbd>+<kbd>Enter</kbd> on a Mac).</li>
+  <li>Results appear in the standard table &mdash; sortable, searchable, paged &mdash; with
+    the row count and how long the query took.</li>
+</ol>
+
+<h2>What it will and will not do</h2>
+
+<p>The console is <strong>off unless an administrator has switched it on</strong>, and it
+is <strong>read-only unless a second setting has also been switched on</strong>. Those two
+are separate on purpose: an installation that never asked for a console that can write
+does not get one by upgrading.</p>
+
+<p>Both live in <a href="administration-settings.html">Administration settings</a> &rarr;
+<span class="ui">Query console settings</span>, along with its password and its limits.
+Saving takes effect at once &mdash; no restart, which on a monitoring server would mean
+dropping a live capture to reconfigure a console. If the console will not start, the
+<span class="ui">Query console</span> tool next to it says which of three reasons and what
+to do about each.</p>
+
+<figure>
+  <img src="../screenshots/query-console-settings.png" alt="The query console settings, with its switches, limits and password field.">
+  <figcaption>Switching it on, and its limits. A field the server's configuration pins
+  is shown disabled with the variable that pinned it.</figcaption>
+</figure>
+
+<div class="note">
+  <span class="label">Worth knowing</span>
+  <p>Without a password the console cannot start whatever the switches say &mdash; it is
+  the credential installed on its database role. Set one in the same panel. If the server's
+  configuration file sets any of these, that control is disabled and names the variable
+  that pinned it; see <a href="administration-settings.html">Administration settings</a>
+  for why.</p>
+</div>
+
+<p>The important part is <em>where</em> those limits are enforced. They are database
+privileges, granted to a dedicated role, not checks in this page:</p>
+
+<ul>
+  <li><strong>Writes</strong> are refused by the database in read-only mode. There is no
+    statement you can phrase that gets around it.</li>
+  <li><strong>The columns holding secrets</strong> &mdash; the webhook URL, the SMTP
+    password, the OAuth2 client secret and refresh token &mdash; are not granted to the
+    console's role at all. Selecting them fails whatever mode it is in.</li>
+  <li><strong>The audit trail cannot be written or rewritten</strong> from here, in either
+    mode. A console whose own use could be erased is a console whose use cannot be
+    investigated.</li>
+</ul>
+
+<p>Every query you run is itself recorded in the <a href="audit-trail.html">audit
+trail</a>, including the SQL.</p>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p><strong>Administrators only</strong>, and only where the server has the
+  console enabled. Whether it can write is a second, separate server setting &mdash;
+  neither can be turned on from inside the application.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

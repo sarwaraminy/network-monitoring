@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network Monitoring User Guide</title>
+<link rel="stylesheet" href="assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+
+<h1>Network Monitoring User Guide</h1>
+<p class="lede">Watching a network segment, and knowing what to do when something turns
+up on it.</p>
+
+<p>This guide covers the application as an operator meets it: the screens, what each one
+is telling you, and which actions your account is allowed to take. It assumes somebody
+else has installed it. If that is also you, the repository's <code>README</code> covers
+installation, the detectors' internals and the deployment options.</p>
+
+<div class="cards">
+  <a class="card" href="topics/about.html">
+    <span class="card-title">About Network Monitoring</span>
+    <span class="card-body">What the eight detectors look for, and what the application
+      deliberately does not do.</span>
+  </a>
+  <a class="card" href="topics/getting-started.html">
+    <span class="card-title">Signing in</span>
+    <span class="card-body">Requirements, signing in, and where the first account comes
+      from.</span>
+  </a>
+  <a class="card" href="topics/interface.html">
+    <span class="card-title">Finding your way around</span>
+    <span class="card-body">Navigation, tables, severities and times &mdash; the
+      conventions every screen shares.</span>
+  </a>
+  <a class="card" href="topics/dashboard.html">
+    <span class="card-title">The dashboard</span>
+    <span class="card-body">What has been found, and which hosts keep appearing.</span>
+  </a>
+  <a class="card" href="topics/security-alerts.html">
+    <span class="card-title">Security alerts</span>
+    <span class="card-body">Reading a finding and its evidence, acknowledging it, looking
+      up an address.</span>
+  </a>
+  <a class="card" href="topics/suppressions.html">
+    <span class="card-title">Suppression rules</span>
+    <span class="card-body">Declaring a finding expected, so the list stays worth
+      reading.</span>
+  </a>
+  <a class="card" href="topics/alert-delivery.html">
+    <span class="card-title">Alert delivery</span>
+    <span class="card-body">Where findings go, the four limits that decide whether a
+      message is sent, and how to prove it works.</span>
+  </a>
+  <a class="card" href="topics/access-and-roles.html">
+    <span class="card-title">Who can do what</span>
+    <span class="card-body">The two roles, screen by screen, and what is never shown to
+      anybody.</span>
+  </a>
+</div>
+
+<h2>If you are here because an alert did not arrive</h2>
+
+<p>Work down this list; each step is a screen in this guide.</p>
+
+<ol>
+  <li><strong>Was it detected at all?</strong> <a href="topics/security-alerts.html">Security
+    alerts</a>, with <span class="ui">Open only</span> switched off. If it is not there,
+    the question is about detection or a <a href="topics/suppressions.html">suppression
+    rule</a>, not delivery.</li>
+  <li><strong>Was it suppressed?</strong> <a href="topics/suppressions.html">Suppression
+    rules</a> &mdash; the <strong>Hidden</strong> column counts what each rule has
+    dropped.</li>
+  <li><strong>Is a channel configured, and is delivery on?</strong>
+    <a href="topics/alert-delivery.html">Alert delivery</a>. The page says both, and names
+    the reason when a channel is configured but cannot authenticate.</li>
+  <li><strong>Did a limit hold it back?</strong> Same page: minimum severity, the digest
+    window, the per-finding throttle and the hourly ceiling are each a reason something
+    you expected did not arrive.</li>
+  <li><strong>Can the channel actually be reached?</strong>
+    <span class="ui">Send test</span>, and read the per-channel results rather than the
+    summary.</li>
+</ol>
+
+<h2>A note on what this application is</h2>
+
+<p>It watches and it tells you. <strong>It does not block anything</strong>, and it only
+sees traffic that reaches the machine it runs on &mdash; on an ordinary workstation, that
+is that workstation's own traffic plus broadcasts, which is the most common reason a new
+installation appears to find nothing.</p>
+
+<p class="colophon">Screenshots in this guide were taken from the running application
+against a small set of representative findings. The addresses and host names in them come
+from the ranges reserved for documentation; they are not a real network.</p>
+
+  </main>
+</div>
+<script src="assets/guard.js"></script>
+<script src="assets/nav.js"></script>
+</body>
+</html>

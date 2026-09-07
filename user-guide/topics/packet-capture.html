@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packet capture &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Packet capture</h1>
+<p class="lede">Live packets from one adapter, decoded frame by frame.</p>
+
+<figure>
+  <img src="../screenshots/capture.png" alt="The capture screen, idle. Choose an interface to begin.">
+  <figcaption>The capture screen, idle. Choose an interface to begin.</figcaption>
+</figure>
+
+<h2>Starting a capture</h2>
+
+<ol>
+  <li>Choose a <span class="ui">Network interface</span>. The list comes from the capture
+    driver on the server, not from your own machine.</li>
+  <li>Leave <span class="ui">Snapshot length</span> and <span class="ui">Timeout</span> as
+    they are unless you have a reason:
+    <ul>
+      <li><strong>Snapshot length</strong> is how many bytes of each frame to keep. The
+        default of 65536 keeps whole frames; lowering it truncates payloads and can hide
+        what a detector needs to see.</li>
+      <li><strong>Timeout</strong> is the pcap read timeout in milliseconds.</li>
+    </ul>
+  </li>
+  <li>Click <span class="ui">Start capture</span>. The status chip changes from
+    <em>Idle</em>, and decoded packets appear newest-first as they arrive.</li>
+  <li><span class="ui">Stop</span> ends the session. <span class="ui">Clear</span>
+    empties the table without stopping.</li>
+</ol>
+
+<p><strong>Capture by IP</strong> is the same screen with an address filter, for when you
+already know which host you are interested in.</p>
+
+<h2>What you will actually see</h2>
+
+<p>A capture only sees the traffic that reaches the machine it runs on. On an ordinary
+workstation that is its own traffic plus broadcasts &mdash; enough for ARP and new-device
+detection, and not much else. Seeing a whole segment needs the switch configured to
+mirror traffic to this machine (a SPAN port) or a network TAP.</p>
+
+<div class="note">
+  <span class="label">Note</span>
+  <p>Detection does not depend on this screen. Findings are raised from
+  whatever traffic the server is processing, whether or not anybody has a capture open in
+  a browser, and a flow collector feeds detection with no capture at all.</p>
+</div>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p>Any signed-in account can view the interfaces and the packets already
+  captured. <strong>Starting, stopping and clearing a capture are restricted to
+  administrators</strong> &mdash; a capture puts an interface into promiscuous mode and
+  reads other people's traffic, which is not something every account should be able to
+  begin.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

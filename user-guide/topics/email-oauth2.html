@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email over OAuth2 &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Email over OAuth2</h1>
+<p class="lede">For a Microsoft 365 or Google tenant that will not accept a
+password.</p>
+
+<p>Microsoft 365 and Google both disable basic SMTP authentication by default on modern
+tenants. The first thing most people try &mdash; point it at our company mailbox &mdash;
+therefore fails, and fails with a <code>535</code> that is indistinguishable from a typo
+in the password. Setting <span class="ui">Authentication</span> to
+<span class="ui">oauth2</span> is the answer where a relay is not available.</p>
+
+<figure>
+  <img src="../screenshots/delivery-settings-oauth2.png" alt="The email section with authentication set to oauth2. The password box is gone; five credential fields take its place.">
+  <figcaption>The email section with authentication set to oauth2. The password box is gone; five credential fields take its place.</figcaption>
+</figure>
+
+<h2>Before you start</h2>
+
+<p>This uses the <strong>refresh-token grant</strong>: you register an application with
+your identity provider, consent to it once as the sending mailbox, and paste the
+resulting refresh token here. The application exchanges it for an access token when it
+first sends, and renews that on its own &mdash; nothing needs doing again until the
+refresh token itself is revoked or expires.</p>
+
+<p>There is deliberately no sign-in redirect in this application. That would need a
+browser round trip through a publicly reachable callback address, and this runs on a
+sensor inside your network. The one-time consent happens on your own machine, and only
+its result is configured here.</p>
+
+<h2>Microsoft 365</h2>
+
+<ol>
+  <li>Register an application in Entra ID and add the API permission <strong>Office 365
+    Exchange Online &rarr; Delegated &rarr; <code>SMTP.Send</code></strong>.</li>
+  <li>Consent to it as the mailbox you will send from, and keep the refresh token.</li>
+  <li><strong>Enable SMTP AUTH for that mailbox.</strong> This is a separate, per-mailbox
+    setting, and OAuth2 does not bypass it:
+    <pre><code>Set-CASMailbox -Identity nmt@contoso.com -SmtpClientAuthenticationDisabled $false</code></pre>
+  </li>
+  <li>Fill in the settings dialog:
+    <ul>
+      <li><span class="ui">SMTP host</span> <code>smtp.office365.com</code>,
+        <span class="ui">Port</span> 587, <span class="ui">Implicit TLS</span> off.</li>
+      <li><span class="ui">Username</span> the mailbox being sent from.</li>
+      <li><span class="ui">Token endpoint</span>
+        <code>https://login.microsoftonline.com/&lt;tenant&gt;/oauth2/v2.0/token</code></li>
+      <li><span class="ui">Scope</span>
+        <code>https://outlook.office.com/SMTP.Send offline_access</code></li>
+      <li><span class="ui">Client ID</span>, <span class="ui">Client secret</span> and
+        <span class="ui">Refresh token</span> from the registration and the consent.</li>
+    </ul>
+  </li>
+  <li>Save, then use <span class="ui">Send test</span> on the Delivery page.</li>
+</ol>
+
+<h2>Google Workspace</h2>
+
+<p>The same, with an OAuth client created in Google Cloud, consent taken with the scope
+<code>https://mail.google.com/</code>, <span class="ui">SMTP host</span>
+<code>smtp.gmail.com</code> and <span class="ui">Token endpoint</span>
+<code>https://oauth2.googleapis.com/token</code>. Google's refresh grant ignores the
+<span class="ui">Scope</span> field, so leave it empty.</p>
+
+<h2>When it does not work</h2>
+
+<p>The message you get back distinguishes the three failures that look alike:</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>What you see</th><th>What it means</th></tr></thead>
+  <tbody>
+    <tr><td>Named settings are &ldquo;not set&rdquo;</td><td>The configuration is
+      incomplete. Nothing was sent and no connection was made; fill in the fields it
+      names. Until then the channel reports itself as not configured, and the Delivery
+      page says why.</td></tr>
+    <tr><td>The identity provider refused to issue a token</td><td>The refresh token has
+      expired or been revoked, the client secret has rotated, or the token endpoint is
+      the wrong tenant. A new refresh token has to be obtained the way the first one
+      was.</td></tr>
+    <tr><td>A token was issued but the mailbox rejected it</td><td>Almost always SMTP AUTH
+      still disabled for that specific mailbox &mdash; step 3 above. Check too that the
+      username is the mailbox being sent from and that the registration holds
+      <code>SMTP.Send</code>.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note">
+  <span class="label">Note</span>
+  <p>The token endpoint must be an <code>https</code> address, and the
+  application refuses anything else wherever the value comes from. Your client secret
+  and refresh token are sent in the body of every token request; over
+  <code>http</code> that would put long-lived credentials on the wire in
+  cleartext.</p>
+</div>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p>Reading these settings needs any signed-in account; the client secret
+  and refresh token are never returned to anybody. Saving them requires an
+  administrator.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

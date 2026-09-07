@@ -184,6 +184,16 @@ export const deliverySettings = pgTable('delivery_settings', {
   /** An array, so a recipient containing a comma cannot corrupt the set. */
   emailTo: text('email_to').array(),
 
+  /** 'password' or 'oauth2' — see V13__Email_oauth2.sql. */
+  emailAuthMethod: varchar('email_auth_method', { length: 16 }),
+  emailOauthClientId: varchar('email_oauth_client_id', { length: 255 }),
+  /** A credential. Never returned by the API. */
+  emailOauthClientSecret: varchar('email_oauth_client_secret', { length: 500 }),
+  /** The credential that mints access tokens for the mailbox. Never returned. */
+  emailOauthRefreshToken: varchar('email_oauth_refresh_token', { length: 4000 }),
+  emailOauthTokenUrl: varchar('email_oauth_token_url', { length: 500 }),
+  emailOauthScope: varchar('email_oauth_scope', { length: 500 }),
+
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   updatedBy: varchar('updated_by', { length: 200 }),
 });
@@ -248,6 +258,38 @@ export const auditEvents = pgTable(
   (table) => [index('audit_events_action_id_idx').on(table.action, table.id.desc())],
 );
 
+/**
+ * The query console's settings — see V14__Adhoc_settings.sql.
+ *
+ * One row, every column nullable: NULL means "nobody has chosen", so the value
+ * falls through to the environment variable and then to the code default, and the
+ * environment always wins over what is stored here. `ADHOC_DB_PASSWORD` is
+ * deliberately not a column.
+ */
+export const adhocSettings = pgTable('adhoc_settings', {
+  id: smallint('id').primaryKey().default(1),
+  enabled: boolean('enabled'),
+  writeEnabled: boolean('write_enabled'),
+  timeoutMs: integer('timeout_ms'),
+  maxRows: integer('max_rows'),
+  maxQueryLength: integer('max_query_length'),
+  audit: varchar('audit', { length: 16 }),
+  /**
+   * The console role's password (V15). Never returned by the API — the settings
+   * endpoint reports `configured` — and never written to the audit trail.
+   *
+   * Not readable by the console's own Postgres roles: V11 and V12 grant an
+   * explicit per-table allowlist that does not include this table, and V15
+   * revokes on it as well so a future blanket GRANT has to override a statement
+   * rather than fill a silence.
+   */
+  dbPassword: text('db_password'),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  updatedBy: varchar('updated_by', { length: 200 }),
+});
+
+export type AdhocSettingsRow = typeof adhocSettings.$inferSelect;
+export type NewAdhocSettingsRow = typeof adhocSettings.$inferInsert;
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 export type LogRow = typeof logs.$inferSelect;

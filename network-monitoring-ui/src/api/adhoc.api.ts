@@ -40,8 +40,48 @@ export interface AdhocResult {
  * something. The server runs every query as a role that can only SELECT, and
  * cannot read the columns holding secrets.
  */
-export async function fetchAdhocAvailability(): Promise<{ enabled: boolean }> {
-  const { data } = await api.get<{ enabled: boolean }>('/api/adhoc');
+/**
+ * Why the console is off, matching the server's own vocabulary.
+ *
+ *  - `disabled` — nobody asked for it. The default, and not a fault.
+ *  - `no-password` — asked for, but no credential to install on the role.
+ *  - `sandbox-failed` — asked for and provisioned, but the database would not
+ *    confirm the role is neither a superuser nor able to write.
+ *
+ * Three situations needing three different actions, which is the whole reason
+ * the server reports a reason rather than a boolean.
+ */
+export type AdhocOffReason = 'disabled' | 'no-password' | 'sandbox-failed';
+
+export interface AdhocStatus {
+  enabled: boolean;
+  /** The Postgres role the live pool holds, and so what it may do. */
+  role: string | null;
+  mode: 'read' | 'write' | null;
+  reason?: AdhocOffReason;
+  /** A sandbox failure's own message, with the configured password stripped out. */
+  detail?: string;
+  /** The password could not be kept out of the Postgres log. A caveat, not a fault. */
+  passwordMayBeLogged: boolean;
+}
+
+export async function fetchAdhocStatus(): Promise<AdhocStatus> {
+  const { data } = await api.get<AdhocStatus>('/api/adhoc');
+  return data;
+}
+
+/**
+ * Asks the server to try its startup provisioning again.
+ *
+ * Grants nothing: it re-runs the same check the boot ran, against the same
+ * environment, and the server refuses without `ADHOC_ENABLED` and without a
+ * password exactly as it does at startup. It is for the case an administrator
+ * can actually resolve — the role was missing or its grants were wrong and have
+ * since been fixed — where the only other remedy is restarting the API, which on
+ * a monitoring server means dropping a live capture to fix a console.
+ */
+export async function recheckAdhoc(): Promise<AdhocStatus> {
+  const { data } = await api.post<AdhocStatus>('/api/adhoc/recheck');
   return data;
 }
 
@@ -65,3 +105,59 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
 const NUMERIC_OIDS = new Set([20, 21, 23, 26, 700, 701, 1700]);
 
 export const isNumericOid = (oid: number): boolean => NUMERIC_OIDS.has(oid);
+
+/**
+ * One of the query console's settings, and where its value came from.
+ *
+ * Provenance is part of the contract rather than decoration: a field the
+ * environment pins cannot be changed here, and a form that accepted the edit
+ * anyway would be a control that does nothing — this codebase's recurring bug,
+ * in the one place where the control being a lie decides whether a browser can
+ * run SQL.
+ */
+export interface AdhocSettingField {
+  /** Absent for a credential — see `configured`. */
+  value?: boolean | number | string;
+  source: 'environment' | 'database' | 'default';
+  /** The variable that pins it, so the form can name what to remove. */
+  env: string;
+  /**
+   * Credentials only: whether one is set, never what it is.
+   *
+   * The console's role password is stored (V15) so an administrator can
+   * provision the console without server access, and the server redacts it in
+   * the resolver rather than at the route — so no endpoint can leak it by
+   * forgetting. The form therefore never has a value to prefill, which is why
+   * an empty password box means "leave it alone" rather than "clear it".
+   */
+  configured?: boolean;
+}
+
+export interface AdhocSettingsResponse {
+  settings: Record<string, AdhocSettingField>;
+  /**
+   * Whether a console password is set at all, from either layer. Never its value.
+   *
+   * Without one the console cannot start whatever the switches here say, so the
+   * form has to be able to explain why turning it on changed nothing. Kept
+   * alongside the field's own `configured` because the warning is decided before
+   * the fields are walked.
+   */
+  passwordConfigured: boolean;
+  effective: Record<string, boolean | number | string>;
+}
+
+/** Absent leaves a field alone; null clears it, so it falls back to env or default. */
+export type AdhocSettingsPatch = Record<string, boolean | number | string | null>;
+
+export async function fetchAdhocSettings(): Promise<AdhocSettingsResponse> {
+  const { data } = await api.get<AdhocSettingsResponse>('/api/adhoc/settings');
+  return data;
+}
+
+export async function saveAdhocSettings(
+  patch: AdhocSettingsPatch,
+): Promise<{ effective: Record<string, unknown> }> {
+  const { data } = await api.put<{ effective: Record<string, unknown> }>('/api/adhoc/settings', patch);
+  return data;
+}

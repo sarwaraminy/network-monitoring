@@ -551,6 +551,39 @@ describe('message formats', () => {
     assert.ok(format.renderText(notification).includes('https://nmt.example.test/alerts'));
   });
 
+  it('reaches the SIEM too, which is most of what the button is for', async () => {
+    /*
+     * An export channel is filtered out of a digest on purpose — it already had
+     * every finding ungated, and sending the summary as well would double-count in
+     * every correlation rule. A *test* corresponds to no finding and was never sent
+     * ungated, so the same filter just hid it: a syslog-only install got back
+     * `{delivered: 0, attempted: 0, results: []}`, which reads as "nothing is
+     * configured" for an install whose one channel was configured and never tried.
+     */
+    const exporter = new RecordingExporter();
+    const results = await new notify.Notifier([exporter]).sendTest();
+
+    assert.equal(exporter.received.length, 1, 'the collector must receive the test');
+    assert.deepEqual(
+      results.map((result) => result.channel),
+      ['recording-exporter'],
+      'and must be reported, so the answer names a channel',
+    );
+  });
+
+  it('still keeps the exporter out of an ordinary digest', async () => {
+    // The other half, so the fix above cannot quietly become double-delivery.
+    const exporter = new RecordingExporter();
+    const notifier = new notify.Notifier([exporter]);
+
+    notifier.consider(finding(), 1, AT, AT);
+    await notifier.flush();
+
+    // Once, from `consider()`'s ungated path — not a second time from the digest.
+    assert.equal(exporter.received.length, 1);
+    assert.equal(exporter.received[0]?.isTest, false);
+  });
+
   it('marks a test message clearly, so nobody is alarmed by it', async () => {
     const channel = new RecordingChannel();
     const notifier = new notify.Notifier([channel]);

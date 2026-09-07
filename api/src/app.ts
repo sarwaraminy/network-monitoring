@@ -18,6 +18,7 @@ import { logsRouter } from './routes/logs.routes.js';
 import { notifyRouter } from './routes/notify.routes.js';
 import { createPacketRouter } from './routes/packets.routes.js';
 import { suppressionsRouter } from './routes/suppressions.routes.js';
+import { guideSessionRouter, userGuideRouter } from './routes/user-guide.routes.js';
 import { filteredIpCapture, interfaceCapture } from './services/packet-capture.registry.js';
 
 /** Replaces NetworkMonitoringApplication + WebMvcConfig + SecurityConfig. */
@@ -44,8 +45,17 @@ export function createApp(): Express {
   // --- Security headers ---
   app.use(
     helmet({
-      // This process serves JSON only; the UI is a separate static bundle. A
-      // restrictive policy costs nothing here.
+      /*
+       * Written for a process that serves JSON, which is nearly all of it.
+       *
+       * Not quite all: `/user-guide` serves HTML with a stylesheet, two scripts
+       * and a dozen screenshots, and for those this policy is wrong — helmet's
+       * defaults add `upgrade-insecure-requests`, which on the plain-HTTP stack
+       * Compose ships rewrote every one of those assets to a `https://` port
+       * nothing listens on. That router therefore sets its own policy and
+       * overrides this one; see user-guide.routes.ts. Everything else here is
+       * JSON, where a restrictive policy costs nothing.
+       */
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'none'"],
@@ -126,11 +136,20 @@ export function createApp(): Express {
   app.use('/api/intel', intelRouter);
   app.use('/api/notify', notifyRouter);
   app.use('/api/suppressions', suppressionsRouter);
+  app.use('/api/user-guide', guideSessionRouter);
   app.use('/api/packets', createPacketRouter(interfaceCapture, { requireIpFilter: false }));
   app.use('/api/ip/packets', createPacketRouter(filteredIpCapture, { requireIpFilter: true }));
   // Legacy: the per-packet anomaly log that `alerts` supersedes. Kept so existing
   // history stays reachable; nothing writes to it any more.
   app.use('/api', logsRouter);
+
+  /*
+   * The user guide's own files, outside `/api` because they are pages a browser
+   * navigates to rather than an interface the application calls. Mounted after
+   * the API so nothing here can shadow a route, and gated by its own cookie —
+   * see routes/user-guide.routes.ts for why a Bearer token cannot do this job.
+   */
+  app.use('/user-guide', userGuideRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

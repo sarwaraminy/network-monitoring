@@ -4,6 +4,7 @@ import type { UserRow } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
+import { actorOf, recordAudit } from '../services/audit.service.js';
 import { extractBearerToken, signAccessToken, verifyAccessToken } from '../services/jwt.service.js';
 import {
   ADMIN_TOKEN_REQUIRED,
@@ -19,12 +20,15 @@ import {
   getAllUsers,
   getUserByEmail,
   hasAnyUser,
+  LastAdministratorError,
   saveFirstUser,
   saveUser,
+  setUserRole,
   toPublicUser,
+  UserNotFoundError,
 } from '../services/user.service.js';
 import type { LoginResponseBody } from '../types/dto.js';
-import { loginSchema, signupSchema } from './validation.js';
+import { loginSchema, signupSchema, userRoleSchema } from './validation.js';
 
 /** Replaces cyber.wissen.controller.UserController. Mounted at /auth. */
 export const authRouter = Router();
@@ -110,6 +114,74 @@ authRouter.get(
   asyncHandler(async (_req, res) => {
     const users = await getAllUsers();
     res.json(users.map(toPublicUser));
+  }),
+);
+
+/**
+ * PATCH /auth/users/:id/role
+ *
+ * Role was previously settable only in the database, which made "give this
+ * person admin" a job for whoever had a `psql` session — the same gap the query
+ * console's settings had, in the place where it matters more, since an account
+ * with the wrong role is a standing access-control problem rather than an
+ * inconvenience.
+ *
+ * Three refusals, and each is a way this locks somebody out:
+ *
+ *  - **The last administrator cannot be demoted.** Enforced in `setUserRole`
+ *    with the admin rows locked, because a count-then-update loses the race
+ *    between two administrators demoting each other.
+ *  - **Nobody may demote themselves.** Not for safety — the guard above covers
+ *    the unrecoverable case — but because the session doing it immediately loses
+ *    the page it is standing on, and the remedy ("ask another administrator") is
+ *    the same either way. A control that logs you out of itself is worth
+ *    refusing rather than explaining.
+ *  - **An unknown account is a 404**, not a silent success, so a stale list does
+ *    not report a change it did not make.
+ */
+authRouter.patch(
+  '/users/:id/role',
+  requireAuth,
+  requireRole('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'That is not an account id.');
+
+    const parsed = userRoleSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+    }
+    const { role } = parsed.data;
+
+    if (id === req.user?.id && role !== 'ADMIN') {
+      throw new HttpError(
+        409,
+        'You cannot remove your own administrator role. Ask another administrator to do it.',
+      );
+    }
+
+    const actor = actorOf(req.user);
+
+    try {
+      const updated = await setUserRole(id, role, (writer, target, from) =>
+        recordAudit(writer, {
+          actor: actor.name,
+          actorId: actor.id,
+          action: 'user.role_change',
+          // By address rather than by id: the id alone needs a join to read, and
+          // the trail has to stay legible after the account is deleted — the
+          // same reason `actor` is a denormalised email.
+          subject: target.email ?? `user:${target.id}`,
+          detail: { from, to: role },
+        }),
+      );
+
+      res.json(toPublicUser(updated));
+    } catch (error) {
+      if (error instanceof LastAdministratorError) throw new HttpError(409, error.message);
+      if (error instanceof UserNotFoundError) throw new HttpError(404, 'No such account.');
+      throw error;
+    }
   }),
 );
 

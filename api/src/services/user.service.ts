@@ -3,6 +3,7 @@ import { count, eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { type NewUserRow, type UserRow, users } from '../db/schema.js';
 import type { PublicUser } from '../types/dto.js';
+import type { AuditWriter } from './audit.service.js';
 
 const BCRYPT_ROUNDS = 10;
 
@@ -125,6 +126,95 @@ export async function saveUser(input: Omit<NewUserRow, 'password'> & { password:
 
 export async function deleteUser(id: number): Promise<void> {
   await db.delete(users).where(eq(users.id, id));
+}
+
+/** Raised when a role change would leave the installation with no administrator. */
+export class LastAdministratorError extends Error {
+  constructor() {
+    super('This is the only administrator left; promote another account first.');
+    this.name = 'LastAdministratorError';
+  }
+}
+
+export type Role = 'ADMIN' | 'USER';
+
+/**
+ * Changes one account's role, refusing to remove the last administrator.
+ *
+ * The refusal is the point. Role is otherwise only settable in the database, so
+ * demoting the last admin locks every administrative function — this page
+ * included — behind a `psql` session on the server. That is recoverable, but only
+ * by the person this feature exists to avoid needing.
+ *
+ * Done in a transaction with the rows locked, not as a count-then-update. Two
+ * administrators demoting each other at the same moment would each read two
+ * admins, each pass the check, and both writes would land: an installation with
+ * no administrator, reached without either of them doing anything wrong.
+ * `FOR UPDATE` on the admin rows makes the second one wait and then see one.
+ *
+ * `audit` is invoked inside the transaction so the record and the change commit
+ * together, matching the rest of this trail: an act that happened without a row,
+ * or a row for an act that rolled back, are both worse than a failure.
+ */
+export async function setUserRole(
+  id: number,
+  role: Role,
+  audit: (writer: AuditWriter, target: UserRow, from: Role) => Promise<void>,
+): Promise<UserRow> {
+  return db.transaction(async (tx) => {
+    /*
+     * Every ADMIN row, locked, before anything is read about the target.
+     *
+     * Ordering matters: taking the lock first means a concurrent demotion is
+     * already waiting by the time this one counts, so the count it eventually
+     * reads reflects the other transaction's outcome rather than its own start.
+     * The target is included in this set when it is an admin, which is the case
+     * the count is about.
+     *
+     * `upper(role)`, not `eq(users.role, 'ADMIN')`, and the difference is a bug
+     * this had: `role` is a plain `varchar` with no constraint on its case, and
+     * every other reader in the system normalises — `requireRole` lowercases
+     * both sides, `auth.routes.ts` upper-cases, and the target's own role is
+     * upper-cased five lines below. A row storing `Admin` was therefore an
+     * administrator everywhere except in the count that decides whether one is
+     * left, so with two administrators and one of them mixed-case, demoting
+     * either counted one row and refused with a message that was not true. It
+     * failed closed, which is the right direction to be wrong, but it also
+     * excluded that row from the lock — and the comment above claims it is in
+     * this set.
+     */
+    const admins = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`upper(${users.role}) = 'ADMIN'`)
+      .for('update');
+
+    const [target] = await tx.select().from(users).where(eq(users.id, id)).limit(1).for('update');
+    if (!target) throw new UserNotFoundError(id);
+
+    const from = (target.role.toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER') as Role;
+    // Nothing to do, and nothing to record: a no-op write would put a row in an
+    // append-only trail for a change that did not happen.
+    if (from === role) return target;
+
+    if (from === 'ADMIN' && admins.length <= 1) throw new LastAdministratorError();
+
+    const [updated] = await tx.update(users).set({ role }).where(eq(users.id, id)).returning();
+    if (!updated) throw new Error('Update of users returned no row');
+
+    // `AuditWriter` is `Pick<db, 'insert'>` — deliberately the narrowest thing
+    // that works, so this parameter cannot be used to reach unrelated database
+    // access, and a transaction satisfies it directly.
+    await audit(tx, updated, from);
+    return updated;
+  });
+}
+
+export class UserNotFoundError extends Error {
+  constructor(id: number) {
+    super(`No account with id ${id}`);
+    this.name = 'UserNotFoundError';
+  }
 }
 
 export async function authenticateUser(email: string, password: string): Promise<UserRow | null> {

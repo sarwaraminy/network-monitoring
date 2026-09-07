@@ -4,10 +4,14 @@ import {
   DELIVERY_DEFAULTS,
   DELIVERY_FIELDS,
   type DeliveryField,
+  type DeliverySettings,
   effectiveSettings,
+  emailBlockedReason,
   environmentPinnedFields,
   invalidEnvironmentVariables,
+  isEmailConfigured,
   isSecretField,
+  missingEmailOauthSettings,
   parseFieldValue,
   pinnedConflicts,
   redactForApi,
@@ -151,9 +155,20 @@ describe('delivery settings resolution', () => {
       assert.equal(view.webhookUrl?.configured, false);
     });
 
-    it('marks exactly the two fields that are credentials', () => {
+    it('marks exactly the fields that are credentials, and no others', () => {
+      // A roster rather than a spot check, so adding a field has to be a decision
+      // about whether it is a credential. The OAuth2 client *id* is deliberately
+      // not on this list — it is an identifier, and redacting it would leave the
+      // form unable to show which application is configured; the client secret and
+      // the refresh token are, and the refresh token is the more dangerous of the
+      // two, since it is what mints access tokens for the mailbox.
       const secrets = (Object.keys(DELIVERY_FIELDS) as DeliveryField[]).filter(isSecretField);
-      assert.deepEqual(secrets.sort(), ['emailPassword', 'webhookUrl']);
+      assert.deepEqual(secrets.sort(), [
+        'emailOauthClientSecret',
+        'emailOauthRefreshToken',
+        'emailPassword',
+        'webhookUrl',
+      ]);
     });
   });
 
@@ -270,9 +285,111 @@ describe('naming a bad environment value rather than silently ignoring it', () =
     );
   });
 
+  it('refuses an http token endpoint wherever the value comes from', () => {
+    /*
+     * The Zod patch schema guards one of three doors. This one guards the other two:
+     * a value set in the environment never reaches Zod at all — and *pins* the field,
+     * so the UI cannot correct it — and a hand-written row does not either. The URL
+     * takes the client secret and refresh token in the POST body on every refresh, so
+     * an http: value leaks long-lived credentials repeatedly and invisibly.
+     */
+    const https = 'https://login.microsoftonline.com/tenant/oauth2/v2.0/token';
+    assert.equal(parseFieldValue('emailOauthTokenUrl', https), https);
+    assert.equal(parseFieldValue('emailOauthTokenUrl', 'http://idp.internal/token'), undefined);
+    assert.equal(parseFieldValue('emailOauthTokenUrl', 'login.example.com'), undefined);
+
+    // Rejected, so it falls through to the next layer rather than pinning a leak —
+    // and says so at boot rather than doing it silently.
+    const resolved = resolveDeliverySettings({ SMTP_OAUTH_TOKEN_URL: 'http://idp.internal/token' }, {});
+    assert.equal(resolved.emailOauthTokenUrl.source, 'default');
+    assert.deepEqual(invalidEnvironmentVariables({ SMTP_OAUTH_TOKEN_URL: 'http://idp.internal/token' }), [
+      'SMTP_OAUTH_TOKEN_URL',
+    ]);
+
+    // Every other URL setting keeps its own rule: an internal http endpoint is a real
+    // webhook configuration, and this check must not have widened to it.
+    assert.equal(parseFieldValue('webhookUrl', 'http://hooks.internal/x'), 'http://hooks.internal/x');
+  });
+
   it('never flags a boolean: an unrecognized string still parses, to false', () => {
     // See parseFieldValue's boolean case — this is the one kind that never falls
     // through, matching the legacy parser it replaces.
     assert.deepEqual(invalidEnvironmentVariables({ NOTIFY_INCLUDE_EVIDENCE: 'maybe' }), []);
+  });
+});
+
+describe('whether email could actually deliver', () => {
+  const POINTED: DeliverySettings = {
+    ...DELIVERY_DEFAULTS,
+    emailHost: 'smtp.office365.com',
+    emailFrom: 'nmt@contoso.test',
+    emailTo: ['ops@contoso.test'],
+  };
+
+  const OAUTH: DeliverySettings = {
+    ...POINTED,
+    emailAuthMethod: 'oauth2',
+    emailUser: 'nmt@contoso.test',
+    emailOauthClientId: 'client-id',
+    emailOauthClientSecret: 'client-secret',
+    emailOauthRefreshToken: 'refresh-token',
+    emailOauthTokenUrl: 'https://login.microsoftonline.com/tenant/oauth2/v2.0/token',
+  };
+
+  it('needs a host, a sender and a recipient', () => {
+    assert.equal(isEmailConfigured(POINTED), true);
+    assert.equal(isEmailConfigured({ ...POINTED, emailFrom: '' }), false);
+    assert.equal(isEmailConfigured({ ...POINTED, emailTo: [] }), false);
+  });
+
+  it('needs the OAuth2 credentials too, once OAuth2 is the method', () => {
+    // The failure this guards: host, sender and recipients are all set, so the old
+    // check said configured — while every send was refused for want of a refresh
+    // token. `GET /api/notify/status` answered "email ready" and the Delivery page
+    // showed a working channel.
+    assert.equal(isEmailConfigured(OAUTH), true);
+    assert.equal(isEmailConfigured({ ...OAUTH, emailOauthRefreshToken: '' }), false);
+    assert.equal(isEmailConfigured({ ...OAUTH, emailUser: '' }), false);
+  });
+
+  it('names what is missing, by the variable an operator would set', () => {
+    assert.deepEqual(missingEmailOauthSettings({ ...POINTED, emailAuthMethod: 'oauth2' }), [
+      'SMTP_USER',
+      'SMTP_OAUTH_CLIENT_ID',
+      'SMTP_OAUTH_CLIENT_SECRET',
+      'SMTP_OAUTH_REFRESH_TOKEN',
+      'SMTP_OAUTH_TOKEN_URL',
+    ]);
+    assert.deepEqual(missingEmailOauthSettings({ ...OAUTH, emailOauthClientSecret: '   ' }), [
+      'SMTP_OAUTH_CLIENT_SECRET',
+    ]);
+  });
+
+  it('gives the OAuth2 reason only once email is pointed somewhere', () => {
+    // The ordering that matters. `emailAuthMethod` can be oauth2 on an install with
+    // no SMTP host, sender or recipients — set in the environment, or left behind by
+    // an earlier attempt — and "fill in a refresh token" is a dead end for that
+    // operator in both directions: there is nothing to authenticate against either
+    // way, and the accurate answer naming all three would have been suppressed.
+    assert.equal(emailBlockedReason({ ...DELIVERY_DEFAULTS, emailAuthMethod: 'oauth2' }), null);
+
+    const halfFilled = emailBlockedReason({ ...OAUTH, emailOauthRefreshToken: '' });
+    assert.match(halfFilled ?? '', /SMTP_OAUTH_REFRESH_TOKEN/);
+    assert.match(halfFilled ?? '', /cannot authenticate/);
+  });
+
+  it('has no reason to give when email works', () => {
+    assert.equal(emailBlockedReason(OAUTH), null);
+    assert.equal(emailBlockedReason(POINTED), null);
+  });
+
+  it('asks nothing of a password mailbox', () => {
+    // Not "these five are blank" — they are irrelevant, and an internal relay with
+    // no credentials at all is the configuration the README puts first.
+    assert.deepEqual(missingEmailOauthSettings(POINTED), []);
+    assert.equal(
+      isEmailConfigured({ ...OAUTH, emailAuthMethod: 'password', emailOauthRefreshToken: '' }),
+      true,
+    );
   });
 });

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Threat intelligence &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Threat intelligence</h1>
+<p class="lede">Addresses and domains matched against indicator feeds &mdash; the one
+detector here that is not a threshold.</p>
+
+<figure>
+  <img src="../screenshots/threat-intel.png" alt="Threat intelligence, off by default, with the two settings that switch it on.">
+  <figcaption>Threat intelligence, off by default, with the two settings that switch it on.</figcaption>
+</figure>
+
+<h2>Why it is off</h2>
+
+<p>Threat intelligence is <strong>off until you turn it on</strong>, and no feeds ship
+with the product. Which intelligence to trust is your decision, and a security tool that
+started making outbound requests to a list nobody chose would be making it for you.</p>
+
+<p>An administrator switches it on by adding two settings to <code>api/.env</code> on the
+server and restarting:</p>
+
+<pre><code>INTEL_ENABLED=true
+INTEL_FEEDS=feodo=https://feodotracker.abuse.ch/downloads/ipblocklist.txt</code></pre>
+
+<p>A local file path works too, and is the right choice where the machine has no
+outbound internet access. Check each feed's licence before relying on it
+commercially.</p>
+
+<h2>Reading the page</h2>
+
+<ul>
+  <li><strong>Indicators loaded</strong> &mdash; how many addresses and domains are being
+    matched against right now.</li>
+  <li><strong>Feeds</strong> and <strong>Last loaded</strong> &mdash; where they came from,
+    and when. Feeds refresh every six hours.</li>
+  <li><strong>Refused on load</strong> &mdash; entries the application declined to load.
+    Private and reserved ranges are refused whatever a feed says: one wrongly listed
+    private range would alert on every host at once.</li>
+  <li><strong>What is loaded</strong> breaks the total down by indicator type. A domain
+    indicator also covers its subdomains.</li>
+</ul>
+
+<p><span class="ui">Reload feeds</span> fetches every feed again immediately, rather than
+waiting for the next refresh.</p>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p>Any signed-in account can see which feeds are loaded and how many
+  indicators they hold. <span class="ui">Reload feeds</span> is restricted to
+  administrators, because it causes outbound requests. Switching the feature on at all
+  requires access to the server's configuration file, not just an administrator
+  account.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

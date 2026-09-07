@@ -314,6 +314,14 @@ export interface NotifyChannelWebhook {
 export interface NotifyChannelEmail {
   configured: boolean;
   recipients: number;
+  /**
+   * Why it is not configured, when the reason is not the obvious one.
+   *
+   * Null for a mailbox that is simply unset — the standing "SMTP host, sender and at
+   * least one recipient" covers that. Present for an OAuth2 mailbox whose credentials
+   * are incomplete, where those three are exactly what has already been filled in.
+   */
+  reason: string | null;
 }
 
 export interface NotifyChannelSyslog {

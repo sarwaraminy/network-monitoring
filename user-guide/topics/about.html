@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About Network Monitoring &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>About Network Monitoring</h1>
+<p class="lede">What this application watches for, and what it does when it finds
+something.</p>
+
+<p>Network Monitoring watches traffic on a network segment and raises a
+<strong>finding</strong> when it sees something worth a person's attention. It stores
+each finding, decides whether to tell anybody, and keeps a record of what was done
+about it.</p>
+
+<p>The application is in two halves, and it is worth knowing which half you are
+looking at on any screen:</p>
+
+<ul>
+  <li><strong>Detection</strong> decides <em>what happened</em>. A detector is a
+    single check &mdash; a port scan, an ARP reply that contradicts what was seen
+    before &mdash; and it never touches the database.</li>
+  <li><strong>Delivery</strong> decides <em>what to do about it</em>: whether the
+    finding is stored, whether it is suppressed, and whether an email, a chat message
+    or a syslog record leaves the machine.</li>
+</ul>
+
+<p>Nothing on the delivery side can stop detection. A dead webhook or a rejected SMTP
+password cannot prevent a finding being recorded &mdash; every such failure ends in a
+log line and, where you can see it, a message on the Delivery page.</p>
+
+<h2>What it detects</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Detector</th><th>Severity</th><th>What it means</th></tr></thead>
+  <tbody>
+    <tr><td>ARP spoofing</td><td>Critical</td><td>An address on the network was claimed by a
+      MAC address that does not match what was seen before &mdash; the signature of a
+      machine-in-the-middle attempt against the gateway.</td></tr>
+    <tr><td>Cleartext credentials</td><td>Critical</td><td>A username and password crossed
+      the network unencrypted (HTTP Basic, a login form, FTP, Telnet, POP3/IMAP, SMTP
+      AUTH). <strong>The password is never recorded</strong> &mdash; only the username
+      and the secret's length.</td></tr>
+    <tr><td>Port scan</td><td>High</td><td>One host contacted many ports on another in a
+      short window.</td></tr>
+    <tr><td>Host sweep</td><td>Medium</td><td>One host probed many addresses on the segment,
+      typically one port each.</td></tr>
+    <tr><td>SYN flood</td><td>Medium</td><td>A burst of connection attempts with no completed
+      handshakes.</td></tr>
+    <tr><td>DNS tunnelling</td><td>High</td><td>Long, high-entropy names queried repeatedly
+      against one domain &mdash; data moving over DNS.</td></tr>
+    <tr><td>Threat intelligence</td><td>High</td><td>A conversation with an address or domain
+      that appears on an indicator feed you configured. Off until you turn it on; see
+      <a href="threat-intel.html">Threat intelligence</a>.</td></tr>
+    <tr><td>New device</td><td>Low</td><td>A MAC address not seen before appeared on the
+      segment.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>What it does not do</h2>
+
+<ul>
+  <li><strong>It does not block anything.</strong> This is a monitoring tool, not a
+    firewall. It tells you; acting on it is yours.</li>
+  <li><strong>It only sees traffic that reaches it.</strong> Running on an ordinary
+    workstation, it sees that workstation's own traffic plus broadcasts &mdash; which is
+    the most common reason a new installation appears to find nothing. Seeing a whole
+    segment needs a mirror (SPAN) port or a network TAP.</li>
+  <li><strong>It does not read encrypted payloads.</strong> Cleartext-credential
+    detection finds credentials precisely because they were not encrypted.</li>
+</ul>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

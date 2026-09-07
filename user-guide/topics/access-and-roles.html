@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Who can do what &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Who can do what</h1>
+<p class="lede">Two roles, and the line between them.</p>
+
+<p>Every account has one of two roles. There is no per-account partitioning of data
+below that: findings, devices and rules are properties of the network being watched, not
+of the person looking, so <strong>two accounts of the same role see exactly the same
+thing</strong>.</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Role</th><th>Intended for</th></tr></thead>
+  <tbody>
+    <tr><td><strong>USER</strong></td><td>Somebody who reads findings and works through
+      them: sees everything the tool has found, and can mark a finding as dealt
+      with.</td></tr>
+    <tr><td><strong>ADMIN</strong></td><td>Somebody responsible for the installation:
+      everything a USER can do, plus every action that changes configuration, destroys
+      data, or causes the server to reach out to something.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>By screen</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Screen</th><th>USER</th><th>ADMIN</th></tr></thead>
+  <tbody>
+    <tr><td>Dashboard</td><td class="yes">View</td><td class="yes">View</td></tr>
+    <tr><td>Security Alerts</td><td class="yes">View, acknowledge, reopen, look up an
+      address</td><td class="yes">and delete a finding, delete all, remove a known
+      device</td></tr>
+    <tr><td>Suppressions</td><td class="yes">View rules and what they hid</td>
+      <td class="yes">and create, edit, switch off, delete</td></tr>
+    <tr><td>Threat Intel</td><td class="yes">View feeds and indicator counts</td>
+      <td class="yes">and reload the feeds</td></tr>
+    <tr><td>Capture by Interface / by IP</td><td class="yes">View interfaces and captured
+      packets</td><td class="yes">and start, stop, clear a capture</td></tr>
+    <tr><td>Delivery</td><td class="yes">View status, limits and non-secret settings</td>
+      <td class="yes">and save settings, send a test</td></tr>
+    <tr><td>Audit Trail</td><td class="no">Not visible</td><td class="yes">View</td></tr>
+    <tr><td>Ad Hoc Query</td><td class="no">Not visible</td><td class="yes">View and
+      run</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>A screen a role cannot use is <strong>hidden from the navigation panel</strong> rather
+than shown and refused. The restriction is enforced by the server, not by hiding the
+link: an account that reaches an administrator-only address directly is refused there
+too.</p>
+
+<h2>What is never shown to anybody</h2>
+
+<p>Some values are write-only regardless of role, because the screens that display them
+are readable by every signed-in account:</p>
+
+<ul>
+  <li>The <strong>webhook URL</strong> &mdash; for Slack and Teams that URL <em>is</em> the
+    credential.</li>
+  <li>The <strong>SMTP password</strong>, the <strong>OAuth2 client secret</strong> and
+    the <strong>OAuth2 refresh token</strong>.</li>
+</ul>
+
+<p>Each is reported as <span class="ui">Configured</span> or
+<span class="ui">Not set</span> and can be replaced or cleared, never read back. The
+OAuth2 <strong>client ID</strong> is deliberately not on that list: it identifies the
+application rather than authenticating it, and hiding it would leave the form unable to
+show which registration is in use.</p>
+
+<p>The audit trail records <em>which fields</em> a settings change touched, never their
+values &mdash; a trail holding credentials would be a second place to read them, one that
+is never pruned.</p>
+
+<h2>This guide is behind the same door</h2>
+
+<p>The pages you are reading are served by the application itself and require a signed-in
+session, the same as any screen. Opening one without signing in lands on the sign-in page,
+and the screenshots and stylesheet are refused outright &mdash; they show a real dashboard,
+a delivery configuration and the shape of an alerts table, which is not something to leave
+readable by anybody who guesses a URL.</p>
+
+<p>The session for the guide is a separate, short-lived cookie scoped to
+<code>/user-guide</code>, because a page a browser navigates to cannot carry the token the
+application uses for everything else. Signing out clears it, and a guide tab left open
+returns itself to the sign-in page when it notices you have signed out elsewhere.</p>
+
+<h2>Changing somebody's role</h2>
+
+<p><a href="administration-settings.html">Administration settings</a> &rarr;
+<span class="ui">Users and roles</span>. Pick a role on the account's row; it applies at
+once, and the change is written to the <a href="audit-trail.html">audit trail</a> with who
+made it and which way the role moved.</p>
+
+<p>Two changes are refused, and the interface disables them rather than letting you find
+out by being told no:</p>
+
+<ul>
+  <li><strong>You cannot change your own role.</strong> Ask another administrator. If it
+    were allowed, the click would remove your access to the page you are standing on.</li>
+  <li><strong>The last administrator cannot be demoted.</strong> Promote a second account
+    first. Otherwise every administrative function &mdash; including this one &mdash; would
+    be behind the door that just closed, recoverable only from a shell on the server.</li>
+</ul>
+
+<p>With only one administrator you will see a standing reminder to promote a second. It is
+not about lockout so much as recovery: with one administrator, a forgotten password means
+editing the database by hand.</p>
+
+<div class="note">
+  <span class="label">Note</span>
+  <p>Roles are checked against the account as it exists at the moment of the
+  request, not against what a session was issued with. Changing an account's role takes
+  effect on that account's next request, and does not wait for them to sign in
+  again.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

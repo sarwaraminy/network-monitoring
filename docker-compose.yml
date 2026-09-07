@@ -88,15 +88,41 @@ services:
       INTEL_CACHE_DIR: /var/lib/nmt/intel
       # Alert delivery. Off unless NOTIFY_ENABLED is set in .env; see the README
       # for the severity gate, throttle and hourly ceiling that bound the volume.
-      NOTIFY_ENABLED: ${NOTIFY_ENABLED:-false}
-      NOTIFY_MIN_SEVERITY: ${NOTIFY_MIN_SEVERITY:-high}
+      #
+      # PASSED THROUGH BLANK, and that is the fix for a real bug rather than a
+      # style choice. Every one of these carried its code default here —
+      # `:-false`, `:-high`, `:-514` — and a variable that is SET pins its field
+      # against the Delivery page. So the whole "configure it without a shell"
+      # feature was inert on every Compose deployment since it shipped: the page
+      # reported "16 settings are set in the environment and cannot be changed
+      # here" and there was nothing an administrator could do about it, because
+      # the file doing the pinning was the one they were told not to edit.
+      #
+      # Blank means "not decided here", so the code default applies — and these
+      # defaults were identical to it, which is why this changes no behaviour.
+      # An installation that already seeded these into its settings row keeps
+      # those values; `seedFromEnvironment` copied them at first boot precisely so
+      # removing a line later would not revert anything.
+      #
+      # Set one in .env to pin it deliberately. That is the guarantee this rule
+      # exists to give a deployment driven by config management — it just should
+      # not be the default for every field at once.
+      NOTIFY_ENABLED: ${NOTIFY_ENABLED:-}
+      NOTIFY_MIN_SEVERITY: ${NOTIFY_MIN_SEVERITY:-}
       NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
-      NOTIFY_WEBHOOK_FORMAT: ${NOTIFY_WEBHOOK_FORMAT:-auto}
-      NOTIFY_DASHBOARD_URL: ${NOTIFY_DASHBOARD_URL:-http://localhost:${HTTP_PORT:-8080}/alerts}
-      NOTIFY_INCLUDE_EVIDENCE: ${NOTIFY_INCLUDE_EVIDENCE:-true}
-      NOTIFY_DIGEST_SECONDS: ${NOTIFY_DIGEST_SECONDS:-60}
-      NOTIFY_THROTTLE_SECONDS: ${NOTIFY_THROTTLE_SECONDS:-900}
-      NOTIFY_MAX_PER_HOUR: ${NOTIFY_MAX_PER_HOUR:-12}
+      NOTIFY_WEBHOOK_FORMAT: ${NOTIFY_WEBHOOK_FORMAT:-}
+      # Blank like the rest, and this one is a behaviour change worth naming: the
+      # default was `http://localhost:<HTTP_PORT>/alerts`, which is a link that
+      # only works on the server itself — in a notification sent to somebody's
+      # phone it was always broken. The code default is empty, so a new install
+      # now has no link until an administrator sets the real hostname on the
+      # Delivery page, which is the only place that knows it. Existing installs
+      # keep whatever was seeded into their row.
+      NOTIFY_DASHBOARD_URL: ${NOTIFY_DASHBOARD_URL:-}
+      NOTIFY_INCLUDE_EVIDENCE: ${NOTIFY_INCLUDE_EVIDENCE:-}
+      NOTIFY_DIGEST_SECONDS: ${NOTIFY_DIGEST_SECONDS:-}
+      NOTIFY_THROTTLE_SECONDS: ${NOTIFY_THROTTLE_SECONDS:-}
+      NOTIFY_MAX_PER_HOUR: ${NOTIFY_MAX_PER_HOUR:-}
       NOTIFY_EMAIL_TO: ${NOTIFY_EMAIL_TO:-}
 
       # Syslog / CEF export to a SIEM. Set SYSLOG_HOST to switch it on.
@@ -105,13 +131,13 @@ services:
       # correlates and deduplicates itself and needs the complete stream. See
       # api/src/notify/syslog.ts.
       SYSLOG_HOST: ${SYSLOG_HOST:-}
-      SYSLOG_PORT: ${SYSLOG_PORT:-514}
-      SYSLOG_PROTOCOL: ${SYSLOG_PROTOCOL:-udp}
-      SYSLOG_FORMAT: ${SYSLOG_FORMAT:-cef}
-      SYSLOG_RFC: ${SYSLOG_RFC:-5424}
-      SYSLOG_FACILITY: ${SYSLOG_FACILITY:-16}
-      SYSLOG_APP_NAME: ${SYSLOG_APP_NAME:-nmt}
-      SYSLOG_INCLUDE_EVIDENCE: ${SYSLOG_INCLUDE_EVIDENCE:-true}
+      SYSLOG_PORT: ${SYSLOG_PORT:-}
+      SYSLOG_PROTOCOL: ${SYSLOG_PROTOCOL:-}
+      SYSLOG_FORMAT: ${SYSLOG_FORMAT:-}
+      SYSLOG_RFC: ${SYSLOG_RFC:-}
+      SYSLOG_FACILITY: ${SYSLOG_FACILITY:-}
+      SYSLOG_APP_NAME: ${SYSLOG_APP_NAME:-}
+      SYSLOG_INCLUDE_EVIDENCE: ${SYSLOG_INCLUDE_EVIDENCE:-}
 
       # Flow collection. The driver-free path: point a switch or router at
       # FLOW_PORT and no capture library is needed at all.
@@ -167,23 +193,50 @@ services:
       # level) and only the password is configurable: a settable connection
       # string would be one that could be pointed at the superuser, turning every
       # restriction off while the feature still appeared to work.
-      ADHOC_ENABLED: ${ADHOC_ENABLED:-false}
+      #
+      # Passed through with no fallback, unlike most settings here, and that is
+      # deliberate: an administrator can now change these from the interface, and
+      # a variable that is SET pins the field and disables the control. Baking
+      # `:-false` in would have pinned every one of them on every compose
+      # deployment, leaving a settings page that accepted edits and changed
+      # nothing. Blank means "not decided here", and the code default applies —
+      # which for ADHOC_ENABLED is still false. Set one in .env to take the
+      # decision back from the interface.
+      ADHOC_ENABLED: ${ADHOC_ENABLED:-}
       ADHOC_DB_PASSWORD: ${ADHOC_DB_PASSWORD:-}
-      ADHOC_TIMEOUT_MS: ${ADHOC_TIMEOUT_MS:-10000}
-      ADHOC_MAX_ROWS: ${ADHOC_MAX_ROWS:-1000}
+      ADHOC_TIMEOUT_MS: ${ADHOC_TIMEOUT_MS:-}
+      ADHOC_MAX_ROWS: ${ADHOC_MAX_ROWS:-}
       # Lets the console write as well as read. Selects a different Postgres
       # role rather than just permitting writes in the app — see
       # V12__Adhoc_write_role.sql and .env.docker.example.
-      ADHOC_WRITE_ENABLED: ${ADHOC_WRITE_ENABLED:-false}
-      ADHOC_MAX_QUERY_LENGTH: ${ADHOC_MAX_QUERY_LENGTH:-20000}
-      # all | refused | off — see .env.docker.example.
-      ADHOC_AUDIT: ${ADHOC_AUDIT:-all}
+      ADHOC_WRITE_ENABLED: ${ADHOC_WRITE_ENABLED:-}
+      ADHOC_MAX_QUERY_LENGTH: ${ADHOC_MAX_QUERY_LENGTH:-}
+      # all | refused | off — see .env.docker.example. Forced to all while write
+      # mode is on, wherever either value came from.
+      ADHOC_AUDIT: ${ADHOC_AUDIT:-}
       NOTIFY_EMAIL_FROM: ${NOTIFY_EMAIL_FROM:-}
       SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      # password | oauth2. The five below are read only under oauth2 — see
+      # .env.example for the Microsoft 365 and Google setups.
+      #
+      # Blank rather than `password`, and that is not a typo. Setting it here pins the
+      # field, and pinning it to `password` is what made this feature unreachable from
+      # the UI: the authentication select renders disabled AND the five OAuth2 fields
+      # are hidden, because the form shows each method's fields and only its own.
+      # Blank means unset, and DELIVERY_DEFAULTS already makes password the effective
+      # default. Pinning `oauth2` is a supported configuration and does no such thing:
+      # only the select is disabled, and the five credential fields stay editable —
+      # which is what a config-managed stack that fixes the method usually wants.
+      SMTP_AUTH_METHOD: ${SMTP_AUTH_METHOD:-}
+      SMTP_OAUTH_CLIENT_ID: ${SMTP_OAUTH_CLIENT_ID:-}
+      SMTP_OAUTH_CLIENT_SECRET: ${SMTP_OAUTH_CLIENT_SECRET:-}
+      SMTP_OAUTH_REFRESH_TOKEN: ${SMTP_OAUTH_REFRESH_TOKEN:-}
+      SMTP_OAUTH_TOKEN_URL: ${SMTP_OAUTH_TOKEN_URL:-}
+      SMTP_OAUTH_SCOPE: ${SMTP_OAUTH_SCOPE:-}
     expose:
       - '8080'
     volumes:

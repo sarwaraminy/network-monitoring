@@ -28,6 +28,28 @@ function asNonAdmin() {
 const ALWAYS = /security alerts/i;
 
 describe('AppLayout navigation', () => {
+  it('offers the user guide from the header, whatever the role', async () => {
+    /*
+     * The guide ships with the application, at /user-guide/, and this icon is the
+     * only thing pointing at it — without it the guide exists and nobody using the
+     * product ever finds it, which is exactly what happened when it was first
+     * written.
+     *
+     * A plain anchor rather than a router link, asserted here because the
+     * difference is invisible until it breaks: /user-guide/ is static HTML served
+     * beside the bundle, not a route, so a router link would be swallowed and
+     * redirected to the dashboard.
+     */
+    asNonAdmin();
+    renderApp(<AppLayout />, { authenticated: true });
+
+    const link = await screen.findByRole('link', { name: /user guide/i });
+    expect(link).toHaveAttribute('href', '/user-guide/index.html');
+    expect(link).toHaveAttribute('target', '_blank');
+    // Without this a new tab gets a handle back to the application's window.
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+
   it('offers an administrator the admin-only entries', async () => {
     renderApp(<AppLayout />, { authenticated: true });
 
@@ -52,7 +74,10 @@ describe('AppLayout navigation', () => {
     asNonAdmin();
     renderApp(<AppLayout />, { authenticated: true });
 
-    for (const label of [/dashboard/i, /security alerts/i, /suppressions/i, /threat intel/i, /delivery/i]) {
+    // Not /delivery/i any more — that entry became admin-only when its settings
+    // moved under the administration gear. The sibling test above asserts a
+    // plain user does NOT get it, so this one has to stop expecting it.
+    for (const label of [/dashboard/i, /security alerts/i, /suppressions/i, /threat intel/i]) {
       expect(await screen.findAllByRole('link', { name: label })).not.toHaveLength(0);
     }
   });

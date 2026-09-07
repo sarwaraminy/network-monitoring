@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delivery settings &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Delivery settings</h1>
+<p class="lede">Changed here, in force immediately &mdash; no file to edit and no
+restart.</p>
+
+<p>Open them from the <strong>gear in the header</strong> &mdash;
+<a href="administration-settings.html">Administration settings</a> &rarr;
+<span class="ui">Delivery settings</span>.</p>
+
+<div class="note">
+  <span class="label">Moved</span>
+  <p>These used to be a <span class="ui">Settings</span> button on the
+  <a href="alert-delivery.html">Alert delivery</a> page. They are under the gear now, so
+  there is one place to change delivery rather than two. That page keeps what nothing else
+  has: whether delivery is actually working, and the test send.</p>
+</div>
+
+<figure>
+  <img src="../screenshots/delivery-settings.png" alt="The settings dialog, grouped by what each setting affects.">
+  <figcaption>The settings dialog, grouped by what each setting affects.</figcaption>
+</figure>
+
+<h2>Three rules that apply to every field</h2>
+
+<ol>
+  <li><strong>A saved change is in force at once.</strong> Nothing here needs a restart,
+    which is the whole reason the page exists.</li>
+  <li><strong>Only what you changed is sent.</strong> Saving cannot quietly rewrite a
+    field you did not touch.</li>
+  <li><strong>A secret is never displayed, only replaced.</strong> The application
+    reports whether one is set &mdash; <span class="ui">Configured</span> or
+    <span class="ui">Not set</span> &mdash; and never the value. Leave a secret box empty
+    to keep what is stored; type into it to replace it; use
+    <span class="ui">Clear</span> to remove it.</li>
+</ol>
+
+<h2>Fields pinned by the server</h2>
+
+<p>Some fields appear greyed out with a padlocked label such as
+<code>SMTP_PORT</code> beside them, and a banner at the top says how many. Those are set
+in the server's environment &mdash; in <code>api/.env</code> or a Compose file &mdash; and
+the application refuses to let a web form contradict a file that the next redeploy would
+restore.</p>
+
+<p>To manage such a field from this page, remove the variable from that file and
+restart. The setting keeps its current value; it simply becomes editable.</p>
+
+<div class="note">
+  <span class="label">Note</span>
+  <p>A pinned field is shown disabled rather than editable-and-ignored on
+  purpose. A control that accepts an edit and changes nothing is the failure this
+  design exists to avoid &mdash; the conclusion drawn is <em>the settings page is
+  broken</em>, not <em>that field is managed elsewhere</em>.</p>
+</div>
+
+<h2>The groups</h2>
+
+<h3>Gates</h3>
+<p><span class="ui">Deliver alerts</span> is the master switch for the channels people
+read; syslog ignores it by design. The rest are the four limits described on
+<a href="alert-delivery.html">Alert delivery</a>, plus
+<span class="ui">Include evidence</span> and a <span class="ui">Dashboard link</span> that
+every message links back to.</p>
+
+<p><span class="ui">Include evidence</span> is a separate decision from delivery itself.
+Evidence never contains passwords or payloads, but it does contain internal addresses,
+MAC addresses and usernames &mdash; and sending those to a third-party chat service moves
+them outside the network you are protecting. Turn it off and the message titles still say
+what happened.</p>
+
+<h3>Webhook</h3>
+<p>One URL, for Slack, Teams, Discord or anything that accepts JSON.
+<span class="ui">Payload format</span> is normally left at <span class="ui">auto</span>,
+which reads the host and picks the right shape. For Teams, create a
+<strong>Workflows</strong> webhook &mdash; its URL is on <code>logic.azure.com</code>; the
+retired Office 365 connector format is still produced for an older
+<code>webhook.office.com</code> URL.</p>
+
+<p>The webhook URL is treated as a credential, because for Slack and Teams that URL
+<em>is</em> the credential.</p>
+
+<h3>Email</h3>
+<p>An SMTP host, a sender, and one recipient per line. Which host actually works is
+worth reading before you fill this in:</p>
+
+<ol>
+  <li><strong>An internal relay</strong> &mdash; most organisations running a monitoring
+    tool already have one, it needs no credentials, and it is the right answer for an
+    on-premises sensor. Set the host and leave <span class="ui">Username</span> empty.</li>
+  <li><strong>An app password</strong>, where your tenant still permits one.</li>
+  <li><strong>OAuth2</strong>, for a tenant that permits nothing else &mdash; see
+    <a href="email-oauth2.html">Email over OAuth2</a>.</li>
+  <li><strong>Your company mailbox with an ordinary password</strong> usually fails.
+    Microsoft 365 and Google disable basic SMTP authentication by default, so a
+    <em>correct</em> password is rejected exactly like a wrong one.</li>
+</ol>
+
+<p><span class="ui">Implicit TLS</span> belongs on only for port 465. On 587 it must be
+off &mdash; the server expects STARTTLS there, and a client that opens TLS immediately
+hangs until the socket times out. The page warns you if the two contradict each
+other.</p>
+
+<h3>Syslog / SIEM</h3>
+<p>A collector host and port, the wire format (CEF or JSON) and the framing (RFC 5424 or
+3164 &mdash; prefer 5424, since 3164 has no year and no timezone in its timestamp).
+<span class="ui">Include evidence</span> is on by default here, unlike the chat channels:
+the disclosure argument does not apply to a collector inside your own network.</p>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p>Any signed-in account can open this dialog and read every non-secret
+  value, which is what makes the page useful when an alert did not arrive.
+  <strong>Saving a change requires an administrator.</strong> Secrets are never returned
+  to any account, at any role.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

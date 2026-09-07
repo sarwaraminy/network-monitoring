@@ -37,6 +37,42 @@ describe('DeliveryPage', () => {
     expect(screen.getAllByText('Off').length).toBeGreaterThan(0);
   });
 
+  it('gives the server’s reason for an unconfigured mailbox, not the standing one', async () => {
+    /*
+     * An OAuth2 mailbox missing its refresh token is correctly not "configured" — but
+     * the standing sentence for an unconfigured channel names an SMTP host, a sender
+     * and recipients, which are exactly the three things that operator has already
+     * set. Naming the wrong cause on the screen they are looking at is the same
+     * failure as claiming the channel was ready.
+     */
+    server.use(
+      http.get('/api/notify/status', () =>
+        HttpResponse.json({
+          ...NOTIFY_STATUS,
+          email: {
+            configured: false,
+            recipients: 2,
+            reason:
+              'Email is set to OAuth2 but SMTP_OAUTH_REFRESH_TOKEN is not set, so the mailbox cannot authenticate.',
+          },
+        }),
+      ),
+    );
+
+    renderApp(<DeliveryPage />, { authenticated: true });
+
+    expect(await screen.findByText(/SMTP_OAUTH_REFRESH_TOKEN/)).toBeInTheDocument();
+    expect(screen.queryByText(/SMTP host, sender and at least one recipient/i)).not.toBeInTheDocument();
+  });
+
+  it('falls back to the standing reason when the server has none', async () => {
+    // A mailbox that is simply unset. `reason` is null, and the generic sentence is
+    // the right one — it must not disappear along with the special case.
+    renderApp(<DeliveryPage />, { authenticated: true });
+
+    expect(await screen.findByText(/SMTP host, sender and at least one recipient/i)).toBeInTheDocument();
+  });
+
   it('shows the gates, because each one is a reason an alert did not arrive', async () => {
     renderApp(<DeliveryPage />, { authenticated: true });
 
@@ -76,7 +112,10 @@ describe('DeliveryPage', () => {
 
     renderApp(<DeliveryPage />, { authenticated: true });
     expect(await screen.findByText(/delivery is switched off/i)).toBeInTheDocument();
-    expect(screen.getByText(/Turn on "Deliver alerts" in Settings above/)).toBeInTheDocument();
+    // "Settings above" until the form moved to the administration gear. The
+    // remedy has to name somewhere that exists, which is the whole reason this
+    // assertion is on the text rather than on the alert being present.
+    expect(screen.getByText(/Turn on "Deliver alerts" under the settings gear/)).toBeInTheDocument();
     expect(screen.getByText(/Syslog is unaffected/)).toBeInTheDocument();
   });
 
@@ -114,5 +153,41 @@ describe('DeliveryPage', () => {
 
     renderApp(<DeliveryPage />, { authenticated: true });
     await waitFor(() => expect(screen.getByText(/boom/i)).toBeInTheDocument());
+  });
+});
+
+describe('after the settings moved to the administration gear', () => {
+  it('no longer offers the settings form on this page', async () => {
+    /*
+     * The point of moving it: one place to change delivery rather than two.
+     * Two forms over one three-layer resolution would eventually disagree about
+     * which fields are pinned, and the one nobody was looking at would be the
+     * wrong one.
+     *
+     * Asserted on a field only the form has, not on the button — a button can be
+     * renamed while the dialog stays reachable some other way.
+     */
+    renderApp(<DeliveryPage />, { authenticated: true });
+
+    await screen.findByRole('heading', { name: /delivery/i });
+    expect(screen.queryByRole('button', { name: /^settings$/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/minimum severity/i)).not.toBeInTheDocument();
+  });
+
+  it('tells an administrator where it went', async () => {
+    // "The Settings button is gone" is otherwise indistinguishable from a page
+    // that broke, and the gear is in the header rather than anywhere somebody who
+    // knew this page would look.
+    renderApp(<DeliveryPage />, { authenticated: true });
+
+    expect(await screen.findByText(/Administration settings/)).toBeInTheDocument();
+  });
+
+  it('keeps the test send, which is the half nothing else has', async () => {
+    // The most important control on the page and the reason it still exists:
+    // notification config fails silently, so proving delivery is the whole job.
+    renderApp(<DeliveryPage />, { authenticated: true });
+
+    expect(await screen.findByRole('button', { name: /send test/i })).toBeInTheDocument();
   });
 });

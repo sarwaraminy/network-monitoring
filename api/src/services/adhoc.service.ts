@@ -3,6 +3,7 @@ import pg from 'pg';
 import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
 import { HttpError } from '../middleware/error-handler.js';
+import { currentAdhocSettings } from './adhoc-settings.service.js';
 
 const log = componentLogger('adhoc');
 
@@ -141,9 +142,92 @@ let pool: pg.Pool | null = null;
 /** Which role the live pool authenticated as. Cleared with it. */
 let activeMode: AdhocMode = 'read';
 
+/**
+ * Why the console is off, for an administrator who is looking at a page that
+ * tells them it is.
+ *
+ * The reasons were only ever in the server log. "Off" is three different
+ * situations — nobody asked for it, somebody asked without a password, or the
+ * sandbox proof failed — and they need three different actions, so a UI that
+ * says only "not enabled" sends an operator to read logs to find out which one
+ * they are in. Recorded here as `startAdhoc` decides, and reported by
+ * `adhocStatus`.
+ */
+export type AdhocOffReason =
+  /** `ADHOC_ENABLED` is not set. The default, and not a fault. */
+  | 'disabled'
+  /** Asked for, but `ADHOC_DB_PASSWORD` is empty, so there is no credential to install. */
+  | 'no-password'
+  /** Asked for and provisioned, but the database would not confirm the role is sandboxed. */
+  | 'sandbox-failed';
+
+let offReason: AdhocOffReason | null = 'disabled';
+let offDetail: string | null = null;
+/** The role the live pool authenticated as, for the status page. */
+let activeRole: string | null = null;
+/**
+ * Whether `ALTER ROLE … PASSWORD` could be kept out of the Postgres log.
+ *
+ * A caveat rather than a failure — the console works either way — and the one
+ * thing about this feature an operator cannot discover for themselves, so the
+ * status reports it instead of leaving it in a boot log nobody re-reads.
+ */
+let loggingSuppressed = true;
+
+export interface AdhocStatus {
+  enabled: boolean;
+  /** Which role the live pool holds, and therefore what it may do. Null when off. */
+  role: string | null;
+  mode: AdhocMode | null;
+  /** Absent when the console is running. */
+  reason?: AdhocOffReason;
+  /**
+   * The failure's own message, for `sandbox-failed` only.
+   *
+   * The configured password is stripped out before this leaves the process. A
+   * Postgres error is not expected to quote the statement it came from, but the
+   * one statement this code builds contains a credential, and "not expected to"
+   * is not a property worth relying on for something shown in a browser.
+   */
+  detail?: string;
+  /** True when the password could not be kept out of the Postgres log. See above. */
+  passwordMayBeLogged: boolean;
+}
+
 /** True once `startAdhoc` has proved the sandbox holds. */
 export function adhocReady(): boolean {
   return pool !== null;
+}
+
+/** Everything an administrator needs to know about why the console is or is not up. */
+export function adhocStatus(): AdhocStatus {
+  return {
+    enabled: pool !== null,
+    role: pool === null ? null : activeRole,
+    mode: pool === null ? null : activeMode,
+    ...(offReason ? { reason: offReason } : {}),
+    ...(offDetail ? { detail: offDetail } : {}),
+    passwordMayBeLogged: pool !== null && !loggingSuppressed,
+  };
+}
+
+/**
+ * Removes the configured password from anything on its way to a browser.
+ *
+ * Both spellings, not just the one in force. `ALTER ROLE … PASSWORD` has no
+ * parameterised form, so the value is in the statement text and can come back in
+ * a Postgres error — and since V15 the password can come either from the
+ * environment or from the settings row. A save that changes it leaves the other
+ * value still capable of appearing in a message that was already in flight, and
+ * scrubbing only the resolved one would let the replaced credential through.
+ */
+function withoutPassword(text: string): string {
+  let out = text;
+  for (const password of new Set([currentAdhocSettings().dbPassword, env.adhoc.password])) {
+    if (password === '') continue;
+    out = out.split(password).join('<ADHOC_DB_PASSWORD>');
+  }
+  return out;
 }
 
 /**
@@ -220,7 +304,8 @@ export function adhocConnectionString(role: string, password: string): string {
  */
 export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
   /*
-   * Both "off" paths revoke, and that is the point rather than tidiness.
+   * Both "off" paths revoke BOTH roles, and that is the point rather than
+   * tidiness.
    *
    * `stopAdhoc`'s docblock says the login does not outlive the console. It only
    * ran on shutdown of a process that had the console ON — so the operator
@@ -229,17 +314,35 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
    * indefinitely after the feature was switched off, with PUBLIC holding CONNECT
    * by default. The file documented a guarantee it did not provide.
    *
-   * Best effort: this runs at boot, the role may not exist yet on a fresh
+   * And then it went on documenting it for HALF the roles: `revokeAdhocLogin`
+   * resolved one name with the `mode: 'read'` default, so this paragraph was an
+   * accurate description of `nm_adhoc_<db>` and a false one of
+   * `nm_adhocrw_<db>` — which kept its login and its password through every
+   * off-path, while a write→read switch revoked nothing either. No operator
+   * action revoked the write login, so a credential granted `INSERT`/`UPDATE`/
+   * `DELETE` on the operational tables outlived the ADMIN role that authorised
+   * it. Both are revoked here now, and `startAdhoc` also strips the mode it is
+   * not using so a switch leaves nothing behind.
+   *
+   * Best effort: this runs at boot, the roles may not exist yet on a fresh
    * install, and a console that is off is off either way.
    */
-  if (!env.adhoc.enabled) {
+  offDetail = null;
+  activeRole = null;
+  loggingSuppressed = true;
+
+  if (!currentAdhocSettings().enabled) {
+    offReason = 'disabled';
     await revokeAdhocLogin(owner).catch(() => {});
     return false;
   }
 
-  const password = env.adhoc.password;
+  // Resolved, not read from the environment: since V15 an administrator can set
+  // this in the interface, and the environment still wins where it is set.
+  const password = currentAdhocSettings().dbPassword;
   if (!password) {
-    log.warn('ADHOC_ENABLED is set but ADHOC_DB_PASSWORD is empty; the query console stays off');
+    offReason = 'no-password';
+    log.warn('The query console is enabled but has no password to install on its role; it stays off');
     await revokeAdhocLogin(owner).catch(() => {});
     return false;
   }
@@ -270,7 +373,7 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     // Asked of the connection rather than parsed out of the URL, so the role
     // always matches the database the migrations actually ran against.
     const { rows: current } = await owner.query<{ name: string }>('SELECT current_database() AS name');
-    mode = env.adhoc.write ? 'write' : 'read';
+    mode = currentAdhocSettings().writeEnabled ? 'write' : 'read';
     role = adhocRole(current[0]!.name, mode);
 
     /*
@@ -330,6 +433,7 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
       `SELECT current_setting('is_superuser') AS superuser`,
     );
     const canSuppressLogging = privilege[0]?.superuser === 'on';
+    loggingSuppressed = canSuppressLogging;
     if (!canSuppressLogging) {
       log.warn(
         { role },
@@ -376,6 +480,25 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     }
     pool = candidate;
     activeMode = mode;
+
+    /*
+     * The OTHER mode's role loses its login, so a mode switch leaves nothing
+     * behind.
+     *
+     * Without this, a write→read switch revoked nothing at all: the console came
+     * back as `nm_adhoc_<db>` while `nm_adhocrw_<db>` kept `LOGIN` and the
+     * password from when write mode was last on. Rotating `dbPassword` in read
+     * mode then left the write role authenticating with the PREVIOUS password
+     * indefinitely — only re-entering write mode ever updated it.
+     *
+     * After the ALTER and the sandbox proof, deliberately: this must not be able
+     * to strip the login from the role the console is about to use, and by here
+     * the active one is provisioned and verified. Best effort and non-fatal — a
+     * running console is not worth refusing over a role that may not exist.
+     */
+    const idle = adhocRole(current[0]!.name, mode === 'write' ? 'read' : 'write');
+    await revokeLogin(owner, idle).catch(() => {});
+
     if (mode === 'write') {
       // WARN, not info. An operator scanning a boot log should not have to
       // notice a missing word to learn that a browser session can now DELETE.
@@ -383,10 +506,15 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     } else {
       log.info({ role }, 'Ad hoc query console enabled');
     }
+    offReason = null;
+    activeRole = role;
     return true;
   } catch (error) {
     log.error({ err: error }, 'Ad hoc query console failed its safety checks and stays off');
+    offReason = 'sandbox-failed';
+    offDetail = withoutPassword(error instanceof Error ? error.message : String(error));
     pool = null;
+    activeRole = null;
     /*
      * Take the login away again. Anything that fails after the ALTER above
      * leaves a role that can authenticate with a password from the environment
@@ -547,22 +675,41 @@ export async function stopAdhoc(): Promise<void> {
   const closing = pool;
   pool = null;
   activeMode = 'read';
+  activeRole = null;
   await closing?.end().catch(() => {});
 }
 
 /**
- * Takes the console role's login away. For teardown that owns the whole cluster.
+ * Takes the login away from BOTH console roles.
+ *
+ * Both, and that is the fix for a real hole rather than tidiness. This called
+ * `adhocRole(name)`, which takes the `mode: 'read'` default — so every path that
+ * switched the console off stripped `LOGIN` from `nm_adhoc_<db>` and left
+ * `nm_adhocrw_<db>` authenticating with its installed password, holding
+ * `SELECT, INSERT, UPDATE, DELETE` on the operational tables from V12. Combined
+ * with a write→read switch revoking nothing, **no operator action revoked the
+ * write login at all**: the credential outlived the authorisation to use it,
+ * including the administrator's own demotion.
+ *
+ * `PASSWORD NULL` alongside `NOLOGIN` because disabling a login leaves the
+ * credential in `pg_authid` to be re-enabled; destroying it means a later
+ * `ALTER ROLE … LOGIN` by any means does not restore a working password that an
+ * ex-administrator still knows.
  *
  * Exported for the test suite — see `stopAdhoc` for why a production shutdown
- * must not do this. Resolves the role from the connection, so a caller does not
+ * must not do this. Resolves the roles from the connection, so a caller does not
  * have to reproduce the naming rule.
  */
 export async function revokeAdhocLogin(owner: pg.Pool): Promise<void> {
   const { rows } = await owner.query<{ name: string }>('SELECT current_database() AS name');
-  await revokeLogin(owner, adhocRole(rows[0]!.name));
+
+  // Both modes, the way V15's own DO block loops the two prefixes.
+  for (const mode of ['read', 'write'] as const) {
+    await revokeLogin(owner, adhocRole(rows[0]!.name, mode));
+  }
 }
 
-/** `ALTER ROLE … NOLOGIN`, the one statement both teardown paths need. */
+/** `ALTER ROLE … NOLOGIN PASSWORD NULL`, the one statement every teardown path needs. */
 async function revokeLogin(owner: pg.Pool, role: string): Promise<void> {
   /*
    * A role that does not exist is not a problem to report.
@@ -586,7 +733,11 @@ async function revokeLogin(owner: pg.Pool, role: string): Promise<void> {
   }
 
   await owner
-    .query('SELECT format($$ALTER ROLE %I NOLOGIN$$, $1::text) AS statement', [role])
+    // `PASSWORD NULL` as well as `NOLOGIN`: disabling the login leaves the
+    // credential stored, so anything that later re-grants LOGIN — a hand-run
+    // ALTER, a restore, a future version of this code — would restore a working
+    // password that whoever configured it still knows.
+    .query('SELECT format($$ALTER ROLE %I NOLOGIN PASSWORD NULL$$, $1::text) AS statement', [role])
     .then((result) => owner.query(result.rows[0]!.statement))
     .catch((error) => log.error({ err: error }, `Could not revoke LOGIN from ${role}; do it by hand`));
 }
@@ -595,7 +746,7 @@ async function revokeLogin(owner: pg.Pool, role: string): Promise<void> {
  * Everything that can be refused before the query is recorded or run.
  *
  * Exported so the route can call it BEFORE writing to the audit trail. Auditing
- * first meant `env.adhoc.maxLength` was not what bounded the recorded text — the
+ * first meant the configured length limit was not what bounded the recorded text — the
  * 1 MB JSON body limit was, so a caller could put fifty times the accepted
  * length into `audit_events` on a request that was always going to be rejected.
  * It also wrote an `adhoc.query` row for every POST while the console was
@@ -610,14 +761,15 @@ export function assertRunnable(sql: unknown): string {
 
   const trimmed = sql.trim();
   if (trimmed === '') throw new AdhocError('Enter a query to run.');
-  if (trimmed.length > env.adhoc.maxLength) {
-    throw new AdhocError(`Queries are limited to ${env.adhoc.maxLength} characters.`);
+  const { maxQueryLength } = currentAdhocSettings();
+  if (trimmed.length > maxQueryLength) {
+    throw new AdhocError(`Queries are limited to ${maxQueryLength} characters.`);
   }
   return trimmed;
 }
 
 /**
- * Runs one statement and returns at most `env.adhoc.maxRows` rows.
+ * Runs one statement and returns at most the configured row cap.
  *
  * The cap is applied with a CURSOR rather than by wrapping the query in
  * `SELECT * FROM (...) LIMIT n`. Wrapping changes the user's SQL — it breaks
@@ -645,6 +797,26 @@ export function assertRunnable(sql: unknown): string {
  * would be lying about what it did.
  */
 export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
+  /*
+   * Read once for the whole query rather than per use.
+   *
+   * The timeout, the row cap and the fetch size have to describe the same query:
+   * a save landing between two of those reads would set a timeout from the old
+   * settings and a cap from the new one, and the message about truncation would
+   * then name a number that was never applied.
+   *
+   * `settings` is therefore THREADED to everything downstream that needs it —
+   * `declareAndFetch` takes `maxRows` and `translate` takes `timeoutMs` — rather
+   * than each of them calling `currentAdhocSettings()` again. That is the whole
+   * point of taking a snapshot, and it was reported three times before the code
+   * caught up with this comment: the snapshot was taken here and both of those
+   * call sites re-read, so a save landing between the DECLARE and the FETCH
+   * produced exactly the split described above. A lowered cap reported a
+   * truncated result as complete; a raised one sliced 1001 rows to 10.
+   *
+   * If you add a downstream reader of these values, take it from `settings`.
+   */
+  const settings = currentAdhocSettings();
   const trimmed = assertRunnable(sql);
   // `assertRunnable` has already refused a null pool; re-reading it here is what
   // narrows the type, and it also closes the window where `stopAdhoc` runs
@@ -681,7 +853,7 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
      * tables. See V12.
      */
     await client.query(writing ? 'BEGIN' : 'BEGIN READ ONLY');
-    await client.query(`SET LOCAL statement_timeout = ${env.adhoc.timeoutMs}`);
+    await client.query(`SET LOCAL statement_timeout = ${settings.timeoutMs}`);
     // Nothing here should ever wait on another transaction's lock; if it does,
     // the answer is "no" rather than a console that hangs holding a connection.
     await client.query('SET LOCAL lock_timeout = 1000');
@@ -701,7 +873,7 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
      */
     const result = UNWRAPPABLE.test(trimmed)
       ? await client.query({ text: trimmed, rowMode: 'array' })
-      : await declareAndFetch(client, trimmed, writing);
+      : await declareAndFetch(client, trimmed, writing, settings.maxRows);
 
     /*
      * The unwrapped branch's half of the same check.
@@ -722,10 +894,10 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
     // console reporting "12 rows" and changing nothing.
     if (writing) await client.query('COMMIT');
 
-    const truncated = result.rows.length > env.adhoc.maxRows;
+    const truncated = result.rows.length > settings.maxRows;
     return {
       columns: result.fields.map((field) => ({ name: field.name, dataTypeId: field.dataTypeID })),
-      rows: truncated ? result.rows.slice(0, env.adhoc.maxRows) : result.rows,
+      rows: truncated ? result.rows.slice(0, settings.maxRows) : result.rows,
       truncated,
       durationMs: Date.now() - started,
       // `FETCH` is our cursor, not the operator's statement. Reporting it would
@@ -737,7 +909,7 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
     };
   } catch (error) {
     // Ours already says exactly what happened; only driver errors need translating.
-    throw error instanceof AdhocError ? error : translate(error);
+    throw error instanceof AdhocError ? error : translate(error, settings.timeoutMs);
   } finally {
     // Always ROLLBACK: the transaction is read-only, so there is nothing to
     // commit, and rolling back releases the cursor and any locks in one step.
@@ -778,21 +950,34 @@ const CHANGES_ROWS = new Set(['INSERT', 'UPDATE', 'DELETE']);
  * The savepoint is what makes the retry possible at all — a failed statement
  * aborts the transaction, so without it the fallback would meet 25P02.
  */
-async function declareAndFetch(client: pg.PoolClient, sql: string, writing: boolean) {
+async function declareAndFetch(
+  client: pg.PoolClient,
+  sql: string,
+  writing: boolean,
+  /*
+   * The caller's snapshot, threaded rather than re-read.
+   *
+   * Third time this line has been reported, and the previous two rounds rewrote
+   * the comment at the snapshot instead of the code here — which is the whole
+   * reason it kept coming back. The snapshot existed and nothing downstream
+   * used it.
+   */
+  maxRows: number,
+) {
   if (writing) {
     await client.query('SAVEPOINT adhoc_try_cursor');
     try {
-      return await declareAndFetchStrict(client, sql);
+      return await declareAndFetchStrict(client, sql, maxRows);
     } catch (error) {
       if ((error as { code?: string }).code !== '42601') throw error;
       await client.query('ROLLBACK TO SAVEPOINT adhoc_try_cursor');
       return client.query({ text: sql, rowMode: 'array' });
     }
   }
-  return declareAndFetchStrict(client, sql);
+  return declareAndFetchStrict(client, sql, maxRows);
 }
 
-async function declareAndFetchStrict(client: pg.PoolClient, sql: string) {
+async function declareAndFetchStrict(client: pg.PoolClient, sql: string, maxRows: number) {
   /*
    * Checked on the DECLARE, because that is where the chain shows up here.
    *
@@ -812,7 +997,7 @@ async function declareAndFetchStrict(client: pg.PoolClient, sql: string) {
   // `rowMode: 'array'` for the reason in `AdhocResult.rows`: positional rows
   // cannot collide on a repeated column name.
   return client.query({
-    text: `FETCH ${env.adhoc.maxRows + 1} FROM adhoc_result`,
+    text: `FETCH ${maxRows + 1} FROM adhoc_result`,
     rowMode: 'array',
   });
 }
@@ -828,12 +1013,15 @@ async function declareAndFetchStrict(client: pg.PoolClient, sql: string) {
  * The two codes given extra help are the ones whose message alone reads as a
  * malfunction rather than as a rule being applied.
  */
-function translate(error: unknown): AdhocError {
+function translate(error: unknown, timeoutMs: number): AdhocError {
   const { code, message } = error as { code?: string; message?: string };
 
   if (code === '57014') {
+    // The snapshot's timeout, not the current one: this message names the number
+    // that was set on THIS statement, and a save landing mid-query would
+    // otherwise have it report a limit the query was never run under.
     return new AdhocError(
-      `The query ran longer than ${env.adhoc.timeoutMs} ms and was stopped. Narrow it, or add a LIMIT.`,
+      `The query ran longer than ${timeoutMs} ms and was stopped. Narrow it, or add a LIMIT.`,
     );
   }
   // Not a Postgres code at all: `pg` rejects a pool acquisition with a plain

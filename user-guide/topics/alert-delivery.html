@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alert delivery &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Alert delivery</h1>
+<p class="lede">Where findings go, and whether they are getting there.</p>
+
+<p>Notification config fails silently by nature. A wrong webhook URL or a rejected SMTP
+password produces no error anybody sees until the night an alert does not arrive. This
+page exists so that is checkable in advance.</p>
+
+<figure>
+  <img src="../screenshots/delivery.png" alt="The delivery page: channels, the limits that apply, and what the queue is doing.">
+  <figcaption>The delivery page: channels, the limits that apply, and what the queue is doing.</figcaption>
+</figure>
+
+<h2>The two columns</h2>
+
+<p><strong>For people</strong> covers the webhook and email channels. These are gated,
+throttled and batched, because a channel that produces four hundred messages in an hour
+gets muted by whoever receives it, and a muted channel delivers nothing at all.</p>
+
+<p><strong>For a SIEM</strong> covers syslog, and none of those limits apply to it. A
+SIEM correlates and deduplicates for itself, and it does so assuming it holds the
+complete event stream &mdash; a digest would make every rule that counts events over a
+window under-report, and suppressed events would look like quiet periods.</p>
+
+<h2>The four limits</h2>
+
+<p>Each one is also a reason an alert you expected did not arrive, which is why they are
+on the page rather than buried in a configuration file:</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Limit</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Minimum severity</strong></td><td>Nothing below this is delivered to a
+      person. It is still detected, stored and shown on the alerts page.</td></tr>
+    <tr><td><strong>Digest window</strong></td><td>Findings are collected for this long and
+      sent as one message rather than one message each.</td></tr>
+    <tr><td><strong>Per-finding throttle</strong></td><td>The same finding will not notify
+      again inside this window, however many times it recurs.</td></tr>
+    <tr><td><strong>Hourly ceiling</strong></td><td>A hard limit on messages per hour,
+      whatever detection does.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>Right now</strong>, at the foot of the page, shows what those limits are
+currently doing: how much is queued for the next digest, how much has been sent in the
+last hour, and how many findings are being held back by the throttle.</p>
+
+<h2>Proving it works</h2>
+
+<p><span class="ui">Send test</span> sends a message to every configured channel and
+reports what happened to each one. It deliberately bypasses every gate above, including
+the master switch: the question it answers is <em>can this reach you</em>, and requiring
+the feature to be switched on first would make it useless for checking a configuration
+before committing to it.</p>
+
+<p>The test message is clearly marked as a test, so nobody who receives it is
+alarmed.</p>
+
+<p>Read the per-channel results rather than only the summary. A channel that is
+configured but cannot authenticate is reported as a failure with the reason &mdash; for
+email that reason names the exact settings that are unset, rather than a raw SMTP
+string.</p>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p>Any signed-in account can see this page, including whether each
+  channel is configured and what the limits are &mdash; it is the page you check when an
+  alert did not arrive. <strong>Changing the settings and sending a test are restricted
+  to administrators</strong>: a test causes outbound traffic to a third party, and
+  would otherwise be a way for any account to make the server send messages on
+  demand.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

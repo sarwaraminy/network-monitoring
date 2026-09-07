@@ -1,6 +1,16 @@
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import * as authApi from '../api/auth.api';
 import { getToken, onUnauthorized, setToken } from '../api/client';
+import { closeGuideSession, openGuideSession } from '../api/user-guide.api';
 import type { AuthenticatedUser } from '../types';
 
 /**
@@ -23,11 +33,69 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+/**
+ * How often an open tab re-mints the guide cookie.
+ *
+ * Four hours against the cookie's twelve, so two consecutive misses still leave it
+ * valid. Short enough to survive background-tab throttling, long enough that the
+ * request is invisible.
+ */
+const GUIDE_RENEW_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  /*
+   * The user guide is gated by its own cookie, minted whenever we know we are
+   * signed in and cleared when we are not — see api/user-guide.api.ts for why it
+   * cannot ride the access token.
+   *
+   * Deliberately fire-and-forget. The guide is documentation: not being able to
+   * unlock it must never be a reason a sign-in fails or a sign-out hangs, and the
+   * gate's own answer to a missing cookie is the sign-in page, which is the right
+   * place to end up anyway.
+   */
+  /**
+   * When the cookie was last minted, so a renewal can decline.
+   *
+   * `visibilitychange` fires on every alt-tab, window switch and return from
+   * another browser tab, and the listener was registered unconditionally — so
+   * ordinary use sent a mint per focus where the intent needs at most one per
+   * interval. Each is only a signed JWT and a `Set-Cookie`, so it was cheap
+   * rather than harmful, but it scaled with tab-switching rather than with time
+   * and was indistinguishable in the logs from a session that genuinely needed
+   * renewing.
+   */
+  const lastMint = useRef(0);
+
+  const openGuide = useCallback((force = true) => {
+    if (!force && Date.now() - lastMint.current < GUIDE_RENEW_INTERVAL_MS) return;
+    /*
+     * Stamped on the OUTCOME, not the attempt.
+     *
+     * Stamping before the request made a mint that never succeeded — a transient
+     * 500, a dropped connection — count as one that did, and both background
+     * paths are gated on this, so nothing retried for another four hours. The
+     * cookie then lapses inside the window and the failure is silent: Help opens
+     * a tab, the guide finds no cookie and redirects to /login, and LoginPage's
+     * authenticated-redirect bounces it to the dashboard. A tab flashes and
+     * closes onto the page the reader was already on, with no error anywhere.
+     *
+     * Throttling the attempt was the wrong half of the idea. This keeps one mint
+     * per interval while leaving the next tick or focus free to retry.
+     */
+    void openGuideSession()
+      .then(() => {
+        lastMint.current = Date.now();
+      })
+      .catch(() => undefined);
+  }, []);
+
   const logout = useCallback(() => {
+    // Read before it is cleared, and handed over explicitly: see closeGuideSession
+    // for why letting the interceptor find it does not work here.
+    void closeGuideSession(getToken()).catch(() => undefined);
     setToken(null);
     setUser(null);
   }, []);
@@ -44,7 +112,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authApi
       .fetchCurrentUser()
       .then((current) => {
-        if (!cancelled) setUser(current);
+        if (cancelled) return;
+        setUser(current);
+        // A returning visitor whose token is still good: the guide cookie has its
+        // own, shorter life, so it is renewed here as well as at sign-in — and,
+        // below, for as long as the tab stays open.
+        openGuide();
       })
       .catch(() => {
         if (!cancelled) {
@@ -59,22 +132,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [openGuide]);
+
+  /*
+   * Keep the guide cookie alive for as long as the session is.
+   *
+   * Minting it on mount and at sign-in covers a returning visitor and misses the
+   * case that actually needs it: a tab nobody reloads. The access token lasts a
+   * day and the cookie twelve hours, so a dashboard left open — which is what this
+   * application is for — reaches a point where clicking help finds no cookie, gets
+   * redirected to the sign-in page, and cannot get back to the guide without a hard
+   * reload.
+   *
+   * A timer rather than minting on the click itself. "Mint, then open" reads better
+   * but has to `await` inside a click handler before calling `window.open`, and a
+   * popup blocker is entitled to refuse a window opened outside the gesture — that
+   * trades a predictable failure after twelve hours for an unpredictable one at any
+   * time. The interval is comfortably inside the cookie's life even if a background
+   * tab throttles it, and `visibilitychange` covers the case timers do not fire at
+   * all: a laptop that slept through the whole interval.
+   */
+  useEffect(() => {
+    if (!user) return;
+
+    // `force = false`: a focus that arrives inside the interval has nothing to
+    // renew. Waking from sleep is the case this listener exists for, and there the
+    // last mint is long enough ago to pass.
+    const renew = () => {
+      if (document.visibilityState === 'visible') openGuide(false);
+    };
+
+    const timer = window.setInterval(renew, GUIDE_RENEW_INTERVAL_MS);
+    document.addEventListener('visibilitychange', renew);
+
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', renew);
+    };
+  }, [user, openGuide]);
 
   // A 401 on any request means the token expired or was revoked.
   useEffect(() => onUnauthorized(() => setUser(null)), []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const response = await authApi.login(email, password);
-    setToken(response.token);
-    setUser({
-      id: response.id,
-      email: response.email,
-      firstName: response.firstName,
-      lastName: response.lastName,
-      role: response.role,
-    });
-  }, []);
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const response = await authApi.login(email, password);
+      setToken(response.token);
+      setUser({
+        id: response.id,
+        email: response.email,
+        firstName: response.firstName,
+        lastName: response.lastName,
+        role: response.role,
+      });
+      openGuide();
+    },
+    [openGuide],
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({ user, isAuthenticated: user !== null, loading, login, logout }),

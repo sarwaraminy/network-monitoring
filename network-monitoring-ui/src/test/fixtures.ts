@@ -1,3 +1,4 @@
+import type { AdhocSettingField } from '../api/adhoc.api';
 import type {
   Alert,
   AlertDashboard,
@@ -22,6 +23,39 @@ export const ADMIN_USER = {
   langCode: 'en',
   createdAt: '2026-01-01T00:00:00.000Z',
 };
+
+/**
+ * Accounts as `GET /auth/users` returns them.
+ *
+ * Two administrators, so the default render is one where roles CAN be changed:
+ * with a single administrator every control is disabled by the last-admin rule,
+ * and a test asserting a select is enabled would be asserting the fixture. The
+ * one-administrator case is what a test asks for explicitly.
+ *
+ * `ADMIN_USER` is first, because `/auth/me` returns it — so its row is the one
+ * the self-refusal applies to.
+ */
+export const ACCOUNTS = [
+  ADMIN_USER,
+  {
+    id: 2,
+    email: 'second-admin@example.com',
+    firstname: 'Second',
+    lastname: 'Admin',
+    role: 'ADMIN',
+    langCode: 'en',
+    createdAt: '2026-01-02T00:00:00.000Z',
+  },
+  {
+    id: 3,
+    email: 'plain@example.com',
+    firstname: 'Plain',
+    lastname: null,
+    role: 'USER',
+    langCode: 'en',
+    createdAt: '2026-01-03T00:00:00.000Z',
+  },
+];
 
 export const CRITICAL_ALERT: Alert = {
   id: 101,
@@ -253,7 +287,7 @@ export const NOTIFY_STATUS: NotifyStatus = {
   sentLastHour: 4,
   throttledKeys: 1,
   webhook: { configured: true, format: 'slack' },
-  email: { configured: false, recipients: 0 },
+  email: { configured: false, recipients: 0, reason: null },
   syslog: {
     configured: true,
     target: 'siem.internal:514',
@@ -301,6 +335,13 @@ export const DELIVERY_SETTINGS: DeliverySettingsResponse = {
     emailPassword: { source: 'default', configured: false },
     emailFrom: { source: 'default', value: '' },
     emailTo: { source: 'default', value: [] },
+
+    emailAuthMethod: { source: 'default', value: 'password' },
+    emailOauthClientId: { source: 'default', value: '' },
+    emailOauthClientSecret: { source: 'default', configured: false },
+    emailOauthRefreshToken: { source: 'default', configured: false },
+    emailOauthTokenUrl: { source: 'default', value: '' },
+    emailOauthScope: { source: 'default', value: '' },
   },
   pinnedByEnvironment: ['enabled'],
 };
@@ -393,3 +434,65 @@ export const AUDIT_EVENTS = [
     detail: { deleted: 1204, bySeverity: { critical: 3, high: 40 } },
   },
 ];
+
+/**
+ * The query console as shipped: off because nobody asked for it.
+ *
+ * `reason` is the part that matters — "off" is three situations needing three
+ * different actions, and the default fixture is the one an installation starts in.
+ */
+export const ADHOC_OFF = {
+  enabled: false,
+  role: null,
+  mode: null,
+  reason: 'disabled' as const,
+  passwordMayBeLogged: false,
+};
+
+/** Running, read-only, with nothing to warn about. */
+export const ADHOC_RUNNING = {
+  enabled: true,
+  role: 'nm_adhoc_netminitoring',
+  mode: 'read' as const,
+  passwordMayBeLogged: false,
+};
+
+/**
+ * Query console settings as a fresh install resolves them: nothing stored,
+ * nothing pinned, so every field reads from the code default.
+ */
+export const ADHOC_SETTINGS = {
+  settings: {
+    enabled: { value: false, source: 'default' as const, env: 'ADHOC_ENABLED' },
+    writeEnabled: { value: false, source: 'default' as const, env: 'ADHOC_WRITE_ENABLED' },
+    timeoutMs: { value: 10_000, source: 'default' as const, env: 'ADHOC_TIMEOUT_MS' },
+    maxRows: { value: 1000, source: 'default' as const, env: 'ADHOC_MAX_ROWS' },
+    maxQueryLength: { value: 20_000, source: 'default' as const, env: 'ADHOC_MAX_QUERY_LENGTH' },
+    audit: { value: 'all', source: 'default' as const, env: 'ADHOC_AUDIT' },
+    /*
+     * A credential, so `configured` rather than `value` — the server redacts it
+     * in the resolver and no endpoint returns it. Set in this fixture, so the
+     * default render is a healthy install and the missing-password warning is
+     * something a test has to ask for rather than the baseline.
+     */
+    dbPassword: {
+      source: 'database' as AdhocSettingField['source'],
+      env: 'ADHOC_DB_PASSWORD',
+      configured: true,
+    },
+  },
+  passwordConfigured: true,
+  /*
+   * No `dbPassword` here either: the route builds `effective` by omitting every
+   * secret field, so the credential is absent from this half of the response as
+   * well as from `settings`.
+   */
+  effective: {
+    enabled: false,
+    writeEnabled: false,
+    timeoutMs: 10_000,
+    maxRows: 1000,
+    maxQueryLength: 20_000,
+    audit: 'all',
+  },
+};

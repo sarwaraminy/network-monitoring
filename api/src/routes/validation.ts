@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { env } from '../config/env.js';
 import { HttpError } from '../middleware/error-handler.js';
 import { parsePrefix } from '../net/prefix.js';
+import { EMAIL_AUTH_METHODS } from '../notify/settings.js';
 import { WEBHOOK_FORMATS } from '../notify/types.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
 import { AUDIT_ACTIONS, type AuditAction } from '../services/audit-types.js';
@@ -111,6 +112,51 @@ const MAX_TREND_DAYS = Math.max(1825, env.retention.alertDays + 1);
  * is a 400 rather than a silently empty page — and adding an action in one place
  * cannot leave the filter rejecting it.
  */
+/**
+ * A change to the query console's settings.
+ *
+ * Every field optional and nullable: absent leaves the stored value alone, null
+ * clears it so the value falls back to the environment or the default. The bounds
+ * match V14's CHECK constraints, so a value this accepts is a value the table
+ * accepts — the two disagreeing is how an interface reports success for a write
+ * the database refused.
+ */
+export const adhocSettingsPatchSchema = z
+  .object({
+    enabled: z.boolean().nullable(),
+    writeEnabled: z.boolean().nullable(),
+    timeoutMs: z.coerce.number().int().min(100).max(600_000).nullable(),
+    maxRows: z.coerce.number().int().min(1).max(100_000).nullable(),
+    maxQueryLength: z.coerce.number().int().min(1).max(1_000_000).nullable(),
+    audit: z.enum(['all', 'refused', 'off']).nullable(),
+    /*
+     * The console role's password (V15). Bounded only in length, and 1024 is
+     * generous rather than meaningful — Postgres accepts anything as a role
+     * password, and rejecting a value the database would take teaches somebody to
+     * work around this form instead of using it.
+     *
+     * No `.trim()`: whitespace can be part of a password, and quietly changing a
+     * credential before storing it is how a value that was typed correctly stops
+     * working.
+     */
+    dbPassword: z.string().max(1024).nullable(),
+  })
+  .partial()
+  .strict();
+
+/**
+ * The one field a role change may set.
+ *
+ * `.strict()` because the obvious mistake is sending the whole user object back
+ * — a form that PATCHes what it rendered — and silently ignoring an `email` or a
+ * `password` in that body would make this endpoint look like it accepted them.
+ */
+export const userRoleSchema = z
+  .object({
+    role: z.enum(['ADMIN', 'USER']),
+  })
+  .strict();
+
 export const auditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   action: z.enum(Object.keys(AUDIT_ACTIONS) as [AuditAction, ...AuditAction[]]).optional(),
@@ -381,6 +427,57 @@ export const deliverySettingsPatchSchema = z
           .nullable()
           .optional(),
       ),
+
+    /**
+     * XOAUTH2, for a tenant that permits nothing else. See issue #27.
+     *
+     * None of these is required *by the schema*, because every field of this patch
+     * is optional by design — the form sends only what changed, and a secret that
+     * is not being replaced is absent rather than round-tripped. "OAuth2 is
+     * selected but half-filled" is therefore not something a per-request schema can
+     * see; `missingEmailOauthSettings` in notify/settings.ts is where that is
+     * caught, and it names the missing variables on the Delivery page and in a test
+     * send rather than opening a socket to fail.
+     */
+    emailAuthMethod: z.enum(EMAIL_AUTH_METHODS).nullable().optional(),
+    emailOauthClientId: nullableTrimmed(255),
+    // A credential. Accepted, never returned.
+    emailOauthClientSecret: nullableTrimmed(500),
+    // The credential that mints access tokens for the mailbox, and the longest
+    // string this table stores: a Microsoft refresh token routinely runs past a
+    // kilobyte where a Google one is a hundred characters.
+    emailOauthRefreshToken: nullableTrimmed(4000),
+    /*
+     * `https:` only — narrower than the webhook URL's allowlist, deliberately.
+     *
+     * Permitting `http:` for a webhook is defensible: it is often an endpoint inside
+     * the same network, and the URL is the only thing at stake. This field is where
+     * `client_secret` and `refresh_token` are POSTed on every token refresh, so an
+     * `http:` value would put long-lived credentials on the wire in cleartext, over
+     * and over, with nothing visible to say it was happening. No real provider offers
+     * a plaintext token endpoint — Microsoft and Google are both https-only — so the
+     * restriction costs nothing an operator would want.
+     */
+    emailOauthTokenUrl: z
+      .string()
+      .trim()
+      .max(500)
+      .refine(
+        (value) => {
+          try {
+            return new URL(value).protocol === 'https:';
+          } catch {
+            return false;
+          }
+        },
+        {
+          message:
+            'emailOauthTokenUrl must be an https URL, e.g. https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token — the client secret and refresh token are posted to it',
+        },
+      )
+      .nullable()
+      .optional(),
+    emailOauthScope: nullableTrimmed(500),
   })
   // Unknown keys are refused rather than ignored: a typo like `minSeverety` would
   // otherwise return 200 having changed nothing, which is the silent no-op this

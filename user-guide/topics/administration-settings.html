@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Administration settings &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Administration settings</h1>
+<p class="lede">The gear in the header: server settings an administrator can change
+without editing a file or restarting anything.</p>
+
+<p>The gear appears only for administrators. Everything behind it is refused to
+anyone else by the server as well, so the hidden gear is a tidier interface rather
+than the thing keeping you out.</p>
+
+<figure>
+  <img src="../screenshots/administration-settings.png" alt="The administration panel, listing its tools by group.">
+  <figcaption>The panel lists its tools by group. Each opens over the page you were
+  on, and can be dragged aside.</figcaption>
+</figure>
+
+<p>Each tool opens in a panel you can <strong>drag by its title bar</strong>, so you can
+move it aside to read the page underneath &mdash; usually the numbers you are trying to
+reconcile with the setting you are changing. On a phone it fills the screen instead,
+because a floating panel in a narrow window is a panel with no margins.</p>
+
+<h2>What is in it</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Group</th><th>Tool</th><th>What it is for</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Database</td>
+      <td><span class="ui">Query console</span></td>
+      <td>Whether the <a href="adhoc-query.html">ad hoc SQL console</a> is running, and
+        if not, which of three reasons &mdash; and what to do about each.</td>
+    </tr>
+    <tr>
+      <td>Database</td>
+      <td><span class="ui">Query console settings</span></td>
+      <td>Switch it on or off, set its password and its limits. In force on save.</td>
+    </tr>
+    <tr>
+      <td>Notifications</td>
+      <td><span class="ui">Delivery settings</span></td>
+      <td>Where findings go and how often &mdash; see
+        <a href="delivery-settings.html">Delivery settings</a>.</td>
+    </tr>
+    <tr>
+      <td>Accounts</td>
+      <td><span class="ui">Users and roles</span></td>
+      <td>Who is an administrator. See <a href="access-and-roles.html">Who can do
+        what</a>.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>The rule that applies to all of them</h2>
+
+<p>Every setting here resolves in three layers, and <strong>the environment
+wins</strong>:</p>
+
+<pre><code>environment variable   &rarr;   stored setting   &rarr;   built-in default</code></pre>
+
+<p>If a setting is present in the server's <code>api/.env</code> or its Compose file, the
+control for it is <strong>shown but disabled</strong>, with the name of the variable that
+pinned it. That is deliberate: a deployment that keeps its configuration in a file is
+meant to keep that guarantee, and a form that accepted your edit and changed nothing
+would be worse than one that visibly cannot.</p>
+
+<p>To manage a pinned setting from here instead, remove its line from the server's
+configuration and restart the API. Nothing is lost by doing so: whatever the variables
+said was copied into the stored settings the first time the server started, so removing a
+line keeps the behaviour you had rather than reverting to a default nobody chose.</p>
+
+<div class="note">
+  <span class="label">The off switch</span>
+  <p><strong>Deleting a line from the server's configuration does not switch a setting
+  off.</strong> Whatever those variables said was copied into the stored settings the
+  first time the server started, so removing one leaves the stored copy in force and the
+  behaviour unchanged &mdash; which is the point, for most settings. But for the query
+  console it means <em>removing</em> <code>ADHOC_ENABLED</code> does not stop it. Switch
+  it off here, or set <code>ADHOC_ENABLED=false</code> rather than deleting it.</p>
+</div>
+
+<div class="note">
+  <span class="label">Worth knowing</span>
+  <p><strong>A blank value counts as unset.</strong> <code>NOTIFY_ENABLED=</code> with
+  nothing after it is somebody who has not decided, not somebody who chose "no" &mdash;
+  so it does not pin the field. The shipped Compose file and example environment pass
+  every one of these through blank for exactly that reason.</p>
+</div>
+
+<h2>Everything here is recorded</h2>
+
+<p>Each change writes a row to the <a href="audit-trail.html">audit trail</a> naming who
+made it and which fields changed. Secrets are recorded as having changed, never as their
+value &mdash; the trail cannot be edited or deleted, so a password written into it would
+be there for good.</p>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p>Administrators only. The gear is not shown to anyone else, and every endpoint
+  behind it refuses a non-administrator regardless.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

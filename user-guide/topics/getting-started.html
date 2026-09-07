@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signing in &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Signing in</h1>
+<p class="lede">What you need before you start, and how the first account comes to
+exist.</p>
+
+<h2>Requirements</h2>
+
+<ul>
+  <li>A current version of Microsoft Edge, Google Chrome or Firefox. JavaScript and
+    cookies must be enabled.</li>
+  <li>A screen at least 1280 pixels wide. The tables carry a lot of columns; narrower
+    than that and they scroll sideways.</li>
+  <li>The address of your installation, from whoever set it up.</li>
+</ul>
+
+<h2>Signing in</h2>
+
+<ol>
+  <li>Open the application address in your browser. If you are not signed in, the sign-in
+    page is what you get, whatever address you asked for.</li>
+  <li>Type your <span class="ui">Email address</span> and <span class="ui">Password</span>.</li>
+  <li>Click <span class="ui">Sign in</span>.</li>
+</ol>
+
+<p>You arrive at the <a href="dashboard.html">Dashboard</a>. Your session lasts until it
+expires or you sign out from the avatar at the top right.</p>
+
+<figure>
+  <img src="../screenshots/login.png" alt="The sign-in page. No account ships with the product.">
+  <figcaption>The sign-in page. No account ships with the product.</figcaption>
+</figure>
+
+<h2>The first account</h2>
+
+<p><strong>No account ships with this product</strong>, and that is deliberate: a
+published default password is a published credential. A migration deletes any account
+still carrying the password hash this project once shipped, so upgrading an old
+installation removes it too.</p>
+
+<p>Exactly one account can therefore be created without anybody's permission &mdash; the
+first one, on an installation whose account list is empty. It is created as an
+<strong>administrator</strong>, because otherwise there would be no way to create the
+second. The moment one account exists, that window shuts.</p>
+
+<p>After that, accounts are created by an administrator. See
+<a href="accounts.html">Accounts</a>.</p>
+
+<div class="note">
+  <span class="label">Note</span>
+  <p>If you see <em>Invalid email or password</em> for an address you are
+  sure of, ask your administrator whether the account exists on this installation.
+  The message is deliberately the same whether the address is unknown or the password
+  is wrong, so that it cannot be used to find out which accounts exist.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

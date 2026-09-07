@@ -16,6 +16,13 @@ Flow collection ([below](#flow-collection-netflow--ipfix)) is the easier deploym
 margin and covers more of the network; packet capture is what you add on top when you need to
 see payload. Both feed the same detectors and the same alert table.
 
+This README is written for whoever installs and changes the thing. For whoever *uses* it —
+the screens, what each one is telling you, and what each role may do — there is a
+**[user guide](user-guide/index.html)**. It is served by the
+application itself at `/user-guide/` — behind a signed-in session, like every other screen,
+which is why it lives here and not in `network-monitoring-ui/public/` where the web server
+would hand it out unauthenticated. Reachable in the product from the help icon in the header.
+
 ## What it detects
 
 Each detector produces an **alert**: a finding with a severity, an occurrence count and
@@ -377,10 +384,15 @@ committing to it.
 
 ### Configuring it without a shell
 
-Every setting below can be changed on the **Delivery** page by an administrator, and
-takes effect immediately — no file to edit, no restart. That matters because the person
-configuring this is usually an IT admin rather than the developer, and asking them to
-shell into the host to add a second recipient makes every tuning change an outage.
+Every setting below can be changed by an administrator under the **settings gear** —
+Administration settings → Delivery settings — and takes effect immediately: no file to
+edit, no restart. That matters because the person configuring this is usually an IT admin
+rather than the developer, and asking them to shell into the host to add a second
+recipient makes every tuning change an outage.
+
+The **Delivery** page keeps the half nothing else has: whether delivery is actually
+working, and the test send. Editing moved to the gear so there is one place to change
+delivery rather than two.
 
 Values resolve in three layers, per field:
 
@@ -399,6 +411,15 @@ To manage a setting from the page, remove its variable from `api/.env` — a bla
 counts as unset, matching how every other variable in this project behaves. On first
 boot whatever the variables currently say is copied into the database, so removing a
 line later keeps the behaviour you had rather than reverting to a default.
+
+> **If you are upgrading from a Compose deployment, this feature was inert for you.**
+> `docker-compose.yml` passed every one of these variables through with its code default
+> baked in — `:-false`, `:-high`, `:-514` — and a variable that is *set* pins its field.
+> So the page reported "16 settings are set in the environment and cannot be changed
+> here" on every install, and the file doing the pinning was the one an administrator was
+> told not to edit. They are now passed through blank, which means the same values apply
+> and the fields are editable. Nothing is lost on upgrade: those values were already
+> copied into your settings row at first boot.
 
 Two values are treated as credentials and never returned by the API: the webhook URL,
 which *is* the credential for Slack and Teams, and the SMTP password. The form reports
@@ -462,13 +483,60 @@ In the order that succeeds:
    needs no credentials, and it is the right answer for an on-prem sensor. Set `SMTP_HOST`,
    leave `SMTP_USER` and `SMTP_PASSWORD` empty, and the transport omits AUTH entirely.
 2. **An app password**, where the tenant still permits one.
-3. **Your company mailbox with an ordinary password** — this usually fails. Microsoft 365 and
+3. **OAuth2 / XOAUTH2**, for a tenant that permits nothing else — below.
+4. **Your company mailbox with an ordinary password** — this usually fails. Microsoft 365 and
    Google disable basic SMTP AUTH by default on modern tenants, so a *correct* password is
    rejected exactly like a wrong one. When the server returns `535` or nodemailer reports
    `EAUTH`, the delivery result says so rather than passing the raw SMTP string through, because
    "authentication unsuccessful" sends people to check a password that was never the problem.
 
-OAuth2 / XOAUTH2 is not implemented. If your tenant requires it, use a relay.
+### OAuth2, when the tenant allows nothing else
+
+`SMTP_AUTH_METHOD=oauth2` switches the transport to XOAUTH2. It is the **refresh-token
+grant** and nothing more ambitious: register an application with the identity provider,
+consent to it once as the sending mailbox, and paste the refresh token in. Nodemailer
+exchanges it for an access token on first use and renews that when it expires, so nothing
+here stores or schedules a token.
+
+There is deliberately no authorization-code redirect. That needs a browser round trip
+through a publicly reachable callback URL, and this runs on a sensor inside a network — the
+one-time consent happens on the administrator's own machine instead, and only its result is
+configured here.
+
+| | Microsoft 365 | Google Workspace |
+| --- | --- | --- |
+| `SMTP_HOST` | `smtp.office365.com` | `smtp.gmail.com` |
+| `SMTP_USER` | the mailbox being sent from | the mailbox being sent from |
+| `SMTP_OAUTH_TOKEN_URL` | `https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token` | `https://oauth2.googleapis.com/token` |
+| `SMTP_OAUTH_SCOPE` | `https://outlook.office.com/SMTP.Send offline_access` | not needed — the refresh grant ignores it |
+| Permission to grant | Office 365 Exchange Online → Delegated → `SMTP.Send` | `https://mail.google.com/` |
+
+Two things about this fail in ways worth naming in advance, and both are reported rather
+than left to be guessed at:
+
+- **Microsoft's per-mailbox SMTP AUTH switch is separate, and OAuth2 does not bypass it.** A
+  correctly issued token is still refused with `535` until
+  `Set-CASMailbox -SmtpClientAuthenticationDisabled $false` has been run for that mailbox.
+  That rejection is the same `535` a wrong password produces, so what the delivery result
+  says about it depends on which auth method is in force — the password advice would send
+  somebody to check a password that is not being used.
+- **A refresh token expires or gets revoked.** The token endpoint's refusal (`invalid_grant`)
+  is reported as itself, distinct from a mailbox refusing a token that was issued fine, and
+  the provider's own `error_description` is passed through.
+
+`SMTP_OAUTH_TOKEN_URL` has no default on purpose. Nodemailer's own fallback is Google's
+endpoint, so a blank value on a Microsoft tenant would post the refresh token to
+`accounts.google.com` and return a refusal that names neither problem. It is also the one
+URL here restricted to `https:` — the client secret and refresh token are in the body of
+every token request — and that restriction applies wherever the value comes from, the
+environment variable included, since a value set there cannot be corrected from the UI.
+
+An OAuth2 mailbox missing any of the five required values is not treated as configured, and
+the three places that would otherwise say so incorrectly all name the unset variables
+instead: the Delivery page reports them rather than its standing "SMTP host, sender and at
+least one recipient", a test send lists email as a failed channel rather than leaving it out
+of the attempt, and an install with no channels at all is told what it actually needs. No
+socket is opened in any of them.
 
 ### Sending is disclosure
 
@@ -843,6 +911,59 @@ The console authenticates as a dedicated role whose name is **derived, never con
 There is no connection-string setting on purpose. One would be one an operator could point
 at `postgres` — the owner this application connects as, a superuser in the default Compose
 file — turning every restriction off while the feature still appeared to work.
+
+### Switching it on
+
+Under the **settings gear**, visible to administrators only, there are two tools:
+
+- **Query console** — whether it is running, and if not, which of three reasons: nobody
+  asked for it, there is no password to install on the role, or the database would not
+  confirm the role is sandboxed. It also re-runs the startup check, for the case where the
+  role's grants were wrong and have since been fixed. Previously all three states shared
+  one sentence and the only way to tell them apart was the server log.
+- **Query console settings** — the switches and limits, in force on save. No restart, which
+  on a monitoring server would mean dropping a live capture to reconfigure a console.
+
+The password is there too. It was environment-only at first, on the argument that it was
+what kept the decision to *have* a SQL prompt on the production database with whoever
+installed the server — an accurate description of what changed, and the trade was made
+deliberately so an administrator can provision the console without server access. What
+holds the line instead:
+
+- **The environment still wins.** `ADHOC_DB_PASSWORD` set in the environment pins the
+  field: the control renders disabled and the API refuses a change with a 409. An
+  installation that wants the original behaviour sets the variable, and no browser session
+  can contradict it.
+- **The console cannot read the table its own credential is in.** V11 and V12 grant the
+  console roles an explicit per-table allowlist; `adhoc_settings` is in neither, and V15
+  revokes on it as well so a future blanket `GRANT` has to override a statement rather than
+  fill a silence. There is a standing test that asserts this against the real grants.
+- **It never leaves the server.** The API reports whether a password is set, never what it
+  is — redacted in the resolver rather than at the route, so a later endpoint cannot leak it
+  by forgetting. The audit trail records that the password changed, never the value: it is
+  append-only and never pruned, so a credential written there is written for good.
+- **An empty box means "leave it alone".** Since the value is never returned, a configured
+  password and an emptied field look identical; clearing is a separate button, so the
+  destructive reading is never the one that happens by accident.
+
+> **Removing the variable is not the off switch.** Whatever the environment said is
+> copied into the stored settings at first boot — so deleting `ADHOC_ENABLED` or
+> `ADHOC_DB_PASSWORD` later leaves the row holding the copy, and the console goes on
+> running. That is the seeding rule working as designed (deleting a line keeps the
+> behaviour you had), but for the two fields that decide whether a browser can run SQL it
+> is the opposite of what most people will expect. To turn the console off, set
+> `ADHOC_ENABLED=false` explicitly, or switch it off in the interface.
+
+One thing deliberately did not become editable:
+
+- **Write mode still forces auditing to `all`.** A console that can `DELETE` and a trail
+  that records none of it was previously unreachable only because both flags came from the
+  environment and had to be set together on purpose. Now that either can be set in a
+  browser, the rule is applied where both are read.
+
+Every field says where its value came from, and one the environment pins is shown disabled
+with the variable named — the same contract as the delivery settings, for the same reason: a
+control that accepts an edit and changes nothing is worse than one that is visibly locked.
 
 Neither role can:
 
@@ -1303,6 +1424,23 @@ All `/api/*` routes require an `Authorization: Bearer <token>` header.
 | `POST` | `/signup` | —     | Creates an account (password bcrypt-hashed)        |
 | `GET`  | `/me`     | Token | Current account; used to validate a stored token   |
 | `GET`  | `/users`  | ADMIN | All accounts, without password hashes              |
+| `PATCH` | `/users/:id/role` | ADMIN | Change one account's role. Refuses demoting the last administrator, and refuses self-demotion |
+
+Role used to be settable only in the database, so "give this person admin" was a job for
+whoever had a `psql` session. It is now **Administration settings → Users and roles**,
+audited with who changed it and which way the role moved.
+
+Three refusals, each a lockout it prevents:
+
+- **The last administrator cannot be demoted.** Enforced in a transaction with the admin
+  rows locked, because a count-then-update loses the race between two administrators
+  demoting each other — both read two admins, both pass, both writes land, and the
+  installation has no administrator without either person doing anything wrong. There is
+  a standing test that runs that race.
+- **Nobody may demote themselves.** Refused even where another administrator exists and
+  it would be recoverable: the session doing it loses the page it is standing on, and the
+  remedy is the same either way.
+- **An unknown account is a 404**, so a stale list cannot report a change it did not make.
 
 ### Security alerts — `/api/alerts`
 
@@ -1503,11 +1641,17 @@ network-monitoring-ui/        React + TypeScript + Vite frontend
 | `FLOW_EXPORTERS`       | — (any source)                                 | Comma-separated allow-list of exporter addresses |
 | `ADHOC_ENABLED`        | `false`                                        | The SQL console. Off by default: switched on without thought, it is a prompt on the production database reachable from a browser session |
 | `ADHOC_WRITE_ENABLED`  | `false`                                        | Lets the console write. Selects a different Postgres role rather than relaxing a check in the app |
-| `ADHOC_DB_PASSWORD`    | *required when enabled*                        | Set on the console's role at boot                |
+| `ADHOC_DB_PASSWORD`    | *required when enabled*                        | Set on the console's role at boot. Settable in the interface too; setting it here pins it there |
 | `ADHOC_AUDIT`          | `all`                                          | `all` / `refused` / `off`. Forced to `all` while writes are enabled |
 | `ADHOC_TIMEOUT_MS`     | `10000`                                        | A query stops here rather than running until somebody notices |
 | `ADHOC_MAX_ROWS`       | `1000`                                         | Rows returned to the browser. A grid, not an export |
 | `ADHOC_MAX_QUERY_LENGTH` | `20000`                                      | Characters accepted, so the body limit is not what rejects a query |
+
+Every `ADHOC_*` variable above can be set by an administrator in the interface, and
+**setting one here pins it**: the control renders disabled and names the variable. That is why the Compose file passes them through blank rather than defaulting them
+— baking `:-false` in would have pinned all six on every deployment and left a settings page
+that accepted edits and changed nothing. The same three-layer rule as the delivery
+settings — [Configuring it without a shell](#configuring-it-without-a-shell).
 
 Detection thresholds, shared by the packet and flow detectors and all tunable per network:
 
@@ -1705,28 +1849,96 @@ handler ran, so they reflect when the frame actually arrived.
 
 ## Screenshots
 
-> These predate the MUI rewrite and the alerts page — the flows are the same, the interface is
-> not. Worth recapturing before showing the project to anyone.
+Taken from the running application, against a small set of representative findings —
+the addresses and hostnames are from the documentation ranges, not a real network. They
+are also the illustrations in the [user guide](user-guide/index.html), which covers the
+same screens from an operator's side rather than a developer's: what each one is telling
+you, and which actions each role is allowed to take.
 
-**Login**
+They are captured by a script rather than by hand, which is why: they had gone stale
+twice — once wholesale after the MUI rewrite, and again when the delivery settings moved
+under the administration gear. A screenshot of a screen that no longer exists is the one
+a reader trusts over the application in front of them.
 
-![Login page](./screenshots/login.png)
+```bash
+npm run dev                                   # in another terminal
+npm i -D playwright && npx playwright install chromium   # once
+SHOT_EMAIL=you@example.com SHOT_PASSWORD='...' node scripts/capture-screenshots.mjs
+node scripts/capture-screenshots.mjs delivery administration-settings   # or just these
+```
 
-**Findings list** (previously the anomaly log)
+`playwright` is deliberately **not** a dependency of this project: it is a browser
+download for a task nobody runs in CI, and adding it would put it in every install and
+every `npm audit`. Install it when you need to recapture. Credentials come from the
+environment rather than arguments so a shell history does not keep them, and each shot
+signs in fresh — a shot that depended on the state the last one left behind changes when
+the order does, and the failure looks like a UI bug rather than a script bug.
 
-![Logs](./screenshots/Logs.png)
+**Dashboard** — what the detectors found, and which hosts keep appearing
 
-**Capture from an interface**
+![Dashboard](./user-guide/screenshots/dashboard.png)
 
-![Scan packets](./screenshots/scanPacket.png)
+**Security alerts** — every finding, newest first, with the severity tiles doubling as filters
 
-**Capture filtered by IP**
+![Security alerts](./user-guide/screenshots/alerts.png)
 
-![Scan packets by IP](./screenshots/scanPacketIP.png)
+**A finding, expanded** — what it means, and the evidence behind it. Evidence never contains
+passwords or payloads; the cleartext-credential detector records a username and the secret's
+*length*, and the tests assert it.
 
-**WHOIS lookup**
+![A finding, expanded](./user-guide/screenshots/alert-detail.png)
 
-![WHOIS lookup](./screenshots/whoisLookup.png)
+**IP lookup** — reverse DNS, geolocation and WHOIS for any address in a finding, from the
+magnifier beside it
+
+![IP information](./user-guide/screenshots/ip-lookup.png)
+
+**Suppression rules** — findings you have declared expected. A matching finding is dropped
+before storage, not hidden behind a filter, and every rule carries the reason it exists.
+
+![Suppression rules](./user-guide/screenshots/suppressions.png)
+
+**Alert delivery** — where findings go and whether they are getting there, with the four
+limits that decide whether a message is sent stated on the page rather than buried in a
+config file
+
+![Alert delivery](./user-guide/screenshots/delivery.png)
+
+**Delivery settings** — changed here and in force immediately, no file to edit and no
+restart. A field pinned in the environment renders disabled and names the variable that pins
+it (the padlocked chips), because a control that accepts an edit and changes nothing is worse
+than no control.
+
+![Delivery settings](./user-guide/screenshots/delivery-settings.png)
+
+**SMTP over OAuth2** — switching authentication to `oauth2` reveals what XOAUTH2 needs and
+hides what it does not. The client secret and refresh token are write-only: the API reports
+whether each is set and never returns it.
+
+![Delivery settings, OAuth2](./user-guide/screenshots/delivery-settings-oauth2.png)
+
+**Threat intelligence** — off by default, because which feeds to trust is your decision and a
+security tool should not start making outbound requests to a list nobody chose. The page says
+exactly how to switch it on.
+
+![Threat intelligence](./user-guide/screenshots/threat-intel.png)
+
+**Ad hoc query** — read-only SQL against this system's own database, gated by role and its own
+flag, with every query recorded in the audit trail. The columns holding secrets are refused by
+the database, not by this page.
+
+![Ad hoc query](./user-guide/screenshots/adhoc-query.png)
+
+**Packet capture** — shown idle on purpose: a live capture on the machine that took these
+would put its real addresses and MACs in a public README.
+
+![Packet capture](./user-guide/screenshots/capture.png)
+
+**Sign in** — no account ships with the product. `V5__Remove_seeded_accounts.sql` deletes any
+row still carrying the bcrypt hash this repository used to publish, and the first account is
+created with `npm run user`.
+
+![Sign in](./user-guide/screenshots/login.png)
 
 ---
 
@@ -1787,6 +1999,11 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **Role management in the interface** — role was settable only in `psql`; now Administration settings → Users and roles, audited, refusing to demote the last administrator (in a locked transaction, because two administrators demoting each other loses a count-then-update race) or to demote yourself | #53 |
+| **Delivery settings moved under the gear, and unpinned** — one place to edit rather than two, and the fix for a bug that made the whole feature inert: Compose passed every delivery variable with its default baked in, so all 16 fields reported themselves as pinned by the file an administrator was told not to edit | #53 |
+| **Administration settings, and the query console among them** — an admin-only settings gear holding a diagnostics panel that distinguishes the console's three off-states, and a settings form that switches it on, sets its password and tunes its limits without a restart; the same three-layer resolution as the delivery settings, with the credential redacted in the resolver so no endpoint can leak it by forgetting | #53 |
+| **A draggable dialog, used everywhere** — `AppDialog`, ported from the sibling `professional` project, so a tool can sit over the page whose numbers it is being reconciled with | #53 |
+| **SMTP that modern mailboxes accept** — XOAUTH2 with a refresh token, so a Microsoft 365 or Google mailbox works without basic SMTP AUTH; a half-filled setup names its missing variables instead of opening a socket, and the same `535` is explained differently depending on which auth method is in force | #53 |
 | **Postgres in CI** — the SQL-level claims stop being probes run by hand: a service container, a harness that refuses any database not named `_test`, and standing tests for the four retention bugs review caught, each verified by reintroducing the bug | #51 |
 | **Grouped sidebar navigation** — eight tabs in one header strip became a bordered panel with named sections, ported whole from the PRO 2.0 sidebar in the sibling `professional` project; collapses to a rail, remembers that, and spends no vertical room, which is the axis the tables need | #50 |
 | **Audit trail** — who deleted, changed or redirected something; append-only, enforced by a trigger, written in the same transaction as the act it records | #49 |
@@ -1801,17 +2018,35 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 ### Next, in order
 
-1. **SMTP that modern mailboxes accept** ([#27](https://github.com/sarwaraminy/network-monitoring/issues/27), ~1 wk).
-   Microsoft 365 and Google both disable basic SMTP auth by default, so email delivery does
-   not work with the two most common providers. An internal relay already works with no
-   credentials and a 535 is already legible; what is missing is OAuth2/XOAUTH2.
+1. **Revoke *both* console roles, not just the read one** (~half a day, and first because
+   it is a credential that outlives the authorisation to use it). `revokeAdhocLogin` takes
+   `adhocRole()`'s default `mode: 'read'`, so every path that switches the console off only
+   strips `LOGIN` from `nm_adhoc_<database>`. Broader than the off-path: `stopAdhoc` revokes
+   nothing by design, and a write→read switch re-installs the password on the read role
+   without touching the write one — so **no supported operator action ever revokes
+   `nm_adhocrw_<database>`**, which keeps `LOGIN`, the last write-mode password, and
+   `INSERT`/`UPDATE`/`DELETE` on the operational tables from V12. Rotating the password in
+   read mode does not reach it either; only re-entering write mode updates it. The docblock
+   above the function asserts the opposite ("Both 'off' paths revoke, and that is the
+   point") — the file describes, for one of its two roles, exactly the bug it still has.
+   The fix is to loop the two modes the way `V15__Adhoc_password.sql` already does in its
+   `DO` block, revoke the non-active role on a successful `startAdhoc` so a mode switch
+   leaves nothing behind, and prefer `NOLOGIN PASSWORD NULL` so the credential is destroyed
+   rather than disabled. `adhoc-disabled.test.ts` checks only `adhocRole(name)`, which is
+   why this was invisible: extend it to assert `rolcanlogin` on **both** roles after an off
+   and after a write→read switch.
 2. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
    each other's findings. Cheap now and expensive once anyone has data.
-3. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
+3. **Internationalisation — English, German and Dari.** The largest item on this list, and
+   the part of it that gets more expensive every day is the same shape as `sensor_id`
+   above: findings are stored as English prose. See
+   [Internationalisation](#internationalisation--english-german-and-dari) below for the
+   four layers and the decisions each one needs.
+4. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
    type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
    `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
    `.bin`.
-4. **Small, and each independently useful:**
+5. **Small, and each independently useful:**
    - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,
@@ -1821,6 +2056,128 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
      reads as "rolled up" rather than "quiet".
    - "Suppress this" from an alert row — left out of the suppression PR to keep it
      reviewable, and the obvious next touch on that page.
+   - Derive the write-mode audit force from the same fact the write decision uses. The force
+     is computed from the settings (`effectiveAdhocSettings`, so `writeEnabled` implies
+     `audit: 'all'`), while whether a statement actually writes is read from the live pool's
+     identity (`activeMode`). `PUT /api/adhoc/settings` updates the settings cache and only
+     restarts the pool an awaited `recordAudit` INSERT later, so there is a window — one
+     round trip wide — in which `audit` reads `'off'` while `activeMode` is still `'write'`,
+     and a `DELETE` in it commits with no `adhoc.query` row. Not a security finding: the only
+     actor who can reach it is an ADMIN whom write mode already authorises to run that
+     `DELETE`, and who can anyway set `dbPassword` and do it from `psql` unrecorded. But the
+     docblock states the invariant as absolute ("the one combination this feature must not
+     offer"), so either the force moves into `runAdhocQuery` behind `activeMode`, or the
+     route becomes `stopAdhoc()` → save → `startAdhoc()`.
+   - `POST /api/adhoc/recheck`'s docblock still says it "can only discover that the
+     environment already did" enable the console. Stale since V15 made the stored row a
+     source too. No privilege gained, but a comment stating the opposite of the code is the
+     failure mode this repository keeps finding.
+   - A duplicate-version guard in the migration runner. Two files sharing a `V14__` prefix
+     are not detected as a collision: the second one's checksum is compared against the
+     first one's recorded row, and the runner reports a *changed migration* and refuses to
+     apply anything. The message sends you looking for an edit that never happened. Caught
+     this while adding V14, and the fix is a check before the first file is read.
+
+### Internationalisation — English, German and Dari
+
+Planned, not started. Written down in this much detail because two of the four layers are
+cheap now and expensive later, and because **Dari is right-to-left** — which makes this an
+architectural change rather than a string-extraction exercise.
+
+It also finally gives `users.lang_code` a meaning. The column exists, is `NOT NULL`,
+defaults to `en`, is written by sign-up and the user CLI, and is returned in every user
+DTO. Nothing reads it.
+
+**Recommended library: ICU MessageFormat** (`react-intl`/FormatJS, or `i18next` with the
+ICU plugin). Not a preference about syntax — the interface counts things constantly ("3
+findings", "1 device"), and English, German and Dari do not agree on plural categories.
+Hand-rolled `count === 1 ? … : …` is wrong in Dari on day one.
+
+#### The four layers, hardest first
+
+1. **Findings are stored English prose** (~4–6 d). `alerts.title` and `alerts.description`
+   are written at detection time by each detector — interpolated template strings, e.g.
+   ``` `ARP spoofing: ${ip} claimed by ${mac}` ```. Translating the interface does not
+   translate a single existing finding, and every day of capture adds rows that can never
+   be translated. **This is the one to decide before more data accumulates**, for exactly
+   the reason `sensor_id` is above it.
+
+   The shape: detectors emit a message **key plus a params object**, and the text is
+   rendered at display time. Much of what the titles interpolate is already structured —
+   `source_ip`, `source_mac`, `protocol`, `port` are columns and `evidence` is `jsonb` — but
+   the descriptions carry conditional clauses ("*and is currently using X*") and derived
+   values (`new-device` computes a vendor prefix from the MAC), so it is a per-detector
+   rewrite rather than a mechanical substitution. Roughly a dozen detectors across the
+   packet and flow pipelines.
+
+   Historical rows keep their stored prose as a fallback, deliberately: a finding from
+   before the change should stay readable in the language it was written in rather than
+   becoming a missing translation key.
+
+2. **Right-to-left, and bidi isolation** (~3–5 d). The mechanical part is ordinary — MUI's
+   `createTheme({ direction: 'rtl' })`, `stylis-plugin-rtl` for emotion, `dir` on the
+   document, and `@mui/x-charts` axes and the data grid checked by hand.
+
+   The part that will actually bite is **bidirectional text isolation**. An IP address, MAC,
+   CIDR, port, hostname or SQL fragment placed inside a right-to-left sentence renders in
+   the wrong visual order unless it is isolated — `<bdi>`, or U+2068/U+2069 around the
+   value. `192.168.1.10` can appear with its octets visually reordered, which for a network
+   tool is not a cosmetic bug: the operator reads an address that is not the one in the
+   finding.
+
+   This application is *mostly* technical identifiers, so this is the common case rather
+   than an edge case. Worth a single shared component — an `<Identifier>` that isolates and
+   sets `dir="ltr"` — plus a lint rule, rather than remembering it at each of several
+   hundred interpolation sites.
+
+3. **Server prose the interface displays verbatim** (~3–4 d). 49 `HttpError` call sites
+   feed 41 `describeError` uses, and the messages are deliberately specific — "Set in the
+   environment and cannot be changed here: `ADHOC_MAX_ROWS`" is the useful half of that
+   409.
+
+   The decision: **return a code plus params and translate in the browser**, rather than
+   localising on the server from the caller's `lang_code`. Three reasons — the same
+   endpoints are read by scripts and by CI, a localised error is one nobody can grep for or
+   search the issue tracker with, and it keeps `Accept-Language` out of the API contract.
+   The cost is that every one of those 49 sites gains a code.
+
+4. **The interface strings** (~4–5 d plus translation). 42 components. The most tedious
+   layer and the least risky, so it goes last: by then layers 1–3 have settled what the
+   catalogue has to hold.
+
+#### What deliberately stays in English
+
+- **The syslog/CEF export.** A SIEM parses it and correlates on it; a localised event name
+  breaks every downstream rule. Same for the JSON a webhook receives.
+- **`kind` values, `dedup_key`, and audit `action` names.** Identifiers that happen to be
+  readable, not text. The audit trail's *labels* are already a lookup map in
+  `audit-types.ts` and become keys for free; the stored `action` must not move.
+- **Server logs**, which are read with `grep` by whoever is on the host.
+- **Outbound notifications are an installation setting, not per-user.** An alert email goes
+  to a team address and a webhook has no account at all, so there is no `lang_code` to read.
+  One configured language for outbound, alongside the delivery settings.
+
+#### Decisions to make before starting
+
+- **Calendar for Dari.** Afghanistan uses the Solar Hijri (Jalali) calendar. Gregorian
+  dates with Dari month names may be acceptable for a trend axis; a date *picker* in
+  Gregorian is not, if the operators reading it think in Jalali.
+  `@mui/x-date-pickers` takes an adapter, so this is a choice rather than a rewrite — but it
+  is a choice, and guessing it wrong is a visible mistake.
+- **Digit shaping.** Eastern Arabic-Indic digits (۱۲۳) are idiomatic in Dari prose, but IP
+  addresses, ports, MACs and byte counts must stay ASCII: shaped digits stop being
+  copy-pasteable and stop matching what the switch, the firewall and `tcpdump` show.
+- **A font with Perso-Arabic coverage** — Vazirmatn or Noto Naskh Arabic. The current stack
+  has none, so Dari would render in whatever the browser substitutes.
+- **German is roughly 30% longer than English.** The dashboard tiles, the navigation rail
+  and the settings dialog's two-column grid are the places to check first.
+
+#### The user guide is a content job, not an engineering one
+
+16 topics, ~1,650 lines of prose, and the screenshots are of a translated interface — so
+three languages means three sets. `scripts/capture-screenshots.mjs` already takes a
+`SHOT_*` environment, so per-language capture is a loop rather than new tooling, but the
+translation itself is the bulk of the cost and does not shrink.
 
 ### Known gaps, named rather than left to be discovered
 

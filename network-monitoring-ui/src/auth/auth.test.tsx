@@ -2,8 +2,9 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { Route } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getToken } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
 import { renderApp, renderRoutes } from '../test/render';
 import { server } from '../test/server';
 import LoginPage from './LoginPage';
@@ -108,6 +109,174 @@ function guardedTree() {
     </>
   );
 }
+
+describe('the user-guide session', () => {
+  /**
+   * A component that signs out on demand, so the test drives `logout()` itself
+   * rather than the endpoint it calls. That distinction is the whole point here:
+   * `DELETE /api/user-guide/session` was already covered, and worked — it was the
+   * path that reaches it which did not.
+   */
+  function SignOutHarness() {
+    const { logout, isAuthenticated } = useAuth();
+    return (
+      <button type="button" onClick={logout}>
+        {isAuthenticated ? 'Sign out' : 'Signed out'}
+      </button>
+    );
+  }
+
+  it('clears the cookie with an authenticated request when signing out', async () => {
+    /*
+     * The bug: `logout()` fired the DELETE and then cleared the stored token in the
+     * same tick. Axios request interceptors are asynchronous unless declared
+     * otherwise, so the interceptor that attaches `Authorization` ran a microtask
+     * later and found no token — the request went out bare, the server answered
+     * 401, and the guide cookie outlived the sign-out by up to twelve hours. On a
+     * shared machine that is a working credential left behind in the browser.
+     */
+    const headers: (string | null)[] = [];
+    server.use(
+      http.delete('/api/user-guide/session', ({ request }) => {
+        headers.push(request.headers.get('authorization'));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<SignOutHarness />, { authenticated: true });
+    await screen.findByRole('button', { name: /^sign out$/i });
+
+    await user.click(screen.getByRole('button', { name: /^sign out$/i }));
+
+    await waitFor(() => expect(headers).toHaveLength(1));
+    // The header, not merely the request: an unauthenticated DELETE is refused and
+    // leaves the cookie in place, which looks identical from here without this.
+    expect(headers[0]).toBe('Bearer test-token');
+  });
+
+  it('signs out locally even if the cookie cannot be cleared', async () => {
+    // Documentation must never be the reason a sign-out fails to sign you out.
+    server.use(http.delete('/api/user-guide/session', () => new HttpResponse(null, { status: 500 })));
+
+    const user = userEvent.setup();
+    renderApp(<SignOutHarness />, { authenticated: true });
+    await screen.findByRole('button', { name: /^sign out$/i });
+
+    await user.click(screen.getByRole('button', { name: /^sign out$/i }));
+
+    await waitFor(() => expect(getToken()).toBeNull());
+  });
+
+  it('re-mints when a tab that slept becomes visible, and not on every alt-tab', async () => {
+    /*
+     * Two halves of one rule.
+     *
+     * The cookie is deliberately shorter-lived than the session, so a tab nobody
+     * reloads eventually holds a valid session and an expired cookie — and
+     * clicking help then lands on the sign-in page. A timer covers a tab that
+     * stays visible; the visibility listener covers the one that does not,
+     * because a machine that slept through the whole interval never fired it.
+     *
+     * But `visibilitychange` fires on every alt-tab and window switch, so
+     * unthrottled it sent a mint per focus where the intent needs one per
+     * interval — cheap, and indistinguishable in the logs from a session that
+     * genuinely needed renewing. The clock is moved rather than faked so React
+     * Query and MSW keep their real timers.
+     */
+    let minted = 0;
+    server.use(
+      http.post('/api/user-guide/session', () => {
+        minted += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderApp(<SignOutHarness />, { authenticated: true });
+    // One from the mount, once the stored token has been validated.
+    await waitFor(() => expect(minted).toBe(1));
+
+    // An immediate return to the tab has nothing to renew.
+    document.dispatchEvent(new Event('visibilitychange'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitFor(() => expect(minted).toBe(1));
+
+    // Five hours later — a laptop that slept through the four-hour interval.
+    vi.setSystemTime(Date.now() + 5 * 60 * 60 * 1000);
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await waitFor(() => expect(minted).toBe(2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries after a mint that failed, rather than counting it as done', async () => {
+    /*
+     * The throttle has to record the OUTCOME, not the attempt.
+     *
+     * Stamping before the request meant a mint that never succeeded — a
+     * transient 500, a dropped connection — blocked every retry for the full
+     * four-hour interval, because both background paths are gated on the same
+     * timestamp. The cookie then lapses inside that window and the failure is
+     * silent: Help opens a tab, the guide finds no cookie and redirects to
+     * /login, and LoginPage's authenticated-redirect bounces it straight to the
+     * dashboard. A tab flashes and closes onto the page the reader was already
+     * on, with nothing anywhere saying why.
+     *
+     * So: the first mint fails, and the very next focus — seconds later, well
+     * inside the interval — must try again.
+     */
+    let attempts = 0;
+    server.use(
+      http.post('/api/user-guide/session', () => {
+        attempts += 1;
+        // Only the first one fails, so the retry is observable as a success
+        // rather than as another failure that might have been the same call.
+        if (attempts === 1) return new HttpResponse(null, { status: 500 });
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderApp(<SignOutHarness />, { authenticated: true });
+    await waitFor(() => expect(attempts).toBe(1));
+
+    // No clock movement on purpose: an unthrottled retry is not what is being
+    // asserted — a retry DESPITE the interval not having elapsed is.
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitFor(() => expect(attempts).toBe(2));
+  });
+});
+
+describe('LoginPage when already signed in', () => {
+  it('sends a signed-in visitor on rather than showing a sign-in form', async () => {
+    /*
+     * Not a URL-typing edge case. The user-guide gate answers a missing or expired
+     * cookie with a redirect to `/login`, and that cookie is deliberately
+     * shorter-lived than the session — so this is the page a signed-in user reaches
+     * by clicking help after a long day. Showing them a sign-in form reads as
+     * having been signed out when they have not been.
+     */
+    renderRoutes(
+      <>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/" element={<p>Dashboard</p>} />
+      </>,
+      { authenticated: true, route: '/login' },
+    );
+
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
+  });
+
+  it('still shows the form while the stored token is being checked', async () => {
+    // `isAuthenticated` is false until /auth/me answers. Redirecting on that would
+    // bounce a genuine visitor off the page they need.
+    renderApp(<LoginPage />);
+
+    expect(await screen.findByRole('button', { name: /sign in/i })).toBeInTheDocument();
+  });
+});
 
 describe('PrivateRoute', () => {
   it('redirects to /login when there is no token', async () => {

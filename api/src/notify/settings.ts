@@ -44,6 +44,19 @@ interface FieldSpec {
   /** The environment variable that pins this field. */
   env: string;
   kind: FieldKind;
+  /**
+   * True for a string field that must be an `https:` URL.
+   *
+   * Only the OAuth2 token endpoint, and checked here rather than only in the Zod
+   * patch schema because that schema guards one of the three doors: a value can also
+   * arrive from the environment (which never reaches Zod, and *pins* the field so the
+   * UI cannot correct it) or from a hand-written row. This URL takes `client_secret`
+   * and `refresh_token` in the POST body on every refresh, so an `http:` value leaks
+   * long-lived credentials repeatedly and invisibly. Rejecting it here makes it fall
+   * through to the next layer and puts the variable's name in
+   * `invalidEnvironmentVariables`, which is logged at boot.
+   */
+  httpsOnly?: true;
   /** Allowed values, for `enum`. */
   values?: readonly string[];
   /**
@@ -58,6 +71,16 @@ interface FieldSpec {
   /** Seconds in the environment, milliseconds in the code. */
   scale?: 1000;
 }
+
+/**
+ * How the SMTP transport authenticates.
+ *
+ * `password` covers both AUTH LOGIN/PLAIN and no authentication at all — a relay
+ * with a blank username sends no AUTH, which is what makes an internal relay the
+ * zero-configuration case it should be.
+ */
+export const EMAIL_AUTH_METHODS = ['password', 'oauth2'] as const;
+export type EmailAuthMethod = (typeof EMAIL_AUTH_METHODS)[number];
 
 /**
  * Every delivery setting, flattened.
@@ -94,6 +117,18 @@ export const DELIVERY_FIELDS = {
   emailPassword: { env: 'SMTP_PASSWORD', kind: 'string', secret: true },
   emailFrom: { env: 'NOTIFY_EMAIL_FROM', kind: 'string' },
   emailTo: { env: 'NOTIFY_EMAIL_TO', kind: 'string-list' },
+
+  // XOAUTH2, for the tenants that permit nothing else. See issue #27 and
+  // V13__Email_oauth2.sql. The method is an explicit switch rather than something
+  // inferred from "is a client id set": inference would let a half-entered OAuth2
+  // configuration fall back to password auth and report a rejected password, which
+  // is the exact confusion this feature exists to end.
+  emailAuthMethod: { env: 'SMTP_AUTH_METHOD', kind: 'enum', values: EMAIL_AUTH_METHODS },
+  emailOauthClientId: { env: 'SMTP_OAUTH_CLIENT_ID', kind: 'string' },
+  emailOauthClientSecret: { env: 'SMTP_OAUTH_CLIENT_SECRET', kind: 'string', secret: true },
+  emailOauthRefreshToken: { env: 'SMTP_OAUTH_REFRESH_TOKEN', kind: 'string', secret: true },
+  emailOauthTokenUrl: { env: 'SMTP_OAUTH_TOKEN_URL', kind: 'string', httpsOnly: true },
+  emailOauthScope: { env: 'SMTP_OAUTH_SCOPE', kind: 'string' },
 } as const satisfies Record<string, FieldSpec>;
 
 export type DeliveryField = keyof typeof DELIVERY_FIELDS;
@@ -126,6 +161,13 @@ export interface DeliverySettings {
   emailPassword: string;
   emailFrom: string;
   emailTo: string[];
+
+  emailAuthMethod: EmailAuthMethod;
+  emailOauthClientId: string;
+  emailOauthClientSecret: string;
+  emailOauthRefreshToken: string;
+  emailOauthTokenUrl: string;
+  emailOauthScope: string;
 }
 
 /**
@@ -163,6 +205,15 @@ export const DELIVERY_DEFAULTS: DeliverySettings = {
   emailPassword: '',
   emailFrom: '',
   emailTo: [],
+
+  // Password, so an installation that upgrades into these columns keeps sending
+  // exactly the way it did before they existed.
+  emailAuthMethod: 'password',
+  emailOauthClientId: '',
+  emailOauthClientSecret: '',
+  emailOauthRefreshToken: '',
+  emailOauthTokenUrl: '',
+  emailOauthScope: '',
 };
 
 /** A field's resolved value with its provenance. */
@@ -238,8 +289,18 @@ export function parseFieldValue(field: DeliveryField, raw: unknown): unknown {
     default: {
       // A string field. Trimmed, because a trailing space in a copied webhook URL
       // is otherwise a silent failure that looks like a wrong URL.
-      return String(raw).trim();
+      const text = String(raw).trim();
+      if (spec.httpsOnly && text !== '' && !isHttpsUrl(text)) return undefined;
+      return text;
     }
+  }
+}
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
   }
 }
 
@@ -407,5 +468,74 @@ export function isWebhookConfigured(settings: DeliverySettings): boolean {
 }
 
 export function isEmailConfigured(settings: DeliverySettings): boolean {
+  return isEmailPointedSomewhere(settings) && missingEmailOauthSettings(settings).length === 0;
+}
+
+/**
+ * Whether email has a destination at all: a host, a sender and a recipient.
+ *
+ * Separate from `isEmailConfigured` because the two answer different questions and
+ * the difference decides which advice an operator is given. "Nothing is set up" and
+ * "set up but the mailbox cannot authenticate" have opposite fixes, and telling
+ * somebody with no SMTP host to go and fill in a refresh token is a dead end — see
+ * `emailBlockedReason`.
+ */
+export function isEmailPointedSomewhere(settings: DeliverySettings): boolean {
   return settings.emailHost.trim() !== '' && settings.emailFrom.trim() !== '' && settings.emailTo.length > 0;
+}
+
+/**
+ * Why email cannot deliver, in a sentence, or null when nothing is stopping it.
+ *
+ * One sentence, one definition, three readers: the status endpoint (so the Delivery
+ * page stops offering the pre-OAuth2 reason for an OAuth2 failure), the test-send
+ * result (so pressing Test says email was skipped rather than quietly leaving it out
+ * of the attempt), and the message when no channel is configured at all.
+ *
+ * Null when email is not pointed anywhere, deliberately: that is not an OAuth2
+ * problem, and the answer to it names the host, sender and recipients instead.
+ */
+export function emailBlockedReason(settings: DeliverySettings): string | null {
+  if (!isEmailPointedSomewhere(settings)) return null;
+
+  const missing = missingEmailOauthSettings(settings);
+  if (missing.length === 0) return null;
+
+  return (
+    `Email is set to OAuth2 but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set, ` +
+    'so the mailbox cannot authenticate. Fill those in on this page, or set the authentication ' +
+    'method back to password.'
+  );
+}
+
+/**
+ * What an OAuth2 mailbox still needs, named by the variable an operator would set.
+ *
+ * Empty for a password mailbox, and empty for a complete OAuth2 one — so
+ * `isEmailConfigured` can ask this without a second opinion about which mode is in
+ * force. That single answer is the point: host, sender and recipients can all be set
+ * while the refresh token is blank, and a channel in that state reports itself ready
+ * and refuses every send.
+ *
+ * The username is on the list because nodemailer treats OAuth2 without a user as *no
+ * auth configured at all*: it would connect, send no AUTH command, and the server
+ * would refuse the message with a 530 that mentions no missing mailbox address.
+ *
+ * Variable names rather than field keys, for the same reason `invalidEnvironmentVariables`
+ * uses them: an operator reading `emailOauthRefreshToken` has nothing to search for,
+ * and `SMTP_OAUTH_REFRESH_TOKEN` is a line in their file and a labelled box on the
+ * Delivery page.
+ */
+export function missingEmailOauthSettings(settings: DeliverySettings): string[] {
+  if (settings.emailAuthMethod !== 'oauth2') return [];
+
+  const required: ReadonlyArray<[value: string, variable: string]> = [
+    [settings.emailUser, 'SMTP_USER'],
+    [settings.emailOauthClientId, 'SMTP_OAUTH_CLIENT_ID'],
+    [settings.emailOauthClientSecret, 'SMTP_OAUTH_CLIENT_SECRET'],
+    [settings.emailOauthRefreshToken, 'SMTP_OAUTH_REFRESH_TOKEN'],
+    [settings.emailOauthTokenUrl, 'SMTP_OAUTH_TOKEN_URL'],
+  ];
+
+  return required.filter(([value]) => value.trim() === '').map(([, variable]) => variable);
 }
