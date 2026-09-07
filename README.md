@@ -1,9 +1,20 @@
 # Network Monitoring Tool (NMT)
 
-Passive network security monitoring. It observes traffic, raises security findings from what it
-sees, and enriches any address involved with reverse DNS, WHOIS and geolocation data.
+Passive network security monitoring for the networks cloud tools cannot reach — a segregated
+manufacturing VLAN, a defence subcontractor's CUI enclave, any monitoring host with no outbound
+internet. Local indicator files are first-class, downloaded feeds cache to disk so a restart
+without connectivity starts from the last known-good copy, and every deletion is recorded in an
+append-only trail the database itself refuses to modify.
 
-There are two ways to feed it, and they suit different deployments:
+Not another dashboard. Eight detectors, tuned for precision — the test suite replays an ordinary
+browsing session and asserts that zero alerts are produced. Suppression rules, so the authorised
+nightly scanner does not train whoever is on call to ignore the alerts table. Retention that
+rolls each expiring day up rather than deleting it, so a year-old month still has a trend line
+instead of a flat one that looks like a quiet network.
+
+It observes traffic, raises findings from what it sees, and enriches any address involved with
+reverse DNS, WHOIS and geolocation data. There are two ways to feed it, and they suit different
+deployments:
 
 | | **Packet capture** | **Flow collection** |
 | --- | --- | --- |
@@ -769,10 +780,90 @@ running, both forget the same one. It is not a full accounting of capture uptime
 five-minute capture after a year of silence still advances the reference — but it cannot take
 the whole network any more.
 
+That reference is measured **per sensor**. Across the whole table it would be one sensor's
+clock: a sensor capturing continuously drags the cutoff forward until a quieter one's entire
+device list falls behind it and goes in a single sweep, which is the same mass re-alert
+arriving from a third direction. See [More than one sensor](#more-than-one-sensor).
+
 Buckets are UTC days, explicitly. `date_trunc('day', ts)` uses the session's `TimeZone`, which
 would make the same data roll up differently on two servers — on a machine set to `Asia/Kabul`
 a finding at 22:30Z lands in the *next* day. Both the bucket expression and the range bounds
 say `AT TIME ZONE 'UTC'`.
+
+---
+
+## More than one sensor
+
+Two installations can point at one database, and until V16 they wrote into each other's rows.
+
+`alerts.dedup_key` was globally unique, and a dedup key is derived from what was observed — a
+kind, the addresses involved, a time bucket. Two sensors watching two segments therefore
+produce the **same key for two unrelated events**, because a port scan from 10.0.0.1 looks the
+same on any network that has a 10.0.0.1. The upsert found the other sensor's row: occurrence
+counts added together, `first_seen`/`last_seen` widened to span both networks, and the title,
+severity and evidence became whichever sensor flushed last. Nothing reported a conflict,
+because at the database level there was not one.
+
+`known_devices` was the quieter half and the worse one. Its primary key was the MAC address
+alone, so a phone the first sensor had learned was already "seen before" to every other sensor,
+and **new-device detection never fired for it**. A merged alert row is visibly wrong to anyone
+who looks at it. A detection that does not happen leaves nothing to look at.
+
+### Naming a sensor
+
+`SENSOR_ID`, in the environment, and it cannot be anywhere else: the database is the thing
+being shared, so a stored settings row inside it cannot hold two different answers. It is a
+property of the deployment, the way `DATABASE_URL` is. Letters, digits, dot, dash and
+underscore, 64 characters at most; anything else is refused at boot rather than trimmed,
+because a name that had to be altered to be stored is a different identity from the one that
+was configured.
+
+The default is the literal `default` rather than the machine's hostname. A hostname default
+looks friendlier and is a trap under Compose, where a container's hostname is a fresh random id
+on every recreate — the identity would change behind you, orphaning every stored alert and
+re-alerting every recurring finding. So a single-sensor installation is left alone, and you
+name the sensors on the day a second one appears.
+
+**Upgrading changes nothing.** V16 backfills every existing row to `default`, which is the same
+value the process will use, so alerts stay where they are and recurring findings go on merging
+into the rows they were already merging into.
+
+### What is separate, and what is shared
+
+| Separate per sensor | Shared across all of them |
+| --- | --- |
+| Findings, and their dedup keys | Suppression rules — a rule is a policy statement, not an observation |
+| Known devices, and therefore what counts as new | Delivery settings, the query console settings, accounts |
+| Daily rollups | The audit trail |
+
+Reads default to **every** sensor. Sharing one database is what makes a second sensor worth
+having, and an interface showing only the sensor that happens to be serving it would hide the
+other's findings with nothing on screen saying so. The alerts table gains a Sensor column and a
+filter, and the dashboard a selector — all of them hidden while only one sensor has reported,
+since a column repeating one value costs width and says nothing.
+
+Two consequences worth knowing before they look like bugs:
+
+- **Clear All crosses sensors.** The control means "empty this table", and one that quietly
+  left another sensor's rows behind would be a button whose name is false. What it does instead
+  is name the sensors in its audit entry, so the trail records that somebody sitting in front
+  of one sensor removed another's findings.
+- **Forgetting a device does not.** It defaults to the sensor answering the request, because
+  re-arming new-device detection on a segment nobody is looking at is a different act from the
+  one the button offers. The device list shows every sensor's rows, so the row you are looking
+  at is the row that goes.
+
+### Running two
+
+Each sensor is a full installation — its own API, its own capture — with `SENSOR_ID` set and
+`DATABASE_URL` pointing at the same Postgres. Nothing else is coordinated: there is no
+registration step and no leader. A sensor is whatever has written a finding, which is why the
+sensor list cannot drift from the data and why decommissioning one is deleting its rows rather
+than remembering to tell a registry.
+
+The retention sweep stays database-wide rather than per sensor. Retention is a property of the
+database, one sweep is cheaper than one per sensor, and two sweeping at once is already safe
+for the same reason a repeated sweep is: the rollup's `ON CONFLICT` adds.
 
 ---
 
@@ -1446,15 +1537,16 @@ Three refusals, each a lockout it prevents:
 
 | Method   | Path                    | Purpose                                                |
 | -------- | ----------------------- | ------------------------------------------------------ |
-| `GET`    | `/`                     | Findings, most urgent first. Filter by `severity`, `kind`, `since` (ISO or `24h`), `acknowledged` |
-| `GET`    | `/summary`              | Counts by severity and detector, for the dashboard tiles |
-| `GET`    | `/dashboard`            | Summary plus trend buckets and top sources (`days`, `bucket`) |
-| `GET`    | `/devices`              | MAC addresses seen on the network                       |
+| `GET`    | `/`                     | Findings, most urgent first. Filter by `severity`, `kind`, `sensor`, `since` (ISO or `24h`), `acknowledged` |
+| `GET`    | `/summary`              | Counts by severity and detector, for the dashboard tiles (`sensor`) |
+| `GET`    | `/sensors`              | Which sensors have written findings here, and which one is answering |
+| `GET`    | `/dashboard`            | Summary plus trend buckets and top sources (`days`, `bucket`, `sensor`) |
+| `GET`    | `/devices`              | MAC addresses seen on the network (`sensor`)            |
 | `POST`   | `/:id/acknowledge`      | Mark a finding as handled                               |
 | `POST`   | `/:id/unacknowledge`    | Reopen it                                               |
 | `DELETE` | `/:id`                  | Delete one finding (ADMIN)                              |
 | `DELETE` | `/`                     | Clear all findings (ADMIN)                              |
-| `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN) |
+| `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN). `sensor` defaults to the one answering |
 
 ### Audit trail — `/api/audit`
 
@@ -1628,6 +1720,7 @@ network-monitoring-ui/        React + TypeScript + Vite frontend
 | `LOG_LEVEL`            | `info` (`silent` in tests)                     | trace / debug / info / warn / error / fatal    |
 | `DATABASE_URL`         | built from `PG*` variables                     |                                                |
 | `DB_AUTO_MIGRATE`      | `true`                                         | Run pending migrations on boot                 |
+| `SENSOR_ID`            | `default`                                      | Which sensor this is. Only matters when two installations share one database — see [More than one sensor](#more-than-one-sensor) |
 | `JWT_SECRET`           | *required*                                     | Server will not start without it               |
 | `JWT_EXPIRES_IN`       | `1d`                                           |                                                |
 | `CAPTURE_BUFFER_SIZE`  | `5000`                                         | Packets held in memory per capture             |
@@ -1999,6 +2092,7 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **`sensor_id` on findings, devices and rollups** — two installations sharing one database wrote into each other's rows: `alerts.dedup_key` was globally unique although the key is derived from what was observed, and `known_devices` was keyed on the MAC alone, so a device one sensor had learned silently switched off new-device detection on every other | #54 |
 | **Both query-console roles revoked, not just the read one** — `revokeAdhocLogin` took `adhocRole()`'s `read` default, so every path that switched the console off left `nm_adhocrw_<database>` holding `LOGIN`, the last write-mode password and V12's DML on the operational tables; no supported operator action reached it. Both modes now revoke wherever the console goes off, `startAdhoc` strips the mode it is not using, and the statement is `NOLOGIN PASSWORD NULL` so the credential is destroyed rather than disabled | #53 |
 | **Role management in the interface** — role was settable only in `psql`; now Administration settings → Users and roles, audited, refusing to demote the last administrator (in a locked transaction, because two administrators demoting each other loses a count-then-update race) or to demote yourself | #53 |
 | **Delivery settings moved under the gear, and unpinned** — one place to edit rather than two, and the fix for a bug that made the whole feature inert: Compose passed every delivery variable with its default baked in, so all 16 fields reported themselves as pinned by the file an administrator was told not to edit | #53 |
@@ -2019,18 +2113,16 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 ### Next, in order
 
-1. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
-   each other's findings. Cheap now and expensive once anyone has data.
-2. **Internationalisation — English, German and Dari.** The largest item on this list, and
-   the part of it that gets more expensive every day is the same shape as `sensor_id`
-   above: findings are stored as English prose. See
+1. **Internationalisation — English, German and Dari.** The largest item on this list, and
+   the part of it that gets more expensive every day is the same shape as the `sensor_id`
+   work that has just shipped: findings are stored as English prose. See
    [Internationalisation](#internationalisation--english-german-and-dari) below for the
    four layers and the decisions each one needs.
-3. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
+2. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
    type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
    `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
    `.bin`.
-4. **Small, and each independently useful:**
+3. **Small, and each independently useful:**
    - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,
@@ -2097,7 +2189,7 @@ Hand-rolled `count === 1 ? … : …` is wrong in Dari on day one.
    ``` `ARP spoofing: ${ip} claimed by ${mac}` ```. Translating the interface does not
    translate a single existing finding, and every day of capture adds rows that can never
    be translated. **This is the one to decide before more data accumulates**, for exactly
-   the reason `sensor_id` is above it.
+   the reason `sensor_id` went first.
 
    The shape: detectors emit a message **key plus a params object**, and the text is
    rendered at display time. Much of what the titles interpolate is already structured —
