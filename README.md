@@ -1999,6 +1999,7 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **Both query-console roles revoked, not just the read one** — `revokeAdhocLogin` took `adhocRole()`'s `read` default, so every path that switched the console off left `nm_adhocrw_<database>` holding `LOGIN`, the last write-mode password and V12's DML on the operational tables; no supported operator action reached it. Both modes now revoke wherever the console goes off, `startAdhoc` strips the mode it is not using, and the statement is `NOLOGIN PASSWORD NULL` so the credential is destroyed rather than disabled | #53 |
 | **Role management in the interface** — role was settable only in `psql`; now Administration settings → Users and roles, audited, refusing to demote the last administrator (in a locked transaction, because two administrators demoting each other loses a count-then-update race) or to demote yourself | #53 |
 | **Delivery settings moved under the gear, and unpinned** — one place to edit rather than two, and the fix for a bug that made the whole feature inert: Compose passed every delivery variable with its default baked in, so all 16 fields reported themselves as pinned by the file an administrator was told not to edit | #53 |
 | **Administration settings, and the query console among them** — an admin-only settings gear holding a diagnostics panel that distinguishes the console's three off-states, and a settings form that switches it on, sets its password and tunes its limits without a restart; the same three-layer resolution as the delivery settings, with the credential redacted in the resolver so no endpoint can leak it by forgetting | #53 |
@@ -2018,35 +2019,18 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 ### Next, in order
 
-1. **Revoke *both* console roles, not just the read one** (~half a day, and first because
-   it is a credential that outlives the authorisation to use it). `revokeAdhocLogin` takes
-   `adhocRole()`'s default `mode: 'read'`, so every path that switches the console off only
-   strips `LOGIN` from `nm_adhoc_<database>`. Broader than the off-path: `stopAdhoc` revokes
-   nothing by design, and a write→read switch re-installs the password on the read role
-   without touching the write one — so **no supported operator action ever revokes
-   `nm_adhocrw_<database>`**, which keeps `LOGIN`, the last write-mode password, and
-   `INSERT`/`UPDATE`/`DELETE` on the operational tables from V12. Rotating the password in
-   read mode does not reach it either; only re-entering write mode updates it. The docblock
-   above the function asserts the opposite ("Both 'off' paths revoke, and that is the
-   point") — the file describes, for one of its two roles, exactly the bug it still has.
-   The fix is to loop the two modes the way `V15__Adhoc_password.sql` already does in its
-   `DO` block, revoke the non-active role on a successful `startAdhoc` so a mode switch
-   leaves nothing behind, and prefer `NOLOGIN PASSWORD NULL` so the credential is destroyed
-   rather than disabled. `adhoc-disabled.test.ts` checks only `adhocRole(name)`, which is
-   why this was invisible: extend it to assert `rolcanlogin` on **both** roles after an off
-   and after a write→read switch.
-2. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
+1. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
    each other's findings. Cheap now and expensive once anyone has data.
-3. **Internationalisation — English, German and Dari.** The largest item on this list, and
+2. **Internationalisation — English, German and Dari.** The largest item on this list, and
    the part of it that gets more expensive every day is the same shape as `sensor_id`
    above: findings are stored as English prose. See
    [Internationalisation](#internationalisation--english-german-and-dari) below for the
    four layers and the decisions each one needs.
-4. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
+3. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
    type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
    `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
    `.bin`.
-5. **Small, and each independently useful:**
+4. **Small, and each independently useful:**
    - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,
@@ -2072,6 +2056,19 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
      environment already did" enable the console. Stale since V15 made the stored row a
      source too. No privilege gained, but a comment stating the opposite of the code is the
      failure mode this repository keeps finding.
+   - Warn at boot about `ADHOC_*` values that do not parse. `loadDeliverySettings` logs the
+     variables `invalidEnvironmentVariables` rejected, so a typo leaves a trace instead of
+     silently falling through to the stored value or the default. `loadAdhocSettings` has no
+     equivalent, and these are the fields where silence costs most: `ADHOC_AUDIT=OFF` parsing
+     to nothing was a finding on this PR's seventh pass, and a boot warning would have shown
+     it. Same shape as the delivery warning, derived from `ADHOC_FIELDS`.
+   - Stop the delivery form bumping `updated_at` on a save that changed nothing.
+     `saveDeliverySettings` skips the *audit* entry when `changedFields` comes back empty but
+     still runs the upsert, so a form re-saved with no edits rewrites `updated_at` and
+     overwrites `updated_by` with whoever pressed Save — reattributing the last real change to
+     somebody who did not make it. `saveAdhocSettings` skips the write as well; its docblock
+     calls that "a step further than the delivery path", which is true and is the gap. Same
+     defect, one severity lower, and the fix is already written next door.
    - A duplicate-version guard in the migration runner. Two files sharing a `V14__` prefix
      are not detected as a collision: the second one's checksum is compared against the
      first one's recorded row, and the runner reports a *changed migration* and refuses to
