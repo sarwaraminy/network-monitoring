@@ -78,12 +78,15 @@ export default function DashboardPage() {
   const multiSensor = sensors.length > 1;
 
   /*
-   * Derived, never applied straight from the state — see AlertsPage, which
-   * carries the full reasoning. `sensors` shrinks in ordinary operation, and a
-   * filter that goes on applying after its control has been unmounted presents
-   * as an empty dashboard with no visible cause.
+   * Applied only while the selection still names a sensor that exists — see
+   * AlertsPage, which carries the full reasoning. `sensors` shrinks in ordinary
+   * operation, and a stale filter lands harder here than anywhere else: every
+   * query on this page takes it, so the trend, all four tiles and the device
+   * count zero together. An empty dashboard reads as "the capture stopped" or
+   * "the database is empty", not as a filter — and the control, rendering blank
+   * because its value matches no option, says nothing is filtered.
    */
-  const appliedSensor = multiSensor ? sensor || undefined : undefined;
+  const appliedSensor = sensors.some((entry) => entry.sensorId === sensor) ? sensor : undefined;
 
   const dashboard = useQuery({
     queryKey: ['alerts', 'dashboard', days, appliedSensor ?? 'all'],

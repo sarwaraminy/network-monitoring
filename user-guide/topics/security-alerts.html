@@ -115,10 +115,11 @@ addresses, and without this they would be counted as one event that happened twi
 Known devices are kept apart too, so a machine that is familiar on one segment is still
 reported as new when it appears on another.</p>
 
-<p class="note">One thing that is <em>not</em> kept apart: <span class="ui">Clear all
-findings</span> empties the table for every sensor, not only the one you are looking at.
-Suppression rules are shared as well &mdash; a rule you write applies everywhere, which
-is usually what you want from a statement about what is expected.</p>
+<p class="note">Two things are <em>not</em> kept apart. Suppression rules are shared
+&mdash; a rule you write applies to every sensor, which is usually what you want from a
+statement about what is expected. And clearing every finding at once, which is an
+administrative action available through the API rather than a button on this page,
+empties the table for all sensors rather than only the one you are looking at.</p>
 
 <div class="access">
   <span class="label">Who can use this</span>

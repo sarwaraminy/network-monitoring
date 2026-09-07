@@ -71,6 +71,24 @@ ALTER TABLE alerts ADD CONSTRAINT alerts_sensor_dedup_key_key UNIQUE (sensor_id,
 ALTER TABLE known_devices DROP CONSTRAINT known_devices_pkey;
 ALTER TABLE known_devices ADD PRIMARY KEY (sensor_id, mac_address);
 
+-- The index the per-sensor retention cutoff reads, added with the correlation
+-- that needs it rather than after somebody notices.
+--
+-- `forgetStaleDevices` derives each sensor's cutoff from `max(last_seen)` for
+-- that sensor, evaluated against the row being considered for deletion. Nothing
+-- already here serves that: V4's index is on `last_seen` alone, and the primary
+-- key above leads with `sensor_id` but carries the MAC second, so a per-sensor
+-- maximum would still have to read every row for the sensor. This one answers it
+-- from the first entry of the sensor's range instead, which matters because the
+-- table it is on is the one whose unbounded growth is the reason that sweep
+-- exists, and the sweep runs nightly.
+--
+-- DESC to match the direction the maximum is read from; Postgres can scan either
+-- way, but stating it keeps the index and the query obviously about the same
+-- thing.
+CREATE INDEX known_devices_sensor_last_seen_idx
+    ON known_devices (sensor_id, last_seen DESC);
+
 -- The rollup's natural key gains the same column, so a sweep on one sensor cannot
 -- add its counts to another's bucket. This is what keeps the sweep idempotent per
 -- sensor rather than per day.

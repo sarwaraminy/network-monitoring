@@ -89,23 +89,29 @@ export default function AlertsPage() {
   const multiSensor = sensors.length > 1;
 
   /*
-   * The filter that is actually applied, derived rather than read from the state.
+   * The filter that is actually applied: the selection, but only while it still
+   * names a sensor that exists.
    *
-   * Hiding the control does not clear what it selected, and the sensor list
-   * SHRINKS in ordinary operation: it is read from the `alerts` table, so Clear
-   * All empties it and retention rolls a quiet sensor's rows into
-   * `alert_rollup_daily` and deletes them. Either takes the list back to one
-   * entry while `sensor` still names the sensor that just went quiet — and then
-   * the filter keeps applying with no control on screen to undo it, no cause an
-   * operator can see, and no help from a reload, since the state is rebuilt from
-   * the same data. It presents as "the alerts are gone".
+   * The sensor list SHRINKS in ordinary operation — it is read from the `alerts`
+   * table, so clearing findings empties it and retention rolls a quiet sensor's
+   * rows into `alert_rollup_daily` and deletes them. Nothing clears `sensor` when
+   * that happens, so without this the filter goes on applying to a sensor that is
+   * no longer there, and the page shows no findings for a reason the operator
+   * cannot see. A reload does not help: the state is rebuilt from the same data.
    *
-   * Derived rather than reset in an effect so there is no render in which the
-   * hidden filter is still applied. If a second sensor returns, the control comes
-   * back carrying the old selection — visible, and therefore clearable, which is
-   * the difference that matters.
+   * **Membership, not `multiSensor`.** Keying on the count catches only the
+   * collapse to a single sensor. Three sensors becoming two, where the one that
+   * went quiet is the one selected, leaves the count above the threshold — so the
+   * control renders, `value={sensor}` matches no `MenuItem`, and it renders
+   * *blank*. That looks exactly like "All sensors" while the list is still
+   * filtered to a sensor with nothing in it, which is worse than the control
+   * disappearing: at least a missing control tells the operator something moved.
+   *
+   * Derived rather than reset in an effect, so there is no render in which a
+   * stale filter is still applied. A sensor that returns is matched again and the
+   * selection resumes — visible in the control, and therefore clearable.
    */
-  const appliedSensor = multiSensor ? sensor : '';
+  const appliedSensor = sensors.some((entry) => entry.sensorId === sensor) ? sensor : '';
 
   // The filter values are part of the query key, so changing one refetches and
   // caches independently — no manual reload, and going back to a previous filter

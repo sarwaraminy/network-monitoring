@@ -345,6 +345,52 @@ describe('AlertsPage', () => {
     await waitFor(() => expect(requested.at(-1)).toBe(''));
   });
 
+  it('drops the filter when the chosen sensor vanishes but others remain', async () => {
+    /*
+     * The case a count-based check misses, and the one that reads worst.
+     *
+     * Three sensors becoming two leaves the control rendered, because more than
+     * one remains — but `value` matches no option, so it renders BLANK. That is
+     * indistinguishable from "All sensors" while the list is still filtered to a
+     * sensor that no longer exists: the page says nothing is filtered and shows
+     * nothing. At least a control that disappears tells the operator something
+     * moved.
+     */
+    const requested: string[] = [];
+    let sensorRows = [
+      { sensorId: 'branch-office', self: false, alerts: 1, latestAt: null },
+      { sensorId: 'default', self: true, alerts: 2, latestAt: null },
+      { sensorId: 'warehouse', self: false, alerts: 1, latestAt: null },
+    ];
+
+    server.use(
+      http.get('/api/alerts/sensors', () => HttpResponse.json(sensorRows)),
+      http.get('/api/alerts', ({ request }) => {
+        const url = new URL(request.url);
+        requested.push(url.searchParams.get('sensor') ?? '');
+        return HttpResponse.json(ALERTS.filter((alert) => alert.acknowledgedAt === null));
+      }),
+    );
+
+    const user = userEvent.setup();
+    await renderAlerts();
+
+    await user.click(await screen.findByRole('combobox', { name: /sensor/i }));
+    await user.click(await screen.findByRole('option', { name: /warehouse/i }));
+    await waitFor(() => expect(requested.at(-1)).toBe('warehouse'));
+
+    // Warehouse goes quiet; two sensors remain, so the control stays on screen.
+    sensorRows = [
+      { sensorId: 'branch-office', self: false, alerts: 1, latestAt: null },
+      { sensorId: 'default', self: true, alerts: 2, latestAt: null },
+    ];
+    await user.click(screen.getAllByRole('button', { name: /^acknowledge$|^reopen$/i })[0]!);
+
+    await waitFor(() => expect(requested.at(-1)).toBe(''));
+    // Still rendered, because there is still a choice to make.
+    expect(screen.getByRole('combobox', { name: /sensor/i })).toBeInTheDocument();
+  });
+
   it('looks up an IP address from the table', async () => {
     const user = userEvent.setup();
     await renderAlerts();

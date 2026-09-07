@@ -380,7 +380,11 @@ async function expiredDays(cutoff: Date): Promise<string[]> {
  * cutoff forward until a quiet one's entire device list fell behind it and went in
  * one sweep — the mass re-alert this function is built to prevent, arriving from a
  * third direction. Correlated on `sensor_id`, each sensor keeps its own clock, and a
- * sensor with no rows at all has no cutoff and loses nothing.
+ * sensor with no rows at all has no cutoff and loses nothing. V16 adds
+ * `known_devices (sensor_id, last_seen DESC)` so that correlated maximum is read
+ * from the first entry of a sensor's range rather than by scanning its rows —
+ * this is the table whose unbounded growth is the reason the sweep exists, so a
+ * per-row scan here is the one place the cost would actually land.
  *
  * **A retired sensor keeps its newest devices for ever, and that is the cost of
  * the correlation rather than a bug in it.** Each cutoff is derived only from that

@@ -123,7 +123,11 @@ export const knownDevices = pgTable(
     firstSeen: timestamp('first_seen', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
     lastSeen: timestamp('last_seen', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.sensorId, table.macAddress] })],
+  (table) => [
+    primaryKey({ columns: [table.sensorId, table.macAddress] }),
+    // Serves retention's per-sensor `max(last_seen)` cutoff — see V16.
+    index('known_devices_sensor_last_seen_idx').on(table.sensorId, table.lastSeen.desc()),
+  ],
 );
 
 /**
