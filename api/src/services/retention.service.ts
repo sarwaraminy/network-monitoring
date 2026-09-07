@@ -252,7 +252,7 @@ async function rollUpExpiredAlerts(cutoff: Date): Promise<RollupTotals> {
         /*
          * One statement: aggregate the day's rows and write the buckets.
          *
-         * `GROUP BY 1, 2, 3` by position rather than by repeating the expressions,
+         * `GROUP BY 1, 2, 3, 4` by position rather than by repeating the expressions,
          * because Postgres treats the same expression in SELECT and GROUP BY as two
          * separate ones once a bound parameter is involved and rejects the query —
          * the trap `dashboardData` works around by inlining its bucket unit.

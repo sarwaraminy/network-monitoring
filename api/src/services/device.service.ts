@@ -82,28 +82,64 @@ export async function recordDevice(macAddress: string, ipAddress: string | null)
 /**
  * Forgets a device, so it is reported as new if it returns.
  *
- * Scoped to one sensor, defaulting to this one. Deleting every sensor's row for an
- * address would be a different act than the button asks for: it would re-arm
- * new-device detection on segments the operator is not looking at, and on a
- * single-sensor installation — which is every installation that has not set
- * SENSOR_ID — the default makes this behave exactly as it did before.
+ * Scoped to one sensor when the caller names one. Deleting every sensor's row for
+ * an address would be a different act than the button asks for: it would re-arm
+ * new-device detection on segments the operator is not looking at.
+ *
+ * When the caller names none, the sensor is *resolved* rather than assumed, and
+ * that is this function's one piece of real behaviour. It used to default to this
+ * sensor, which disagreed with the list beside it: `GET /devices` returns every
+ * sensor's rows, so the obvious client — read the list, post a MAC back — deleted
+ * a row it had never seen, or answered 404 for a MAC plainly in the list it had
+ * just fetched. Neither is a thing to leave for whoever writes that client.
+ *
+ * So: one holder, delete it; several, refuse and name them, because picking one is
+ * the caller's decision and guessing it is how the wrong segment gets re-armed;
+ * none, not found. On a single-sensor installation — every installation that has
+ * not set SENSOR_ID — there is exactly one holder and this is what it always did.
+ *
+ * Resolved inside the transaction, and the holders are locked while it decides:
+ * otherwise a second sensor learning the same address between the count and the
+ * delete turns an unambiguous request into a silent choice between two rows.
  *
  * Audited in the same transaction, with what was known about it: the addresses and
  * when it was first and last seen are the whole of what the row held, and after the
  * delete this entry is the only place they survive. The sensor is recorded too,
  * because "device aa:bb:cc was forgotten" no longer identifies a single row.
  */
+export type ForgetDeviceResult =
+  | { outcome: 'forgotten'; sensorId: string }
+  | { outcome: 'not-found' }
+  /** Held by more than one sensor, and the caller did not say which. */
+  | { outcome: 'ambiguous'; sensors: string[] };
+
 export async function forgetDevice(
   macAddress: string,
   actor: Actor,
-  sensor: string = env.sensorId,
-): Promise<boolean> {
+  sensor?: string,
+): Promise<ForgetDeviceResult> {
   const mac = macAddress.toLowerCase();
 
   return db.transaction(async (tx) => {
+    let target = sensor;
+
+    if (target === undefined) {
+      const holders = await tx
+        .select({ sensorId: knownDevices.sensorId })
+        .from(knownDevices)
+        .where(eq(knownDevices.macAddress, mac))
+        .for('update');
+
+      if (holders.length === 0) return { outcome: 'not-found' };
+      if (holders.length > 1) {
+        return { outcome: 'ambiguous', sensors: holders.map((row) => row.sensorId).sort() };
+      }
+      target = holders[0]!.sensorId;
+    }
+
     const [deleted] = await tx
       .delete(knownDevices)
-      .where(and(eq(knownDevices.sensorId, sensor), eq(knownDevices.macAddress, mac)))
+      .where(and(eq(knownDevices.sensorId, target), eq(knownDevices.macAddress, mac)))
       .returning({
         sensorId: knownDevices.sensorId,
         mac: knownDevices.macAddress,
@@ -113,7 +149,7 @@ export async function forgetDevice(
         lastSeen: knownDevices.lastSeen,
       });
 
-    if (!deleted) return false;
+    if (!deleted) return { outcome: 'not-found' };
 
     await recordAudit(tx, {
       actor: actor.name,
@@ -129,6 +165,6 @@ export async function forgetDevice(
       },
     });
 
-    return true;
+    return { outcome: 'forgotten', sensorId: deleted.sensorId };
   });
 }

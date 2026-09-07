@@ -338,6 +338,75 @@ describe('evidence policy', () => {
     assert.match(JSON.stringify(format.renderSlack(named)), /sensor .{0,2}branch-office/);
   });
 
+  it('names the sensor in every renderer, not only the ones that build text', () => {
+    /*
+     * Asserted as a sweep over all six because three of them were missed.
+     *
+     * `renderText`, `renderHtml` and `renderSlack` interpolate a line and were
+     * changed together; `renderTeams`, `renderTeamsConnector` and `renderDiscord`
+     * build structured payloads, where the sensor is a fact or an embed field
+     * rather than a line — so a change made by adding a string to three renderers
+     * left the other three silently without it. A Teams card named the host, the
+     * port and the detector but not the segment, which is the one field that says
+     * where to go, and the same finding on two sensors arrived as two identical
+     * cards.
+     *
+     * Whole-payload matching on purpose: what each format calls the field differs
+     * (`title` here, `name` there), and this test is about the value reaching the
+     * wire at all. Any renderer added later has to be added here, which is the
+     * point.
+     */
+    const named: Notification = {
+      severity: 'high',
+      findings: [
+        {
+          sensorId: 'branch-office',
+          kind: 'port_scan',
+          severity: 'high',
+          title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
+          description: 'A single source attempted connections to many ports.',
+          sourceIp: '10.0.0.66',
+          targetIp: '10.0.0.89',
+          occurrences: 3,
+          firstSeen: AT,
+          lastSeen: AT,
+          evidence: null,
+        },
+      ],
+      omittedCount: 0,
+      countsBySeverity: { high: 1 },
+      generatedAt: AT,
+      dashboardUrl: null,
+      isTest: false,
+    };
+    const unnamed: Notification = {
+      ...named,
+      findings: [{ ...named.findings[0]!, sensorId: 'default' }],
+    };
+
+    const renderers: Array<[string, (notification: Notification) => unknown]> = [
+      ['renderText', format.renderText],
+      ['renderHtml', format.renderHtml],
+      ['renderSlack', format.renderSlack],
+      ['renderTeams', format.renderTeams],
+      ['renderTeamsConnector', format.renderTeamsConnector],
+      ['renderDiscord', format.renderDiscord],
+    ];
+
+    for (const [name, render] of renderers) {
+      assert.match(
+        JSON.stringify(render(named)),
+        /branch-office/,
+        `${name} does not name the sensor, so its readers cannot tell two segments apart`,
+      );
+      assert.doesNotMatch(
+        JSON.stringify(render(unnamed)),
+        /sensor/i,
+        `${name} prints a sensor line for an installation that has only one`,
+      );
+    }
+  });
+
   it('never puts a password in a message, in any format', () => {
     // Detectors are built never to place a secret in evidence, and their own suite
     // asserts it. This re-checks at the boundary where data leaves the machine.

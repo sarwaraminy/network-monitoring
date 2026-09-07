@@ -111,10 +111,12 @@ alertsRouter.get(
  * DELETE /api/alerts/devices/:mac?sensor= — forgets a device, so it is reported as
  * new again. Useful after investigating one, and for resetting a demo.
  *
- * `sensor` defaults to the sensor serving the request, which is what makes this
- * unchanged for an installation that has not set SENSOR_ID. It is a parameter at
- * all because the device list shows every sensor's rows: without it, the row an
- * operator is looking at could not be the row the button deletes.
+ * `sensor` picks the row when more than one sensor has seen the address. Omitting
+ * it no longer means "this sensor": that default disagreed with `GET /devices`
+ * beside it, which returns every sensor's rows — so a client that read the list and
+ * posted a MAC back, which is the obvious way to write one, deleted a row it had
+ * never seen or got a 404 for a MAC plainly in the list. `forgetDevice` now resolves
+ * the holder instead, and refuses rather than guesses when there are several.
  */
 alertsRouter.delete(
   '/devices/:mac',
@@ -129,10 +131,19 @@ alertsRouter.delete(
       throw new HttpError(400, sensor.error.issues.map((issue) => issue.message).join('; '));
     }
 
-    const forgotten = sensor.data
-      ? await forgetDevice(mac, actorOf(req.user), sensor.data)
-      : await forgetDevice(mac, actorOf(req.user));
-    if (!forgotten) throw new HttpError(404, `No known device ${mac}`);
+    const result = await forgetDevice(mac, actorOf(req.user), sensor.data);
+
+    if (result.outcome === 'not-found') throw new HttpError(404, `No known device ${mac}`);
+    if (result.outcome === 'ambiguous') {
+      // 400 rather than a guess: naming one of them is the caller's decision, and
+      // the message says which names are available so the retry is one edit away.
+      throw new HttpError(
+        400,
+        `${mac} is known to more than one sensor (${result.sensors.join(', ')}). ` +
+          'Add ?sensor= to say which one should forget it.',
+      );
+    }
+
     res.status(204).send();
   }),
 );

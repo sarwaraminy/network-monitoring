@@ -55,6 +55,20 @@ export const handlers = [
    */
   http.get('/auth/signup-allowed', () => HttpResponse.json({ allowed: false, mode: 'admin-only' })),
 
+  /*
+   * The user guide's session cookie, which `AuthProvider` mints on every sign-in
+   * and on every restored session — so essentially every test that renders an
+   * authenticated tree calls this. Unhandled, MSW logged an error per test and the
+   * request went to the real network stack, which is latency a suite does not need
+   * and is the most likely reason one AdminSettings case timed out under parallel
+   * load while passing on its own.
+   *
+   * 204 with no body, as the API answers. Nothing asserts on it; it exists so that
+   * no test makes an unhandled request.
+   */
+  http.post('/api/user-guide/session', () => new HttpResponse(null, { status: 204 })),
+  http.delete('/api/user-guide/session', () => new HttpResponse(null, { status: 204 })),
+
   http.get('/api/notify/status', () => HttpResponse.json(NOTIFY_STATUS)),
 
   http.get('/api/notify/settings', () => HttpResponse.json(DELIVERY_SETTINGS)),

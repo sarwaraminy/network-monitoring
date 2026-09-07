@@ -35,6 +35,22 @@ export const queryClient = new QueryClient({
 });
 
 /**
+ * The key segment standing for "every sensor", where a sensor id would otherwise go.
+ *
+ * `'*'` and not `'all'`, and the difference is a real collision rather than a
+ * preference. A sensor id must match `/^[A-Za-z0-9][A-Za-z0-9._-]*$/`, which `all`
+ * satisfies — so a sensor actually named `all` produced the identical key to the
+ * unfiltered view, and React Query, behaving perfectly correctly, served one for
+ * the other: pick that sensor and get every sensor's numbers out of cache without a
+ * refetch, and the reverse. `*` cannot collide, because the first character of an id
+ * has to be alphanumeric.
+ *
+ * Unlikely as a name, and `all` is exactly what somebody would call an aggregating
+ * collector. Nothing rejects it, so the key must not depend on nobody choosing it.
+ */
+export const ALL_SENSORS = '*';
+
+/**
  * Query keys in one place, so a mutation can invalidate exactly what it affected
  * without a stringly-typed guess at the key another file used.
  */
@@ -45,10 +61,10 @@ export const queryKeys = {
   // imports from the API modules.
   alerts: (filters: object) => ['alerts', 'list', filters] as const,
   // Keyed by sensor, so the tiles cached for one sensor are not served for
-  // another. `all` rather than `undefined`, which would not survive the key.
-  alertSummary: (sensor?: string) => ['alerts', 'summary', sensor ?? 'all'] as const,
+  // another. A sentinel rather than `undefined`, which would not survive the key.
+  alertSummary: (sensor?: string) => ['alerts', 'summary', sensor ?? ALL_SENSORS] as const,
   sensors: ['alerts', 'sensors'] as const,
-  knownDevices: (sensor?: string) => ['alerts', 'devices', sensor ?? 'all'] as const,
+  knownDevices: (sensor?: string) => ['alerts', 'devices', sensor ?? ALL_SENSORS] as const,
   interfaces: (scope: string) => ['packets', scope, 'interfaces'] as const,
   captureStatus: (scope: string) => ['packets', scope, 'status'] as const,
   packets: (scope: string) => ['packets', scope, 'list'] as const,

@@ -405,14 +405,19 @@ export interface SensorSummary {
 
 export async function listSensors(): Promise<SensorSummary[]> {
   const result = await db.execute<{ sensor_id: string; alerts: number; latest: string | null }>(sql`
-    WITH known AS (
-      SELECT sensor_id FROM ${alerts}
-      UNION SELECT sensor_id FROM ${knownDevices}
-      UNION SELECT sensor_id FROM ${alertRollupDaily}
-    ),
-    counted AS (
+    WITH counted AS (
       SELECT sensor_id, count(*)::int AS alerts, max(last_seen) AS latest
       FROM ${alerts} GROUP BY sensor_id
+    ),
+    known AS (
+      -- From counted, not from the alerts table again: the grouping above already
+      -- produces exactly the distinct sensor ids in it, so reading it a second
+      -- time was a second pass over the one table the schema documents as
+      -- unbounded. This endpoint is polled by both pages to decide whether the
+      -- sensor controls render at all.
+      SELECT sensor_id FROM counted
+      UNION SELECT sensor_id FROM ${knownDevices}
+      UNION SELECT sensor_id FROM ${alertRollupDaily}
     )
     SELECT known.sensor_id,
            coalesce(counted.alerts, 0) AS alerts,

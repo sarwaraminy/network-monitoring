@@ -167,9 +167,8 @@ describe('two sensors sharing one database', { skip: database.skip }, () => {
     assert.equal((await devices.listKnownDevices()).length, 2, 'the inventory spans sensors');
     assert.equal((await devices.listKnownDevices('sensor-b')).length, 1);
 
-    // Defaults to this sensor, which is what leaves a single-sensor installation
-    // behaving exactly as it did.
-    assert.equal(await devices.forgetDevice('aa:bb:cc:dd:ee:ff', { id: 1, name: 'tester' }), true);
+    const result = await devices.forgetDevice('aa:bb:cc:dd:ee:ff', { id: 1, name: 'tester' }, 'sensor-a');
+    assert.deepEqual(result, { outcome: 'forgotten', sensorId: 'sensor-a' });
 
     const remaining = await devices.listKnownDevices();
     assert.deepEqual(
@@ -177,6 +176,45 @@ describe('two sensors sharing one database', { skip: database.skip }, () => {
       ['sensor-b'],
       'forgetting a device on one sensor must not re-arm detection on another',
     );
+  });
+
+  it('refuses to guess which sensor should forget an address two of them know', async () => {
+    /*
+     * This used to default to the sensor serving the request, which disagreed with
+     * the list beside it: `listKnownDevices()` spans every sensor, so a client that
+     * read the list and posted a MAC back — the obvious way to write one — deleted
+     * a row it had never seen. Re-arming new-device detection on a segment nobody
+     * was looking at is not a thing to do on a caller's behalf.
+     */
+    await seedDevice('sensor-a', 'aa:bb:cc:dd:ee:ff', new Date());
+    await seedDevice('sensor-b', 'aa:bb:cc:dd:ee:ff', new Date());
+
+    const result = await devices.forgetDevice('aa:bb:cc:dd:ee:ff', { id: 1, name: 'tester' });
+
+    assert.deepEqual(result, { outcome: 'ambiguous', sensors: ['sensor-a', 'sensor-b'] });
+    assert.equal((await devices.listKnownDevices()).length, 2, 'and nothing was deleted');
+  });
+
+  it('resolves the one holder, even when it is not the sensor answering', async () => {
+    /*
+     * The other half of the same disagreement: the MAC is in the list, on one
+     * sensor, and it is not this one. The old default scoped the delete to
+     * `sensor-a` and answered "no known device" for an address plainly on screen.
+     *
+     * This is also the single-sensor case, which is every installation that has not
+     * set SENSOR_ID: exactly one holder, resolved, deleted — as it always was.
+     */
+    await seedDevice('sensor-b', 'aa:bb:cc:dd:ee:ff', new Date());
+
+    const result = await devices.forgetDevice('aa:bb:cc:dd:ee:ff', { id: 1, name: 'tester' });
+
+    assert.deepEqual(result, { outcome: 'forgotten', sensorId: 'sensor-b' });
+    assert.equal((await devices.listKnownDevices()).length, 0);
+  });
+
+  it('reports an address no sensor knows as not found', async () => {
+    const result = await devices.forgetDevice('aa:bb:cc:dd:ee:ff', { id: 1, name: 'tester' });
+    assert.deepEqual(result, { outcome: 'not-found' });
   });
 
   it('lists a sensor that has devices but has never raised a finding', async () => {

@@ -16,7 +16,7 @@ import { useNavigate } from 'react-router-dom';
 import { fetchAlertDashboard } from '../api/alerts.api';
 import { describeError } from '../api/client';
 import { fetchCaptureStatus } from '../api/packets.api';
-import { queryKeys } from '../api/queryClient';
+import { ALL_SENSORS, queryKeys } from '../api/queryClient';
 import MagnitudeBarChart from '../charts/MagnitudeBarChart';
 import SeverityTrendChart from '../charts/SeverityTrendChart';
 import { useChartPalette } from '../charts/useChartPalette';
@@ -89,7 +89,7 @@ export default function DashboardPage() {
   const appliedSensor = sensors.some((entry) => entry.sensorId === sensor) ? sensor : undefined;
 
   const dashboard = useQuery({
-    queryKey: ['alerts', 'dashboard', days, appliedSensor ?? 'all'],
+    queryKey: ['alerts', 'dashboard', days, appliedSensor ?? ALL_SENSORS],
     queryFn: () => fetchAlertDashboard(days, appliedSensor),
     refetchInterval: 30_000,
   });

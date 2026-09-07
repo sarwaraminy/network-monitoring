@@ -888,8 +888,8 @@ into the rows they were already merging into.
 | The sensor name on every notification | Delivery settings — but not the per-process rate limits, which apply per sensor |
 
 Delivery is the case worth spelling out, because the settings are shared and the *sending* is
-not. Every notification names its sensor — email, Teams, Slack and the plain-text digest print
-it only once somebody has set `SENSOR_ID`, since `default` is the name an installation has when
+not. Every notification names its sensor — email, Slack, Teams, Discord and the plain-text digest
+print it only once somebody has set `SENSOR_ID`, since `default` is the name an installation has when
 there is only one and a line reading "sensor default" on every message is noise; the syslog/CEF
 feed carries `dvchost` unconditionally, because a SIEM correlating per segment needs the field
 on every event and does its own filtering.
@@ -1603,14 +1603,14 @@ Three refusals, each a lockout it prevents:
 | -------- | ----------------------- | ------------------------------------------------------ |
 | `GET`    | `/`                     | Findings, most urgent first. Filter by `severity`, `kind`, `sensor`, `since` (ISO or `24h`), `acknowledged` |
 | `GET`    | `/summary`              | Counts by severity and detector, for the dashboard tiles (`sensor`) |
-| `GET`    | `/sensors`              | Which sensors have written findings here, and which one is answering |
+| `GET`    | `/sensors`              | Every sensor with findings, devices or rollups here, and which one is answering |
 | `GET`    | `/dashboard`            | Summary plus trend buckets and top sources (`days`, `bucket`, `sensor`) |
 | `GET`    | `/devices`              | MAC addresses seen on the network (`sensor`)            |
 | `POST`   | `/:id/acknowledge`      | Mark a finding as handled                               |
 | `POST`   | `/:id/unacknowledge`    | Reopen it                                               |
 | `DELETE` | `/:id`                  | Delete one finding (ADMIN)                              |
 | `DELETE` | `/`                     | Clear all findings (ADMIN)                              |
-| `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN). `sensor` defaults to the one answering |
+| `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN). `sensor` picks the row; without it, the single holder is resolved and several are a 400 |
 
 ### Audit trail — `/api/audit`
 
