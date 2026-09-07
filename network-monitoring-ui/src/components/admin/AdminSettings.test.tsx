@@ -162,11 +162,21 @@ describe('AdminSettingsMenu', () => {
 describe('QueryConsoleStatus', () => {
   it('says which of the three situations the server is in', async () => {
     // The whole point. "Not enabled" was one sentence for three states, and the
-    // remedy differs: set two variables, set one, or fix the database.
+    // remedy differs: switch it on, give it a password, or fix the database.
     renderApp(<QueryConsoleStatus />, { authenticated: true });
 
     expect(await screen.findByText(/has not been switched on/i)).toBeInTheDocument();
-    expect(screen.getByText(/ADHOC_ENABLED=true/)).toBeInTheDocument();
+    // Points at the settings panel, not at a file. This used to print
+    // `ADHOC_ENABLED=true` under "In the API environment", which since V15 sends
+    // an administrator without server access to a dead end one row above the
+    // panel that would have done it.
+    expect(screen.getByText(/Query console settings/i)).toBeInTheDocument();
+    // Says a restart is NOT needed, rather than asking for one. A bare
+    // /restart/i assertion was self-defeating, since the remedy's own text is
+    // "No restart needed".
+    expect(screen.getByText(/no restart needed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/restart it/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/API environment/i)).not.toBeInTheDocument();
   });
 
   it('does not tell somebody to set a variable that is already set', async () => {
@@ -179,8 +189,11 @@ describe('QueryConsoleStatus', () => {
     renderApp(<QueryConsoleStatus />, { authenticated: true });
 
     expect(await screen.findByText(/no password to install/i)).toBeInTheDocument();
-    expect(screen.getByText(/ADHOC_DB_PASSWORD=/)).toBeInTheDocument();
-    expect(screen.queryByText(/ADHOC_ENABLED=true/)).not.toBeInTheDocument();
+    // Where to set one, rather than which variable to go and edit.
+    expect(screen.getByText(/Query console settings/i)).toBeInTheDocument();
+    // And still not repeating the thing that is already done — the original
+    // point of this test.
+    expect(screen.queryByText(/switch it on/i)).not.toBeInTheDocument();
   });
 
   it('passes on what the database actually said when the sandbox check failed', async () => {
@@ -222,7 +235,11 @@ describe('QueryConsoleStatus', () => {
     renderApp(<QueryConsoleStatus />, { authenticated: true });
 
     expect(await screen.findByText(/read and write/i)).toBeInTheDocument();
-    expect(screen.getByText(/ADHOC_WRITE_ENABLED is set/i)).toBeInTheDocument();
+    // "Write mode is on", not the variable name: since V15 the setting can come
+    // from the stored row, so naming ADHOC_WRITE_ENABLED pointed an operator at
+    // a line that may not exist.
+    expect(screen.getByText(/write mode is on/i)).toBeInTheDocument();
+    expect(screen.queryByText(/ADHOC_WRITE_ENABLED/)).not.toBeInTheDocument();
   });
 
   it('warns when the password may have reached the Postgres log', async () => {

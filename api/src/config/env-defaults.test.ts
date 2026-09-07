@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { DELIVERY_DEFAULTS, DELIVERY_FIELDS, type DeliveryField } from '../notify/settings.js';
+import { ADHOC_FIELDS, type AdhocField } from '../services/adhoc-settings.js';
 
 /**
  * The example files and Compose must not contradict the code's own defaults.
@@ -436,6 +437,53 @@ describe('deployment defaults match the code', () => {
           'Compose passes the literal through, and a non-blank one wins over the fallback.',
       );
     }
+  });
+
+  it('ships no example that pins a setting the interface is meant to manage', () => {
+    /*
+     * The check that was missing, and its absence cost this twice.
+     *
+     * A variable that is SET pins its field: the form disables the control and
+     * names the variable, which is correct behaviour and useless when it is the
+     * shipped example doing the pinning. Compose and `.env.docker.example` were
+     * blanked for that reason — and `api/.env.example` was not, so every source
+     * install (README: `cp api/.env.example api/.env`) got eighteen pinned
+     * delivery fields, including "Deliver alerts", the whole syslog section and
+     * both halves of the SMTP TLS pair. The same banner Compose users had just
+     * been rescued from.
+     *
+     * The existing checks cannot catch it and are not meant to: they assert the
+     * examples AGREE with the code defaults, and a value equal to the default is
+     * agreement, not contradiction. Pinning is a different property — it depends
+     * only on the variable being present with a value, whatever that value is.
+     * `NOTIFY_DASHBOARD_URL=http://localhost:8080/alerts` was neither a default
+     * nor a contradiction, just a placeholder that could not be corrected from
+     * the page it pinned.
+     *
+     * Blank is the intended shape: it counts as unset, so the code default
+     * applies and the field stays editable, with the value recorded in a comment
+     * above it so the example still documents itself.
+     */
+    const managed = new Set<string>([
+      ...(Object.keys(DELIVERY_FIELDS) as DeliveryField[]).map((field) => DELIVERY_FIELDS[field].env),
+      ...(Object.keys(ADHOC_FIELDS) as AdhocField[]).map((field) => ADHOC_FIELDS[field].env),
+    ]);
+    assert.ok(managed.size > 20, `derived only ${managed.size} interface-managed variables`);
+
+    const pinned: string[] = [];
+    for (const file of ['api/.env.example', '.env.docker.example']) {
+      for (const [name, value] of parseDotenv(read(file))) {
+        if (managed.has(name) && value !== '') pinned.push(`${file}: ${name}=${value}`);
+      }
+    }
+
+    assert.deepEqual(
+      pinned,
+      [],
+      `these shipped examples pin a setting the interface is meant to manage: ${pinned.join('; ')}. ` +
+        'Blank the value and record it in a comment above, so the field stays editable. ' +
+        'ADHOC_DB_PASSWORD is the deliberate exception and is not in this set: it has no default to ship.',
+    );
   });
 
   it('offers every Compose setting in .env.docker.example', () => {

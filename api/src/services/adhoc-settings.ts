@@ -9,16 +9,26 @@
  * would matter more than usual.
  *
  * Why any of it is editable at all, given `env.ts` argues the console should be
- * an installation's decision: the decision that matters is whether the
- * capability *exists*, and that still belongs to whoever sets
- * `ADHOC_DB_PASSWORD`. Without one the console cannot start whatever these say —
- * the password is installed on a Postgres role at boot, and no value here can
- * conjure it. What an administrator gains is the ability to switch a
- * provisioned console on and off, and to tune its limits, without a restart that
- * on a monitoring server means dropping a live capture.
+ * an installation's decision: an administrator can switch a console on and off
+ * and tune its limits without the restart that on a monitoring server means
+ * dropping a live capture — and a deployment that wants the decision kept in a
+ * file keeps it, because a variable set there pins the field.
  *
- * `ADHOC_DB_PASSWORD` is therefore not in this registry, and should not be added
- * to it.
+ * **`ADHOC_DB_PASSWORD` is in this registry** (`dbPassword`, below), and this
+ * paragraph used to end by saying it was not and should never be added. That was
+ * true when it was written: the argument was that the capability's *existence*
+ * belonged to whoever set the password, so leaving it out kept that decision off
+ * the browser. V15 reversed it deliberately — see `dbPassword`'s own docblock —
+ * and this header was left behind, still instructing future editors not to do
+ * what the file already does. Two halves of one module disagreeing is worse than
+ * either being wrong alone, because whichever half a reader trusts, the code
+ * says otherwise.
+ *
+ * What holds the line now that the password is editable: the environment still
+ * pins it; the console's own Postgres roles cannot read the table it is stored
+ * in (V11/V12 grant an explicit per-table allowlist, and V15 revokes on it);
+ * the value never leaves the server, redacted in this module rather than at the
+ * route; and the audit trail records `[set]`/`[cleared]`, never a value.
  */
 
 export type SettingSource = 'environment' | 'database' | 'default';
@@ -161,7 +171,20 @@ export function parseFieldValue(field: AdhocField, raw: unknown): unknown {
     return typeof raw === 'string' ? raw : String(raw);
   }
 
-  const text = String(raw).trim();
+  /*
+   * Lowercased, like every other reader of an enum setting in this codebase:
+   * `oneOf()` in `env.ts` and the enum branch of `notify/settings.ts` both do
+   * it, and so does the boolean branch above.
+   *
+   * Without it `ADHOC_AUDIT=OFF` — or `Off`, or `Refused` — was rejected, the
+   * environment layer offered nothing, and the field fell through to the code
+   * default `all`. So an installation that had deliberately turned query
+   * auditing off got it switched back on by upgrading, with the field reporting
+   * its source as `default` so the control claimed nothing in the environment
+   * decided it, and nothing anywhere logging that the variable had been ignored.
+   * The same in reverse for `ADHOC_AUDIT=ALL`, which was silently unpinned.
+   */
+  const text = String(raw).trim().toLowerCase();
   return spec.values?.includes(text) ? text : undefined;
 }
 

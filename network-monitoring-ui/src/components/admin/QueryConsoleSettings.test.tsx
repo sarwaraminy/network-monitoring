@@ -131,6 +131,44 @@ describe('editing the settings', () => {
     expect(sent[0]).toEqual({ maxRows: 0 });
   });
 
+  it('does not report a change that was undone', async () => {
+    /*
+     * Toggle on, think better of it, toggle back. The draft now holds the value
+     * that was already stored — and the panel used to show "1 unsaved", enable
+     * Save, and on click announce "Saved. The change is already in force".
+     *
+     * The server diffs, so nothing was written; what was wrong is the panel
+     * claiming a change on the one form where "did that actually take effect?"
+     * is the question being asked, and where the answer decides whether a
+     * browser can run SQL.
+     */
+    const user = userEvent.setup();
+    renderApp(<QueryConsoleSettings />, { authenticated: true });
+
+    const writes = await screen.findByRole('switch', { name: 'Allow writes' });
+    await user.click(writes);
+    expect(screen.getByText('1 unsaved')).toBeInTheDocument();
+
+    await user.click(writes);
+    expect(screen.queryByText(/unsaved/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+  });
+
+  it('does not report a change when a number is retyped as itself', async () => {
+    // The same rule for the field whose draft holds raw text: `'1000'` typed
+    // over a stored `1000` is not a change, and comparing as text is what makes
+    // that true.
+    const user = userEvent.setup();
+    renderApp(<QueryConsoleSettings />, { authenticated: true });
+
+    const rowCap = await screen.findByLabelText('Row cap');
+    await user.clear(rowCap);
+    await user.type(rowCap, '1000');
+
+    expect(screen.queryByText(/unsaved/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+  });
+
   it('has nothing to save until something changes', async () => {
     renderApp(<QueryConsoleSettings />, { authenticated: true });
 

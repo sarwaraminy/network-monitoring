@@ -51,7 +51,7 @@ const FIELDS: readonly FieldDef[] = [
     key: 'enabled',
     label: 'Query console',
     kind: 'switch',
-    help: 'Runs the console. It still needs ADHOC_DB_PASSWORD in the environment, and still refuses to start unless the database confirms its role is sandboxed.',
+    help: 'Runs the console. It still needs a console password — set one below — and still refuses to start unless the database confirms its role is sandboxed.',
   },
   {
     key: 'writeEnabled',
@@ -148,8 +148,39 @@ export default function QueryConsoleSettings() {
    * because the reader changed their mind about editing it. Clearing has its own
    * button, which sets `null`.
    */
-  const isNoOp = (key: string) => SECRET_KEYS.has(key) && draft[key] === '';
-  const changed = Object.keys(draft).filter((key) => !isNoOp(key));
+  /**
+   * Whether a drafted key differs from what is stored.
+   *
+   * Membership in `draft` is not this check, and using it meant the panel
+   * reported changes that had not happened: toggling "Allow writes" on and back
+   * off left `draft.writeEnabled === false`, which is what was already stored,
+   * yet the panel showed "1 unsaved", enabled Save, and on click announced
+   * "Saved. The change is already in force". Same for clicking into a number
+   * field and retyping the value that was there.
+   *
+   * `saveAdhocSettings` diffs server-side, so nothing was written and no audit
+   * row appeared — the database was never wrong. What was wrong is the panel
+   * claiming a change on the one form where "did that actually take effect?" is
+   * the question being asked, and where the answer decides whether a browser can
+   * run SQL. `DeliverySettingsForm` compares against `savedValue` for the same
+   * reason.
+   *
+   * A secret is always "unchanged" while its box is empty: the server never
+   * sends the value, so there is nothing to compare and an empty box means leave
+   * it alone. Clearing it sets `null`, which differs from a configured secret
+   * and so counts.
+   */
+  const differsFromStored = (key: string) => {
+    const drafted = draft[key];
+    if (SECRET_KEYS.has(key)) return drafted !== '';
+
+    const stored = current.settings[key]?.value;
+    // Compared as text, because a number field's draft holds what was typed —
+    // `'25'` against a stored `25` is not a change.
+    return String(drafted ?? '') !== String(stored ?? '');
+  };
+
+  const changed = Object.keys(draft).filter(differsFromStored);
 
   /*
    * Only the fields that moved, and never a pinned one.

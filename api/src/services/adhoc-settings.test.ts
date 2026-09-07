@@ -135,6 +135,26 @@ describe('values a layer offers but the table would refuse', () => {
     assert.equal(effective({ ADHOC_TIMEOUT_MS: '1.5' }).timeoutMs, 10_000);
   });
 
+  it('accepts an audit mode in the case an operator actually typed', () => {
+    /*
+     * `oneOf()` in `env.ts` lowercases, and so does the sibling resolver — so
+     * `ADHOC_AUDIT=OFF` was a working setting before this layer existed. Without
+     * the same normalisation it was rejected, the environment offered nothing,
+     * and the field fell through to the default `all`: an installation that had
+     * deliberately switched query auditing off got it switched back on by
+     * upgrading, with the field reporting `default` so nothing said why.
+     */
+    for (const spelling of ['off', 'OFF', 'Off', ' off ']) {
+      const resolution = resolveAdhocSettings({ ADHOC_AUDIT: spelling });
+      assert.equal(effectiveAdhocSettings(resolution).audit, 'off', spelling);
+      assert.equal(resolution.audit.source, 'environment', `${spelling} was silently unpinned`);
+    }
+
+    // And the other direction: an install that explicitly chose `ALL` keeps it
+    // pinned rather than looking like nobody decided.
+    assert.equal(sourceOf({ ADHOC_AUDIT: 'ALL' }, {}, 'audit'), 'environment');
+  });
+
   it('falls through on an audit mode nobody implemented', () => {
     assert.equal(effective({ ADHOC_AUDIT: 'verbose' }).audit, 'all');
     assert.equal(sourceOf({ ADHOC_AUDIT: 'verbose' }, {}, 'audit'), 'default');

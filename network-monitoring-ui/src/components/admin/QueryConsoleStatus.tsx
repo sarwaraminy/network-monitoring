@@ -13,12 +13,19 @@ import { monoSx } from '../../theme';
 /**
  * Why the query console is off, and what to do about it.
  *
- * The console is environment-only on purpose — `env.ts` argues it at length, and
- * the short version is that a SQL prompt against the production database should
- * be an installation's decision rather than a click in a browser session. This
- * page therefore *diagnoses* rather than configures: there is no switch on it,
- * and adding one would move that decision from somebody with server access to
- * anybody holding an admin session.
+ * This panel *diagnoses*; the row below it in the same menu — Query console
+ * settings — configures. That split is why there is no switch here, and it is
+ * not the old reason: this docblock used to say the console was environment-only
+ * and that a switch here would move the decision to anybody holding an admin
+ * session. V15 made it settable on purpose, so the argument no longer holds —
+ * what remains is that this component is also what the console page itself
+ * renders when the console is off, and two switches over one setting would
+ * eventually disagree about what is in force.
+ *
+ * The consequence for the text below: every remedy has to point at the settings
+ * panel, not at a file. An administrator without server access who reads "set it
+ * in the environment and restart" concludes there is nothing they can do — one
+ * row above the panel that would have done it, with no restart.
  *
  * What it replaces is a dead end. The old message named `ADHOC_ENABLED` and
  * `ADHOC_DB_PASSWORD` whether or not they were already set, and said the console
@@ -28,19 +35,32 @@ import { monoSx } from '../../theme';
  * reports which one it is in and this says what to do about that one.
  */
 
-/** The environment lines to set, per reason. Only what is actually missing. */
+/**
+ * What to do, per reason.
+ *
+ * `lines` used to be environment lines to go and edit. Since V15 both of these
+ * are settable in **Query console settings**, the next row in this menu, so the
+ * remedy names that instead — the old text was the same dead end this panel was
+ * built to replace, just pointing at a different file.
+ *
+ * A variable is named only where it is genuinely the answer: if one is set in
+ * the environment it pins the field, and the settings panel says so with the
+ * variable's name on the disabled control.
+ */
 const REMEDY: Record<string, { title: string; lines: string[]; note: string }> = {
   disabled: {
     title: 'The console has not been switched on',
-    lines: ['ADHOC_ENABLED=true', 'ADHOC_DB_PASSWORD=<a strong value, used nowhere else>'],
-    note: 'Set both in the API environment and restart it. This is the default state, not a fault.',
+    lines: [],
+    note:
+      'Switch it on in Query console settings, the next row in this menu, and set a console ' +
+      'password there. No restart needed. This is the default state, not a fault.',
   },
   'no-password': {
     title: 'Switched on, but there is no password to install',
-    lines: ['ADHOC_DB_PASSWORD=<a strong value, used nowhere else>'],
+    lines: [],
     note:
-      'ADHOC_ENABLED is set, so the console was asked for — but the role it authenticates as has ' +
-      'no credential, and the server will not invent one.',
+      'The console was asked for, but the role it authenticates as has no credential and the ' +
+      'server will not invent one. Set one in Query console settings, the next row in this menu.',
   },
   'sandbox-failed': {
     title: 'The database would not confirm the console is sandboxed',
@@ -76,9 +96,14 @@ function Running({ status }: { status: AdhocStatus }) {
 
       {status.mode === 'write' && (
         <Alert severity="warning">
-          ADHOC_WRITE_ENABLED is set, so the console authenticates as the read-write role and can UPDATE,
-          INSERT and DELETE the operational tables. It still cannot touch the audit trail, the secret columns,
-          accounts or delivery settings.
+          {/*
+            "Write mode is on" rather than naming the variable: since V15 it can
+            come from the stored settings instead, so naming ADHOC_WRITE_ENABLED
+            pointed an operator at a line that may not exist.
+          */}
+          Write mode is on, so the console authenticates as the read-write role and can UPDATE, INSERT and
+          DELETE the operational tables. It still cannot touch the audit trail, the secret columns, accounts
+          or delivery settings.
         </Alert>
       )}
 
@@ -101,8 +126,8 @@ function Running({ status }: { status: AdhocStatus }) {
           <Box component="code" sx={monoSx}>
             'all'
           </Box>{' '}
-          it will have been written in cleartext. Treat ADHOC_DB_PASSWORD as a value the database server may
-          have recorded.
+          it will have been written in cleartext. Treat the console password as a value the database server
+          may have recorded — wherever it was set from, since it reaches the role the same way either way.
         </Alert>
       )}
     </Stack>
