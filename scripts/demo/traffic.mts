@@ -27,6 +27,7 @@
  */
 
 import { createSocket } from 'node:dgram';
+import { env } from '../../api/src/config/env.js';
 import { buildNetflowV5, SYS_UPTIME_MS, type V5Flow } from '../../api/src/flow/test-datagrams.js';
 import { TCP_FLAG } from '../../api/src/flow/types.js';
 
@@ -43,7 +44,17 @@ const RECORDS_PER_DATAGRAM = 30;
  * someone raises the default — the run would still pass, and the recording
  * would quietly lose an alert.
  */
-const PORT_SCAN_PORTS = 15;
+/*
+ * How much this file SENDS, not what the detectors require — those come from
+ * `env.detection` in `shortOfThreshold` below. Deliberately fixed rather than
+ * derived from the live thresholds: traffic generated to beat whatever is
+ * configured always passes, which would mean the detector is never under test.
+ *
+ * There is no PORT_SCAN_PORTS here any more. The port scan sends a realistic
+ * fixed list rather than a generated range, so nothing needed the number — it
+ * existed only as the hand-copied threshold the old check compared that list
+ * against, which is what made that check compare the file to itself.
+ */
 const HOST_SWEEP_HOSTS = 20;
 const SYN_FLOOD_ATTEMPTS = 300;
 
@@ -183,26 +194,54 @@ const STAGES: [string, () => V5Flow[]][] = [
 /**
  * Whether each stage still sends more than the detector it is aiming at needs.
  *
- * The port list is a realistic one rather than a generated range, so it does
- * not grow with the threshold it has to beat. Without this check, raising
- * DETECT_PORT_SCAN_PORTS past twenty would leave this script sending traffic
- * that is no longer a scan, every stage still reporting "sent", and the missing
- * alert only noticed while watching the finished recording.
+ * Compared against `env.detection`, which is what the API actually applies, and
+ * NOT against the constants above. Those describe the traffic this file
+ * generates; comparing them to themselves is comparing the file to itself, and
+ * it is a check whose failures are impossible — which reports success rather
+ * than merely staying quiet, and is the worse half of the pattern this
+ * repository keeps finding.
+ *
+ * It was not a hypothetical. `PORT_SCAN_PORTS = 15` was a hand-copied
+ * restatement, nothing here read the environment, and the two other checks
+ * compared `HOST_SWEEP_HOSTS + 4 > HOST_SWEEP_HOSTS` and
+ * `SYN_FLOOD_ATTEMPTS + 40 > SYN_FLOOD_ATTEMPTS` — always true, for any edit.
+ * So `DETECT_PORT_SCAN_PORTS=25` in the recording environment printed "Every
+ * stage was over the threshold it aims at", sent its twenty ports, and left the
+ * port-scan finding missing from the finished recording: exactly the failure the
+ * docblock claimed to prevent, with the guard green.
+ *
+ * The constants stay hand-written, and that part of the original reasoning
+ * holds: the port list is a realistic set rather than a generated range, so it
+ * does not silently grow to beat whatever threshold is configured. Generating it
+ * from the live value would mean the traffic always passes and the detector is
+ * never really under test. Fixed traffic, live thresholds, and a check that can
+ * fail.
  */
 function shortOfThreshold(): string[] {
+  const { portScanPorts, hostSweepHosts, synFloodAttempts } = env.detection;
+
   const scanPorts = new Set(portScan().map((flow) => flow.dstPort)).size;
   const sweepHosts = new Set(hostSweep().map((flow) => flow.dstIp)).size;
   const floodAttempts = synFlood().length;
 
   const complaints: string[] = [];
-  if (scanPorts <= PORT_SCAN_PORTS) {
-    complaints.push(`port scan sends ${scanPorts} distinct ports, needs more than ${PORT_SCAN_PORTS}`);
+  if (scanPorts <= portScanPorts) {
+    complaints.push(
+      `port scan sends ${scanPorts} distinct ports, needs more than ${portScanPorts} ` +
+        '(DETECT_PORT_SCAN_PORTS)',
+    );
   }
-  if (sweepHosts <= HOST_SWEEP_HOSTS) {
-    complaints.push(`host sweep sends ${sweepHosts} distinct hosts, needs more than ${HOST_SWEEP_HOSTS}`);
+  if (sweepHosts <= hostSweepHosts) {
+    complaints.push(
+      `host sweep sends ${sweepHosts} distinct hosts, needs more than ${hostSweepHosts} ` +
+        '(DETECT_HOST_SWEEP_HOSTS)',
+    );
   }
-  if (floodAttempts <= SYN_FLOOD_ATTEMPTS) {
-    complaints.push(`SYN flood sends ${floodAttempts} attempts, needs more than ${SYN_FLOOD_ATTEMPTS}`);
+  if (floodAttempts <= synFloodAttempts) {
+    complaints.push(
+      `SYN flood sends ${floodAttempts} attempts, needs more than ${synFloodAttempts} ` +
+        '(DETECT_SYN_FLOOD_ATTEMPTS)',
+    );
   }
   return complaints;
 }
