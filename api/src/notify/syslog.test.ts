@@ -44,6 +44,7 @@ const notification = (finding: NotifiableFinding): Notification => ({
   generatedAt: new Date('2026-08-26T09:05:00.000Z'),
   dashboardUrl: null,
   isTest: false,
+  namesSensors: false,
 });
 
 const channel = (

@@ -6,6 +6,7 @@ import type { Finding, Severity } from '../packet/detect/types.js';
 import { BoundedMap } from '../packet/detect/types.js';
 import { EmailChannel } from './email.js';
 import { MAX_LISTED_FINDINGS } from './format.js';
+import { hasMultipleSensors } from './sensor-scope.js';
 import { type DeliverySettings, isEmailConfigured, isWebhookConfigured } from './settings.js';
 import { currentSettings } from './settings.service.js';
 import { SyslogChannel } from './syslog.js';
@@ -371,6 +372,10 @@ export class Notifier {
       generatedAt: new Date(this.now()),
       dashboardUrl: this.settings.dashboardUrl || null,
       isTest: false,
+      // Not read by the SIEM renderers, which carry `dvchost` on every event
+      // regardless — but the field says something true about the installation, so
+      // it is answered rather than hardcoded.
+      namesSensors: hasMultipleSensors(),
     };
 
     const settled = await Promise.allSettled(exporters.map((channel) => channel.send(notification)));
@@ -414,6 +419,7 @@ export class Notifier {
       generatedAt: now,
       dashboardUrl: this.settings.dashboardUrl || null,
       isTest: true,
+      namesSensors: hasMultipleSensors(),
     };
 
     // Export channels included, unlike the digest path. Proving the collector is
@@ -482,7 +488,19 @@ export class Notifier {
     this.omitted = 0;
 
     try {
-      const notification = buildNotification(batch, omittedCount, this.settings.dashboardUrl || null);
+      /*
+       * Read, not refreshed. An earlier version awaited the lookup here, which put
+       * a database query on the send path — a path whose whole contract is that a
+       * delivery problem never touches detection, and which the notifier's own unit
+       * tests drive with no database at all. `refreshSensorScope` is called at boot
+       * and on a timer instead; see index.ts.
+       */
+      const notification = buildNotification(
+        batch,
+        omittedCount,
+        this.settings.dashboardUrl || null,
+        hasMultipleSensors(),
+      );
       this.sentTimestamps.push(this.now());
       const results = await this.deliver(notification);
 
@@ -568,6 +586,12 @@ export function buildNotification(
   batch: QueuedFinding[],
   omittedCount: number,
   dashboardUrl: string | null,
+  /**
+   * Whether a human-facing message should name its sensor. Passed in rather than
+   * read from the module that caches it, so this stays a pure function of its
+   * arguments and a test can render both installations without touching a cache.
+   */
+  namesSensors = false,
 ): Notification {
   const countsBySeverity: Partial<Record<Severity, number>> = {};
   for (const item of batch) {
@@ -592,6 +616,7 @@ export function buildNotification(
     generatedAt: new Date(),
     dashboardUrl,
     isTest: false,
+    namesSensors,
   };
 }
 

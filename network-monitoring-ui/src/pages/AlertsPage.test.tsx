@@ -273,8 +273,8 @@ describe('AlertsPage', () => {
     server.use(
       http.get('/api/alerts/sensors', () =>
         HttpResponse.json([
-          { sensorId: 'branch-office', self: false, alerts: 1, latestAt: null },
-          { sensorId: 'default', self: true, alerts: 1, latestAt: null },
+          { sensorId: 'branch-office', self: false },
+          { sensorId: 'default', self: true },
         ]),
       ),
     );
@@ -316,8 +316,8 @@ describe('AlertsPage', () => {
      */
     const requested: string[] = [];
     let sensorRows = [
-      { sensorId: 'branch-office', self: false, alerts: 1, latestAt: null },
-      { sensorId: 'default', self: true, alerts: 2, latestAt: null },
+      { sensorId: 'branch-office', self: false },
+      { sensorId: 'default', self: true },
     ];
 
     server.use(
@@ -337,7 +337,7 @@ describe('AlertsPage', () => {
     await waitFor(() => expect(requested.at(-1)).toBe('branch-office'));
 
     // The second sensor goes quiet, and something invalidates the list.
-    sensorRows = [{ sensorId: 'default', self: true, alerts: 2, latestAt: null }];
+    sensorRows = [{ sensorId: 'default', self: true }];
     await user.click(screen.getAllByRole('button', { name: /^acknowledge$|^reopen$/i })[0]!);
 
     await waitFor(() => expect(screen.queryByRole('combobox', { name: /sensor/i })).not.toBeInTheDocument());
@@ -358,9 +358,9 @@ describe('AlertsPage', () => {
      */
     const requested: string[] = [];
     let sensorRows = [
-      { sensorId: 'branch-office', self: false, alerts: 1, latestAt: null },
-      { sensorId: 'default', self: true, alerts: 2, latestAt: null },
-      { sensorId: 'warehouse', self: false, alerts: 1, latestAt: null },
+      { sensorId: 'branch-office', self: false },
+      { sensorId: 'default', self: true },
+      { sensorId: 'warehouse', self: false },
     ];
 
     server.use(
@@ -381,8 +381,8 @@ describe('AlertsPage', () => {
 
     // Warehouse goes quiet; two sensors remain, so the control stays on screen.
     sensorRows = [
-      { sensorId: 'branch-office', self: false, alerts: 1, latestAt: null },
-      { sensorId: 'default', self: true, alerts: 2, latestAt: null },
+      { sensorId: 'branch-office', self: false },
+      { sensorId: 'default', self: true },
     ];
     await user.click(screen.getAllByRole('button', { name: /^acknowledge$|^reopen$/i })[0]!);
 

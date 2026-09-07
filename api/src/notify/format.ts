@@ -47,7 +47,7 @@ export function renderText(notification: Notification): string {
     lines.push(`  ${finding.description}`);
 
     const where = [
-      sensorLabel(finding) ? `sensor ${sensorLabel(finding)}` : null,
+      sensorLabel(notification, finding) ? `sensor ${sensorLabel(notification, finding)}` : null,
       finding.sourceIp ? `source ${finding.sourceIp}` : null,
       finding.targetIp ? `target ${finding.targetIp}` : null,
       finding.occurrences > 1 ? `${finding.occurrences} occurrences` : null,
@@ -77,7 +77,9 @@ export function renderHtml(notification: Notification): string {
   const rows = notification.findings
     .map((finding) => {
       const meta = [
-        sensorLabel(finding) ? `sensor ${escapeHtml(sensorLabel(finding) as string)}` : null,
+        sensorLabel(notification, finding)
+          ? `sensor ${escapeHtml(sensorLabel(notification, finding) as string)}`
+          : null,
         finding.sourceIp ? `source ${escapeHtml(finding.sourceIp)}` : null,
         finding.targetIp ? `target ${escapeHtml(finding.targetIp)}` : null,
         finding.occurrences > 1 ? `${finding.occurrences} occurrences` : null,
@@ -148,7 +150,7 @@ export function renderSlack(notification: Notification): unknown {
 
   for (const finding of notification.findings) {
     const meta = [
-      sensorLabel(finding) ? `sensor \`${sensorLabel(finding)}\`` : null,
+      sensorLabel(notification, finding) ? `sensor \`${sensorLabel(notification, finding)}\`` : null,
       finding.sourceIp ? `source \`${finding.sourceIp}\`` : null,
       finding.targetIp ? `target \`${finding.targetIp}\`` : null,
       finding.occurrences > 1 ? `${finding.occurrences} occurrences` : null,
@@ -261,8 +263,8 @@ export function renderTeams(notification: Notification): unknown {
        * which is exactly why the three structured renderers were the three that
        * missed it when the text ones were changed.
        */
-      ...(sensorLabel(finding)
-        ? [{ title: 'Sensor', value: escapeAdaptive(sensorLabel(finding) as string) }]
+      ...(sensorLabel(notification, finding)
+        ? [{ title: 'Sensor', value: escapeAdaptive(sensorLabel(notification, finding) as string) }]
         : []),
       ...(finding.sourceIp ? [{ title: 'Source', value: escapeAdaptive(finding.sourceIp) }] : []),
       ...(finding.targetIp ? [{ title: 'Target', value: escapeAdaptive(finding.targetIp) }] : []),
@@ -368,8 +370,8 @@ export function renderTeamsConnector(notification: Notification): unknown {
       facts: [
         // `name` rather than `title`: this is the retired connector's schema, and
         // the two spell a fact's label differently.
-        ...(sensorLabel(finding)
-          ? [{ name: 'Sensor', value: escapeAdaptive(sensorLabel(finding) as string) }]
+        ...(sensorLabel(notification, finding)
+          ? [{ name: 'Sensor', value: escapeAdaptive(sensorLabel(notification, finding) as string) }]
           : []),
         ...(finding.sourceIp ? [{ name: 'Source', value: escapeAdaptive(finding.sourceIp) }] : []),
         ...(finding.targetIp ? [{ name: 'Target', value: escapeAdaptive(finding.targetIp) }] : []),
@@ -401,8 +403,8 @@ export function renderDiscord(notification: Notification): unknown {
       description: finding.description.slice(0, 2048),
       color: Number.parseInt(SEVERITY_COLOR[finding.severity].replace('#', ''), 16),
       fields: [
-        ...(sensorLabel(finding)
-          ? [{ name: 'Sensor', value: sensorLabel(finding) as string, inline: true }]
+        ...(sensorLabel(notification, finding)
+          ? [{ name: 'Sensor', value: sensorLabel(notification, finding) as string, inline: true }]
           : []),
         ...(finding.sourceIp ? [{ name: 'Source', value: finding.sourceIp, inline: true }] : []),
         ...(finding.targetIp ? [{ name: 'Target', value: finding.targetIp, inline: true }] : []),

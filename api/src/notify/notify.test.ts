@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
 import type { Finding, Severity } from '../packet/detect/types.js';
-import type { DeliveryResult, Notification, NotificationChannel } from './types.js';
+import type { DeliveryResult, NotifiableFinding, Notification, NotificationChannel } from './types.js';
 
 /**
  * Notification tests.
@@ -292,7 +292,7 @@ describe('evidence policy', () => {
     });
   });
 
-  it('names the sensor to a person only once somebody has named it', () => {
+  it('names the sensor to a person only once the installation has two', () => {
     /*
      * The paged administrator is the one reader who could not tell two sensors
      * apart: one shared `delivery_settings` row, and "New device aa:bb:cc" names
@@ -326,16 +326,65 @@ describe('evidence policy', () => {
       generatedAt: AT,
       dashboardUrl: null,
       isTest: false,
+      namesSensors: false,
     };
-    const named: Notification = {
-      ...one,
-      findings: [{ ...one.findings[0]!, sensorId: 'branch-office' }],
+    // The same finding, on an installation that has more than one sensor. Only the
+    // installation differs: the finding is identical.
+    const multi: Notification = { ...one, namesSensors: true };
+
+    assert.doesNotMatch(
+      format.renderText(one),
+      /sensor/i,
+      'a single-sensor installation is not worth a line on every message',
+    );
+    assert.match(format.renderText(multi), /sensor default/);
+    assert.match(format.renderHtml(multi), /sensor default/);
+    assert.match(JSON.stringify(format.renderSlack(multi)), /sensor .{0,2}default/);
+  });
+
+  it('names a sensor called `default`, which is the one that used to go unnamed', () => {
+    /*
+     * The regression this replaced, stated as its own case because the old rule
+     * was defensible right up to the install it broke.
+     *
+     * The rule was "any name but `default` gets a line", on the theory that naming
+     * a sensor is what an operator does when they have two. But `SENSOR_ID=default`
+     * is what ships in api/.env.example, .env.docker.example and docker-compose.yml,
+     * and V16 backfills existing rows to it — so head office upgrades, keeps the
+     * shipped name, adds `branch-2`, and every alert from the busiest segment
+     * arrives with no sensor line while every alert from the new one carries one.
+     * The operator is left inferring "no line means head office", which is the
+     * ambiguity the line exists to remove, landing on the install with the most
+     * findings.
+     */
+    const headOffice: NotifiableFinding = {
+      sensorId: 'default',
+      kind: 'port_scan',
+      severity: 'high',
+      title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
+      description: 'A single source attempted connections to many ports.',
+      sourceIp: '10.0.0.66',
+      targetIp: '10.0.0.89',
+      occurrences: 3,
+      firstSeen: AT,
+      lastSeen: AT,
+      evidence: null,
+    };
+    const notification: Notification = {
+      severity: 'high',
+      findings: [headOffice, { ...headOffice, sensorId: 'branch-2' }],
+      omittedCount: 0,
+      countsBySeverity: { high: 2 },
+      generatedAt: AT,
+      dashboardUrl: null,
+      isTest: false,
+      namesSensors: true,
     };
 
-    assert.doesNotMatch(format.renderText(one), /sensor/i, 'an unnamed sensor is not worth a line');
-    assert.match(format.renderText(named), /sensor branch-office/);
-    assert.match(format.renderHtml(named), /sensor branch-office/);
-    assert.match(JSON.stringify(format.renderSlack(named)), /sensor .{0,2}branch-office/);
+    const text = format.renderText(notification);
+
+    assert.match(text, /sensor default/, 'the sensor called `default` must be named too');
+    assert.match(text, /sensor branch-2/);
   });
 
   it('names the sensor in every renderer, not only the ones that build text', () => {
@@ -378,11 +427,11 @@ describe('evidence policy', () => {
       generatedAt: AT,
       dashboardUrl: null,
       isTest: false,
+      namesSensors: true,
     };
-    const unnamed: Notification = {
-      ...named,
-      findings: [{ ...named.findings[0]!, sensorId: 'default' }],
-    };
+    // Same finding, single-sensor installation. The finding is identical: what
+    // changes is whether the installation has anything to disambiguate.
+    const single: Notification = { ...named, namesSensors: false };
 
     const renderers: Array<[string, (notification: Notification) => unknown]> = [
       ['renderText', format.renderText],
@@ -400,7 +449,7 @@ describe('evidence policy', () => {
         `${name} does not name the sensor, so its readers cannot tell two segments apart`,
       );
       assert.doesNotMatch(
-        JSON.stringify(render(unnamed)),
+        JSON.stringify(render(single)),
         /sensor/i,
         `${name} prints a sensor line for an installation that has only one`,
       );
@@ -433,6 +482,7 @@ describe('evidence policy', () => {
       generatedAt: AT,
       dashboardUrl: null,
       isTest: false,
+      namesSensors: false,
     };
 
     const rendered = [
@@ -476,6 +526,7 @@ describe('message formats', () => {
     generatedAt: AT,
     dashboardUrl: 'https://nmt.example.test/alerts',
     isTest: false,
+    namesSensors: false,
   };
 
   it('summarises the count when more than one finding is involved', () => {
@@ -738,6 +789,7 @@ describe('webhook transport', () => {
     generatedAt: AT,
     dashboardUrl: null,
     isTest: false,
+    namesSensors: false,
   };
 
   it('infers the payload format from the URL', () => {
@@ -916,6 +968,7 @@ async function onlyNotification(): Promise<Notification> {
     generatedAt: AT,
     dashboardUrl: null,
     isTest: false,
+    namesSensors: false,
   };
 }
 

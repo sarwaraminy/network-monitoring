@@ -42,6 +42,7 @@ const database = await openTestDatabase({ id: 'sensorid' });
 let devices: typeof import('./device.service.js');
 let alertService: typeof import('./alert.service.js');
 let retention: typeof import('./retention.service.js');
+let sensorScope: typeof import('../notify/sensor-scope.js');
 
 /** One alert, under whichever sensor the case is about. */
 async function seedAlert(
@@ -73,6 +74,7 @@ describe('two sensors sharing one database', { skip: database.skip }, () => {
     devices = await import('./device.service.js');
     alertService = await import('./alert.service.js');
     retention = await import('./retention.service.js');
+    sensorScope = await import('../notify/sensor-scope.js');
   });
 
   beforeEach(async () => {
@@ -126,19 +128,19 @@ describe('two sensors sharing one database', { skip: database.skip }, () => {
     assert.deepEqual(onlyB.map((alert) => alert.dedupKey).sort(), ['b-1', 'b-2']);
   });
 
-  it('counts each sensor separately, and names itself even with nothing stored', async () => {
+  it('lists every sensor, and names itself even with nothing stored', async () => {
     await seedAlert('sensor-b', 'b-1');
 
     const sensors = await alertService.listSensors();
 
     assert.deepEqual(
-      sensors.map((sensor) => [sensor.sensorId, sensor.self, sensor.alerts]),
+      sensors.map((sensor) => [sensor.sensorId, sensor.self]),
       [
-        // Present with zero findings: a sensor just installed and still quiet is
+        // Present with nothing stored: a sensor just installed and still quiet is
         // exactly the one an operator goes looking for, and leaving it out renders
         // a working install as one that does not exist.
-        ['sensor-a', true, 0],
-        ['sensor-b', false, 1],
+        ['sensor-a', true],
+        ['sensor-b', false],
       ],
     );
   });
@@ -217,6 +219,28 @@ describe('two sensors sharing one database', { skip: database.skip }, () => {
     assert.deepEqual(result, { outcome: 'not-found' });
   });
 
+  it('separates “no such device” from “not on that sensor”', async () => {
+    /*
+     * The device list spans sensors, so a caller looking at the MAC on screen and
+     * naming the wrong sensor used to be told the device did not exist. That is
+     * false, and it points at nothing they could fix — where the sensor is the one
+     * thing they could.
+     */
+    await seedDevice('sensor-b', 'aa:bb:cc:dd:ee:ff', new Date());
+
+    const wrongSensor = await devices.forgetDevice(
+      'aa:bb:cc:dd:ee:ff',
+      { id: 1, name: 'tester' },
+      'sensor-a',
+    );
+    assert.deepEqual(wrongSensor, { outcome: 'wrong-sensor', sensors: ['sensor-b'] });
+    assert.equal((await devices.listKnownDevices()).length, 1, 'and nothing was deleted');
+
+    // Unknown everywhere stays a plain not-found: there is no sensor to suggest.
+    const unknown = await devices.forgetDevice('11:22:33:44:55:66', { id: 1, name: 'tester' }, 'sensor-a');
+    assert.deepEqual(unknown, { outcome: 'not-found' });
+  });
+
   it('lists a sensor that has devices but has never raised a finding', async () => {
     /*
      * The identity has to outlive — and precede — the findings.
@@ -232,12 +256,10 @@ describe('two sensors sharing one database', { skip: database.skip }, () => {
     const sensors = await alertService.listSensors();
 
     assert.deepEqual(
-      sensors.map((sensor) => [sensor.sensorId, sensor.alerts, sensor.latestAt]),
-      [
-        ['sensor-a', 0, null],
-        // Present, with an honest zero: `alerts` still counts alerts.
-        ['sensor-b', 0, null],
-      ],
+      sensors.map((sensor) => sensor.sensorId),
+      // Present on the strength of a device row alone, which is the point: this
+      // list is identity, and identity has to outlive and precede the findings.
+      ['sensor-a', 'sensor-b'],
     );
   });
 
@@ -279,6 +301,62 @@ describe('two sensors sharing one database', { skip: database.skip }, () => {
       { sensor_id: 'sensor-a', alerts: 1, occurrences: '2' },
       { sensor_id: 'sensor-b', alerts: 1, occurrences: '5' },
     ]);
+  });
+
+  it('tells a single-sensor installation apart from a multi-sensor one', async () => {
+    /*
+     * The question a human-facing notification asks before naming its sensor.
+     *
+     * It used to ask a different one — is this sensor's name still `default` — and
+     * the two answers disagree on exactly the install this feature is for, because
+     * `SENSOR_ID=default` is what ships and V16 backfills to it. Head office keeps
+     * the shipped name, adds a branch, and only the branch's alerts carry a sensor
+     * line.
+     */
+    sensorScope.resetSensorScope();
+    assert.equal(await sensorScope.refreshSensorScope(), false, 'this sensor alone is not multi-sensor');
+
+    // Its own findings do not make it two.
+    await seedAlert('sensor-a', 'a-1');
+    sensorScope.resetSensorScope();
+    assert.equal(await sensorScope.refreshSensorScope(), false);
+
+    // A second sensor does — and a device row is enough, before it has found
+    // anything, which is the case a findings-only read would miss.
+    await seedDevice('sensor-b', 'aa:bb:cc:dd:ee:ff', new Date());
+    sensorScope.resetSensorScope();
+    assert.equal(await sensorScope.refreshSensorScope(), true);
+    assert.equal(sensorScope.hasMultipleSensors(), true, 'and the cached read agrees');
+  });
+
+  it('counts another sensor even when this one has stored nothing', async () => {
+    // The freshly-installed sensor, whose own tables are empty. It still has to
+    // know it is not alone, or its first alerts go out unlabelled.
+    await seedAlert('sensor-b', 'b-1');
+
+    sensorScope.resetSensorScope();
+
+    assert.equal(await sensorScope.refreshSensorScope(), true);
+  });
+
+  it('keeps the previous answer rather than assuming one sensor', async () => {
+    /*
+     * The failure direction that matters. Answering "one sensor" because a query
+     * failed is the same silence this module exists to prevent, and it would happen
+     * during a database problem — when nobody is reading release notes to find out
+     * why the sensor line disappeared.
+     */
+    await seedDevice('sensor-b', 'aa:bb:cc:dd:ee:ff', new Date());
+    sensorScope.resetSensorScope();
+    assert.equal(await sensorScope.refreshSensorScope(), true);
+
+    // Nothing to read from, and the answer holds.
+    await truncateAll(database.pool!);
+    assert.equal(
+      sensorScope.hasMultipleSensors(),
+      true,
+      'the cached answer stands until a refresh replaces it',
+    );
   });
 
   it('measures device staleness against each sensor’s own clock', async () => {

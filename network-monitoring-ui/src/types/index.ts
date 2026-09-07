@@ -246,9 +246,8 @@ export interface KnownDevice {
  */
 export interface SensorSummary {
   sensorId: string;
+  /** True for the sensor serving this page. */
   self: boolean;
-  alerts: number;
-  latestAt: string | null;
 }
 
 export interface NetworkInterface {

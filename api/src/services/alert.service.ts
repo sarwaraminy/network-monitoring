@@ -392,48 +392,42 @@ function severityRank() {
  * of this list while its rows go on feeding the trend chart: visible in the
  * chart, unselectable in the filter.
  *
- * `alerts` and `latestAt` are still counted from `alerts` alone, because that is
- * what they mean. A sensor can legitimately appear here with zero findings.
+ * **Identity only, and no counts.** This used to return a finding count and a
+ * latest-seen time per sensor, aggregated over the whole `alerts` table. Nothing
+ * read either one — the pickers use the ids and `self` — and the cost was not
+ * incidental: `count(*)` and `max(last_seen)` grouped over a table the schema
+ * documents as unbounded is a full scan, and both pages refetch this on mount and
+ * again after every alert mutation. So the scan ran on a schedule set by how busy
+ * the network was, worst on exactly the installations this feature is for. A
+ * distinct-id read answers what the callers actually ask, and the index this
+ * change adds already serves it.
+ *
+ * If a count belongs in the picker later, it should arrive with the column that
+ * shows it rather than being carried in advance by every poll.
  */
 export interface SensorSummary {
   sensorId: string;
   /** True for the sensor serving this request. */
   self: boolean;
-  alerts: number;
-  latestAt: string | null;
 }
 
 export async function listSensors(): Promise<SensorSummary[]> {
-  const result = await db.execute<{ sensor_id: string; alerts: number; latest: string | null }>(sql`
-    WITH counted AS (
-      SELECT sensor_id, count(*)::int AS alerts, max(last_seen) AS latest
-      FROM ${alerts} GROUP BY sensor_id
-    ),
-    known AS (
-      -- From counted, not from the alerts table again: the grouping above already
-      -- produces exactly the distinct sensor ids in it, so reading it a second
-      -- time was a second pass over the one table the schema documents as
-      -- unbounded. This endpoint is polled by both pages to decide whether the
-      -- sensor controls render at all.
-      SELECT sensor_id FROM counted
-      UNION SELECT sensor_id FROM ${knownDevices}
-      UNION SELECT sensor_id FROM ${alertRollupDaily}
-    )
-    SELECT known.sensor_id,
-           coalesce(counted.alerts, 0) AS alerts,
-           counted.latest
-    FROM known LEFT JOIN counted ON counted.sensor_id = known.sensor_id
+  // `UNION` rather than `UNION ALL`: it deduplicates, which is the whole request.
+  // Each branch is a distinct-scan of an indexed column rather than a pass over
+  // the rows.
+  const result = await db.execute<{ sensor_id: string }>(sql`
+    SELECT DISTINCT sensor_id FROM ${alerts}
+    UNION SELECT DISTINCT sensor_id FROM ${knownDevices}
+    UNION SELECT DISTINCT sensor_id FROM ${alertRollupDaily}
   `);
 
   const summaries = (result.rows ?? []).map((row) => ({
     sensorId: row.sensor_id,
     self: row.sensor_id === env.sensorId,
-    alerts: Number(row.alerts),
-    latestAt: row.latest ? new Date(row.latest).toISOString() : null,
   }));
 
   if (!summaries.some((summary) => summary.self)) {
-    summaries.push({ sensorId: env.sensorId, self: true, alerts: 0, latestAt: null });
+    summaries.push({ sensorId: env.sensorId, self: true });
   }
 
   // By name, not by volume: this is an identity list an operator scans for a

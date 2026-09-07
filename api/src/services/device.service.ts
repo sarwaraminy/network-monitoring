@@ -111,7 +111,17 @@ export type ForgetDeviceResult =
   | { outcome: 'forgotten'; sensorId: string }
   | { outcome: 'not-found' }
   /** Held by more than one sensor, and the caller did not say which. */
-  | { outcome: 'ambiguous'; sensors: string[] };
+  | { outcome: 'ambiguous'; sensors: string[] }
+  /**
+   * Known — but not to the sensor the caller named.
+   *
+   * Distinct from `not-found` because the two want different words. "No known
+   * device aa:bb:cc" is false here: the device is in the list the caller is very
+   * likely looking at, on another sensor, and answering that it does not exist
+   * points at nothing they could fix. The sensors that do hold it are carried so
+   * the message can name them.
+   */
+  | { outcome: 'wrong-sensor'; sensors: string[] };
 
 export async function forgetDevice(
   macAddress: string,
@@ -135,6 +145,24 @@ export async function forgetDevice(
         return { outcome: 'ambiguous', sensors: holders.map((row) => row.sensorId).sort() };
       }
       target = holders[0]!.sensorId;
+    } else {
+      /*
+       * Named a sensor. Read the holders anyway — not to choose, but so that a
+       * miss can tell the caller which of the two things went wrong: the address
+       * is unknown everywhere, or it is known and they named the wrong sensor.
+       * Collapsing both into one 404 produced "No known device aa:bb:cc" for a MAC
+       * sitting on screen in the list beside it.
+       */
+      const holders = await tx
+        .select({ sensorId: knownDevices.sensorId })
+        .from(knownDevices)
+        .where(eq(knownDevices.macAddress, mac))
+        .for('update');
+
+      if (holders.length === 0) return { outcome: 'not-found' };
+      if (!holders.some((row) => row.sensorId === target)) {
+        return { outcome: 'wrong-sensor', sensors: holders.map((row) => row.sensorId).sort() };
+      }
     }
 
     const [deleted] = await tx

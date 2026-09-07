@@ -165,9 +165,7 @@ export const handlers = [
   // deploys a second: the sensor column and filter are hidden in that case, so
   // this default keeps every other test on this page describing the single-sensor
   // interface. A test about two sensors overrides it.
-  http.get('/api/alerts/sensors', () =>
-    HttpResponse.json([{ sensorId: 'default', self: true, alerts: 2, latestAt: null }]),
-  ),
+  http.get('/api/alerts/sensors', () => HttpResponse.json([{ sensorId: 'default', self: true }])),
 
   http.post('/api/alerts/:id/acknowledge', ({ params }) =>
     HttpResponse.json({

@@ -134,6 +134,19 @@ alertsRouter.delete(
     const result = await forgetDevice(mac, actorOf(req.user), sensor.data);
 
     if (result.outcome === 'not-found') throw new HttpError(404, `No known device ${mac}`);
+    if (result.outcome === 'wrong-sensor') {
+      /*
+       * Still a 404 — that row genuinely does not exist — but the message says
+       * which of the two possible mistakes this was. "No known device aa:bb:cc" is
+       * false for an address the device list is showing on another sensor, and it
+       * points at nothing the caller could change; the sensor is the one thing
+       * they could.
+       */
+      throw new HttpError(
+        404,
+        `No known device ${mac} on sensor ${sensor.data}. It is known to: ${result.sensors.join(', ')}.`,
+      );
+    }
     if (result.outcome === 'ambiguous') {
       // 400 rather than a guess: naming one of them is the caller's decision, and
       // the message says which names are available so the retry is one edit away.

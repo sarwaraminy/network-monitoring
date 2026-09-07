@@ -889,8 +889,12 @@ into the rows they were already merging into.
 
 Delivery is the case worth spelling out, because the settings are shared and the *sending* is
 not. Every notification names its sensor — email, Slack, Teams, Discord and the plain-text digest
-print it only once somebody has set `SENSOR_ID`, since `default` is the name an installation has when
-there is only one and a line reading "sensor default" on every message is noise; the syslog/CEF
+all print it, but only once **more than one sensor has written to this database**, since a line
+reading "sensor default" on an installation that has only one is noise that trains people to skip
+the line the multi-sensor deployments need. That is the same test the alerts page uses to decide
+whether to render the sensor column, deliberately: an earlier version keyed on whether the name
+was still `default`, which is what ships and what V16 backfills to — so head office kept the
+shipped name, added a branch, and only the branch's alerts carried a sensor line. The syslog/CEF
 feed carries `dvchost` unconditionally, because a SIEM correlating per segment needs the field
 on every event and does its own filtering.
 
@@ -912,10 +916,13 @@ Two consequences worth knowing before they look like bugs:
   left another sensor's rows behind would be a button whose name is false. What it does instead
   is name the sensors in its audit entry, so the trail records that somebody sitting in front
   of one sensor removed another's findings.
-- **Forgetting a device does not.** It defaults to the sensor answering the request, because
-  re-arming new-device detection on a segment nobody is looking at is a different act from the
-  one the button offers. The device list shows every sensor's rows, so the row you are looking
-  at is the row that goes.
+- **Forgetting a device does not.** Re-arming new-device detection on a segment nobody is
+  looking at is a different act from the one the button offers, so it never happens by
+  default: the sensor is *resolved* rather than assumed. One sensor knows the address and
+  that row goes; several know it and the request is refused, naming them, because choosing
+  is the caller's decision; naming a sensor that does not hold it says so rather than
+  claiming the device is unknown. Every one of those is the same rule — the row that goes is
+  a row somebody asked for.
 
 ### Running two
 

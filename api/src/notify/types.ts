@@ -58,6 +58,15 @@ export interface Notification {
   dashboardUrl: string | null;
   /** True for a deliberate test send, so recipients are not alarmed. */
   isTest: boolean;
+  /**
+   * True when this database has more than one sensor, so a human-facing message
+   * should say which one saw the finding.
+   *
+   * On the notification rather than derived per finding, because it is a property
+   * of the installation and not of the finding — and carrying it here keeps the
+   * renderers pure functions of what they are handed. See notify/sensor-scope.ts.
+   */
+  namesSensors: boolean;
 }
 
 /** A delivery mechanism. Implementations must not throw. */
@@ -118,18 +127,24 @@ export function toNotifiable(
 /**
  * The sensor's name when it is worth showing a person, else null.
  *
- * `default` is the name an installation has when nobody has set `SENSOR_ID`,
- * which is to say when there is only one sensor — and "Sensor: default" on every
- * message is noise that trains people to skip the line the *named* deployments
- * need. Naming a sensor is the operator's own signal that this deployment has
- * more than one, so it is the signal used here.
+ * "Worth showing" means *this installation has more than one sensor*, which the
+ * notification carries as `namesSensors` — see notify/sensor-scope.ts for where
+ * that comes from and why it is not inferred from the name.
+ *
+ * It used to be inferred from the name: any `sensorId` other than the literal
+ * `default` got a line, on the theory that naming a sensor is what an operator
+ * does when they have two. But `SENSOR_ID=default` is what ships, and V16
+ * backfills to it, so the busiest sensor of a real multi-sensor install is
+ * usually the one called `default` — and it was the one whose messages carried no
+ * sensor line. The rule now matches the one the interface uses for the same
+ * decision, so a reader is never left inferring a segment from an absence.
  *
  * The SIEM renderers deliberately do NOT use this: a collector wants the field
  * present on every event so a correlation rule can pin the producer, and it does
  * its own filtering. Human channels are the ones that pay for noise.
  */
-export function sensorLabel(finding: NotifiableFinding): string | null {
-  return finding.sensorId === 'default' ? null : finding.sensorId;
+export function sensorLabel(notification: Notification, finding: NotifiableFinding): string | null {
+  return notification.namesSensors ? finding.sensorId : null;
 }
 
 /** Lower index is more urgent, matching SEVERITY_RANK. */
