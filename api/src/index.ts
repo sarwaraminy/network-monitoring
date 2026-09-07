@@ -9,7 +9,7 @@ import { reloadNotifier } from './notify/notifier.js';
 import { loadDeliverySettings, seedFromEnvironment } from './notify/settings.service.js';
 import { libraryVersion } from './packet/libpcap.js';
 import { startAdhoc, stopAdhoc } from './services/adhoc.service.js';
-import { seedAdhocSettingsFromEnvironment } from './services/adhoc-settings.service.js';
+import { loadAdhocSettings, seedAdhocSettingsFromEnvironment } from './services/adhoc-settings.service.js';
 import { stopAllCaptures } from './services/packet-capture.registry.js';
 import { retentionIdle, startRetention, stopRetention } from './services/retention.service.js';
 import { flushSuppressionCounters, refreshSuppressions } from './services/suppression.service.js';
@@ -102,7 +102,28 @@ async function main(): Promise<void> {
    * reality.
    */
   await seedAdhocSettingsFromEnvironment().catch((error: unknown) => {
-    log.warn({ err: error }, 'Could not seed the query console settings; the environment still applies');
+    log.warn({ err: error }, 'Could not seed the query console settings from the environment');
+  });
+
+  /*
+   * SEPARATELY from the seed, and the second line is the whole point.
+   *
+   * `loadAdhocSettings` is what reads the row into the cache every reader
+   * consults. It used to run only as the seed's last statement — so a transient
+   * failure anywhere in the seed's per-field upsert loop rejected the whole
+   * function, the `catch` above logged and boot continued, and the load never
+   * happened. The process then held environment-and-defaults for its entire
+   * lifetime: an administrator-enabled console stayed off, every field reported
+   * its provenance as `default`, and the query caps were the code's rather than
+   * the stored ones. Nothing retried, because nothing else reads the row.
+   *
+   * `loadDeliverySettings` above is called independently of its own seed for
+   * exactly this reason; the two paths now agree, and neither call has to
+   * succeed for the other to run. `loadAdhocSettings` has its own internal
+   * fallback too, so this `catch` is the second line of defence, not the first.
+   */
+  await loadAdhocSettings().catch((error: unknown) => {
+    log.warn({ err: error }, 'Could not read the query console settings; the environment and defaults apply');
   });
 
   if (await startAdhoc(pool)) {

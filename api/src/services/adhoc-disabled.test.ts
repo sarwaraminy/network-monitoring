@@ -34,14 +34,29 @@ const database = await openTestDatabase({ id: 'adhocoff' });
 
 let adhoc: typeof import('./adhoc.service.js');
 
-/** Whether the console's role may log in, asked of the database. */
-async function canLogIn(): Promise<boolean> {
+/**
+ * Whether one of the console's roles may log in, asked of the database.
+ *
+ * **The mode is required**, and that is the fix for a hole this file had. It used
+ * to call `adhoc.adhocRole(name)` with no mode, taking the same `mode: 'read'`
+ * default that caused the bug in `revokeAdhocLogin` — so the test and the code
+ * shared the mistake and the guard could not see the thing it guards. Every
+ * assertion about "the login is gone" was only ever about `nm_adhoc_<db>`, while
+ * `nm_adhocrw_<db>` kept its login and its password.
+ */
+async function canLogIn(mode: 'read' | 'write'): Promise<boolean> {
   const { rows } = await database.pool!.query<{ name: string }>('SELECT current_database() AS name');
   const { rows: role } = await database.pool!.query<{ login: boolean }>(
     'SELECT rolcanlogin AS login FROM pg_roles WHERE rolname = $1',
-    [adhoc.adhocRole(rows[0]!.name)],
+    [adhoc.adhocRole(rows[0]!.name, mode)],
   );
   return role[0]?.login === true;
+}
+
+/** Re-resolves the settings the way a restart does. */
+async function reload(): Promise<void> {
+  const { loadAdhocSettings } = await import('./adhoc-settings.service.js');
+  await loadAdhocSettings();
 }
 
 describe('turning the ad hoc console off', { skip: database.skip }, () => {
@@ -61,7 +76,7 @@ describe('turning the ad hoc console off', { skip: database.skip }, () => {
     // The control. Without it the assertion below passes on a role that was
     // never given a login in the first place.
     assert.equal(await adhoc.startAdhoc(database.pool!), true, 'the console refused to start');
-    assert.equal(await canLogIn(), true, 'the console started without provisioning a login');
+    assert.equal(await canLogIn('read'), true, 'the console started without provisioning a login');
   });
 
   it('takes the login away when the feature is switched off', async () => {
@@ -81,19 +96,90 @@ describe('turning the ad hoc console off', { skip: database.skip }, () => {
      * answer.
      */
     process.env.ADHOC_ENABLED = 'false';
-    const { loadAdhocSettings } = await import('./adhoc-settings.service.js');
-    await loadAdhocSettings();
+    await reload();
 
     try {
       assert.equal(await adhoc.startAdhoc(database.pool!), false, 'a disabled console started');
       assert.equal(
-        await canLogIn(),
+        await canLogIn('read'),
         false,
         'the role can still log in with the configured password after the console was switched off',
       );
     } finally {
       process.env.ADHOC_ENABLED = 'true';
-      await loadAdhocSettings();
+      await reload();
+    }
+  });
+
+  it('takes the WRITE login away when the feature is switched off', async () => {
+    /*
+     * The half this file could not see. `revokeAdhocLogin` resolved one role with
+     * the `mode: 'read'` default, and this suite asserted against the same
+     * default — so switching the console off left `nm_adhocrw_<db>` able to
+     * authenticate with its installed password, holding INSERT, UPDATE and
+     * DELETE on the operational tables from V12.
+     *
+     * That is a credential outliving the authorisation to use it: the console is
+     * ADMIN-only, and this survived the administrator being demoted or
+     * offboarded.
+     *
+     * Write mode has to be genuinely provisioned first, or the assertion passes
+     * against a role that never had a login.
+     */
+    process.env.ADHOC_WRITE_ENABLED = 'true';
+    await reload();
+    assert.equal(await adhoc.startAdhoc(database.pool!), true, 'write mode refused to start');
+    assert.equal(await canLogIn('write'), true, 'write mode started without provisioning its login');
+
+    try {
+      process.env.ADHOC_ENABLED = 'false';
+      await reload();
+      assert.equal(await adhoc.startAdhoc(database.pool!), false, 'a disabled console started');
+
+      assert.equal(
+        await canLogIn('write'),
+        false,
+        'the WRITE role can still log in after the console was switched off',
+      );
+      assert.equal(await canLogIn('read'), false, 'the read role can still log in');
+    } finally {
+      process.env.ADHOC_ENABLED = 'true';
+      process.env.ADHOC_WRITE_ENABLED = 'false';
+      await reload();
+    }
+  });
+
+  it('strips the idle role when the mode changes, so a switch leaves nothing behind', async () => {
+    /*
+     * The other reachable path, and the one no off-switch covered: write→read
+     * revoked nothing at all. The console came back as the read role while the
+     * write role kept the password from when write mode was last on — so
+     * rotating `dbPassword` in read mode left the write role authenticating with
+     * the PREVIOUS one indefinitely, since only re-entering write mode updated
+     * it.
+     */
+    process.env.ADHOC_WRITE_ENABLED = 'true';
+    await reload();
+    assert.equal(await adhoc.startAdhoc(database.pool!), true, 'write mode refused to start');
+    assert.equal(await canLogIn('write'), true, 'write mode started without provisioning its login');
+
+    try {
+      // Back to read mode, which is what a `PUT /api/adhoc/settings` clearing
+      // `writeEnabled` does: stop, then start again.
+      process.env.ADHOC_WRITE_ENABLED = 'false';
+      await reload();
+      await adhoc.stopAdhoc();
+      assert.equal(await adhoc.startAdhoc(database.pool!), true, 'read mode refused to start');
+
+      assert.equal(await canLogIn('read'), true, 'the active role lost its login');
+      assert.equal(
+        await canLogIn('write'),
+        false,
+        'the write role kept its login after the console reverted to read mode',
+      );
+    } finally {
+      process.env.ADHOC_WRITE_ENABLED = 'false';
+      await reload();
     }
   });
 });

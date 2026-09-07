@@ -164,24 +164,40 @@ adhocRouter.put(
       );
     }
 
+    const actor = actorOf(req.user);
     const before = currentAdhocSettings();
-    const after = await saveAdhocSettings(patch, actorOf(req.user).name);
 
-    await recordAudit(db, {
-      actor: actorOf(req.user).name,
-      actorId: actorOf(req.user).id,
-      action: 'adhoc_settings.update',
-      /*
-       * Field names and their new values, with credentials replaced by `[set]`
-       * or `[cleared]`.
-       *
-       * The trail has to record that the console's password changed — "who gave
-       * this database a SQL prompt" is exactly what it is for — and must never
-       * record what it changed to. `audit_events` is append-only and never
-       * pruned, so a credential written there is written for good.
-       */
-      detail: { changed: auditableAdhocPatch(patch) },
-    });
+    /*
+     * The audit goes INSIDE the write's transaction, which is why it is handed
+     * to `saveAdhocSettings` rather than written after it.
+     *
+     * This used to be `saveAdhocSettings(...)` followed by `recordAudit(db, ...)`,
+     * so the write committed on its own and anything failing in between left the
+     * console enabled with nothing recording who did it — the one question this
+     * trail exists to answer. `saveDeliverySettings` and `setUserRole` both
+     * thread the transaction, and the latter says it plainly: a trail that can be
+     * committed without the act it records is worse than none.
+     *
+     * `saveAdhocSettings` also decides what actually changed and calls this only
+     * when something did, so a re-saved form with no edits writes nothing at all.
+     */
+    const after = await saveAdhocSettings(patch, actor.name, (tx, changed) =>
+      recordAudit(tx, {
+        actor: actor.name,
+        actorId: actor.id,
+        action: 'adhoc_settings.update',
+        /*
+         * The fields that moved and their new values, with credentials replaced
+         * by `[set]` or `[cleared]`.
+         *
+         * The trail has to record that the console's password changed — "who
+         * gave this database a SQL prompt" is exactly what it is for — and must
+         * never record what it changed to. `audit_events` is append-only and
+         * never pruned, so a credential written there is written for good.
+         */
+        detail: { changed: auditableAdhocPatch(changed) },
+      }),
+    );
 
     /*
      * A change to what the console IS, rather than to its limits, means

@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { type NewAdhocSettingsRow, adhocSettings as table } from '../db/schema.js';
+import { type AdhocSettingsRow, type NewAdhocSettingsRow, adhocSettings as table } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
 import {
   ADHOC_FIELDS,
@@ -12,6 +12,7 @@ import {
   resolveAdhocSettings,
   type StoredAdhocSettings,
 } from './adhoc-settings.js';
+import type { AuditWriter } from './audit.service.js';
 
 const log = componentLogger('adhoc-settings');
 
@@ -83,7 +84,42 @@ export async function loadAdhocSettings(): Promise<AdhocSettings> {
 }
 
 /**
- * Writes the fields in `patch` and re-resolves.
+ * The subset of `patch` whose value actually differs from what is stored.
+ *
+ * `Object.keys(patch).length > 0` is not this check: a `PUT` resubmitting values
+ * that already match — a form re-saved with nothing edited — has a non-empty
+ * patch and no real change. `changedFields` in `notify/settings.service.ts`
+ * draws the same distinction for the same reason, and `ruleChanges` does it for
+ * a suppression rule.
+ *
+ * `current` is `undefined` before any row exists, so on the first save every
+ * field of the patch is new against nothing and the whole patch counts.
+ *
+ * Every column here is a scalar — no `emailTo`-style array — so `!==` is the
+ * whole comparison, and `null` on both sides is correctly unchanged.
+ *
+ * Exported so a test can assert the diff without a database, rather than
+ * trusting the call site to have got it right.
+ */
+export function changedAdhocFields(
+  current: AdhocSettingsRow | undefined,
+  patch: Partial<NewAdhocSettingsRow>,
+): Partial<NewAdhocSettingsRow> {
+  if (!current) return patch;
+
+  const changed: Record<string, unknown> = {};
+  for (const key of Object.keys(patch)) {
+    const before = current[key as keyof AdhocSettingsRow];
+    const after = patch[key as keyof NewAdhocSettingsRow];
+    if (before !== after) changed[key] = after;
+  }
+
+  return changed as Partial<NewAdhocSettingsRow>;
+}
+
+/**
+ * Writes the fields in `patch` that actually changed, records them, and
+ * re-resolves.
  *
  * `null` clears a field, so it falls back to the environment or the default —
  * the same meaning as in the delivery settings, and the reason every column is
@@ -91,17 +127,46 @@ export async function loadAdhocSettings(): Promise<AdhocSettings> {
  * function does not re-check, because a caller that wants to write a pinned
  * field has already been told no and the row would be ignored anyway on the next
  * resolve.
+ *
+ * **`audit` runs inside the write's transaction**, which is why it is a
+ * parameter rather than something the route does afterwards. The write used to
+ * commit on its own with `recordAudit(db, …)` following it, so anything failing
+ * in between — a constraint on `audit_events`, a pool timeout, the process being
+ * stopped — left the console enabled and nothing recording who did it. That is
+ * the one question this particular trail exists to answer.
+ * `saveDeliverySettings` and `setUserRole` both thread the transaction, and
+ * `setUserRole`'s docblock puts it plainly: a trail that can be committed
+ * without the act it records is worse than none.
+ *
+ * **Nothing is written when nothing changed.** Every field of the patch schema
+ * is optional, so `PUT {}` parses — and without a diff it bumped `updated_at`,
+ * overwrote `updated_by` with whoever sent it, and appended `{changed: {}}` to a
+ * table that is append-only by trigger and outside retention's reach. Skipping
+ * the write as well as the audit goes a step further than the delivery path,
+ * deliberately: a no-op save should not reattribute the last real change to
+ * somebody who pressed Save without editing anything.
  */
 export async function saveAdhocSettings(
   patch: Partial<NewAdhocSettingsRow>,
   actor: string,
+  audit?: (writer: AuditWriter, changed: Partial<NewAdhocSettingsRow>) => Promise<void>,
 ): Promise<AdhocSettings> {
-  const values = { ...patch, updatedAt: new Date(), updatedBy: actor.slice(0, 200) };
+  await db.transaction(async (tx) => {
+    const [current] = await tx.select().from(table).where(eq(table.id, ROW_ID)).limit(1);
+    const changed = changedAdhocFields(current, patch);
+    if (Object.keys(changed).length === 0) return;
 
-  await db
-    .insert(table)
-    .values({ id: ROW_ID, ...values })
-    .onConflictDoUpdate({ target: table.id, set: values });
+    const values = { ...changed, updatedAt: new Date(), updatedBy: actor.slice(0, 200) };
+    await tx
+      .insert(table)
+      .values({ id: ROW_ID, ...values })
+      .onConflictDoUpdate({ target: table.id, set: values });
+
+    // Only the fields that moved, not the whole patch — the same choice the
+    // delivery trail makes, so a resubmitted form does not read as a change to
+    // everything it happened to contain.
+    if (audit) await audit(tx, changed);
+  });
 
   return loadAdhocSettings();
 }

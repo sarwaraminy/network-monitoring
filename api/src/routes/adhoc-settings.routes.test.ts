@@ -229,6 +229,60 @@ describe('the query console settings endpoints', { skip: database.skip }, () => 
     assert.deepEqual(rows[0]!.detail, { changed: { enabled: true, maxRows: 25 } });
   });
 
+  it('writes nothing at all when nothing changed', async () => {
+    /*
+     * Every field of the patch schema is optional, so `PUT {}` parses — and a
+     * form re-saved with no edits sends values that already match. Without a
+     * diff this bumped `updated_at`, overwrote `updated_by` with whoever pressed
+     * Save, and appended `{changed: {}}` to `audit_events`, which is append-only
+     * by trigger and outside retention's reach. Those rows accumulate for good in
+     * the table an auditor reads to find the acts that mattered.
+     *
+     * `updated_by` is the part that misleads rather than merely clutters: a
+     * no-op save reattributes the last real change to somebody who changed
+     * nothing.
+     */
+    const token = await seedAdmin('no-op@example.test');
+
+    await expectOk(await put(token, { maxRows: 25 }), 'the real change');
+    const first = await database.pool!.query<{ at: Date; by: string }>(
+      'SELECT updated_at AS at, updated_by AS by FROM adhoc_settings WHERE id = 1',
+    );
+
+    // An empty patch, and a patch resubmitting the value already stored. Neither
+    // is a change.
+    await expectOk(await put(token, {}), 'an empty patch');
+    const second = await seedAdmin('no-op-two@example.test');
+    await expectOk(await put(second, { maxRows: 25 }), 'a resubmitted value');
+
+    const after = await database.pool!.query<{ at: Date; by: string }>(
+      'SELECT updated_at AS at, updated_by AS by FROM adhoc_settings WHERE id = 1',
+    );
+
+    assert.equal(after.rows[0]!.at.getTime(), first.rows[0]!.at.getTime(), 'a no-op save bumped updated_at');
+    assert.equal(after.rows[0]!.by, 'no-op@example.test', 'a no-op save reattributed the last change');
+
+    const { rows } = await database.pool!.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM audit_events WHERE action = 'adhoc_settings.update'",
+    );
+    assert.equal(rows[0]!.n, '1', 'a no-op save was written to the append-only trail');
+  });
+
+  it('records only the fields that moved, not the whole patch', async () => {
+    // A form sends what it rendered. Recording all of it would make a
+    // single-field edit read as a change to everything the form happened to hold.
+    const token = await seedAdmin('partial@example.test');
+
+    await expectOk(await put(token, { maxRows: 25 }), 'the first change');
+    await expectOk(await put(token, { maxRows: 25, maxQueryLength: 5000 }), 'the second change');
+
+    const { rows } = await database.pool!.query<{ detail: { changed: Record<string, unknown> } }>(
+      "SELECT detail FROM audit_events WHERE action = 'adhoc_settings.update' ORDER BY id DESC LIMIT 1",
+    );
+
+    assert.deepEqual(rows[0]!.detail.changed, { maxQueryLength: 5000 });
+  });
+
   it('refuses a value the database would not accept, without storing it', async () => {
     // The bounds are V14's CHECK constraints, validated before the write so the
     // failure is a 400 naming the field rather than a 500 from Postgres.

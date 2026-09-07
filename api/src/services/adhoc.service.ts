@@ -304,7 +304,8 @@ export function adhocConnectionString(role: string, password: string): string {
  */
 export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
   /*
-   * Both "off" paths revoke, and that is the point rather than tidiness.
+   * Both "off" paths revoke BOTH roles, and that is the point rather than
+   * tidiness.
    *
    * `stopAdhoc`'s docblock says the login does not outlive the console. It only
    * ran on shutdown of a process that had the console ON — so the operator
@@ -313,7 +314,17 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
    * indefinitely after the feature was switched off, with PUBLIC holding CONNECT
    * by default. The file documented a guarantee it did not provide.
    *
-   * Best effort: this runs at boot, the role may not exist yet on a fresh
+   * And then it went on documenting it for HALF the roles: `revokeAdhocLogin`
+   * resolved one name with the `mode: 'read'` default, so this paragraph was an
+   * accurate description of `nm_adhoc_<db>` and a false one of
+   * `nm_adhocrw_<db>` — which kept its login and its password through every
+   * off-path, while a write→read switch revoked nothing either. No operator
+   * action revoked the write login, so a credential granted `INSERT`/`UPDATE`/
+   * `DELETE` on the operational tables outlived the ADMIN role that authorised
+   * it. Both are revoked here now, and `startAdhoc` also strips the mode it is
+   * not using so a switch leaves nothing behind.
+   *
+   * Best effort: this runs at boot, the roles may not exist yet on a fresh
    * install, and a console that is off is off either way.
    */
   offDetail = null;
@@ -469,6 +480,25 @@ export async function startAdhoc(owner: pg.Pool): Promise<boolean> {
     }
     pool = candidate;
     activeMode = mode;
+
+    /*
+     * The OTHER mode's role loses its login, so a mode switch leaves nothing
+     * behind.
+     *
+     * Without this, a write→read switch revoked nothing at all: the console came
+     * back as `nm_adhoc_<db>` while `nm_adhocrw_<db>` kept `LOGIN` and the
+     * password from when write mode was last on. Rotating `dbPassword` in read
+     * mode then left the write role authenticating with the PREVIOUS password
+     * indefinitely — only re-entering write mode ever updated it.
+     *
+     * After the ALTER and the sandbox proof, deliberately: this must not be able
+     * to strip the login from the role the console is about to use, and by here
+     * the active one is provisioned and verified. Best effort and non-fatal — a
+     * running console is not worth refusing over a role that may not exist.
+     */
+    const idle = adhocRole(current[0]!.name, mode === 'write' ? 'read' : 'write');
+    await revokeLogin(owner, idle).catch(() => {});
+
     if (mode === 'write') {
       // WARN, not info. An operator scanning a boot log should not have to
       // notice a missing word to learn that a browser session can now DELETE.
@@ -650,18 +680,36 @@ export async function stopAdhoc(): Promise<void> {
 }
 
 /**
- * Takes the console role's login away. For teardown that owns the whole cluster.
+ * Takes the login away from BOTH console roles.
+ *
+ * Both, and that is the fix for a real hole rather than tidiness. This called
+ * `adhocRole(name)`, which takes the `mode: 'read'` default — so every path that
+ * switched the console off stripped `LOGIN` from `nm_adhoc_<db>` and left
+ * `nm_adhocrw_<db>` authenticating with its installed password, holding
+ * `SELECT, INSERT, UPDATE, DELETE` on the operational tables from V12. Combined
+ * with a write→read switch revoking nothing, **no operator action revoked the
+ * write login at all**: the credential outlived the authorisation to use it,
+ * including the administrator's own demotion.
+ *
+ * `PASSWORD NULL` alongside `NOLOGIN` because disabling a login leaves the
+ * credential in `pg_authid` to be re-enabled; destroying it means a later
+ * `ALTER ROLE … LOGIN` by any means does not restore a working password that an
+ * ex-administrator still knows.
  *
  * Exported for the test suite — see `stopAdhoc` for why a production shutdown
- * must not do this. Resolves the role from the connection, so a caller does not
+ * must not do this. Resolves the roles from the connection, so a caller does not
  * have to reproduce the naming rule.
  */
 export async function revokeAdhocLogin(owner: pg.Pool): Promise<void> {
   const { rows } = await owner.query<{ name: string }>('SELECT current_database() AS name');
-  await revokeLogin(owner, adhocRole(rows[0]!.name));
+
+  // Both modes, the way V15's own DO block loops the two prefixes.
+  for (const mode of ['read', 'write'] as const) {
+    await revokeLogin(owner, adhocRole(rows[0]!.name, mode));
+  }
 }
 
-/** `ALTER ROLE … NOLOGIN`, the one statement both teardown paths need. */
+/** `ALTER ROLE … NOLOGIN PASSWORD NULL`, the one statement every teardown path needs. */
 async function revokeLogin(owner: pg.Pool, role: string): Promise<void> {
   /*
    * A role that does not exist is not a problem to report.
@@ -685,7 +733,11 @@ async function revokeLogin(owner: pg.Pool, role: string): Promise<void> {
   }
 
   await owner
-    .query('SELECT format($$ALTER ROLE %I NOLOGIN$$, $1::text) AS statement', [role])
+    // `PASSWORD NULL` as well as `NOLOGIN`: disabling the login leaves the
+    // credential stored, so anything that later re-grants LOGIN — a hand-run
+    // ALTER, a restore, a future version of this code — would restore a working
+    // password that whoever configured it still knows.
+    .query('SELECT format($$ALTER ROLE %I NOLOGIN PASSWORD NULL$$, $1::text) AS statement', [role])
     .then((result) => owner.query(result.rows[0]!.statement))
     .catch((error) => log.error({ err: error }, `Could not revoke LOGIN from ${role}; do it by hand`));
 }
