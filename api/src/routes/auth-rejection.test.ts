@@ -40,6 +40,15 @@ import jwt from 'jsonwebtoken';
 
 const SECRET = 'auth-rejection-suite-secret';
 
+/*
+ * Set and loaded here rather than in `before`, because `guide-session.ts` derives
+ * its signing key at module load — and the guide token below has to be minted by
+ * the real thing. Deriving it a second time in this file would be a copy of a
+ * security-relevant constant, which is how the two drift apart.
+ */
+process.env.JWT_SECRET = SECRET;
+const { signGuideSession } = await import('../services/guide-session.js');
+
 let app: Express;
 let server: Server;
 let origin: string;
@@ -263,6 +272,25 @@ const REJECTED: { name: string; header?: string; why: string }[] = [
      * is not what holds the algorithm pin in place. The case below is.
      */
     why: 'an unsigned token with valid claims must not be accepted',
+  },
+  {
+    name: 'a user-guide session presented as a Bearer token',
+    header: `Bearer ${signGuideSession('admin@example.com').value}`,
+    /*
+     * The one that was not refused.
+     *
+     * The guide session is a credential the browser carries by itself: an HttpOnly
+     * cookie, attached automatically to a static-file route, deliberately outliving
+     * a privileged token because the harm in it leaking was priced as "somebody
+     * reads the manual". It was signed with `JWT_SECRET` and distinguished from an
+     * access token only by a `purpose` claim that `verifyAccessToken` never looked
+     * at — so it worked as `Authorization: Bearer` on every route here, ADMIN ones
+     * included, for twelve hours. Every trade-off made for it was priced wrong.
+     *
+     * Swept across all routes rather than checked once, because the failure was not
+     * in any route: it was in what the two token types had in common.
+     */
+    why: 'a credential issued for reading documentation must not be API access',
   },
   {
     name: 'a token signed with a weaker algorithm than this server uses',

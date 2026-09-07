@@ -14,7 +14,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
-import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { fetchSignupMode } from '../api/auth.api';
 import { describeError } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
@@ -25,7 +25,7 @@ export default function LoginPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const { login } = useAuth();
+  const { login, isAuthenticated, loading } = useAuth();
 
   /**
    * Whether to offer registration at all.
@@ -43,6 +43,21 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const redirectTo = (location.state as { from?: string } | null)?.from ?? '/';
+
+  /*
+   * Somebody already signed in does not need this page.
+   *
+   * Reachable in ordinary use, not just by typing the URL: the user-guide gate
+   * answers a missing or expired cookie with a redirect to `/login`, and the cookie
+   * is deliberately shorter-lived than the session. Without this, that lands a
+   * signed-in user on a sign-in form — which reads as having been signed out, when
+   * they have not been. Waiting for `loading` matters, because `isAuthenticated` is
+   * false until the stored token has been checked and redirecting on that would
+   * bounce a legitimate visitor straight back.
+   */
+  if (!loading && isAuthenticated) {
+    return <Navigate to={redirectTo} replace />;
+  }
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();

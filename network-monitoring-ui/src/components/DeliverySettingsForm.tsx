@@ -403,6 +403,21 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
    * a form where it cannot be seen. It stays in `draft`, so switching the method
    * back brings the typed value with it.
    */
+  /**
+   * A secret belonging to the *other* authentication method, still stored.
+   *
+   * Switching from OAuth2 back to a password hid the refresh token along with its
+   * Clear button, and the server still had it: a credential with no path in the
+   * interface to revoke it. It stays on screen while it is stored, so it can be
+   * cleared and nothing else — see the rendering below, which disables the box.
+   *
+   * Deliberately *not* part of `visibleFields`, which is what builds the patch: a
+   * value typed into a field the current method does not use must still never be
+   * saved. `clearSecret` sends its one key directly and so is unaffected.
+   */
+  const isStranded = (field: FieldDef): boolean =>
+    field.kind === 'secret' && !isVisible(field) && settings.data?.settings[field.key]?.configured === true;
+
   const visibleFields = SECTIONS.flatMap((section) => section.fields).filter(isVisible);
 
   const changedFields = Object.keys(draft).filter((key) => {
@@ -551,123 +566,139 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
               whole row — only the fields marked `narrow` share one.
             */}
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-              {section.fields.filter(isVisible).map((field) => {
-                const isPinned = pinned.has(field.key);
-                const state = settings.data?.settings[field.key];
-                // The pinned chip (with its own tooltip naming the variable) sits next to
-                // every pinned field already, so the helper text only needs to say
-                // whatever is specific to the field, not restate that it is pinned.
-                const helper = field.help;
-                const fullRowSx = { flex: '1 1 100%', minWidth: 0 };
-                const narrowSx = { flex: '0 1 200px', minWidth: 160 };
+              {section.fields
+                .filter((field) => isVisible(field) || isStranded(field))
+                .map((field) => {
+                  const isPinned = pinned.has(field.key);
+                  const state = settings.data?.settings[field.key];
+                  // The pinned chip (with its own tooltip naming the variable) sits next to
+                  // every pinned field already, so the helper text only needs to say
+                  // whatever is specific to the field, not restate that it is pinned.
+                  const helper = field.help;
+                  const fullRowSx = { flex: '1 1 100%', minWidth: 0 };
+                  const narrowSx = { flex: '0 1 200px', minWidth: 160 };
 
-                if (field.kind === 'switch') {
-                  return (
-                    <Box key={field.key} sx={fullRowSx}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={currentValue(field.key, 'switch') === true}
-                            disabled={isPinned || save.isPending}
+                  if (field.kind === 'switch') {
+                    return (
+                      <Box key={field.key} sx={fullRowSx}>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={currentValue(field.key, 'switch') === true}
+                              disabled={isPinned || save.isPending}
+                              onChange={(event) =>
+                                setDraft((current) => ({ ...current, [field.key]: event.target.checked }))
+                              }
+                              slotProps={{ input: { 'aria-label': field.label } }}
+                            />
+                          }
+                          label={
+                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                              <span>{field.label}</span>
+                              {isPinned && <PinnedChip name={ENV_NAMES[field.key]} />}
+                            </Stack>
+                          }
+                        />
+                        {helper && (
+                          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                            {helper}
+                          </Typography>
+                        )}
+                      </Box>
+                    );
+                  }
+
+                  if (field.kind === 'secret') {
+                    const stranded = isStranded(field);
+                    return (
+                      <Box key={field.key} sx={fullRowSx}>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+                          <TextField
+                            label={field.label}
+                            size="small"
+                            fullWidth={!field.narrow}
+                            type="password"
+                            autoComplete="new-password"
+                            value={stranded ? '' : currentValue(field.key, 'secret')}
+                            // A stranded secret is shown to be removed, not edited:
+                            // the current method does not use it, so replacing it
+                            // would store a credential nothing reads.
+                            disabled={stranded || isPinned || save.isPending}
                             onChange={(event) =>
-                              setDraft((current) => ({ ...current, [field.key]: event.target.checked }))
+                              setDraft((current) => ({ ...current, [field.key]: event.target.value }))
                             }
-                            slotProps={{ input: { 'aria-label': field.label } }}
+                            placeholder={
+                              stranded
+                                ? 'stored, and not used by the current method'
+                                : state?.configured
+                                  ? 'configured — type to replace'
+                                  : 'not configured'
+                            }
+                            helperText={
+                              stranded
+                                ? 'The current authentication method does not use this. It is still stored — clear it unless you plan to switch back.'
+                                : helper
+                            }
                           />
+                          {state?.configured && !isPinned && (
+                            <Button
+                              size="small"
+                              onClick={() => clearSecret(field.key)}
+                              disabled={save.isPending}
+                            >
+                              Clear
+                            </Button>
+                          )}
+                        </Stack>
+                        <Stack direction="row" spacing={1} sx={{ mt: 0.5, alignItems: 'center' }}>
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            color={state?.configured ? 'success' : 'default'}
+                            label={state?.configured ? 'Configured' : 'Not set'}
+                          />
+                          {isPinned && <PinnedChip name={ENV_NAMES[field.key]} />}
+                        </Stack>
+                      </Box>
+                    );
+                  }
+
+                  const isSelect = field.kind === 'select';
+                  const isList = field.kind === 'list';
+
+                  return (
+                    <Box key={field.key} sx={field.narrow ? narrowSx : fullRowSx}>
+                      <TextField
+                        label={field.label}
+                        size="small"
+                        select={isSelect}
+                        multiline={isList}
+                        minRows={isList ? 2 : undefined}
+                        type={field.kind === 'number' ? 'number' : 'text'}
+                        fullWidth
+                        value={currentValue(field.key, field.kind)}
+                        disabled={isPinned || save.isPending}
+                        onChange={(event) =>
+                          setDraft((current) => ({ ...current, [field.key]: event.target.value }))
                         }
-                        label={
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                            <span>{field.label}</span>
-                            {isPinned && <PinnedChip name={ENV_NAMES[field.key]} />}
-                          </Stack>
-                        }
-                      />
-                      {helper && (
-                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-                          {helper}
-                        </Typography>
+                        helperText={helper}
+                        slotProps={isList ? { inputLabel: { shrink: true } } : undefined}
+                      >
+                        {isSelect &&
+                          field.options?.map((option) => (
+                            <MenuItem key={option} value={option}>
+                              {option}
+                            </MenuItem>
+                          ))}
+                      </TextField>
+                      {isPinned && (
+                        <Box sx={{ mt: 0.5 }}>
+                          <PinnedChip name={ENV_NAMES[field.key]} />
+                        </Box>
                       )}
                     </Box>
                   );
-                }
-
-                if (field.kind === 'secret') {
-                  return (
-                    <Box key={field.key} sx={fullRowSx}>
-                      <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
-                        <TextField
-                          label={field.label}
-                          size="small"
-                          fullWidth={!field.narrow}
-                          type="password"
-                          autoComplete="new-password"
-                          value={currentValue(field.key, 'secret')}
-                          disabled={isPinned || save.isPending}
-                          onChange={(event) =>
-                            setDraft((current) => ({ ...current, [field.key]: event.target.value }))
-                          }
-                          placeholder={state?.configured ? 'configured — type to replace' : 'not configured'}
-                          helperText={helper}
-                        />
-                        {state?.configured && !isPinned && (
-                          <Button
-                            size="small"
-                            onClick={() => clearSecret(field.key)}
-                            disabled={save.isPending}
-                          >
-                            Clear
-                          </Button>
-                        )}
-                      </Stack>
-                      <Stack direction="row" spacing={1} sx={{ mt: 0.5, alignItems: 'center' }}>
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          color={state?.configured ? 'success' : 'default'}
-                          label={state?.configured ? 'Configured' : 'Not set'}
-                        />
-                        {isPinned && <PinnedChip name={ENV_NAMES[field.key]} />}
-                      </Stack>
-                    </Box>
-                  );
-                }
-
-                const isSelect = field.kind === 'select';
-                const isList = field.kind === 'list';
-
-                return (
-                  <Box key={field.key} sx={field.narrow ? narrowSx : fullRowSx}>
-                    <TextField
-                      label={field.label}
-                      size="small"
-                      select={isSelect}
-                      multiline={isList}
-                      minRows={isList ? 2 : undefined}
-                      type={field.kind === 'number' ? 'number' : 'text'}
-                      fullWidth
-                      value={currentValue(field.key, field.kind)}
-                      disabled={isPinned || save.isPending}
-                      onChange={(event) =>
-                        setDraft((current) => ({ ...current, [field.key]: event.target.value }))
-                      }
-                      helperText={helper}
-                      slotProps={isList ? { inputLabel: { shrink: true } } : undefined}
-                    >
-                      {isSelect &&
-                        field.options?.map((option) => (
-                          <MenuItem key={option} value={option}>
-                            {option}
-                          </MenuItem>
-                        ))}
-                    </TextField>
-                    {isPinned && (
-                      <Box sx={{ mt: 0.5 }}>
-                        <PinnedChip name={ENV_NAMES[field.key]} />
-                      </Box>
-                    )}
-                  </Box>
-                );
-              })}
+                })}
             </Box>
           </Box>
         ))}

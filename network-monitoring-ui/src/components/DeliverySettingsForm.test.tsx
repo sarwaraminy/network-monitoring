@@ -431,6 +431,54 @@ describe('DeliverySettingsForm', () => {
     expect(screen.queryByLabelText(/^password$/i, { selector: 'input' })).not.toBeInTheDocument();
   });
 
+  it("keeps the other method's stored secret clearable", async () => {
+    /*
+     * Switching from OAuth2 back to a password used to hide the refresh token
+     * along with its Clear button — while the server still held it. A stored
+     * credential with no path in the interface to revoke it is the wrong end of
+     * this feature: the point of a write-only secret is that it can be replaced or
+     * removed, not that it becomes unreachable.
+     *
+     * Shown so it can be cleared and nothing else, hence the disabled box: typing
+     * a new value for a method that does not use it would store a credential
+     * nothing reads.
+     */
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      http.get('/api/notify/settings', () =>
+        HttpResponse.json({
+          ...DELIVERY_SETTINGS,
+          settings: {
+            ...DELIVERY_SETTINGS.settings,
+            emailAuthMethod: { source: 'database', value: 'password' },
+            emailOauthRefreshToken: { source: 'database', configured: true },
+            // The only configured secret in this fixture, so "the Clear button"
+            // is unambiguous. Every one of them is labelled "Clear" — worth
+            // naming per field one day, but not in the change that found this.
+            webhookUrl: { source: 'database', configured: false },
+          },
+        }),
+      ),
+      http.put('/api/notify/settings', async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(DELIVERY_SETTINGS);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<DeliverySettingsForm />, { authenticated: true });
+
+    const stranded = await screen.findByLabelText(/refresh token/i);
+    expect(stranded).toBeDisabled();
+    expect(screen.getByText(/does not use this/i)).toBeInTheDocument();
+
+    // The whole reason it is on screen.
+    await user.click(screen.getByRole('button', { name: /^clear$/i }));
+
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(body).toEqual({ emailOauthRefreshToken: null });
+  });
+
   it('does not save an edit to a field the auth method has since hidden', async () => {
     // Typed into the password box, then switched to OAuth2. Saving the password
     // would write a credential the operator can no longer see, for a method that

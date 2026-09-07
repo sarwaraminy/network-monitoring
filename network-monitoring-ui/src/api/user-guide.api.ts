@@ -16,6 +16,22 @@ export async function openGuideSession(): Promise<void> {
   await api.post('/api/user-guide/session');
 }
 
-export async function closeGuideSession(): Promise<void> {
-  await api.delete('/api/user-guide/session');
+/**
+ * Clears the cookie. Takes the token explicitly, and that is not a convenience.
+ *
+ * Sign-out calls this and then clears the stored access token in the same tick.
+ * Axios request interceptors are asynchronous unless declared otherwise, so the
+ * interceptor that attaches `Authorization` runs a microtask later — by which time
+ * the stored token is already null. The request went out with no header at all, the
+ * server answered 401, and the cookie survived the sign-out that was meant to end
+ * it: on a shared machine, a working credential left in the browser.
+ *
+ * Passing the token in the config puts the header on the request before any of that
+ * can happen, and the interceptor leaves it alone because it only sets the header
+ * when it has a token of its own.
+ */
+export async function closeGuideSession(token: string | null): Promise<void> {
+  await api.delete('/api/user-guide/session', {
+    ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+  });
 }

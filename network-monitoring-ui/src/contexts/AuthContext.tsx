@@ -24,6 +24,15 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+/**
+ * How often an open tab re-mints the guide cookie.
+ *
+ * Four hours against the cookie's twelve, so two consecutive misses still leave it
+ * valid. Short enough to survive background-tab throttling, long enough that the
+ * request is invisible.
+ */
+const GUIDE_RENEW_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,7 +52,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    void closeGuideSession().catch(() => undefined);
+    // Read before it is cleared, and handed over explicitly: see closeGuideSession
+    // for why letting the interceptor find it does not work here.
+    void closeGuideSession(getToken()).catch(() => undefined);
     setToken(null);
     setUser(null);
   }, []);
@@ -63,7 +74,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setUser(current);
         // A returning visitor whose token is still good: the guide cookie has its
-        // own, shorter life, so it is renewed here rather than only at sign-in.
+        // own, shorter life, so it is renewed here as well as at sign-in — and,
+        // below, for as long as the tab stays open.
         openGuide();
       })
       .catch(() => {
@@ -80,6 +92,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [openGuide]);
+
+  /*
+   * Keep the guide cookie alive for as long as the session is.
+   *
+   * Minting it on mount and at sign-in covers a returning visitor and misses the
+   * case that actually needs it: a tab nobody reloads. The access token lasts a
+   * day and the cookie twelve hours, so a dashboard left open — which is what this
+   * application is for — reaches a point where clicking help finds no cookie, gets
+   * redirected to the sign-in page, and cannot get back to the guide without a hard
+   * reload.
+   *
+   * A timer rather than minting on the click itself. "Mint, then open" reads better
+   * but has to `await` inside a click handler before calling `window.open`, and a
+   * popup blocker is entitled to refuse a window opened outside the gesture — that
+   * trades a predictable failure after twelve hours for an unpredictable one at any
+   * time. The interval is comfortably inside the cookie's life even if a background
+   * tab throttles it, and `visibilitychange` covers the case timers do not fire at
+   * all: a laptop that slept through the whole interval.
+   */
+  useEffect(() => {
+    if (!user) return;
+
+    const renew = () => {
+      if (document.visibilityState === 'visible') openGuide();
+    };
+
+    const timer = window.setInterval(renew, GUIDE_RENEW_INTERVAL_MS);
+    document.addEventListener('visibilitychange', renew);
+
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', renew);
+    };
+  }, [user, openGuide]);
 
   // A 401 on any request means the token expired or was revoked.
   useEffect(() => onUnauthorized(() => setUser(null)), []);

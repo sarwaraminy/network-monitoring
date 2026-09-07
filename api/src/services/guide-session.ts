@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 
@@ -15,11 +16,20 @@ import { env } from '../config/env.js';
  * So the gate needs a credential the browser carries on its own, which means a
  * cookie. This is that cookie, and it is deliberately not the access token:
  *
- *   - **A different purpose claim.** A guide cookie presented as a Bearer token
- *     is refused by `verifyAccessToken`, and an access token pasted into the
- *     cookie is refused here. Two credentials that grant different things must
- *     not be interchangeable, or the narrower one becomes a way to hold the
- *     wider one.
+ *   - **A signing key of its own**, and this is the one that matters. The first
+ *     version signed with `env.jwtSecret` and distinguished the two by a `purpose`
+ *     claim — but `verifyAccessToken` never looked at that claim, so the cookie was
+ *     a fully working `Authorization: Bearer` token for the same user, on every
+ *     authenticated route including the ADMIN ones, for its whole twelve hours. The
+ *     comment here said it was refused; nothing refused it. A separate key makes
+ *     the two non-interchangeable by signature rather than by a check somebody has
+ *     to remember, and `verifyAccessToken` now also rejects anything carrying a
+ *     `purpose` claim, so the two defences are independent.
+ *
+ *     Derived from `JWT_SECRET` rather than configured separately: an operator who
+ *     has to add a second secret before documentation works will not, and a
+ *     defaulted second secret is worse than none. Rotating `JWT_SECRET` rotates
+ *     both, which is the behaviour anyone would expect.
  *   - **`Path=/user-guide`.** The browser sends it to nothing else, so it cannot
  *     reach the API even if it were somehow accepted there.
  *   - **`HttpOnly`.** Script cannot read it, so a cross-site scripting bug on the
@@ -51,15 +61,30 @@ export const GUIDE_COOKIE_PATH = '/user-guide';
  */
 const TTL_SECONDS = 12 * 60 * 60;
 
+/**
+ * This session's signing key: HMAC-derived from `JWT_SECRET` under a fixed label.
+ *
+ * Domain separation, so a guide cookie cannot verify as an access token and an
+ * access token cannot verify as a guide cookie — not because a claim is checked,
+ * but because neither signature is valid under the other's key. The label is
+ * versioned so the derivation can change later without silently accepting tokens
+ * minted under the old one.
+ */
+const GUIDE_KEY = createHmac('sha256', env.jwtSecret).update('nmt:user-guide-session:v1').digest();
+
 interface GuideClaims {
   sub: string;
-  /** Fixed, and the thing that stops this being usable as an access token. */
+  /**
+   * Fixed. Belt to the separate key's braces: `verifyAccessToken` refuses any token
+   * carrying this claim, so even a future token type that shared the signing key
+   * could not be replayed as API access.
+   */
   purpose: 'user-guide';
 }
 
 export function signGuideSession(email: string): { value: string; maxAgeSeconds: number } {
   const claims: GuideClaims = { sub: email, purpose: 'user-guide' };
-  const value = jwt.sign(claims, env.jwtSecret, { algorithm: 'HS512', expiresIn: TTL_SECONDS });
+  const value = jwt.sign(claims, GUIDE_KEY, { algorithm: 'HS512', expiresIn: TTL_SECONDS });
   return { value, maxAgeSeconds: TTL_SECONDS };
 }
 
@@ -68,7 +93,7 @@ export function isValidGuideSession(value: string | undefined): boolean {
   if (!value) return false;
 
   try {
-    const payload = jwt.verify(value, env.jwtSecret, { algorithms: ['HS512'] });
+    const payload = jwt.verify(value, GUIDE_KEY, { algorithms: ['HS512'] });
     return (
       typeof payload === 'object' && payload !== null && (payload as GuideClaims).purpose === 'user-guide'
     );
