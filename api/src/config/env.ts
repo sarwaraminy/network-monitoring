@@ -1,6 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import { SENSOR_ID_MAX_LENGTH, SENSOR_ID_PATTERN } from '../constants.js';
 
 // Resolve api/.env from this module rather than from process.cwd(), so the server
 // behaves the same whether it is started from api/ or from the repository root.
@@ -64,6 +65,45 @@ function retentionDays(name: string, fallback: number): number {
     return MIN_RETENTION_DAYS;
   }
   return days;
+}
+
+/**
+ * Which sensor this process is.
+ *
+ * Environment-only, and deliberately not one of the settings an administrator can
+ * edit in the browser: the whole point of the value is to tell two installations
+ * apart when they share one database, and a stored row in the database they share
+ * cannot hold two different answers. It is a property of the deployment, the way
+ * `DATABASE_URL` is.
+ *
+ * The default is the literal `default` rather than the OS hostname. A hostname
+ * default reads as the friendlier choice and is a trap under Compose, where a
+ * container's hostname is a fresh random id on every recreate: the identity would
+ * change behind the operator's back, so every alert in the table would be orphaned
+ * and every recurring finding would re-alert instead of merging. A constant keeps a
+ * single-sensor installation — which is every installation today — behaving exactly
+ * as it did, and the operator names the sensors on the day a second one appears.
+ *
+ * Refused rather than sanitised. It is a database key and it appears in the API's
+ * query string, so a value that had to be truncated or escaped would be a different
+ * identity from the one that was configured — which is the failure this column
+ * exists to prevent.
+ */
+function sensorId(): string {
+  const value = optional('SENSOR_ID', 'default').trim();
+
+  if (value.length > SENSOR_ID_MAX_LENGTH) {
+    throw new TypeError(
+      `Environment variable SENSOR_ID must be at most ${SENSOR_ID_MAX_LENGTH} characters, got ${value.length}.`,
+    );
+  }
+  if (!SENSOR_ID_PATTERN.test(value)) {
+    throw new TypeError(
+      `Environment variable SENSOR_ID must start with a letter or digit and contain only ` +
+        `letters, digits, dot, dash or underscore, got "${value}".`,
+    );
+  }
+  return value;
 }
 
 /**
@@ -169,6 +209,18 @@ export const env = {
 
   databaseUrl: databaseUrl(),
   dbAutoMigrate: bool('DB_AUTO_MIGRATE', true),
+
+  /**
+   * The name this installation's findings are stored under — see `sensorId` above.
+   *
+   * Next to the database settings because that is what it is about. Two sensors
+   * watching different segments through one Postgres used to upsert into each
+   * other's rows: `alerts.dedup_key` was globally unique, so their occurrence counts
+   * added together and whichever flushed last overwrote the title, severity and
+   * evidence. `known_devices` was worse and quieter — a phone one sensor had already
+   * learned meant the other never raised "new device" for it at all.
+   */
+  sensorId: sensorId(),
 
   jwtSecret: required('JWT_SECRET'),
   jwtExpiresIn: optional('JWT_EXPIRES_IN', '1d'),

@@ -43,8 +43,8 @@ describe('the database test harness', { skip: database.skip }, () => {
     // The other half: a restore that put everything back would make truncation
     // useless, and every suite would inherit the previous test's rows.
     await database.pool!.query(
-      `INSERT INTO alerts (kind, severity, title, description, dedup_key, first_seen, last_seen)
-       VALUES ('port_scan', 'low', 'x', 'x', 'harness-1', now(), now())`,
+      `INSERT INTO alerts (sensor_id, kind, severity, title, description, dedup_key, first_seen, last_seen)
+       VALUES ('harness', 'port_scan', 'low', 'x', 'x', 'harness-1', now(), now())`,
     );
     assert.equal(await countOf('alerts'), 1);
 

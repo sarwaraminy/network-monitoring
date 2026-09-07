@@ -13,6 +13,7 @@ import {
   smallint,
   text,
   timestamp,
+  unique,
   varchar,
 } from 'drizzle-orm/pg-core';
 
@@ -53,6 +54,17 @@ export const alerts = pgTable(
   'alerts',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
+
+    /**
+     * Which sensor observed this — see V16__Sensor_id.sql.
+     *
+     * No default, deliberately, in the column as well as here: the dedup key is
+     * derived from what was observed, so two sensors on two segments produce the
+     * same key for unrelated events, and an insert that omitted the sensor would
+     * merge them exactly as it did before this column existed.
+     */
+    sensorId: varchar('sensor_id', { length: 64 }).notNull(),
+
     kind: varchar('kind', { length: 64 }).notNull(),
     severity: varchar('severity', { length: 16 }).notNull(),
     title: varchar('title', { length: 200 }).notNull(),
@@ -70,7 +82,7 @@ export const alerts = pgTable(
      */
     port: integer('port'),
 
-    dedupKey: varchar('dedup_key', { length: 255 }).notNull().unique(),
+    dedupKey: varchar('dedup_key', { length: 255 }).notNull(),
     occurrences: integer('occurrences').notNull().default(1),
     firstSeen: timestamp('first_seen', { withTimezone: true, mode: 'date' }).notNull(),
     lastSeen: timestamp('last_seen', { withTimezone: true, mode: 'date' }).notNull(),
@@ -83,18 +95,36 @@ export const alerts = pgTable(
 
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
-  (table) => [index('alerts_last_seen_idx').on(table.lastSeen), index('alerts_kind_idx').on(table.kind)],
+  (table) => [
+    // Per sensor, not global. `unique()` on the column itself would be the old
+    // constraint, which is what merged two sensors' findings into one row.
+    unique('alerts_sensor_dedup_key_key').on(table.sensorId, table.dedupKey),
+    index('alerts_last_seen_idx').on(table.lastSeen),
+    index('alerts_kind_idx').on(table.kind),
+  ],
 );
 
-/** MAC addresses seen before, so new-device detection survives a restart. */
-export const knownDevices = pgTable('known_devices', {
-  macAddress: varchar('mac_address', { length: 32 }).primaryKey(),
-  firstIp: varchar('first_ip', { length: 64 }),
-  lastIp: varchar('last_ip', { length: 64 }),
-  label: varchar('label', { length: 200 }),
-  firstSeen: timestamp('first_seen', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
-  lastSeen: timestamp('last_seen', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
-});
+/**
+ * MAC addresses seen before, so new-device detection survives a restart.
+ *
+ * Keyed by sensor as well as by address since V16. "Seen before" is a statement
+ * about one sensor's segment: with the MAC alone as the key, a device the first
+ * sensor had learned was already known to every other sensor sharing the database,
+ * and none of them ever raised a new-device alert for it.
+ */
+export const knownDevices = pgTable(
+  'known_devices',
+  {
+    sensorId: varchar('sensor_id', { length: 64 }).notNull(),
+    macAddress: varchar('mac_address', { length: 32 }).notNull(),
+    firstIp: varchar('first_ip', { length: 64 }),
+    lastIp: varchar('last_ip', { length: 64 }),
+    label: varchar('label', { length: 200 }),
+    firstSeen: timestamp('first_seen', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    lastSeen: timestamp('last_seen', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.sensorId, table.macAddress] })],
+);
 
 /**
  * Findings the operator has declared expected — see V6__Alert_suppressions.sql
@@ -208,6 +238,8 @@ export const deliverySettings = pgTable('delivery_settings', {
 export const alertRollupDaily = pgTable(
   'alert_rollup_daily',
   {
+    /** Which sensor's day this summarises — see V16__Sensor_id.sql. */
+    sensorId: varchar('sensor_id', { length: 64 }).notNull(),
     /** The UTC day summarised. A bucket, not an instant. */
     day: date('day').notNull(),
     kind: varchar('kind', { length: 64 }).notNull(),
@@ -223,7 +255,7 @@ export const alertRollupDaily = pgTable(
     rolledUpAt: timestamp('rolled_up_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
   (table) => [
-    primaryKey({ columns: [table.day, table.kind, table.severity] }),
+    primaryKey({ columns: [table.sensorId, table.day, table.kind, table.severity] }),
     index('alert_rollup_daily_day_idx').on(table.day),
   ],
 );

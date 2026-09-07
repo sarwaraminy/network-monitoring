@@ -257,6 +257,13 @@ async function rollUpExpiredAlerts(cutoff: Date): Promise<RollupTotals> {
          * separate ones once a bound parameter is involved and rejects the query —
          * the trap `dashboardData` works around by inlining its bucket unit.
          *
+         * Grouped by sensor as well as by day since V16, so two sensors' findings
+         * land in two buckets. The sweep itself is still database-wide rather than
+         * scoped to whichever process is running it, and that is deliberate:
+         * retention is a property of the database, one sweep is cheaper than one
+         * per sensor, and two sensors sweeping concurrently is already safe for the
+         * same reason a repeated sweep is — the ON CONFLICT below adds.
+         *
          * ON CONFLICT adds rather than replaces, which is what lets a day be rolled
          * up more than once: a day only partly past the cutoff contributes its
          * expired rows now and the rest when they expire, and an interrupted sweep
@@ -264,8 +271,10 @@ async function rollUpExpiredAlerts(cutoff: Date): Promise<RollupTotals> {
          * instead of overwriting.
          */
         const written = await tx.execute(sql`
-          INSERT INTO ${alertRollupDaily} (day, kind, severity, alerts, occurrences, first_seen, last_seen)
+          INSERT INTO ${alertRollupDaily}
+            (sensor_id, day, kind, severity, alerts, occurrences, first_seen, last_seen)
           SELECT
+            ${alerts.sensorId},
             (${alerts.lastSeen} AT TIME ZONE 'UTC')::date AS day,
             ${alerts.kind},
             ${alerts.severity},
@@ -277,8 +286,8 @@ async function rollUpExpiredAlerts(cutoff: Date): Promise<RollupTotals> {
           WHERE ${alerts.lastSeen} >= (${day}::date::timestamp AT TIME ZONE 'UTC')
             AND ${alerts.lastSeen} < ((${day}::date + 1)::timestamp AT TIME ZONE 'UTC')
             AND ${alerts.lastSeen} < ${cutoff}
-          GROUP BY 1, 2, 3
-          ON CONFLICT (day, kind, severity) DO UPDATE SET
+          GROUP BY 1, 2, 3, 4
+          ON CONFLICT (sensor_id, day, kind, severity) DO UPDATE SET
             alerts = ${alertRollupDaily.alerts} + EXCLUDED.alerts,
             occurrences = ${alertRollupDaily.occurrences} + EXCLUDED.occurrences,
             first_seen = least(${alertRollupDaily.firstSeen}, EXCLUDED.first_seen),
@@ -364,6 +373,14 @@ async function expiredDays(cutoff: Date): Promise<string[]> {
  * quiet during those five minutes can be dropped. That is the trade the docblock
  * above already accepts for one device. What it cannot do any more is drop all of
  * them.
+ *
+ * **The reference is per sensor**, since V16 gave the table a sensor column. A
+ * single `max(last_seen)` over the whole table would be one sensor's clock applied
+ * to every sensor's devices: a busy sensor capturing continuously would drag the
+ * cutoff forward until a quiet one's entire device list fell behind it and went in
+ * one sweep — the mass re-alert this function is built to prevent, arriving from a
+ * third direction. Correlated on `sensor_id`, each sensor keeps its own clock, and a
+ * sensor with no rows at all has no cutoff and loses nothing.
  */
 async function forgetStaleDevices(days: number): Promise<number> {
   // rowCount, not .returning(): the MACs are never read, and this table exists
@@ -371,7 +388,9 @@ async function forgetStaleDevices(days: number): Promise<number> {
   // otherwise pull the whole backlog into memory just to count it.
   const result = await db.delete(knownDevices).where(
     sql`${knownDevices.lastSeen} < (
-        SELECT max(${knownDevices.lastSeen}) - ${days}::int * interval '1 day' FROM ${knownDevices}
+        SELECT max(newer.last_seen) - ${days}::int * interval '1 day'
+        FROM ${knownDevices} AS newer
+        WHERE newer.sensor_id = ${knownDevices.sensorId}
       )`,
   );
   const deleted = result.rowCount ?? 0;

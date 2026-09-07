@@ -580,12 +580,21 @@ async function proveSandbox(candidate: pg.Pool, role: string, mode: AdhocMode): 
    * and the console starts with every secret column in the database readable
    * from a browser session. This file's own docblock already reasons about
    * someone having "re-granted since"; this is that case.
+   *
+   * Both probes name every NOT NULL column, `sensor_id` included, and that is
+   * load-bearing rather than tidy. A probe the database rejects for a missing
+   * column never reaches the grant it is testing: `mustBeRefused` would be
+   * satisfied by the constraint error and report a read-only role whatever its
+   * privileges actually were. V16 added that column, and this is the statement it
+   * could have quietly disarmed — the repository's recurring shape of a guard that
+   * cannot see the thing it guards, one schema change away.
    */
   if (mode === 'read') {
     await mustBeRefused(
       candidate,
-      `INSERT INTO alerts (kind, severity, title, description, dedup_key, first_seen, last_seen)
-       VALUES ('adhoc_probe', 'low', 'probe', 'probe', 'adhoc-probe', now(), now())`,
+      `INSERT INTO alerts
+         (sensor_id, kind, severity, title, description, dedup_key, first_seen, last_seen)
+       VALUES ('adhoc-probe', 'adhoc_probe', 'low', 'probe', 'probe', 'adhoc-probe', now(), now())`,
       'the ad hoc role was able to INSERT; it is not read-only',
     );
   } else {
@@ -601,8 +610,9 @@ async function proveSandbox(candidate: pg.Pool, role: string, mode: AdhocMode): 
      */
     await mustSucceed(
       candidate,
-      `INSERT INTO alerts (kind, severity, title, description, dedup_key, first_seen, last_seen)
-       VALUES ('adhoc_probe', 'low', 'probe', 'probe', 'adhoc-probe', now(), now())`,
+      `INSERT INTO alerts
+         (sensor_id, kind, severity, title, description, dedup_key, first_seen, last_seen)
+       VALUES ('adhoc-probe', 'adhoc_probe', 'low', 'probe', 'probe', 'adhoc-probe', now(), now())`,
       'write mode is enabled but the role cannot INSERT; has V12 run on this database?',
     );
     await mustBeRefused(

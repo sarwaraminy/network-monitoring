@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { env } from '../config/env.js';
+import { SENSOR_ID_MAX_LENGTH, SENSOR_ID_PATTERN } from '../constants.js';
 import { HttpError } from '../middleware/error-handler.js';
 import { parsePrefix } from '../net/prefix.js';
 import { EMAIL_AUTH_METHODS } from '../notify/settings.js';
@@ -70,8 +71,29 @@ export function parseOrThrow<T extends z.ZodTypeAny>(schema: T, value: unknown):
 
 // --- Alerts ---
 
+/**
+ * A sensor name in a query string.
+ *
+ * The same rule `env.ts` applies to `SENSOR_ID`, from the same constant. Rejecting
+ * rather than passing an unknown name through matters more here than it looks:
+ * an unmatchable filter returns an empty list, and an empty list of findings is the
+ * one answer this application must never give for the wrong reason.
+ *
+ * Not an enum of the sensors that exist, deliberately. The set is data — whatever
+ * has written a finding — so it changes while the process runs, and a schema built
+ * from it at import time would start refusing a sensor that had just been installed.
+ */
+export const sensorIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(SENSOR_ID_MAX_LENGTH)
+  .regex(SENSOR_ID_PATTERN, 'sensor must be a sensor name: letters, digits, dot, dash or underscore');
+
 export const alertListQuerySchema = z.object({
   severity: z.enum(SEVERITIES).optional(),
+  /** One sensor's findings. Absent means every sensor — see `AlertQuery`. */
+  sensor: sensorIdSchema.optional(),
   kind: z.enum(ALERT_KINDS).optional(),
   /** ISO timestamp, or a relative window such as `24h` / `7d` / `30m`. */
   since: z.string().trim().min(1).optional(),
@@ -174,6 +196,7 @@ export const alertDashboardQuerySchema = z
   .object({
     days: z.coerce.number().int().min(1).max(MAX_TREND_DAYS).default(7),
     bucket: z.enum(['hour', 'day']).optional(),
+    sensor: sensorIdSchema.optional(),
   })
   .refine((data) => data.bucket !== 'hour' || data.days <= MAX_HOURLY_DAYS, {
     message: `days must be at most ${MAX_HOURLY_DAYS} when bucket is "hour"`,
