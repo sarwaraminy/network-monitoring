@@ -2,7 +2,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { Route } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getToken } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { renderApp, renderRoutes } from '../test/render';
@@ -168,13 +168,21 @@ describe('the user-guide session', () => {
     await waitFor(() => expect(getToken()).toBeNull());
   });
 
-  it('re-mints the cookie when a tab that was away becomes visible again', async () => {
+  it('re-mints when a tab that slept becomes visible, and not on every alt-tab', async () => {
     /*
+     * Two halves of one rule.
+     *
      * The cookie is deliberately shorter-lived than the session, so a tab nobody
-     * reloads eventually holds a valid session and an expired cookie — and clicking
-     * help then lands on the sign-in page. A timer covers a tab that stays visible;
-     * this covers the one that does not, because a machine that slept through the
-     * whole interval never fired it.
+     * reloads eventually holds a valid session and an expired cookie — and
+     * clicking help then lands on the sign-in page. A timer covers a tab that
+     * stays visible; the visibility listener covers the one that does not,
+     * because a machine that slept through the whole interval never fired it.
+     *
+     * But `visibilitychange` fires on every alt-tab and window switch, so
+     * unthrottled it sent a mint per focus where the intent needs one per
+     * interval — cheap, and indistinguishable in the logs from a session that
+     * genuinely needed renewing. The clock is moved rather than faked so React
+     * Query and MSW keep their real timers.
      */
     let minted = 0;
     server.use(
@@ -188,9 +196,19 @@ describe('the user-guide session', () => {
     // One from the mount, once the stored token has been validated.
     await waitFor(() => expect(minted).toBe(1));
 
+    // An immediate return to the tab has nothing to renew.
     document.dispatchEvent(new Event('visibilitychange'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitFor(() => expect(minted).toBe(1));
 
-    await waitFor(() => expect(minted).toBe(2));
+    // Five hours later — a laptop that slept through the four-hour interval.
+    vi.setSystemTime(Date.now() + 5 * 60 * 60 * 1000);
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await waitFor(() => expect(minted).toBe(2));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 import express, { type Request, type Response, Router } from 'express';
 import helmet from 'helmet';
 import jwt from 'jsonwebtoken';
-import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error-handler.js';
@@ -111,9 +110,27 @@ guideSessionRouter.post(
     res.cookie(GUIDE_COOKIE, value, {
       httpOnly: true,
       sameSite: 'lax',
-      // Only over TLS in production. Left off otherwise, or development over
-      // plain http would set a cookie the browser then refuses to send back.
-      secure: env.nodeEnv === 'production',
+      /*
+       * Keyed on the actual scheme, not on `NODE_ENV`.
+       *
+       * It used to be `env.nodeEnv === 'production'`, which reads as the safe
+       * default and is not: Compose sets `NODE_ENV: production` and serves plain
+       * HTTP — nginx listens on 80 and the only published port is
+       * `${HTTP_PORT:-8080}:80`, with no TLS anywhere in the file or the README.
+       * A `Secure` cookie over an untrustworthy origin is discarded silently, so
+       * the mint answered 204, nothing was stored, and every `/user-guide/*`
+       * request redirected to `/login` — which now bounces an authenticated
+       * reader back to the dashboard. Not a degraded guide: an inaccessible one,
+       * with a loop and no explanation.
+       *
+       * The same localhost-only-works shape as the `upgrade-insecure-requests`
+       * bug, surviving for the same reason — `localhost` is a trustworthy origin,
+       * so the cookie is stored on the machine the feature was built on.
+       *
+       * `x-forwarded-proto` for the deployments that terminate TLS upstream;
+       * `trust proxy` is already set for those in app.ts.
+       */
+      secure: req.secure || req.get('x-forwarded-proto') === 'https',
       path: GUIDE_COOKIE_PATH,
       maxAge: maxAgeSeconds * 1000,
     });
@@ -245,7 +262,34 @@ if (guideDirectory !== null) {
     }),
   );
 
-  userGuideRouter.get(['/', '/index.html'], (_req, res) => {
+  /*
+   * `/user-guide` and `/user-guide/` have to converge, and only one of them can
+   * be served directly.
+   *
+   * Served for both, the no-slash spelling gave the document a base URL of
+   * `/user-guide` rather than `/user-guide/`, so every relative reference
+   * resolved one level up: `assets/guide.css` became `/assets/guide.css` and
+   * `topics/about.html` became `/topics/about.html`. Those miss this router
+   * entirely and land on the SPA fallback, which answers each with the
+   * application shell at 200 — the browser gets HTML where it asked for CSS, the
+   * page renders unstyled with dead links, and `guard.js` never runs. A 200 with
+   * the right title, so it looks like it worked.
+   *
+   * Express gives this route `/` for both spellings, so the distinction cannot
+   * come from the route: `originalUrl` is the only place it survives. The static
+   * layer keeps `redirect: false` — it should not be emitting redirects of its
+   * own — and this one redirect is enough to make the two agree.
+   */
+  userGuideRouter.get('/', (req, res) => {
+    const [pathOnly = ''] = req.originalUrl.split('?');
+    if (!pathOnly.endsWith('/')) {
+      res.redirect(301, `${GUIDE_COOKIE_PATH}/`);
+      return;
+    }
+    res.sendFile(path.join(guideDirectory, 'index.html'));
+  });
+
+  userGuideRouter.get('/index.html', (_req, res) => {
     res.sendFile(path.join(guideDirectory, 'index.html'));
   });
 }

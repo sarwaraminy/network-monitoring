@@ -240,6 +240,57 @@ describe('the user guide gate', { skip: database.skip }, () => {
     assert.ok(maxAge > 0, 'the cookie expired immediately');
   });
 
+  it('sets a cookie the browser will actually keep on a plain-http install', async () => {
+    /*
+     * `secure` used to be `env.nodeEnv === 'production'`, and Compose sets
+     * `NODE_ENV: production` while serving plain HTTP. A `Secure` cookie over an
+     * untrustworthy origin is discarded silently, so the mint answered 204,
+     * nothing was stored, and every guide request redirected to `/login` — which
+     * now bounces an authenticated reader back to the dashboard. A loop, with no
+     * indication why.
+     */
+    const minted = await fetch(`${origin}/api/user-guide/session`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    const setCookie = minted.headers.get('set-cookie') ?? '';
+    assert.doesNotMatch(setCookie, /Secure/i, `an http request was handed a Secure cookie: ${setCookie}`);
+    // The flags that do not depend on the scheme are still there.
+    assert.match(setCookie, /HttpOnly/i);
+    assert.match(setCookie, /SameSite=Lax/i);
+  });
+
+  it('sets Secure when the request arrived over https', async () => {
+    // The other half: behind a TLS-terminating proxy the flag has to appear, or
+    // the cookie rides an https page unprotected. `trust proxy` is on in app.ts.
+    const minted = await fetch(`${origin}/api/user-guide/session`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'x-forwarded-proto': 'https' },
+    });
+
+    assert.match(minted.headers.get('set-cookie') ?? '', /Secure/i);
+  });
+
+  it('makes /user-guide and /user-guide/ agree', async () => {
+    /*
+     * Served directly, the no-slash spelling gave the document a base URL of
+     * `/user-guide`, so `assets/guide.css` resolved to `/assets/guide.css` — off
+     * this router and onto the SPA fallback, which answers with the application
+     * shell at 200. HTML where the browser asked for CSS: unstyled page, dead
+     * links, and `guard.js` never running.
+     */
+    const cookie = await mintGuideCookie();
+
+    const bare = await fetch(`${origin}/user-guide`, { headers: { cookie }, redirect: 'manual' });
+    assert.equal(bare.status, 301);
+    assert.equal(bare.headers.get('location'), '/user-guide/');
+
+    // And the slashed spelling still serves the page rather than redirecting.
+    const slashed = await fetch(`${origin}/user-guide/`, { headers: { cookie }, redirect: 'manual' });
+    assert.equal(slashed.status, 200);
+  });
+
   it('does not tell the guide to upgrade its own assets to https', async () => {
     /*
      * The app-wide policy was written for a process that served JSON only, and

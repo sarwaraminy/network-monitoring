@@ -1,4 +1,13 @@
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import * as authApi from '../api/auth.api';
 import { getToken, onUnauthorized, setToken } from '../api/client';
 import { closeGuideSession, openGuideSession } from '../api/user-guide.api';
@@ -47,7 +56,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * gate's own answer to a missing cookie is the sign-in page, which is the right
    * place to end up anyway.
    */
-  const openGuide = useCallback(() => {
+  /**
+   * When the cookie was last minted, so a renewal can decline.
+   *
+   * `visibilitychange` fires on every alt-tab, window switch and return from
+   * another browser tab, and the listener was registered unconditionally — so
+   * ordinary use sent a mint per focus where the intent needs at most one per
+   * interval. Each is only a signed JWT and a `Set-Cookie`, so it was cheap
+   * rather than harmful, but it scaled with tab-switching rather than with time
+   * and was indistinguishable in the logs from a session that genuinely needed
+   * renewing.
+   */
+  const lastMint = useRef(0);
+
+  const openGuide = useCallback((force = true) => {
+    if (!force && Date.now() - lastMint.current < GUIDE_RENEW_INTERVAL_MS) return;
+    lastMint.current = Date.now();
     void openGuideSession().catch(() => undefined);
   }, []);
 
@@ -114,8 +138,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
 
+    // `force = false`: a focus that arrives inside the interval has nothing to
+    // renew. Waking from sleep is the case this listener exists for, and there the
+    // last mint is long enough ago to pass.
     const renew = () => {
-      if (document.visibilityState === 'visible') openGuide();
+      if (document.visibilityState === 'visible') openGuide(false);
     };
 
     const timer = window.setInterval(renew, GUIDE_RENEW_INTERVAL_MS);
