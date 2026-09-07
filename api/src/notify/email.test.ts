@@ -48,6 +48,7 @@ const NOTIFICATION: Notification = {
   severity: 'high',
   findings: [
     {
+      sensorId: 'default',
       kind: 'port_scan',
       severity: 'high',
       title: 'Port scan',
@@ -65,6 +66,7 @@ const NOTIFICATION: Notification = {
   generatedAt: AT,
   dashboardUrl: null,
   isTest: false,
+  namesSensors: false,
 };
 
 /** A transport whose sendMail and verify both reject with `error`. */

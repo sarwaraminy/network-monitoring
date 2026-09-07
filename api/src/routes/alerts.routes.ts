@@ -7,12 +7,19 @@ import {
   deleteAlert,
   deleteAllAlerts,
   listAlerts,
+  listSensors,
   summarizeAlerts,
   unacknowledgeAlert,
 } from '../services/alert.service.js';
 import { actorOf } from '../services/audit.service.js';
 import { forgetDevice, listKnownDevices } from '../services/device.service.js';
-import { alertDashboardQuerySchema, alertListQuerySchema, idSchema, parseSince } from './validation.js';
+import {
+  alertDashboardQuerySchema,
+  alertListQuerySchema,
+  idSchema,
+  parseSince,
+  sensorIdSchema,
+} from './validation.js';
 
 /** Security findings raised by the detectors. Mounted at /api/alerts. */
 export const alertsRouter = Router();
@@ -27,12 +34,13 @@ alertsRouter.get(
     if (!parsed.success) {
       throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
     }
-    const { severity, kind, since, acknowledged, limit, offset } = parsed.data;
+    const { severity, kind, sensor, since, acknowledged, limit, offset } = parsed.data;
 
     res.json(
       await listAlerts({
         ...(severity ? { severity } : {}),
         ...(kind ? { kind } : {}),
+        ...(sensor ? { sensor } : {}),
         ...(acknowledged === undefined ? {} : { acknowledged }),
         ...((): { since?: Date } => {
           const parsedSince = parseSince(since);
@@ -45,11 +53,30 @@ alertsRouter.get(
   }),
 );
 
-/** GET /api/alerts/summary — counts for the dashboard tiles. */
+/** GET /api/alerts/summary?sensor= — counts for the dashboard tiles. */
 alertsRouter.get(
   '/summary',
+  asyncHandler(async (req, res) => {
+    const sensor = sensorIdSchema.optional().safeParse(req.query.sensor);
+    if (!sensor.success) {
+      throw new HttpError(400, sensor.error.issues.map((issue) => issue.message).join('; '));
+    }
+    res.json(await summarizeAlerts(sensor.data));
+  }),
+);
+
+/**
+ * GET /api/alerts/sensors — which sensors have written findings here.
+ *
+ * Not admin-only: it names the installations sharing this database, which is less
+ * than the alert list already hands every authenticated user — every row there
+ * carries its sensor. Gating it would leave the sensor column populated and the
+ * filter that explains it empty.
+ */
+alertsRouter.get(
+  '/sensors',
   asyncHandler(async (_req, res) => {
-    res.json(await summarizeAlerts());
+    res.json(await listSensors());
   }),
 );
 
@@ -61,24 +88,35 @@ alertsRouter.get(
     if (!parsed.success) {
       throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
     }
-    const { days } = parsed.data;
+    const { days, sensor } = parsed.data;
     // Hourly buckets are only readable over a short window.
     const bucket = parsed.data.bucket ?? (days <= 2 ? 'hour' : 'day');
-    res.json(await dashboardData({ days, bucket }));
+    res.json(await dashboardData({ days, bucket, ...(sensor ? { sensor } : {}) }));
   }),
 );
 
-/** GET /api/alerts/devices — MAC addresses seen on the network. */
+/** GET /api/alerts/devices?sensor= — MAC addresses seen on the network. */
 alertsRouter.get(
   '/devices',
-  asyncHandler(async (_req, res) => {
-    res.json(await listKnownDevices());
+  asyncHandler(async (req, res) => {
+    const sensor = sensorIdSchema.optional().safeParse(req.query.sensor);
+    if (!sensor.success) {
+      throw new HttpError(400, sensor.error.issues.map((issue) => issue.message).join('; '));
+    }
+    res.json(await listKnownDevices(sensor.data));
   }),
 );
 
 /**
- * DELETE /api/alerts/devices/:mac — forgets a device, so it is reported as new
- * again. Useful after investigating one, and for resetting a demo.
+ * DELETE /api/alerts/devices/:mac?sensor= — forgets a device, so it is reported as
+ * new again. Useful after investigating one, and for resetting a demo.
+ *
+ * `sensor` picks the row when more than one sensor has seen the address. Omitting
+ * it no longer means "this sensor": that default disagreed with `GET /devices`
+ * beside it, which returns every sensor's rows — so a client that read the list and
+ * posted a MAC back, which is the obvious way to write one, deleted a row it had
+ * never seen or got a 404 for a MAC plainly in the list. `forgetDevice` now resolves
+ * the holder instead, and refuses rather than guesses when there are several.
  */
 alertsRouter.delete(
   '/devices/:mac',
@@ -88,7 +126,37 @@ alertsRouter.delete(
     if (!/^[0-9a-fA-F:]{11,32}$/.test(mac)) {
       throw new HttpError(400, 'mac must be a MAC address');
     }
-    if (!(await forgetDevice(mac, actorOf(req.user)))) throw new HttpError(404, `No known device ${mac}`);
+    const sensor = sensorIdSchema.optional().safeParse(req.query.sensor);
+    if (!sensor.success) {
+      throw new HttpError(400, sensor.error.issues.map((issue) => issue.message).join('; '));
+    }
+
+    const result = await forgetDevice(mac, actorOf(req.user), sensor.data);
+
+    if (result.outcome === 'not-found') throw new HttpError(404, `No known device ${mac}`);
+    if (result.outcome === 'wrong-sensor') {
+      /*
+       * Still a 404 — that row genuinely does not exist — but the message says
+       * which of the two possible mistakes this was. "No known device aa:bb:cc" is
+       * false for an address the device list is showing on another sensor, and it
+       * points at nothing the caller could change; the sensor is the one thing
+       * they could.
+       */
+      throw new HttpError(
+        404,
+        `No known device ${mac} on sensor ${sensor.data}. It is known to: ${result.sensors.join(', ')}.`,
+      );
+    }
+    if (result.outcome === 'ambiguous') {
+      // 400 rather than a guess: naming one of them is the caller's decision, and
+      // the message says which names are available so the retry is one edit away.
+      throw new HttpError(
+        400,
+        `${mac} is known to more than one sensor (${result.sensors.join(', ')}). ` +
+          'Add ?sensor= to say which one should forget it.',
+      );
+    }
+
     res.status(204).send();
   }),
 );

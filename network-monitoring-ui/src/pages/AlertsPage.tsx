@@ -27,7 +27,13 @@ import IpInfoDialog from '../components/IpInfoDialog';
 import { KIND_DESCRIPTION, KIND_LABEL, SeverityChip } from '../components/SeverityChip';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
-import { useAcknowledgeAlert, useAlertSummary, useAlerts, useDeleteAlert } from '../hooks/useAlerts';
+import {
+  useAcknowledgeAlert,
+  useAlertSummary,
+  useAlerts,
+  useDeleteAlert,
+  useSensors,
+} from '../hooks/useAlerts';
 import { useIpInfo } from '../hooks/useIpInfo';
 import { monoSx } from '../theme';
 import { ALERT_KINDS, type AlertKind, type Alert as AlertRecord, type Severity } from '../types';
@@ -50,6 +56,7 @@ const WINDOWS = [
 export default function AlertsPage() {
   const [severity, setSeverity] = useState<Severity | 'all'>('all');
   const [kind, setKind] = useState<AlertKind | ''>('');
+  const [sensor, setSensor] = useState<string>('');
   const [since, setSince] = useState<string>('');
   const [hideAcknowledged, setHideAcknowledged] = useState(true);
   const [actionError, setActionError] = useState('');
@@ -68,6 +75,44 @@ export default function AlertsPage() {
    */
   const isAdmin = user?.role === 'ADMIN';
 
+  const sensorsQuery = useSensors();
+
+  /*
+   * The sensor controls appear only once a second sensor has written something.
+   *
+   * Every installation today has one, and for those this page is unchanged: no
+   * extra column taking width to repeat one value on every row, and no filter
+   * offering a choice of one. The moment a second sensor writes a finding, both
+   * appear on their own.
+   */
+  const sensors = sensorsQuery.data ?? [];
+  const multiSensor = sensors.length > 1;
+
+  /*
+   * The filter that is actually applied: the selection, but only while it still
+   * names a sensor that exists.
+   *
+   * The sensor list SHRINKS in ordinary operation — it is read from the `alerts`
+   * table, so clearing findings empties it and retention rolls a quiet sensor's
+   * rows into `alert_rollup_daily` and deletes them. Nothing clears `sensor` when
+   * that happens, so without this the filter goes on applying to a sensor that is
+   * no longer there, and the page shows no findings for a reason the operator
+   * cannot see. A reload does not help: the state is rebuilt from the same data.
+   *
+   * **Membership, not `multiSensor`.** Keying on the count catches only the
+   * collapse to a single sensor. Three sensors becoming two, where the one that
+   * went quiet is the one selected, leaves the count above the threshold — so the
+   * control renders, `value={sensor}` matches no `MenuItem`, and it renders
+   * *blank*. That looks exactly like "All sensors" while the list is still
+   * filtered to a sensor with nothing in it, which is worse than the control
+   * disappearing: at least a missing control tells the operator something moved.
+   *
+   * Derived rather than reset in an effect, so there is no render in which a
+   * stale filter is still applied. A sensor that returns is matched again and the
+   * selection resumes — visible in the control, and therefore clearable.
+   */
+  const appliedSensor = sensors.some((entry) => entry.sensorId === sensor) ? sensor : '';
+
   // The filter values are part of the query key, so changing one refetches and
   // caches independently — no manual reload, and going back to a previous filter
   // is served from cache.
@@ -75,15 +120,20 @@ export default function AlertsPage() {
     () => ({
       ...(severity === 'all' ? {} : { severity }),
       ...(kind ? { kind } : {}),
+      ...(appliedSensor ? { sensor: appliedSensor } : {}),
       ...(since ? { since } : {}),
       ...(hideAcknowledged ? { acknowledged: false } : {}),
       limit: 500,
     }),
-    [severity, kind, since, hideAcknowledged],
+    [severity, kind, appliedSensor, since, hideAcknowledged],
   );
 
   const alertsQuery = useAlerts(filters);
-  const summaryQuery = useAlertSummary();
+  // The tiles follow the sensor filter. Leaving them global would put a total on
+  // screen that the list underneath could never account for — the same mismatch
+  // `summarizeAlerts` refuses to create by folding in rollups.
+  const summaryQuery = useAlertSummary(appliedSensor || undefined);
+
   const acknowledge = useAcknowledgeAlert();
   const remove = useDeleteAlert();
 
@@ -129,6 +179,9 @@ export default function AlertsPage() {
   const columns = useMemo<MRT_ColumnDef<AlertRecord>[]>(
     () => [
       { accessorKey: 'severity', header: 'Severity', size: 115, Cell: SeverityCell },
+      ...(multiSensor
+        ? [{ accessorKey: 'sensorId', header: 'Sensor', size: 130 } as MRT_ColumnDef<AlertRecord>]
+        : []),
       { accessorKey: 'kind', header: 'Detector', size: 165, Cell: DetectorCell },
       { accessorKey: 'title', header: 'Finding', size: 420, Cell: FindingCell },
       { accessorKey: 'sourceIp', header: 'Source', size: 155, Cell: sourceCell(showIp) },
@@ -136,7 +189,7 @@ export default function AlertsPage() {
       { accessorKey: 'lastSeen', header: 'Last seen', size: 175, Cell: LastSeenCell },
       { accessorKey: 'acknowledgedAt', header: 'Status', size: 130, Cell: StatusCell },
     ],
-    [showIp],
+    [showIp, multiSensor],
   );
 
   const tableOptions = {
@@ -188,6 +241,33 @@ export default function AlertsPage() {
           pl: 0.5,
         }}
       >
+        {multiSensor && (
+          <TextField
+            select
+            size="small"
+            label="Sensor"
+            // The applied filter, not the raw selection. They differ exactly when
+            // the chosen sensor has gone quiet, and binding the selection would
+            // render the box BLANK — reading as "All sensors" — over a table that
+            // really is unfiltered, plus an out-of-range warning from MUI. Blank
+            // meaning two different things is the ambiguity this whole derivation
+            // exists to remove.
+            value={appliedSensor}
+            onChange={(event) => setSensor(event.target.value)}
+            sx={{ minWidth: 170 }}
+          >
+            <MenuItem value="">All sensors</MenuItem>
+            {sensors.map((entry) => (
+              <MenuItem key={entry.sensorId} value={entry.sensorId}>
+                {/* "(this one)" rather than the raw name alone: an operator
+                    reaching this page through one sensor's address needs to know
+                    which of these it is, and the names are the operator's own. */}
+                {entry.sensorId}
+                {entry.self ? ' (this one)' : ''}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
         <TextField
           select
           size="small"

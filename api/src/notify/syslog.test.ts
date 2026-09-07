@@ -23,6 +23,7 @@ import type { NotifiableFinding, Notification } from './types.js';
  */
 
 const FINDING: NotifiableFinding = {
+  sensorId: 'default',
   kind: 'port_scan',
   severity: 'high',
   title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
@@ -43,6 +44,7 @@ const notification = (finding: NotifiableFinding): Notification => ({
   generatedAt: new Date('2026-08-26T09:05:00.000Z'),
   dashboardUrl: null,
   isTest: false,
+  namesSensors: false,
 });
 
 const channel = (
@@ -94,6 +96,24 @@ describe('CEF escaping', () => {
 });
 
 describe('CEF rendering', () => {
+  it('names the producing sensor, on every event including an unnamed one', () => {
+    /*
+     * Unconditional, unlike the human channels, which omit the sensor while it
+     * still carries the `default` name nobody chose. A SIEM correlating events
+     * per segment needs the field present on every event or its rule silently
+     * counts the unnamed installation's events as belonging to no producer;
+     * filtering noise is the collector's job, not this renderer's.
+     *
+     * `dvchost` is the CEF-standard "device that observed this", so a SIEM maps
+     * it without a custom rule.
+     */
+    assert.match(renderCef(FINDING, '1.0.0'), /\bdvchost=default\b/);
+    assert.match(renderCef({ ...FINDING, sensorId: 'branch-office' }, '1.0.0'), /\bdvchost=branch-office\b/);
+
+    const json = JSON.parse(renderJsonLine({ ...FINDING, sensorId: 'branch-office' }, '1.0.0'));
+    assert.equal(json.sensorId, 'branch-office');
+  });
+
   it('puts the detector kind in signatureId, where a SIEM rule keys on it', () => {
     const line = renderCef(FINDING, '1.0.0');
     const [prefix, vendor, product, version, signature, name, severity] = line.split('|');

@@ -51,7 +51,13 @@ function localReferences(html: string): string[] {
    */
   const live = html.replace(/<!--[\s\S]*?-->/g, '');
 
-  for (const match of live.matchAll(/(?:href|src)="([^"]+)"/g)) {
+  /*
+   * `poster` counts as much as `href` and `src`. The index page embeds the
+   * product tour, and a video whose poster has gone missing renders as a black
+   * rectangle a reader has to click to discover is not broken — the same class
+   * of customer-visible rot this file was written to catch.
+   */
+  for (const match of live.matchAll(/(?:href|src|poster)="([^"]+)"/g)) {
     const raw = match[1] ?? '';
     if (raw === '' || raw.startsWith('#')) continue;
     if (/^(?:https?:|mailto:|data:|javascript:)/i.test(raw)) continue;

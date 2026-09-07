@@ -174,6 +174,12 @@ export function renderCef(finding: NotifiableFinding, productVersion: string): s
     `end=${asEpoch(finding.lastSeen)}`,
     `cnt=${finding.occurrences}`,
     `cat=${escapeExtension(finding.kind)}`,
+    // The producing sensor. `dvchost` is the CEF-standard field for "the device
+    // that observed this", which is exactly what a sensor is, so a SIEM maps it
+    // without a custom rule. Sent unconditionally, unlike the human channels: a
+    // correlation rule counting events per segment needs the field on every
+    // event, including the ones from an installation that never named itself.
+    `dvchost=${escapeExtension(finding.sensorId)}`,
     `msg=${escapeExtension(finding.description)}`,
   ];
 
@@ -192,6 +198,7 @@ export function renderJsonLine(finding: NotifiableFinding, productVersion: strin
     vendor: CEF_VENDOR,
     product: CEF_PRODUCT,
     version: productVersion,
+    sensorId: finding.sensorId,
     kind: finding.kind,
     severity: finding.severity,
     title: finding.title,

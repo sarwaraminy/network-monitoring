@@ -206,6 +206,14 @@ userGuideRouter.use(
       scriptSrc: ["'self'"],
       styleSrc: ["'self'"],
       fontSrc: ["'self'", 'data:'],
+      /*
+       * The guide's first page embeds the product tour, and `media-src` has no
+       * fallback but `default-src` — which is `'none'` here, so without this
+       * line the video element loads nothing and reports no reason. Same failure
+       * mode as the upgrade-insecure-requests one above: fine on the machine
+       * that recorded it, an empty black rectangle on every install.
+       */
+      mediaSrc: ["'self'"],
     },
   }),
 );

@@ -35,6 +35,9 @@
     acknowledged. It is on by default, which is why the list can look empty on a
     system where everything has been dealt with.</li>
   <li><span class="ui">Search findings</span> matches across the whole row.</li>
+  <li><span class="ui">Sensor</span> limits it to findings from one sensor. This control
+    only appears if more than one sensor reports to this installation &mdash; see
+    <a href="#more-than-one-sensor">More than one sensor</a> below.</li>
 </ul>
 
 <h2>Reading a finding</h2>
@@ -92,6 +95,31 @@ finding already acknowledged.</p>
 <p><strong>Deleting</strong> a finding removes it and its evidence permanently. There is
 no undo, and the deletion itself is recorded in the <a href="audit-trail.html">audit
 trail</a> &mdash; who deleted what, and when.</p>
+
+<h2 id="more-than-one-sensor">More than one sensor</h2>
+
+<p>Several installations can watch different parts of a network and store their findings
+in one place. Each one is called a <strong>sensor</strong> and has a name, set by whoever
+installed it.</p>
+
+<p>If yours is the only sensor &mdash; which is the usual case &mdash; nothing on this
+page changes and there is nothing to configure. The moment a second sensor reports, a
+<span class="ui">Sensor</span> column appears in the table and a
+<span class="ui">Sensor</span> filter beside the other filters. The sensor you are
+currently connected to is marked <span class="ui">(this one)</span> in the list, since
+several sensors may be reachable at different addresses.</p>
+
+<p>Findings are kept apart per sensor, which matters more than it sounds: two sensors
+watching different segments can genuinely see the same kind of event between the same
+addresses, and without this they would be counted as one event that happened twice.
+Known devices are kept apart too, so a machine that is familiar on one segment is still
+reported as new when it appears on another.</p>
+
+<p class="note">Two things are <em>not</em> kept apart. Suppression rules are shared
+&mdash; a rule you write applies to every sensor, which is usually what you want from a
+statement about what is expected. And clearing every finding at once, which is an
+administrative action available through the API rather than a button on this page,
+empties the table for all sensors rather than only the one you are looking at.</p>
 
 <div class="access">
   <span class="label">Who can use this</span>

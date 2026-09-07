@@ -55,6 +55,15 @@ export type AlertKind = (typeof ALERT_KINDS)[number];
 /** A security finding. Repeats inside a window are merged into `occurrences`. */
 export interface Alert {
   id: number;
+  /**
+   * Which sensor observed this.
+   *
+   * Present on every finding, but only worth showing when more than one sensor
+   * writes to this database — see `SensorSummary`. On a single-sensor
+   * installation it is the same string on every row, and a column of one repeated
+   * value is a column that costs width and says nothing.
+   */
+  sensorId: string;
   kind: AlertKind;
   severity: Severity;
   title: string;
@@ -216,12 +225,29 @@ export interface IntelReloadResult {
 }
 
 export interface KnownDevice {
+  /** Which sensor has seen this device. One row per sensor, per address. */
+  sensorId: string;
   macAddress: string;
   firstIp: string | null;
   lastIp: string | null;
   label: string | null;
   firstSeen: string;
   lastSeen: string;
+}
+
+/**
+ * An installation writing findings to this database.
+ *
+ * There is no registration step: a sensor is whatever has written a finding, plus
+ * the one serving the request. That is why `self` is here — the interface has to
+ * be able to say which of them you are talking to, and a newly installed sensor
+ * that has found nothing yet still has to appear, or a correct configuration
+ * renders as an installation that does not exist.
+ */
+export interface SensorSummary {
+  sensorId: string;
+  /** True for the sensor serving this page. */
+  self: boolean;
 }
 
 export interface NetworkInterface {

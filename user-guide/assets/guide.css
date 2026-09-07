@@ -249,7 +249,8 @@ figure {
   margin: 22px 0 26px;
 }
 
-figure img {
+figure img,
+figure video {
   display: block;
   width: 100%;
   height: auto;
@@ -411,5 +412,5 @@ td code { white-space: nowrap; }
 @media print {
   .toc, .pager, .masthead { display: none; }
   .topic { padding: 0; }
-  figure img { box-shadow: none; }
+  figure img, figure video { box-shadow: none; }
 }

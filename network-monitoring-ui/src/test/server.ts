@@ -55,6 +55,20 @@ export const handlers = [
    */
   http.get('/auth/signup-allowed', () => HttpResponse.json({ allowed: false, mode: 'admin-only' })),
 
+  /*
+   * The user guide's session cookie, which `AuthProvider` mints on every sign-in
+   * and on every restored session — so essentially every test that renders an
+   * authenticated tree calls this. Unhandled, MSW logged an error per test and the
+   * request went to the real network stack, which is latency a suite does not need
+   * and is the most likely reason one AdminSettings case timed out under parallel
+   * load while passing on its own.
+   *
+   * 204 with no body, as the API answers. Nothing asserts on it; it exists so that
+   * no test makes an unhandled request.
+   */
+  http.post('/api/user-guide/session', () => new HttpResponse(null, { status: 204 })),
+  http.delete('/api/user-guide/session', () => new HttpResponse(null, { status: 204 })),
+
   http.get('/api/notify/status', () => HttpResponse.json(NOTIFY_STATUS)),
 
   http.get('/api/notify/settings', () => HttpResponse.json(DELIVERY_SETTINGS)),
@@ -128,6 +142,9 @@ export const handlers = [
     const acknowledged = url.searchParams.get('acknowledged');
     if (acknowledged === 'false') rows = rows.filter((row) => row.acknowledgedAt === null);
 
+    const sensor = url.searchParams.get('sensor');
+    if (sensor) rows = rows.filter((row) => row.sensorId === sensor);
+
     return HttpResponse.json(rows);
   }),
 
@@ -143,6 +160,12 @@ export const handlers = [
 
   http.get('/api/alerts/dashboard', () => HttpResponse.json(DASHBOARD)),
   http.get('/api/alerts/devices', () => HttpResponse.json([])),
+
+  // One sensor by default, which is what every installation has until somebody
+  // deploys a second: the sensor column and filter are hidden in that case, so
+  // this default keeps every other test on this page describing the single-sensor
+  // interface. A test about two sensors overrides it.
+  http.get('/api/alerts/sensors', () => HttpResponse.json([{ sensorId: 'default', self: true }])),
 
   http.post('/api/alerts/:id/acknowledge', ({ params }) =>
     HttpResponse.json({

@@ -67,14 +67,18 @@ let retention: typeof import('./retention.service.js');
  * an over-deletion rather than as a bad fixture.
  */
 let seeded = 0;
-async function seedAlert(lastSeen: Date, options: { kind?: string; occurrences?: number } = {}) {
-  const { kind = 'port_scan', occurrences = 1 } = options;
+async function seedAlert(
+  lastSeen: Date,
+  options: { kind?: string; occurrences?: number; sensor?: string } = {},
+) {
+  const { kind = 'port_scan', occurrences = 1, sensor = 'sensor-a' } = options;
   seeded += 1;
   await database.pool!.query(
     `INSERT INTO alerts
-       (kind, severity, title, description, dedup_key, source_ip, first_seen, last_seen, occurrences, evidence)
-     VALUES ($1, 'medium', $2, 'Seeded by retention-sql.test.ts', $3, '10.0.0.1', $4, $4, $5, '{}'::jsonb)`,
-    [kind, `${kind} from 10.0.0.1`, `retention-sql-${seeded}`, lastSeen, occurrences],
+       (sensor_id, kind, severity, title, description, dedup_key, source_ip,
+        first_seen, last_seen, occurrences, evidence)
+     VALUES ($6, $1, 'medium', $2, 'Seeded by retention-sql.test.ts', $3, '10.0.0.1', $4, $4, $5, '{}'::jsonb)`,
+    [kind, `${kind} from 10.0.0.1`, `retention-sql-${seeded}`, lastSeen, occurrences, sensor],
   );
 }
 
@@ -88,7 +92,11 @@ async function buckets() {
     kind: string;
     alerts: number;
     occurrences: string;
-  }>(`SELECT day::text AS day, kind, alerts, occurrences FROM alert_rollup_daily ORDER BY day, kind`);
+    sensor_id: string;
+  }>(
+    `SELECT sensor_id, day::text AS day, kind, alerts, occurrences
+     FROM alert_rollup_daily ORDER BY sensor_id, day, kind`,
+  );
   return rows;
 }
 

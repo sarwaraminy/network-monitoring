@@ -57,8 +57,8 @@ describe('ad hoc query console', { skip: database.skip }, () => {
     assert.equal(started, true, 'the console refused to start; its safety checks did not pass');
 
     await database.pool!.query(
-      `INSERT INTO alerts (kind, severity, title, description, dedup_key, first_seen, last_seen)
-       SELECT 'port_scan', 'low', 'seed ' || n, 'seed', 'adhoc-seed-' || n, now(), now()
+      `INSERT INTO alerts (sensor_id, kind, severity, title, description, dedup_key, first_seen, last_seen)
+       SELECT 'adhoc', 'port_scan', 'low', 'seed ' || n, 'seed', 'adhoc-seed-' || n, now(), now()
          FROM generate_series(1, 20) AS n`,
     );
     await database.pool!.query(
@@ -101,14 +101,14 @@ describe('ad hoc query console', { skip: database.skip }, () => {
       [`UPDATE users SET role = 'ADMIN'`, 'privilege escalation'],
       ['DELETE FROM alerts', 'destroying the findings'],
       [
-        `INSERT INTO alerts (kind, severity, title, description, dedup_key, first_seen, last_seen)
-        VALUES ('x', 'low', 'x', 'x', 'x', now(), now())`,
+        `INSERT INTO alerts (sensor_id, kind, severity, title, description, dedup_key, first_seen, last_seen)
+        VALUES ('adhoc', 'x', 'low', 'x', 'x', 'x', now(), now())`,
         'forging a finding',
       ],
       [
         `WITH forged AS (
-          INSERT INTO known_devices (mac_address, first_seen, last_seen)
-          VALUES ('aa:bb:cc:dd:ee:ff', now(), now()) RETURNING *
+          INSERT INTO known_devices (sensor_id, mac_address, first_seen, last_seen)
+          VALUES ('adhoc', 'aa:bb:cc:dd:ee:ff', now(), now()) RETURNING *
         ) SELECT * FROM forged`,
         'a write hidden inside a CTE, which a "starts with SELECT" check would pass',
       ],

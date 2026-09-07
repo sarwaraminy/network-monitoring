@@ -369,6 +369,7 @@ const EXPECTED: readonly string[] = [
   'GET /api/alerts',
   'GET /api/alerts/dashboard',
   'GET /api/alerts/devices',
+  'GET /api/alerts/sensors',
   'GET /api/alerts/summary',
   'GET /api/audit',
   'GET /api/audit/actions',

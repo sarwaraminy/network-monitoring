@@ -56,6 +56,11 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-netminitoring}
       DB_AUTO_MIGRATE: 'true'
+      # Which sensor this is. Only matters when a second sensor points at this
+      # same database — then give each one its own name, or their findings merge
+      # into single rows and their device lists silence each other's new-device
+      # detection. Set it in .env, not here.
+      SENSOR_ID: ${SENSOR_ID:-default}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
       # nginx proxies same-origin, so no cross-origin browser requests are made.

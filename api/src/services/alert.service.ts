@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { env } from '../config/env.js';
 import { db } from '../db/index.js';
-import { type AlertRow, alertRollupDaily, alerts } from '../db/schema.js';
+import { type AlertRow, alertRollupDaily, alerts, knownDevices } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
 import { notifier } from '../notify/notifier.js';
 import { type Finding, SEVERITY_RANK, type Severity } from '../packet/detect/types.js';
@@ -226,6 +226,15 @@ async function upsertAlert(dedupKey: string, entry: Pending): Promise<void> {
   await db
     .insert(alerts)
     .values({
+      /*
+       * Stamped from the environment on every write, and never from the finding.
+       *
+       * A finding describes what was observed; which sensor observed it is a fact
+       * about this process. Threading it through the detectors would give every one
+       * of them a chance to omit it, and the column has no default precisely so that
+       * omission is an error rather than a silent merge into another sensor's rows.
+       */
+      sensorId: env.sensorId,
       kind: finding.kind,
       severity: finding.severity,
       title: finding.title.slice(0, 200),
@@ -243,7 +252,11 @@ async function upsertAlert(dedupKey: string, entry: Pending): Promise<void> {
       evidence: finding.evidence,
     })
     .onConflictDoUpdate({
-      target: alerts.dedupKey,
+      // Both columns, matching V16's UNIQUE (sensor_id, dedup_key). `dedupKey`
+      // alone no longer names a constraint, and naming it would be the merge bug:
+      // the dedup key is derived from what was observed, so two sensors on two
+      // segments produce identical keys for unrelated events.
+      target: [alerts.sensorId, alerts.dedupKey],
       set: {
         occurrences: sql`${alerts.occurrences} + ${entry.occurrences}`,
         // greatest()/least(), not a plain assignment: the same dedup key can be
@@ -272,6 +285,13 @@ async function upsertAlert(dedupKey: string, entry: Pending): Promise<void> {
 export interface AlertQuery {
   severity?: Severity;
   kind?: string;
+  /**
+   * Only alerts from this sensor. Absent means every sensor, which is the default
+   * on purpose: sharing one database is what makes a second sensor worth having,
+   * and an interface that showed only the sensor it happens to be served by would
+   * hide the other one's findings with nothing on screen saying so.
+   */
+  sensor?: string;
   /** Only alerts seen at or after this time. */
   since?: Date;
   acknowledged?: boolean;
@@ -283,6 +303,7 @@ export async function listAlerts(query: AlertQuery): Promise<AlertRow[]> {
   const conditions = [];
   if (query.severity) conditions.push(eq(alerts.severity, query.severity));
   if (query.kind) conditions.push(eq(alerts.kind, query.kind));
+  if (query.sensor) conditions.push(eq(alerts.sensorId, query.sensor));
   if (query.since) conditions.push(gte(alerts.lastSeen, query.since));
   if (query.acknowledged === false) conditions.push(isNull(alerts.acknowledgedAt));
   if (query.acknowledged === true) conditions.push(sql`${alerts.acknowledgedAt} IS NOT NULL`);
@@ -346,6 +367,75 @@ function severityRank() {
     ELSE ${SEVERITY_RANK.info} END`;
 }
 
+/**
+ * Every sensor that has findings stored, plus this process's own.
+ *
+ * `this` is included even when it has never written a row, which is what makes the
+ * answer usable as a filter list: a sensor that has just been installed and has
+ * found nothing yet is exactly the one an operator goes looking for, and leaving it
+ * out would render a correctly-configured new sensor as an installation that does
+ * not exist. It is also the reason this returns a flag rather than a bare list —
+ * the interface needs to say which of them it is talking to.
+ *
+ * Read from the data rather than from a table of sensors, deliberately. There is
+ * no registration step and there should not be one: a sensor is whatever has left
+ * a row behind, so the list cannot drift from what is stored, and decommissioning
+ * one is deleting its rows rather than remembering to tell a registry.
+ *
+ * **All three sensor-scoped tables, not just `alerts`.** Reading only `alerts`
+ * makes the identity shorter-lived than the data, and it fails in both
+ * directions. A second sensor on a quiet segment that has learned forty devices
+ * and found nothing would not appear at all — so no filter or column renders
+ * anywhere, and the dashboard's device tile silently sums both sensors with no
+ * way to separate them, on exactly the installation this feature is for. And once
+ * retention rolls a sensor's findings into `alert_rollup_daily`, it would drop out
+ * of this list while its rows go on feeding the trend chart: visible in the
+ * chart, unselectable in the filter.
+ *
+ * **Identity only, and no counts.** This used to return a finding count and a
+ * latest-seen time per sensor, aggregated over the whole `alerts` table. Nothing
+ * read either one — the pickers use the ids and `self` — and the cost was not
+ * incidental: `count(*)` and `max(last_seen)` grouped over a table the schema
+ * documents as unbounded is a full scan, and both pages refetch this on mount and
+ * again after every alert mutation. So the scan ran on a schedule set by how busy
+ * the network was, worst on exactly the installations this feature is for. A
+ * distinct-id read answers what the callers actually ask, and the index this
+ * change adds already serves it.
+ *
+ * If a count belongs in the picker later, it should arrive with the column that
+ * shows it rather than being carried in advance by every poll.
+ */
+export interface SensorSummary {
+  sensorId: string;
+  /** True for the sensor serving this request. */
+  self: boolean;
+}
+
+export async function listSensors(): Promise<SensorSummary[]> {
+  // `UNION` rather than `UNION ALL`: it deduplicates, which is the whole request.
+  // Each branch is a distinct-scan of an indexed column rather than a pass over
+  // the rows.
+  const result = await db.execute<{ sensor_id: string }>(sql`
+    SELECT DISTINCT sensor_id FROM ${alerts}
+    UNION SELECT DISTINCT sensor_id FROM ${knownDevices}
+    UNION SELECT DISTINCT sensor_id FROM ${alertRollupDaily}
+  `);
+
+  const summaries = (result.rows ?? []).map((row) => ({
+    sensorId: row.sensor_id,
+    self: row.sensor_id === env.sensorId,
+  }));
+
+  if (!summaries.some((summary) => summary.self)) {
+    summaries.push({ sensorId: env.sensorId, self: true });
+  }
+
+  // By name, not by volume: this is an identity list an operator scans for a
+  // known name, and an order that reshuffles as findings arrive would move the
+  // entry they were reaching for.
+  return summaries.sort((a, b) => a.sensorId.localeCompare(b.sensorId));
+}
+
 export interface AlertSummary {
   total: number;
   unacknowledged: number;
@@ -381,8 +471,22 @@ export interface AlertDashboard extends AlertSummary {
 export async function dashboardData(options: {
   days: number;
   bucket: 'hour' | 'day';
+  /** One sensor, or every sensor when absent — the same rule as `listAlerts`. */
+  sensor?: string;
 }): Promise<AlertDashboard> {
   const since = new Date(Date.now() - options.days * 86_400_000);
+
+  /*
+   * Applied to the rollup as well as to the live rows, and both are needed.
+   *
+   * The trend merges the two sources into one series, so filtering only the live
+   * half would draw one sensor's recent days against every sensor's expired ones —
+   * a chart that steps down at the retention cutoff for a reason that is not
+   * retention. That is the same confusion between "deleted" and "quiet" the rollup
+   * exists to prevent, arriving from the other direction.
+   */
+  const fromSensor = options.sensor ? eq(alerts.sensorId, options.sensor) : undefined;
+  const rolledUpFromSensor = options.sensor ? eq(alertRollupDaily.sensorId, options.sensor) : undefined;
 
   // Both this and the rollup below are UTC buckets, and have to be: the two series
   // are merged into one chart. See alert-buckets.ts.
@@ -421,11 +525,11 @@ export async function dashboardData(options: {
             total: alertRollupDaily.alerts,
           })
           .from(alertRollupDaily)
-          .where(gte(alertRollupDaily.day, firstWholeUtcDay(since)))
+          .where(and(gte(alertRollupDaily.day, firstWholeUtcDay(since)), rolledUpFromSensor))
       : Promise.resolve([]);
 
   const [summary, trendRows, sourceRows, rolled] = await Promise.all([
-    summarizeAlerts(),
+    summarizeAlerts(options.sensor),
     db
       .select({
         bucket: sql<string>`${bucketExpression}`,
@@ -433,7 +537,7 @@ export async function dashboardData(options: {
         total: count(),
       })
       .from(alerts)
-      .where(gte(alerts.lastSeen, since))
+      .where(and(gte(alerts.lastSeen, since), fromSensor))
       .groupBy(bucketExpression, alerts.severity)
       .orderBy(bucketExpression),
     db
@@ -443,7 +547,7 @@ export async function dashboardData(options: {
         occurrences: sql<number>`coalesce(sum(${alerts.occurrences}), 0)::int`,
       })
       .from(alerts)
-      .where(and(gte(alerts.lastSeen, since), sql`${alerts.sourceIp} IS NOT NULL`))
+      .where(and(gte(alerts.lastSeen, since), sql`${alerts.sourceIp} IS NOT NULL`, fromSensor))
       .groupBy(alerts.sourceIp)
       .orderBy(desc(count()))
       .limit(8),
@@ -505,9 +609,18 @@ export async function dashboardData(options: {
  * tiles answer "what is in the table now?", and after an expiry those are genuinely
  * different questions.
  */
-export async function summarizeAlerts(): Promise<AlertSummary> {
+export async function summarizeAlerts(sensor?: string): Promise<AlertSummary> {
+  // `undefined` rather than a branch per query: drizzle drops an undefined
+  // condition, so one expression serves both the filtered and the unfiltered case
+  // without three copies of the same `where` written twice.
+  const fromSensor = sensor ? eq(alerts.sensorId, sensor) : undefined;
+
   const [severityRows, kindRows, totals] = await Promise.all([
-    db.select({ severity: alerts.severity, total: count() }).from(alerts).groupBy(alerts.severity),
+    db
+      .select({ severity: alerts.severity, total: count() })
+      .from(alerts)
+      .where(fromSensor)
+      .groupBy(alerts.severity),
     db
       .select({
         kind: alerts.kind,
@@ -515,6 +628,7 @@ export async function summarizeAlerts(): Promise<AlertSummary> {
         occurrences: sql<number>`coalesce(sum(${alerts.occurrences}), 0)::int`,
       })
       .from(alerts)
+      .where(fromSensor)
       .groupBy(alerts.kind),
     db
       .select({
@@ -522,7 +636,8 @@ export async function summarizeAlerts(): Promise<AlertSummary> {
         unacknowledged: sql<number>`count(*) FILTER (WHERE ${alerts.acknowledgedAt} IS NULL)::int`,
         latest: sql<string | null>`max(${alerts.lastSeen})`,
       })
-      .from(alerts),
+      .from(alerts)
+      .where(fromSensor),
   ]);
 
   const bySeverity: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
@@ -649,6 +764,14 @@ export async function deleteAlert(id: number, actor: Actor): Promise<boolean> {
 /**
  * Clears the table.
  *
+ * **Every sensor's findings, not just this one's.** The control means "empty this
+ * table", and a Clear All that quietly left another sensor's rows behind would be a
+ * button whose name is false — the same trade as `stopAdhoc`, where the honest
+ * broad action beats the surprising narrow one. What this does instead is name the
+ * sensors in the audit entry, so the trail records that somebody sitting in front
+ * of one sensor removed another one's findings; without that the entry reads as a
+ * local clean-up whichever sensor it happened from.
+ *
  * The count and a breakdown by severity, because that is what makes the entry
  * legible: "cleared 1,204 findings, 3 of them critical" is an event worth noticing,
  * and "cleared every finding" on an empty table is not. Individual titles are
@@ -673,16 +796,21 @@ export async function deleteAllAlerts(actor: Actor): Promise<number> {
      * committed in between, and the entry would then describe a different number of
      * rows than the delete removed.
      */
-    const counted = await tx.execute<{ severity: string; n: number }>(sql`
-      WITH deleted AS (DELETE FROM ${alerts} RETURNING ${alerts.severity})
-      SELECT severity, count(*)::int AS n FROM deleted GROUP BY 1
+    const counted = await tx.execute<{ severity: string; sensor_id: string; n: number }>(sql`
+      WITH deleted AS (
+        DELETE FROM ${alerts} RETURNING ${alerts.severity}, ${alerts.sensorId}
+      )
+      SELECT severity, sensor_id, count(*)::int AS n FROM deleted GROUP BY 1, 2
     `);
 
     const bySeverity: Record<string, number> = {};
+    const bySensor: Record<string, number> = {};
     let total = 0;
     for (const row of counted.rows ?? []) {
-      bySeverity[row.severity] = Number(row.n);
-      total += Number(row.n);
+      const n = Number(row.n);
+      bySeverity[row.severity] = (bySeverity[row.severity] ?? 0) + n;
+      bySensor[row.sensor_id] = (bySensor[row.sensor_id] ?? 0) + n;
+      total += n;
     }
 
     // Only when something was actually cleared, matching every other audited path
@@ -694,7 +822,7 @@ export async function deleteAllAlerts(actor: Actor): Promise<number> {
         actor: actor.name,
         actorId: actor.id,
         action: 'alerts.clear',
-        detail: { deleted: total, bySeverity },
+        detail: { deleted: total, bySeverity, bySensor },
       });
     }
 

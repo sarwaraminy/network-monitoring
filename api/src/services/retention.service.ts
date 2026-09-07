@@ -252,10 +252,17 @@ async function rollUpExpiredAlerts(cutoff: Date): Promise<RollupTotals> {
         /*
          * One statement: aggregate the day's rows and write the buckets.
          *
-         * `GROUP BY 1, 2, 3` by position rather than by repeating the expressions,
+         * `GROUP BY 1, 2, 3, 4` by position rather than by repeating the expressions,
          * because Postgres treats the same expression in SELECT and GROUP BY as two
          * separate ones once a bound parameter is involved and rejects the query —
          * the trap `dashboardData` works around by inlining its bucket unit.
+         *
+         * Grouped by sensor as well as by day since V16, so two sensors' findings
+         * land in two buckets. The sweep itself is still database-wide rather than
+         * scoped to whichever process is running it, and that is deliberate:
+         * retention is a property of the database, one sweep is cheaper than one
+         * per sensor, and two sensors sweeping concurrently is already safe for the
+         * same reason a repeated sweep is — the ON CONFLICT below adds.
          *
          * ON CONFLICT adds rather than replaces, which is what lets a day be rolled
          * up more than once: a day only partly past the cutoff contributes its
@@ -264,8 +271,10 @@ async function rollUpExpiredAlerts(cutoff: Date): Promise<RollupTotals> {
          * instead of overwriting.
          */
         const written = await tx.execute(sql`
-          INSERT INTO ${alertRollupDaily} (day, kind, severity, alerts, occurrences, first_seen, last_seen)
+          INSERT INTO ${alertRollupDaily}
+            (sensor_id, day, kind, severity, alerts, occurrences, first_seen, last_seen)
           SELECT
+            ${alerts.sensorId},
             (${alerts.lastSeen} AT TIME ZONE 'UTC')::date AS day,
             ${alerts.kind},
             ${alerts.severity},
@@ -277,8 +286,8 @@ async function rollUpExpiredAlerts(cutoff: Date): Promise<RollupTotals> {
           WHERE ${alerts.lastSeen} >= (${day}::date::timestamp AT TIME ZONE 'UTC')
             AND ${alerts.lastSeen} < ((${day}::date + 1)::timestamp AT TIME ZONE 'UTC')
             AND ${alerts.lastSeen} < ${cutoff}
-          GROUP BY 1, 2, 3
-          ON CONFLICT (day, kind, severity) DO UPDATE SET
+          GROUP BY 1, 2, 3, 4
+          ON CONFLICT (sensor_id, day, kind, severity) DO UPDATE SET
             alerts = ${alertRollupDaily.alerts} + EXCLUDED.alerts,
             occurrences = ${alertRollupDaily.occurrences} + EXCLUDED.occurrences,
             first_seen = least(${alertRollupDaily.firstSeen}, EXCLUDED.first_seen),
@@ -364,16 +373,61 @@ async function expiredDays(cutoff: Date): Promise<string[]> {
  * quiet during those five minutes can be dropped. That is the trade the docblock
  * above already accepts for one device. What it cannot do any more is drop all of
  * them.
+ *
+ * **The reference is per sensor**, since V16 gave the table a sensor column. A
+ * single `max(last_seen)` over the whole table would be one sensor's clock applied
+ * to every sensor's devices: a busy sensor capturing continuously would drag the
+ * cutoff forward until a quiet one's entire device list fell behind it and went in
+ * one sweep — the mass re-alert this function is built to prevent, arriving from a
+ * third direction. Correlated on `sensor_id`, each sensor keeps its own clock, and a
+ * sensor with no rows at all has no cutoff and loses nothing.
+ *
+ * **A retired sensor keeps its newest devices for ever, and that is the cost of
+ * the correlation rather than a bug in it.** Each cutoff is derived only from that
+ * sensor's own rows, so the rows AT its `max(last_seen)` can never fall behind it;
+ * once the sensor stops writing, the cutoff stops advancing and everything inside
+ * the last window stays. Before the correlation a surviving sensor's clock
+ * eventually swept them — which is precisely the mass delete this exists to
+ * prevent, so the trade is deliberate. What makes it worth naming is that there is
+ * no other way out: `forgetDevice` takes one MAC, this is the only bulk reclaim,
+ * and nothing removes a sensor. A sensor retired after a hardware swap leaves its
+ * device rows for the life of the installation. Giving an operator a way to drop a
+ * sensor is on the roadmap; until then the escape hatch is a DELETE by
+ * `sensor_id`, which the query console in write mode can run.
  */
 async function forgetStaleDevices(days: number): Promise<number> {
   // rowCount, not .returning(): the MACs are never read, and this table exists
   // precisely because it grows unbounded — the first sweep after a long gap would
   // otherwise pull the whole backlog into memory just to count it.
-  const result = await db.delete(knownDevices).where(
-    sql`${knownDevices.lastSeen} < (
-        SELECT max(${knownDevices.lastSeen}) - ${days}::int * interval '1 day' FROM ${knownDevices}
-      )`,
-  );
+  /*
+   * Each sensor's cutoff computed ONCE, then joined — not correlated per row.
+   *
+   * The correlated form reads better and does not survive `EXPLAIN`. Because the
+   * right-hand side of the outer predicate depends on the row's own `sensor_id`,
+   * no index can drive the delete: Postgres seq-scans the whole table and runs the
+   * subquery once per row (scalar SubPlans are not memoized — `Memoize` is a
+   * nested-loop-join node, which this is not). Measured on 20k rows and three
+   * sensors: 202 ms and 78,917 buffers for the correlated version against 21 ms
+   * and 19,074 for this one, and the gap widens with the row count on the one
+   * table whose unbounded growth is why this function exists.
+   *
+   * This shape is proportional to the number of SENSORS rather than the number of
+   * rows: one aggregate pass builds a row per sensor, and the delete hash-joins
+   * against it. The per-sensor clock is unchanged — that is the whole point of
+   * keeping the `GROUP BY` — and a sensor with no rows still contributes no
+   * cutoff and loses nothing.
+   */
+  const result = await db.execute(sql`
+    WITH cutoff AS (
+      SELECT sensor_id, max(last_seen) - ${days}::int * interval '1 day' AS at
+      FROM ${knownDevices}
+      GROUP BY sensor_id
+    )
+    DELETE FROM ${knownDevices} AS stale
+    USING cutoff
+    WHERE cutoff.sensor_id = stale.sensor_id
+      AND stale.last_seen < cutoff.at
+  `);
   const deleted = result.rowCount ?? 0;
 
   if (deleted > 0) {

@@ -1,9 +1,20 @@
 # Network Monitoring Tool (NMT)
 
-Passive network security monitoring. It observes traffic, raises security findings from what it
-sees, and enriches any address involved with reverse DNS, WHOIS and geolocation data.
+Passive network security monitoring for the networks cloud tools cannot reach — a segregated
+manufacturing VLAN, a defence subcontractor's CUI enclave, any monitoring host with no outbound
+internet. Local indicator files are first-class, downloaded feeds cache to disk so a restart
+without connectivity starts from the last known-good copy, and every deletion is recorded in an
+append-only trail the database itself refuses to modify.
 
-There are two ways to feed it, and they suit different deployments:
+Not another dashboard. Eight detectors, tuned for precision — the test suite replays an ordinary
+browsing session and asserts that zero alerts are produced. Suppression rules, so the authorised
+nightly scanner does not train whoever is on call to ignore the alerts table. Retention that
+rolls each expiring day up rather than deleting it, so a year-old month still has a trend line
+instead of a flat one that looks like a quiet network.
+
+It observes traffic, raises findings from what it sees, and enriches any address involved with
+reverse DNS, WHOIS and geolocation data. There are two ways to feed it, and they suit different
+deployments:
 
 | | **Packet capture** | **Flow collection** |
 | --- | --- | --- |
@@ -22,6 +33,56 @@ the screens, what each one is telling you, and what each role may do — there i
 application itself at `/user-guide/` — behind a signed-in session, like every other screen,
 which is why it lives here and not in `network-monitoring-ui/public/` where the web server
 would hand it out unauthenticated. Reachable in the product from the help icon in the header.
+
+## Watch it instead
+
+Before any of what follows: the application being used. Signing in, a scan turning up in
+the alerts table, the evidence behind it, a rule that declares the next one expected, and
+where a finding goes when it leaves here.
+
+[![A tour of the application: the dashboard, a finding and its evidence, threat intelligence, suppression rules, delivery and the audit trail](./user-guide/video/nmt-tour-poster.png)](./user-guide/video/nmt-tour.mp4)
+
+**[Play the tour](./user-guide/video/nmt-tour.mp4)** &mdash; 4 min 18 s, narrated, and every
+spoken line is captioned on screen so it works muted. GitHub plays it in the browser; in a
+clone it is `user-guide/video/nmt-tour.mp4`. The [user guide](user-guide/index.html)
+embeds it on its first page, which is where an operator will look for it.
+
+Everything in it is the real application against a demo database. The findings are real
+detector output rather than fixtures: `scripts/demo/traffic.mts` sends synthetic NetFlow
+over UDP and the detectors judge it exactly as they judge a switch's, so the port scan on
+screen crossed the same threshold a real one has to. Recorded by
+[`scripts/record-demo.mjs`](scripts/record-demo.mjs) for the same reason the
+[screenshots](#screenshots) are captured by a script rather than by hand &mdash; a tour of
+a screen that no longer exists is the one a reader trusts over the application in front of
+them:
+
+```bash
+npm i -D playwright ffmpeg-static && npx playwright install chromium   # once
+
+# One terminal: the application, with flow collection and the demo feed on.
+FLOW_ENABLED=true INTEL_ENABLED=true INTEL_FEEDS=demo=scripts/demo/indicators.txt npm run dev
+
+# An account that exists only to be filmed, because the tour types it on camera.
+npm run user -- create --email demo@example.com --password '...' --role ADMIN
+
+# Another terminal: fill the screens, then record. FFMPEG only if none is on PATH.
+npx tsx scripts/demo/traffic.mts
+DEMO_EMAIL=demo@example.com DEMO_PASSWORD='...' FFMPEG=./node_modules/ffmpeg-static/ffmpeg.exe node scripts/record-demo.mjs
+```
+
+The voice is the speech engine that ships with Windows, driven offline by
+`scripts/demo/narrate.ps1`. It sounds like what it is &mdash; a computer reading &mdash;
+and that is the trade being made on purpose: the narration is fifteen strings in the
+recording script, so correcting a line is a text edit rather than a studio booking, and a
+tool built for networks with no outbound internet does not send its own script to a cloud
+voice service to be read back. `DEMO_SILENT=1` records the tour without narration, and
+`DEMO_RATE`, between -10 and 10, changes how fast it is read &mdash; the default sits a
+little under normal speed, which is most of why the runtime is what it is.
+
+Point it at a demo installation and sign in with a throwaway administrator. The tour types
+the address into the login form on camera, and it *writes* &mdash; the suppressions beat
+fills in the new-rule dialog and saves it, because a recording of a screen that says "no
+rules" does not show what suppression is for.
 
 ## What it detects
 
@@ -769,10 +830,111 @@ running, both forget the same one. It is not a full accounting of capture uptime
 five-minute capture after a year of silence still advances the reference — but it cannot take
 the whole network any more.
 
+That reference is measured **per sensor**. Across the whole table it would be one sensor's
+clock: a sensor capturing continuously drags the cutoff forward until a quieter one's entire
+device list falls behind it and goes in a single sweep, which is the same mass re-alert
+arriving from a third direction. See [More than one sensor](#more-than-one-sensor).
+
 Buckets are UTC days, explicitly. `date_trunc('day', ts)` uses the session's `TimeZone`, which
 would make the same data roll up differently on two servers — on a machine set to `Asia/Kabul`
 a finding at 22:30Z lands in the *next* day. Both the bucket expression and the range bounds
 say `AT TIME ZONE 'UTC'`.
+
+---
+
+## More than one sensor
+
+Two installations can point at one database, and until V16 they wrote into each other's rows.
+
+`alerts.dedup_key` was globally unique, and a dedup key is derived from what was observed — a
+kind, the addresses involved, a time bucket. Two sensors watching two segments therefore
+produce the **same key for two unrelated events**, because a port scan from 10.0.0.1 looks the
+same on any network that has a 10.0.0.1. The upsert found the other sensor's row: occurrence
+counts added together, `first_seen`/`last_seen` widened to span both networks, and the title,
+severity and evidence became whichever sensor flushed last. Nothing reported a conflict,
+because at the database level there was not one.
+
+`known_devices` was the quieter half and the worse one. Its primary key was the MAC address
+alone, so a phone the first sensor had learned was already "seen before" to every other sensor,
+and **new-device detection never fired for it**. A merged alert row is visibly wrong to anyone
+who looks at it. A detection that does not happen leaves nothing to look at.
+
+### Naming a sensor
+
+`SENSOR_ID`, in the environment, and it cannot be anywhere else: the database is the thing
+being shared, so a stored settings row inside it cannot hold two different answers. It is a
+property of the deployment, the way `DATABASE_URL` is. Letters, digits, dot, dash and
+underscore, 64 characters at most; anything else is refused at boot rather than trimmed,
+because a name that had to be altered to be stored is a different identity from the one that
+was configured.
+
+The default is the literal `default` rather than the machine's hostname. A hostname default
+looks friendlier and is a trap under Compose, where a container's hostname is a fresh random id
+on every recreate — the identity would change behind you, orphaning every stored alert and
+re-alerting every recurring finding. So a single-sensor installation is left alone, and you
+name the sensors on the day a second one appears.
+
+**Upgrading changes nothing.** V16 backfills every existing row to `default`, which is the same
+value the process will use, so alerts stay where they are and recurring findings go on merging
+into the rows they were already merging into.
+
+### What is separate, and what is shared
+
+| Separate per sensor | Shared across all of them |
+| --- | --- |
+| Findings, and their dedup keys | Suppression rules — a rule is a policy statement, not an observation |
+| Known devices, and therefore what counts as new | Delivery settings, the query console settings, accounts |
+| Daily rollups | The audit trail |
+| The sensor name on every notification | Delivery settings — but not the per-process rate limits, which apply per sensor |
+
+Delivery is the case worth spelling out, because the settings are shared and the *sending* is
+not. Every notification names its sensor — email, Slack, Teams, Discord and the plain-text digest
+all print it, but only once **more than one sensor has written to this database**, since a line
+reading "sensor default" on an installation that has only one is noise that trains people to skip
+the line the multi-sensor deployments need. That is the same test the alerts page uses to decide
+whether to render the sensor column, deliberately: an earlier version keyed on whether the name
+was still `default`, which is what ships and what V16 backfills to — so head office kept the
+shipped name, added a branch, and only the branch's alerts carried a sensor line. The syslog/CEF
+feed carries `dvchost` unconditionally, because a SIEM correlating per segment needs the field
+on every event and does its own filtering.
+
+**The rate limits do not combine, and that is worth knowing before it surprises somebody.**
+`NOTIFY_MAX_PER_HOUR` and the per-finding throttle are held in memory by one notifier per
+process, so two sensors enforce the configured ceiling twice: `NOTIFY_MAX_PER_HOUR=10` with two
+sensors is up to twenty messages an hour to the same recipients, and the same finding can page
+from both inside one throttle window. Halve the ceiling per sensor, or expect the multiple.
+
+Reads default to **every** sensor. Sharing one database is what makes a second sensor worth
+having, and an interface showing only the sensor that happens to be serving it would hide the
+other's findings with nothing on screen saying so. The alerts table gains a Sensor column and a
+filter, and the dashboard a selector — all of them hidden while only one sensor has reported,
+since a column repeating one value costs width and says nothing.
+
+Two consequences worth knowing before they look like bugs:
+
+- **Clear All crosses sensors.** The control means "empty this table", and one that quietly
+  left another sensor's rows behind would be a button whose name is false. What it does instead
+  is name the sensors in its audit entry, so the trail records that somebody sitting in front
+  of one sensor removed another's findings.
+- **Forgetting a device does not.** Re-arming new-device detection on a segment nobody is
+  looking at is a different act from the one the button offers, so it never happens by
+  default: the sensor is *resolved* rather than assumed. One sensor knows the address and
+  that row goes; several know it and the request is refused, naming them, because choosing
+  is the caller's decision; naming a sensor that does not hold it says so rather than
+  claiming the device is unknown. Every one of those is the same rule — the row that goes is
+  a row somebody asked for.
+
+### Running two
+
+Each sensor is a full installation — its own API, its own capture — with `SENSOR_ID` set and
+`DATABASE_URL` pointing at the same Postgres. Nothing else is coordinated: there is no
+registration step and no leader. A sensor is whatever has written a finding, which is why the
+sensor list cannot drift from the data and why decommissioning one is deleting its rows rather
+than remembering to tell a registry.
+
+The retention sweep stays database-wide rather than per sensor. Retention is a property of the
+database, one sweep is cheaper than one per sensor, and two sweeping at once is already safe
+for the same reason a repeated sweep is: the rollup's `ON CONFLICT` adds.
 
 ---
 
@@ -1446,15 +1608,16 @@ Three refusals, each a lockout it prevents:
 
 | Method   | Path                    | Purpose                                                |
 | -------- | ----------------------- | ------------------------------------------------------ |
-| `GET`    | `/`                     | Findings, most urgent first. Filter by `severity`, `kind`, `since` (ISO or `24h`), `acknowledged` |
-| `GET`    | `/summary`              | Counts by severity and detector, for the dashboard tiles |
-| `GET`    | `/dashboard`            | Summary plus trend buckets and top sources (`days`, `bucket`) |
-| `GET`    | `/devices`              | MAC addresses seen on the network                       |
+| `GET`    | `/`                     | Findings, most urgent first. Filter by `severity`, `kind`, `sensor`, `since` (ISO or `24h`), `acknowledged` |
+| `GET`    | `/summary`              | Counts by severity and detector, for the dashboard tiles (`sensor`) |
+| `GET`    | `/sensors`              | Every sensor with findings, devices or rollups here, and which one is answering |
+| `GET`    | `/dashboard`            | Summary plus trend buckets and top sources (`days`, `bucket`, `sensor`) |
+| `GET`    | `/devices`              | MAC addresses seen on the network (`sensor`)            |
 | `POST`   | `/:id/acknowledge`      | Mark a finding as handled                               |
 | `POST`   | `/:id/unacknowledge`    | Reopen it                                               |
 | `DELETE` | `/:id`                  | Delete one finding (ADMIN)                              |
 | `DELETE` | `/`                     | Clear all findings (ADMIN)                              |
-| `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN) |
+| `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN). `sensor` picks the row; without it, the single holder is resolved and several are a 400 |
 
 ### Audit trail — `/api/audit`
 
@@ -1628,6 +1791,7 @@ network-monitoring-ui/        React + TypeScript + Vite frontend
 | `LOG_LEVEL`            | `info` (`silent` in tests)                     | trace / debug / info / warn / error / fatal    |
 | `DATABASE_URL`         | built from `PG*` variables                     |                                                |
 | `DB_AUTO_MIGRATE`      | `true`                                         | Run pending migrations on boot                 |
+| `SENSOR_ID`            | `default`                                      | Which sensor this is. Only matters when two installations share one database — see [More than one sensor](#more-than-one-sensor) |
 | `JWT_SECRET`           | *required*                                     | Server will not start without it               |
 | `JWT_EXPIRES_IN`       | `1d`                                           |                                                |
 | `CAPTURE_BUFFER_SIZE`  | `5000`                                         | Packets held in memory per capture             |
@@ -1999,6 +2163,8 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **`sensor_id` on findings, devices and rollups** — two installations sharing one database wrote into each other's rows: `alerts.dedup_key` was globally unique although the key is derived from what was observed, and `known_devices` was keyed on the MAC alone, so a device one sensor had learned silently switched off new-device detection on every other | #54 |
+| **Both query-console roles revoked, not just the read one** — `revokeAdhocLogin` took `adhocRole()`'s `read` default, so every path that switched the console off left `nm_adhocrw_<database>` holding `LOGIN`, the last write-mode password and V12's DML on the operational tables; no supported operator action reached it. Both modes now revoke wherever the console goes off, `startAdhoc` strips the mode it is not using, and the statement is `NOLOGIN PASSWORD NULL` so the credential is destroyed rather than disabled | #53 |
 | **Role management in the interface** — role was settable only in `psql`; now Administration settings → Users and roles, audited, refusing to demote the last administrator (in a locked transaction, because two administrators demoting each other loses a count-then-update race) or to demote yourself | #53 |
 | **Delivery settings moved under the gear, and unpinned** — one place to edit rather than two, and the fix for a bug that made the whole feature inert: Compose passed every delivery variable with its default baked in, so all 16 fields reported themselves as pinned by the file an administrator was told not to edit | #53 |
 | **Administration settings, and the query console among them** — an admin-only settings gear holding a diagnostics panel that distinguishes the console's three off-states, and a settings form that switches it on, sets its password and tunes its limits without a restart; the same three-layer resolution as the delivery settings, with the credential redacted in the resolver so no endpoint can leak it by forgetting | #53 |
@@ -2018,35 +2184,16 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 ### Next, in order
 
-1. **Revoke *both* console roles, not just the read one** (~half a day, and first because
-   it is a credential that outlives the authorisation to use it). `revokeAdhocLogin` takes
-   `adhocRole()`'s default `mode: 'read'`, so every path that switches the console off only
-   strips `LOGIN` from `nm_adhoc_<database>`. Broader than the off-path: `stopAdhoc` revokes
-   nothing by design, and a write→read switch re-installs the password on the read role
-   without touching the write one — so **no supported operator action ever revokes
-   `nm_adhocrw_<database>`**, which keeps `LOGIN`, the last write-mode password, and
-   `INSERT`/`UPDATE`/`DELETE` on the operational tables from V12. Rotating the password in
-   read mode does not reach it either; only re-entering write mode updates it. The docblock
-   above the function asserts the opposite ("Both 'off' paths revoke, and that is the
-   point") — the file describes, for one of its two roles, exactly the bug it still has.
-   The fix is to loop the two modes the way `V15__Adhoc_password.sql` already does in its
-   `DO` block, revoke the non-active role on a successful `startAdhoc` so a mode switch
-   leaves nothing behind, and prefer `NOLOGIN PASSWORD NULL` so the credential is destroyed
-   rather than disabled. `adhoc-disabled.test.ts` checks only `adhocRole(name)`, which is
-   why this was invisible: extend it to assert `rolcanlogin` on **both** roles after an off
-   and after a write→read switch.
-2. **`sensor_id` on alerts** (~3–4 d). Two sensors sharing one database currently merge
-   each other's findings. Cheap now and expensive once anyone has data.
-3. **Internationalisation — English, German and Dari.** The largest item on this list, and
-   the part of it that gets more expensive every day is the same shape as `sensor_id`
-   above: findings are stored as English prose. See
+1. **Internationalisation — English, German and Dari.** The largest item on this list, and
+   the part of it that gets more expensive every day is the same shape as the `sensor_id`
+   work that has just shipped: findings are stored as English prose. See
    [Internationalisation](#internationalisation--english-german-and-dari) below for the
    four layers and the decisions each one needs.
-4. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
+2. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
    type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
    `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
    `.bin`.
-5. **Small, and each independently useful:**
+3. **Small, and each independently useful:**
    - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,
@@ -2072,6 +2219,23 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
      environment already did" enable the console. Stale since V15 made the stored row a
      source too. No privilege gained, but a comment stating the opposite of the code is the
      failure mode this repository keeps finding.
+   - Warn at boot about `ADHOC_*` values that do not parse. `loadDeliverySettings` logs the
+     variables `invalidEnvironmentVariables` rejected, so a typo leaves a trace instead of
+     silently falling through to the stored value or the default. `loadAdhocSettings` has no
+     equivalent, and these are the fields where silence costs most: `ADHOC_AUDIT=OFF` parsing
+     to nothing was a finding on this PR's seventh pass, and a boot warning would have shown
+     it. Same shape as the delivery warning, derived from `ADHOC_FIELDS`.
+   - Stop the delivery form bumping `updated_at` on a save that changed nothing.
+     `saveDeliverySettings` skips the *audit* entry when `changedFields` comes back empty but
+     still runs the upsert, so a form re-saved with no edits rewrites `updated_at` and
+     overwrites `updated_by` with whoever pressed Save — reattributing the last real change to
+     somebody who did not make it. `saveAdhocSettings` skips the write as well; its docblock
+     calls that "a step further than the delivery path", which is true and is the gap. Same
+     defect, one severity lower, and the fix is already written next door.
+   - A way to decommission a sensor: drop its findings, its devices and its rollups in one
+     audited action. There is none today, so a sensor retired after a hardware swap leaves its
+     rows behind for ever — retention cannot reclaim the newest of them, because each sensor's
+     staleness cutoff is derived from its own last sighting and that stops advancing with it.
    - A duplicate-version guard in the migration runner. Two files sharing a `V14__` prefix
      are not detected as a collision: the second one's checksum is compared against the
      first one's recorded row, and the runner reports a *changed migration* and refuses to
@@ -2100,7 +2264,7 @@ Hand-rolled `count === 1 ? … : …` is wrong in Dari on day one.
    ``` `ARP spoofing: ${ip} claimed by ${mac}` ```. Translating the interface does not
    translate a single existing finding, and every day of capture adds rows that can never
    be translated. **This is the one to decide before more data accumulates**, for exactly
-   the reason `sensor_id` is above it.
+   the reason `sensor_id` went first.
 
    The shape: detectors emit a message **key plus a params object**, and the text is
    rendered at display time. Much of what the titles interpolate is already structured —
@@ -2189,6 +2353,11 @@ translation itself is the bulk of the cost and does not shrink.
   every modern phone using MAC-address randomisation raises a new-device alert.
 - **Delivery settings have no history** beyond `updated_by` and the audit entry naming which
   fields changed. Reconstructing a past configuration is not possible.
+- **A retired sensor's newest devices are never reclaimed.** Device staleness is measured from
+  each sensor's own `max(last_seen)`, so a sensor that stops writing stops advancing its own
+  cutoff and keeps everything inside the last window. That is the cost of not letting one
+  sensor's clock sweep another's devices; there is no way to decommission a sensor yet, so the
+  rows stay for the life of the installation unless somebody deletes them by hand.
 - **This has never run against real hostile traffic for a sustained period.** Running it on
   one real network for a month and writing down exactly what it said is worth more than the
   next three features on this list.

@@ -6,6 +6,7 @@ import { startFlowCollector, stopFlowCollector } from './flow/collector.js';
 import { startIntel, stopIntel } from './intel/registry.js';
 import { componentLogger, logger } from './logger.js';
 import { reloadNotifier } from './notify/notifier.js';
+import { refreshSensorScope, SENSOR_SCOPE_REFRESH_MS } from './notify/sensor-scope.js';
 import { loadDeliverySettings, seedFromEnvironment } from './notify/settings.service.js';
 import { libraryVersion } from './packet/libpcap.js';
 import { startAdhoc, stopAdhoc } from './services/adhoc.service.js';
@@ -65,6 +66,24 @@ async function main(): Promise<void> {
   // window freezes the notifier there for the process's lifetime, silently ignoring
   // every stored delivery setting until an admin happens to resave the form.
   await reloadNotifier();
+
+  /*
+   * Whether this database has more than one sensor, which decides whether a
+   * human-facing notification names the sensor it came from.
+   *
+   * Here and on a timer rather than on the send path: that path must not depend on
+   * a database being reachable — a delivery problem never touches detection — and
+   * a query per digest would be paid at whatever rate the network produces
+   * findings. A sensor appearing is a deployment, so minutes of staleness costs
+   * nothing. See notify/sensor-scope.ts.
+   */
+  await refreshSensorScope();
+  const sensorScopeTimer = setInterval(() => {
+    void refreshSensorScope();
+  }, SENSOR_SCOPE_REFRESH_MS);
+  // Unref'd: a documentation-shaped refresh must never be the reason the process
+  // will not exit.
+  sensorScopeTimer.unref();
 
   // Before any capture can be started, so the first findings of the process are
   // filtered by the rules an operator already wrote. It fails open — see

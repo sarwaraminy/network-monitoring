@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
 import type { Finding, Severity } from '../packet/detect/types.js';
-import type { DeliveryResult, Notification, NotificationChannel } from './types.js';
+import type { DeliveryResult, NotifiableFinding, Notification, NotificationChannel } from './types.js';
 
 /**
  * Notification tests.
@@ -292,6 +292,170 @@ describe('evidence policy', () => {
     });
   });
 
+  it('names the sensor to a person only once the installation has two', () => {
+    /*
+     * The paged administrator is the one reader who could not tell two sensors
+     * apart: one shared `delivery_settings` row, and "New device aa:bb:cc" names
+     * no segment, while the alert table does.
+     *
+     * But `default` is the name an installation has when nobody set SENSOR_ID —
+     * which is to say when there is only one sensor — so printing it on every
+     * message is noise that teaches people to skip the line the named
+     * deployments actually need. Naming a sensor is the operator's own signal
+     * that this deployment has more than one.
+     */
+    const one: Notification = {
+      severity: 'high',
+      findings: [
+        {
+          sensorId: 'default',
+          kind: 'port_scan',
+          severity: 'high',
+          title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
+          description: 'A single source attempted connections to many ports.',
+          sourceIp: '10.0.0.66',
+          targetIp: '10.0.0.89',
+          occurrences: 3,
+          firstSeen: AT,
+          lastSeen: AT,
+          evidence: null,
+        },
+      ],
+      omittedCount: 0,
+      countsBySeverity: { high: 1 },
+      generatedAt: AT,
+      dashboardUrl: null,
+      isTest: false,
+      namesSensors: false,
+    };
+    // The same finding, on an installation that has more than one sensor. Only the
+    // installation differs: the finding is identical.
+    const multi: Notification = { ...one, namesSensors: true };
+
+    assert.doesNotMatch(
+      format.renderText(one),
+      /sensor/i,
+      'a single-sensor installation is not worth a line on every message',
+    );
+    assert.match(format.renderText(multi), /sensor default/);
+    assert.match(format.renderHtml(multi), /sensor default/);
+    assert.match(JSON.stringify(format.renderSlack(multi)), /sensor .{0,2}default/);
+  });
+
+  it('names a sensor called `default`, which is the one that used to go unnamed', () => {
+    /*
+     * The regression this replaced, stated as its own case because the old rule
+     * was defensible right up to the install it broke.
+     *
+     * The rule was "any name but `default` gets a line", on the theory that naming
+     * a sensor is what an operator does when they have two. But `SENSOR_ID=default`
+     * is what ships in api/.env.example, .env.docker.example and docker-compose.yml,
+     * and V16 backfills existing rows to it — so head office upgrades, keeps the
+     * shipped name, adds `branch-2`, and every alert from the busiest segment
+     * arrives with no sensor line while every alert from the new one carries one.
+     * The operator is left inferring "no line means head office", which is the
+     * ambiguity the line exists to remove, landing on the install with the most
+     * findings.
+     */
+    const headOffice: NotifiableFinding = {
+      sensorId: 'default',
+      kind: 'port_scan',
+      severity: 'high',
+      title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
+      description: 'A single source attempted connections to many ports.',
+      sourceIp: '10.0.0.66',
+      targetIp: '10.0.0.89',
+      occurrences: 3,
+      firstSeen: AT,
+      lastSeen: AT,
+      evidence: null,
+    };
+    const notification: Notification = {
+      severity: 'high',
+      findings: [headOffice, { ...headOffice, sensorId: 'branch-2' }],
+      omittedCount: 0,
+      countsBySeverity: { high: 2 },
+      generatedAt: AT,
+      dashboardUrl: null,
+      isTest: false,
+      namesSensors: true,
+    };
+
+    const text = format.renderText(notification);
+
+    assert.match(text, /sensor default/, 'the sensor called `default` must be named too');
+    assert.match(text, /sensor branch-2/);
+  });
+
+  it('names the sensor in every renderer, not only the ones that build text', () => {
+    /*
+     * Asserted as a sweep over all six because three of them were missed.
+     *
+     * `renderText`, `renderHtml` and `renderSlack` interpolate a line and were
+     * changed together; `renderTeams`, `renderTeamsConnector` and `renderDiscord`
+     * build structured payloads, where the sensor is a fact or an embed field
+     * rather than a line — so a change made by adding a string to three renderers
+     * left the other three silently without it. A Teams card named the host, the
+     * port and the detector but not the segment, which is the one field that says
+     * where to go, and the same finding on two sensors arrived as two identical
+     * cards.
+     *
+     * Whole-payload matching on purpose: what each format calls the field differs
+     * (`title` here, `name` there), and this test is about the value reaching the
+     * wire at all. Any renderer added later has to be added here, which is the
+     * point.
+     */
+    const named: Notification = {
+      severity: 'high',
+      findings: [
+        {
+          sensorId: 'branch-office',
+          kind: 'port_scan',
+          severity: 'high',
+          title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
+          description: 'A single source attempted connections to many ports.',
+          sourceIp: '10.0.0.66',
+          targetIp: '10.0.0.89',
+          occurrences: 3,
+          firstSeen: AT,
+          lastSeen: AT,
+          evidence: null,
+        },
+      ],
+      omittedCount: 0,
+      countsBySeverity: { high: 1 },
+      generatedAt: AT,
+      dashboardUrl: null,
+      isTest: false,
+      namesSensors: true,
+    };
+    // Same finding, single-sensor installation. The finding is identical: what
+    // changes is whether the installation has anything to disambiguate.
+    const single: Notification = { ...named, namesSensors: false };
+
+    const renderers: Array<[string, (notification: Notification) => unknown]> = [
+      ['renderText', format.renderText],
+      ['renderHtml', format.renderHtml],
+      ['renderSlack', format.renderSlack],
+      ['renderTeams', format.renderTeams],
+      ['renderTeamsConnector', format.renderTeamsConnector],
+      ['renderDiscord', format.renderDiscord],
+    ];
+
+    for (const [name, render] of renderers) {
+      assert.match(
+        JSON.stringify(render(named)),
+        /branch-office/,
+        `${name} does not name the sensor, so its readers cannot tell two segments apart`,
+      );
+      assert.doesNotMatch(
+        JSON.stringify(render(single)),
+        /sensor/i,
+        `${name} prints a sensor line for an installation that has only one`,
+      );
+    }
+  });
+
   it('never puts a password in a message, in any format', () => {
     // Detectors are built never to place a secret in evidence, and their own suite
     // asserts it. This re-checks at the boundary where data leaves the machine.
@@ -300,6 +464,7 @@ describe('evidence policy', () => {
       severity: 'critical',
       findings: [
         {
+          sensorId: 'default',
           kind: 'plaintext_credentials',
           severity: 'critical',
           title: 'Cleartext HTTP credentials for "alice" to 10.0.0.50',
@@ -317,6 +482,7 @@ describe('evidence policy', () => {
       generatedAt: AT,
       dashboardUrl: null,
       isTest: false,
+      namesSensors: false,
     };
 
     const rendered = [
@@ -342,6 +508,7 @@ describe('message formats', () => {
     severity: 'critical',
     findings: [
       {
+        sensorId: 'default',
         kind: 'arp_spoofing',
         severity: 'critical',
         title: 'ARP spoofing: 10.0.0.1 claimed by a new MAC',
@@ -359,6 +526,7 @@ describe('message formats', () => {
     generatedAt: AT,
     dashboardUrl: 'https://nmt.example.test/alerts',
     isTest: false,
+    namesSensors: false,
   };
 
   it('summarises the count when more than one finding is involved', () => {
@@ -603,6 +771,7 @@ describe('webhook transport', () => {
     severity: 'high',
     findings: [
       {
+        sensorId: 'default',
         kind: 'port_scan',
         severity: 'high',
         title: 'Port scan',
@@ -620,6 +789,7 @@ describe('webhook transport', () => {
     generatedAt: AT,
     dashboardUrl: null,
     isTest: false,
+    namesSensors: false,
   };
 
   it('infers the payload format from the URL', () => {
@@ -780,6 +950,7 @@ async function onlyNotification(): Promise<Notification> {
     severity: 'high',
     findings: [
       {
+        sensorId: 'default',
         kind: 'port_scan',
         severity: 'high',
         title: 'Port scan',
@@ -797,6 +968,7 @@ async function onlyNotification(): Promise<Notification> {
     generatedAt: AT,
     dashboardUrl: null,
     isTest: false,
+    namesSensors: false,
   };
 }
 

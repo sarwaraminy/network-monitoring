@@ -49,8 +49,8 @@ describe('ad hoc console in write mode', { skip: database.skip }, () => {
   beforeEach(async () => {
     await truncateAll(database.pool!);
     await database.pool!.query(
-      `INSERT INTO alerts (kind, severity, title, description, dedup_key, first_seen, last_seen)
-       SELECT 'port_scan', 'low', 'seed ' || n, 'seed', 'write-seed-' || n, now(), now()
+      `INSERT INTO alerts (sensor_id, kind, severity, title, description, dedup_key, first_seen, last_seen)
+       SELECT 'adhoc', 'port_scan', 'low', 'seed ' || n, 'seed', 'write-seed-' || n, now(), now()
          FROM generate_series(1, 5) AS n`,
     );
   });
