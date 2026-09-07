@@ -112,7 +112,10 @@ describe('DeliveryPage', () => {
 
     renderApp(<DeliveryPage />, { authenticated: true });
     expect(await screen.findByText(/delivery is switched off/i)).toBeInTheDocument();
-    expect(screen.getByText(/Turn on "Deliver alerts" in Settings above/)).toBeInTheDocument();
+    // "Settings above" until the form moved to the administration gear. The
+    // remedy has to name somewhere that exists, which is the whole reason this
+    // assertion is on the text rather than on the alert being present.
+    expect(screen.getByText(/Turn on "Deliver alerts" under the settings gear/)).toBeInTheDocument();
     expect(screen.getByText(/Syslog is unaffected/)).toBeInTheDocument();
   });
 
@@ -150,5 +153,41 @@ describe('DeliveryPage', () => {
 
     renderApp(<DeliveryPage />, { authenticated: true });
     await waitFor(() => expect(screen.getByText(/boom/i)).toBeInTheDocument());
+  });
+});
+
+describe('after the settings moved to the administration gear', () => {
+  it('no longer offers the settings form on this page', async () => {
+    /*
+     * The point of moving it: one place to change delivery rather than two.
+     * Two forms over one three-layer resolution would eventually disagree about
+     * which fields are pinned, and the one nobody was looking at would be the
+     * wrong one.
+     *
+     * Asserted on a field only the form has, not on the button — a button can be
+     * renamed while the dialog stays reachable some other way.
+     */
+    renderApp(<DeliveryPage />, { authenticated: true });
+
+    await screen.findByRole('heading', { name: /delivery/i });
+    expect(screen.queryByRole('button', { name: /^settings$/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/minimum severity/i)).not.toBeInTheDocument();
+  });
+
+  it('tells an administrator where it went', async () => {
+    // "The Settings button is gone" is otherwise indistinguishable from a page
+    // that broke, and the gear is in the header rather than anywhere somebody who
+    // knew this page would look.
+    renderApp(<DeliveryPage />, { authenticated: true });
+
+    expect(await screen.findByText(/Administration settings/)).toBeInTheDocument();
+  });
+
+  it('keeps the test send, which is the half nothing else has', async () => {
+    // The most important control on the page and the reason it still exists:
+    // notification config fails silently, so proving delivery is the whole job.
+    renderApp(<DeliveryPage />, { authenticated: true });
+
+    expect(await screen.findByRole('button', { name: /send test/i })).toBeInTheDocument();
   });
 });

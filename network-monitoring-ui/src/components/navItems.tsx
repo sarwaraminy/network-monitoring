@@ -90,7 +90,18 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       // Both answer "what did this system do, and who told it to" rather than
       // "what is happening on the wire", which is why neither sits under Security.
-      { label: 'Delivery', to: '/delivery' },
+      /*
+       * Admin-only since the settings moved under the administration gear.
+       *
+       * The writes were always ADMIN on the server — `PUT /api/notify/settings`
+       * and the test send — so a plain user's Delivery page was mostly a form
+       * that looked editable and was not. The reads were NOT gated, though, so
+       * this does take something away: a non-administrator can no longer see the
+       * delivery status panel. That is a deliberate trade for having one obvious
+       * home for the settings rather than two, and the status is an operator's
+       * question rather than a reader's.
+       */
+      { label: 'Delivery', to: '/delivery', adminOnly: true },
       // The route stays `/activity`: the label is what people read, and changing
       // the URL would break every bookmark and pasted link for a rename.
       { label: 'Audit Trail', to: '/activity', adminOnly: true },

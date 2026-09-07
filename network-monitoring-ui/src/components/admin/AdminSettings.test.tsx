@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ADHOC_OFF, ADHOC_RUNNING, ADMIN_USER } from '../../test/fixtures';
 import { renderApp } from '../../test/render';
 import { server } from '../../test/server';
-import AdminSettingsMenu from './AdminSettingsMenu';
+import AdminSettingsMenu, { ADMIN_GROUPS } from './AdminSettingsMenu';
 import QueryConsoleStatus from './QueryConsoleStatus';
 
 /**
@@ -101,6 +101,61 @@ describe('AdminSettingsMenu', () => {
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByRole('switch', { name: 'Query console' })).toBeInTheDocument();
     expect(dialog.querySelector('[data-drag-handle]')).not.toBeNull();
+  });
+
+  it('groups its tools, and every group has something in it', async () => {
+    /*
+     * A heading over nothing reads as a section that failed to load — the same
+     * failure `navItems` guards against on the sidebar. Asserted over the real
+     * `ADMIN_GROUPS` rather than a constructed one, because this list is edited
+     * by hand every time a tool is added and an empty group is exactly what a
+     * half-finished edit leaves behind.
+     */
+    const user = userEvent.setup();
+    renderApp(<AdminSettingsMenu />, { authenticated: true });
+
+    await user.click(await screen.findByRole('button', { name: /administration settings/i }));
+
+    for (const group of ADMIN_GROUPS) {
+      expect(screen.getByText(group.heading)).toBeInTheDocument();
+      expect(group.items.length).toBeGreaterThan(0);
+      // Each item's label is on screen, so a group cannot pass by its heading
+      // alone.
+      for (const item of group.items) {
+        expect(screen.getByText(item.label)).toBeInTheDocument();
+      }
+    }
+  });
+
+  it('opens the delivery settings without leaving the page', async () => {
+    /*
+     * The settings moved here from the Delivery page, which is why the page's
+     * navigation entry became admin-only. The same component either way — two
+     * forms over one three-layer resolution would eventually disagree about which
+     * fields are pinned, and the one nobody was looking at would be wrong.
+     */
+    const user = userEvent.setup();
+    renderApp(<AdminSettingsMenu />, { authenticated: true });
+
+    await user.click(await screen.findByRole('button', { name: /administration settings/i }));
+    await user.click(screen.getByText('Delivery settings'));
+
+    const dialog = await screen.findByRole('dialog');
+    // A field only the delivery form has, so this cannot pass on the dialog
+    // chrome alone.
+    expect(await within(dialog).findByLabelText(/minimum severity/i)).toBeInTheDocument();
+  });
+
+  it('opens the accounts tool', async () => {
+    const user = userEvent.setup();
+    renderApp(<AdminSettingsMenu />, { authenticated: true });
+
+    await user.click(await screen.findByRole('button', { name: /administration settings/i }));
+    await user.click(screen.getByText('Users and roles'));
+
+    const dialog = await screen.findByRole('dialog');
+    // Plural: there is one control per account, which is the point of the tool.
+    expect(await within(dialog).findAllByLabelText(/^Role for /)).not.toHaveLength(0);
   });
 });
 

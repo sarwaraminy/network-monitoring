@@ -47,6 +47,24 @@ const SECRET = 'auth-rejection-suite-secret';
  * security-relevant constant, which is how the two drift apart.
  */
 process.env.JWT_SECRET = SECRET;
+/*
+ * BEFORE the import below, not in a hook — and this was wrong until a route was
+ * added and the suite went over the limit.
+ *
+ * `rate-limit.ts` computes `disabled = env.nodeEnv === 'test'` once at module
+ * load, and the import on the next line pulls in `env.ts`. Setting NODE_ENV in
+ * `before` therefore ran after the decision had been made: the limiter was LIVE
+ * for this whole suite, and the comment in the hook saying it was disabled was
+ * exactly inverted. It stayed green only because a few hundred requests from one
+ * address sat under the backstop limit — so adding one route per credential
+ * tipped `GET /auth/me` into 429 and the assertion became about the limiter
+ * rather than about authentication.
+ *
+ * `auth-admission.test.ts` records fixing the identical bug in the identical
+ * place, which is the argument for doing it the same way rather than raising a
+ * limit.
+ */
+process.env.NODE_ENV = 'test';
 const { signGuideSession } = await import('../services/guide-session.js');
 
 let app: Express;
@@ -63,11 +81,8 @@ let mounts: Mount[];
 
 before(async () => {
   process.env.JWT_SECRET = SECRET;
-  // Rate limits are disabled under `test`, and this suite makes a few hundred
-  // requests from one address. Without it the backstop limiter would start
-  // answering 429 partway through and every remaining assertion would be about
-  // the limiter instead of about authentication.
-  process.env.NODE_ENV = 'test';
+  // NODE_ENV is set at the top of this file, not here: see the comment there for
+  // why a hook is too late to disable the limiter.
   // Unreachable on purpose. Nothing here should reach a query — see the docblock —
   // and if a request ever does, this makes it a connection error rather than a
   // silent read of whatever database the developer had configured.
@@ -374,6 +389,7 @@ const EXPECTED: readonly string[] = [
   'GET /auth/me',
   'GET /auth/users',
   'PATCH /api/suppressions/1',
+  'PATCH /auth/users/1/role',
   'POST /api/adhoc/query',
   'POST /api/adhoc/recheck',
   'POST /api/alerts/1/acknowledge',

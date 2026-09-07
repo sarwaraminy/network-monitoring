@@ -74,7 +74,10 @@ describe('AppLayout navigation', () => {
     asNonAdmin();
     renderApp(<AppLayout />, { authenticated: true });
 
-    for (const label of [/dashboard/i, /security alerts/i, /suppressions/i, /threat intel/i, /delivery/i]) {
+    // Not /delivery/i any more — that entry became admin-only when its settings
+    // moved under the administration gear. The sibling test above asserts a
+    // plain user does NOT get it, so this one has to stop expecting it.
+    for (const label of [/dashboard/i, /security alerts/i, /suppressions/i, /threat intel/i]) {
       expect(await screen.findAllByRole('link', { name: label })).not.toHaveLength(0);
     }
   });

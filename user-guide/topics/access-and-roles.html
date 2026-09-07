@@ -101,6 +101,28 @@ readable by anybody who guesses a URL.</p>
 application uses for everything else. Signing out clears it, and a guide tab left open
 returns itself to the sign-in page when it notices you have signed out elsewhere.</p>
 
+<h2>Changing somebody's role</h2>
+
+<p><a href="administration-settings.html">Administration settings</a> &rarr;
+<span class="ui">Users and roles</span>. Pick a role on the account's row; it applies at
+once, and the change is written to the <a href="audit-trail.html">audit trail</a> with who
+made it and which way the role moved.</p>
+
+<p>Two changes are refused, and the interface disables them rather than letting you find
+out by being told no:</p>
+
+<ul>
+  <li><strong>You cannot change your own role.</strong> Ask another administrator. If it
+    were allowed, the click would remove your access to the page you are standing on.</li>
+  <li><strong>The last administrator cannot be demoted.</strong> Promote a second account
+    first. Otherwise every administrative function &mdash; including this one &mdash; would
+    be behind the door that just closed, recoverable only from a shell on the server.</li>
+</ul>
+
+<p>With only one administrator you will see a standing reminder to promote a second. It is
+not about lockout so much as recovery: with one administrator, a forgotten password means
+editing the database by hand.</p>
+
 <div class="note">
   <span class="label">Note</span>
   <p>Roles are checked against the account as it exists at the moment of the

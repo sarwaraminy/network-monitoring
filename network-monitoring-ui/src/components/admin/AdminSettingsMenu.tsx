@@ -1,3 +1,5 @@
+import GroupOutlinedIcon from '@mui/icons-material/GroupOutlined';
+import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import StorageOutlinedIcon from '@mui/icons-material/StorageOutlined';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
@@ -12,8 +14,10 @@ import Typography from '@mui/material/Typography';
 import { type ComponentType, type ReactElement, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import AppDialog from '../AppDialog';
+import DeliverySettingsForm from '../DeliverySettingsForm';
 import QueryConsoleSettings from './QueryConsoleSettings';
 import QueryConsoleStatus from './QueryConsoleStatus';
+import UserRoles from './UserRoles';
 
 /**
  * Administration settings: a gear in the header opening a panel of admin tools.
@@ -50,6 +54,18 @@ interface AdminGroup {
   items: AdminTool[];
 }
 
+/**
+ * `DeliverySettingsForm` in its embedded form.
+ *
+ * Unembedded it wraps itself in a titled card, which inside a dialog that
+ * already has a title is a card in a card. A named wrapper rather than widening
+ * `AdminTool` to carry props: one tool needing one flag is not a reason to give
+ * every future entry a props bag to get wrong.
+ */
+function EmbeddedDeliverySettings() {
+  return <DeliverySettingsForm embedded />;
+}
+
 export const ADMIN_GROUPS: AdminGroup[] = [
   {
     heading: 'Database',
@@ -69,6 +85,38 @@ export const ADMIN_GROUPS: AdminGroup[] = [
         description: 'Switch it on or off, and set its limits, without a restart.',
         title: 'Query console settings',
         Component: QueryConsoleSettings,
+      },
+    ],
+  },
+  {
+    heading: 'Notifications',
+    items: [
+      {
+        id: 'delivery-settings',
+        icon: <SendOutlinedIcon fontSize="small" />,
+        label: 'Delivery settings',
+        description: 'Where findings go, and how often. In force on save.',
+        title: 'Delivery settings',
+        /*
+         * The same component the Delivery page embeds, not a copy. Two forms
+         * over one three-layer resolution would eventually disagree about which
+         * fields are pinned, and the one nobody was looking at would be the
+         * wrong one.
+         */
+        Component: EmbeddedDeliverySettings,
+      },
+    ],
+  },
+  {
+    heading: 'Accounts',
+    items: [
+      {
+        id: 'user-roles',
+        icon: <GroupOutlinedIcon fontSize="small" />,
+        label: 'Users and roles',
+        description: 'Who is an administrator. Recorded in the audit trail.',
+        title: 'Users and roles',
+        Component: UserRoles,
       },
     ],
   },
@@ -141,7 +189,22 @@ export default function AdminSettingsMenu() {
         see the page underneath while they do it.
       */}
       {open && (
-        <AppDialog open onClose={() => setOpen(null)} title={open.title} subtitle={open.description}>
+        <AppDialog
+          open
+          onClose={() => setOpen(null)}
+          title={open.title}
+          subtitle={open.description}
+          /*
+           * `md` (900px) rather than the shell's `sm` default. These tools are
+           * forms and tables, not confirmations: the delivery settings run to
+           * dozens of fields with helper text under each, and the accounts table
+           * has three columns plus a select — at 600px the helper text wrapped to
+           * three lines and the role column had no room left. Below `sm` the
+           * shell takes over and goes full screen, so this is the desktop figure
+           * only.
+           */
+          maxWidth="md"
+        >
           <open.Component />
         </AppDialog>
       )}

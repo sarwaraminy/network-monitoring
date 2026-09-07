@@ -24,6 +24,39 @@ export const ADMIN_USER = {
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 
+/**
+ * Accounts as `GET /auth/users` returns them.
+ *
+ * Two administrators, so the default render is one where roles CAN be changed:
+ * with a single administrator every control is disabled by the last-admin rule,
+ * and a test asserting a select is enabled would be asserting the fixture. The
+ * one-administrator case is what a test asks for explicitly.
+ *
+ * `ADMIN_USER` is first, because `/auth/me` returns it — so its row is the one
+ * the self-refusal applies to.
+ */
+export const ACCOUNTS = [
+  ADMIN_USER,
+  {
+    id: 2,
+    email: 'second-admin@example.com',
+    firstname: 'Second',
+    lastname: 'Admin',
+    role: 'ADMIN',
+    langCode: 'en',
+    createdAt: '2026-01-02T00:00:00.000Z',
+  },
+  {
+    id: 3,
+    email: 'plain@example.com',
+    firstname: 'Plain',
+    lastname: null,
+    role: 'USER',
+    langCode: 'en',
+    createdAt: '2026-01-03T00:00:00.000Z',
+  },
+];
+
 export const CRITICAL_ALERT: Alert = {
   id: 101,
   kind: 'plaintext_credentials',

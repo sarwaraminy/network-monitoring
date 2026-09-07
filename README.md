@@ -384,10 +384,15 @@ committing to it.
 
 ### Configuring it without a shell
 
-Every setting below can be changed on the **Delivery** page by an administrator, and
-takes effect immediately — no file to edit, no restart. That matters because the person
-configuring this is usually an IT admin rather than the developer, and asking them to
-shell into the host to add a second recipient makes every tuning change an outage.
+Every setting below can be changed by an administrator under the **settings gear** —
+Administration settings → Delivery settings — and takes effect immediately: no file to
+edit, no restart. That matters because the person configuring this is usually an IT admin
+rather than the developer, and asking them to shell into the host to add a second
+recipient makes every tuning change an outage.
+
+The **Delivery** page keeps the half nothing else has: whether delivery is actually
+working, and the test send. Editing moved to the gear so there is one place to change
+delivery rather than two.
 
 Values resolve in three layers, per field:
 
@@ -406,6 +411,15 @@ To manage a setting from the page, remove its variable from `api/.env` — a bla
 counts as unset, matching how every other variable in this project behaves. On first
 boot whatever the variables currently say is copied into the database, so removing a
 line later keeps the behaviour you had rather than reverting to a default.
+
+> **If you are upgrading from a Compose deployment, this feature was inert for you.**
+> `docker-compose.yml` passed every one of these variables through with its code default
+> baked in — `:-false`, `:-high`, `:-514` — and a variable that is *set* pins its field.
+> So the page reported "16 settings are set in the environment and cannot be changed
+> here" on every install, and the file doing the pinning was the one an administrator was
+> told not to edit. They are now passed through blank, which means the same values apply
+> and the fields are editable. Nothing is lost on upgrade: those values were already
+> copied into your settings row at first boot.
 
 Two values are treated as credentials and never returned by the API: the webhook URL,
 which *is* the credential for Slack and Teams, and the SMTP password. The form reports
@@ -1402,6 +1416,23 @@ All `/api/*` routes require an `Authorization: Bearer <token>` header.
 | `POST` | `/signup` | —     | Creates an account (password bcrypt-hashed)        |
 | `GET`  | `/me`     | Token | Current account; used to validate a stored token   |
 | `GET`  | `/users`  | ADMIN | All accounts, without password hashes              |
+| `PATCH` | `/users/:id/role` | ADMIN | Change one account's role. Refuses demoting the last administrator, and refuses self-demotion |
+
+Role used to be settable only in the database, so "give this person admin" was a job for
+whoever had a `psql` session. It is now **Administration settings → Users and roles**,
+audited with who changed it and which way the role moved.
+
+Three refusals, each a lockout it prevents:
+
+- **The last administrator cannot be demoted.** Enforced in a transaction with the admin
+  rows locked, because a count-then-update loses the race between two administrators
+  demoting each other — both read two admins, both pass, both writes land, and the
+  installation has no administrator without either person doing anything wrong. There is
+  a standing test that runs that race.
+- **Nobody may demote themselves.** Refused even where another administrator exists and
+  it would be recoverable: the session doing it loses the page it is standing on, and the
+  remedy is the same either way.
+- **An unknown account is a 404**, so a stale list cannot report a change it did not make.
 
 ### Security alerts — `/api/alerts`
 
@@ -1941,7 +1972,9 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
-| **Administration settings, and the query console among them** — an admin-only settings gear holding a diagnostics panel that distinguishes the console's three off-states, and a settings form that switches it on and tunes its limits without a restart; the same three-layer resolution as the delivery settings, and `ADHOC_DB_PASSWORD` deliberately left out of it | #53 |
+| **Role management in the interface** — role was settable only in `psql`; now Administration settings → Users and roles, audited, refusing to demote the last administrator (in a locked transaction, because two administrators demoting each other loses a count-then-update race) or to demote yourself | #53 |
+| **Delivery settings moved under the gear, and unpinned** — one place to edit rather than two, and the fix for a bug that made the whole feature inert: Compose passed every delivery variable with its default baked in, so all 16 fields reported themselves as pinned by the file an administrator was told not to edit | #53 |
+| **Administration settings, and the query console among them** — an admin-only settings gear holding a diagnostics panel that distinguishes the console's three off-states, and a settings form that switches it on, sets its password and tunes its limits without a restart; the same three-layer resolution as the delivery settings, with the credential redacted in the resolver so no endpoint can leak it by forgetting | #53 |
 | **A draggable dialog, used everywhere** — `AppDialog`, ported from the sibling `professional` project, so a tool can sit over the page whose numbers it is being reconciled with | #53 |
 | **SMTP that modern mailboxes accept** — XOAUTH2 with a refresh token, so a Microsoft 365 or Google mailbox works without basic SMTP AUTH; a half-filled setup names its missing variables instead of opening a socket, and the same `535` is explained differently depending on which auth method is in force | #53 |
 | **Postgres in CI** — the SQL-level claims stop being probes run by hand: a service container, a harness that refuses any database not named `_test`, and standing tests for the four retention bugs review caught, each verified by reintroducing the bug | #51 |

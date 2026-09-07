@@ -1,6 +1,7 @@
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import {
+  ACCOUNTS,
   ADHOC_OFF,
   ADHOC_SETTINGS,
   ADMIN_USER,
@@ -168,6 +169,16 @@ export const handlers = [
    * like until somebody decides otherwise, and the state the diagnostics exist
    * to explain.
    */
+  http.get('/auth/users', () => HttpResponse.json(ACCOUNTS)),
+  // Echoes the requested role back on the account that was asked for, which is
+  // what the real endpoint returns (`toPublicUser` of the updated row). A test
+  // that needs a refusal overrides this with the status it wants.
+  http.patch('/auth/users/:id/role', async ({ params, request }) => {
+    const { role } = (await request.json()) as { role: string };
+    const account = ACCOUNTS.find((candidate) => String(candidate.id) === String(params.id));
+    if (!account) return HttpResponse.json({ message: 'No such account.' }, { status: 404 });
+    return HttpResponse.json({ ...account, role });
+  }),
   http.get('/api/adhoc', () => HttpResponse.json(ADHOC_OFF)),
   http.get('/api/adhoc/settings', () => HttpResponse.json(ADHOC_SETTINGS)),
   http.put('/api/adhoc/settings', () => HttpResponse.json({ effective: ADHOC_SETTINGS.effective })),

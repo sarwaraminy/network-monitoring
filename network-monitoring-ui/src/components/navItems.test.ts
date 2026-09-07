@@ -43,9 +43,35 @@ describe('visibleNavGroups', () => {
     // The other half: filtering by role must not quietly remove the rest of the
     // navigation from a non-admin.
     const labels = labelsOf(visibleNavGroups('USER'));
-    for (const label of ['Dashboard', 'Security Alerts', 'Suppressions', 'Threat Intel', 'Delivery']) {
+    // Delivery is deliberately not in this list any more: its settings moved
+    // under the administration gear and the entry became admin-only. Anything
+    // still here is a page a plain user is meant to reach.
+    for (const label of [
+      'Dashboard',
+      'Security Alerts',
+      'Suppressions',
+      'Threat Intel',
+      'Capture by Interface',
+    ]) {
       expect(labels).toContain(label);
     }
+  });
+
+  it('drops the real Administration group for a plain user, heading and all', () => {
+    /*
+     * Every entry under Administration is admin-only now that Delivery joined
+     * them, so this group empties out for a plain user — which makes the
+     * empty-group rule below live rather than theoretical for the first time.
+     * Asserted over the REAL navigation, because that is the case an operator
+     * would see: a heading standing over nothing reads as a section that failed
+     * to load.
+     */
+    const groups = visibleNavGroups('USER');
+
+    expect(groups.map((group) => group.label)).not.toContain('Administration');
+    // And an administrator still gets it, so this cannot pass by the group
+    // having been deleted.
+    expect(visibleNavGroups('ADMIN').map((group) => group.label)).toContain('Administration');
   });
 
   it('drops a group left empty by the filtering, rather than leaving a bare heading', () => {

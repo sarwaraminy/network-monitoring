@@ -144,6 +144,19 @@ export const adhocSettingsPatchSchema = z
   .partial()
   .strict();
 
+/**
+ * The one field a role change may set.
+ *
+ * `.strict()` because the obvious mistake is sending the whole user object back
+ * — a form that PATCHes what it rendered — and silently ignoring an `email` or a
+ * `password` in that body would make this endpoint look like it accepted them.
+ */
+export const userRoleSchema = z
+  .object({
+    role: z.enum(['ADMIN', 'USER']),
+  })
+  .strict();
+
 export const auditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   action: z.enum(Object.keys(AUDIT_ACTIONS) as [AuditAction, ...AuditAction[]]).optional(),

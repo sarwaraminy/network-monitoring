@@ -49,6 +49,7 @@
     {
       label: 'Administration',
       items: [
+        { href: 'administration-settings.html', title: 'Administration settings' },
         { href: 'access-and-roles.html', title: 'Who can do what' },
         { href: 'accounts.html', title: 'Accounts' },
         { href: 'audit-trail.html', title: 'Audit trail' },

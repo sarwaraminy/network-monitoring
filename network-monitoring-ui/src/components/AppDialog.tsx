@@ -6,7 +6,9 @@ import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
+import { useTheme } from '@mui/material/styles';
 import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import type { ReactNode } from 'react';
 import DraggableDialogPaper from './DraggableDialogPaper';
 
@@ -29,6 +31,14 @@ import DraggableDialogPaper from './DraggableDialogPaper';
  * `draggable={false}` is for the small centred confirmations that should not
  * move — a two-line "are you sure" that has wandered into a corner is a worse
  * dialog, not a more flexible one.
+ *
+ * **Below `sm` it goes full screen and stops being draggable.** A 600px panel
+ * inside a 380px viewport is a panel with no margins, and the administration
+ * tools are the worst case: a settings form and an account table, both of which
+ * were losing their right-hand column on a phone. Dragging goes with it, because
+ * there is nowhere to drag a panel that already fills the screen, and every
+ * gesture would just be a chance to shove it off the edge — MUI also drops the
+ * paper's own transform when `fullScreen`, so the two features actively fight.
  */
 
 export interface AppDialogProps extends Omit<DialogProps, 'title' | 'onClose' | 'PaperComponent'> {
@@ -59,6 +69,16 @@ export default function AppDialog({
   maxWidth = 'sm',
   ...rest
 }: Readonly<AppDialogProps>) {
+  const theme = useTheme();
+  /*
+   * `noSsr` because this decides which of two layouts renders rather than a
+   * detail within one. Without it the first paint is the default answer and the
+   * second is the real one, so a dialog opened on a phone appears as a centred
+   * panel and then jumps to full screen.
+   */
+  const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
+  const movable = draggable && !compact;
+
   return (
     <Dialog
       {...rest}
@@ -66,14 +86,25 @@ export default function AppDialog({
       onClose={onClose}
       fullWidth={fullWidth}
       maxWidth={maxWidth}
-      {...(draggable ? { PaperComponent: DraggableDialogPaper } : {})}
+      fullScreen={compact}
+      {...(movable ? { PaperComponent: DraggableDialogPaper } : {})}
+      sx={{
+        // Taller than MUI's default `calc(100% - 64px)`, since these panels are
+        // forms and tables rather than confirmations: the height was the binding
+        // constraint long before the width was. Left alone when full screen,
+        // where the paper is already the viewport.
+        ...(compact ? {} : { '& .MuiDialog-paper': { maxHeight: 'calc(100% - 32px)' } }),
+        ...rest.sx,
+      }}
     >
       <DialogTitle
         component="div"
         // The handle is the whole bar rather than the text, so there is somewhere
-        // to grab on a dialog whose title is two words.
-        {...(draggable ? { 'data-drag-handle': true } : {})}
-        sx={{ pb: subtitle ? 1 : 2, cursor: draggable ? 'move' : 'default' }}
+        // to grab on a dialog whose title is two words. Absent when full screen:
+        // a `move` cursor over a bar that does not move is a worse lie than no
+        // affordance at all.
+        {...(movable ? { 'data-drag-handle': true } : {})}
+        sx={{ pb: subtitle ? 1 : 2, cursor: movable ? 'move' : 'default' }}
       >
         <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
           <Stack sx={{ flexGrow: 1, minWidth: 0 }}>
