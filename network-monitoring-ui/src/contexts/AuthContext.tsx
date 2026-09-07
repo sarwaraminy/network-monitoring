@@ -71,8 +71,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const openGuide = useCallback((force = true) => {
     if (!force && Date.now() - lastMint.current < GUIDE_RENEW_INTERVAL_MS) return;
-    lastMint.current = Date.now();
-    void openGuideSession().catch(() => undefined);
+    /*
+     * Stamped on the OUTCOME, not the attempt.
+     *
+     * Stamping before the request made a mint that never succeeded — a transient
+     * 500, a dropped connection — count as one that did, and both background
+     * paths are gated on this, so nothing retried for another four hours. The
+     * cookie then lapses inside the window and the failure is silent: Help opens
+     * a tab, the guide finds no cookie and redirects to /login, and LoginPage's
+     * authenticated-redirect bounces it to the dashboard. A tab flashes and
+     * closes onto the page the reader was already on, with no error anywhere.
+     *
+     * Throttling the attempt was the wrong half of the idea. This keeps one mint
+     * per interval while leaving the next tick or focus free to retry.
+     */
+    void openGuideSession()
+      .then(() => {
+        lastMint.current = Date.now();
+      })
+      .catch(() => undefined);
   }, []);
 
   const logout = useCallback(() => {

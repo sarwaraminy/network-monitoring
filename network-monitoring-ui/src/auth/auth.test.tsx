@@ -210,6 +210,42 @@ describe('the user-guide session', () => {
       vi.useRealTimers();
     }
   });
+
+  it('retries after a mint that failed, rather than counting it as done', async () => {
+    /*
+     * The throttle has to record the OUTCOME, not the attempt.
+     *
+     * Stamping before the request meant a mint that never succeeded — a
+     * transient 500, a dropped connection — blocked every retry for the full
+     * four-hour interval, because both background paths are gated on the same
+     * timestamp. The cookie then lapses inside that window and the failure is
+     * silent: Help opens a tab, the guide finds no cookie and redirects to
+     * /login, and LoginPage's authenticated-redirect bounces it straight to the
+     * dashboard. A tab flashes and closes onto the page the reader was already
+     * on, with nothing anywhere saying why.
+     *
+     * So: the first mint fails, and the very next focus — seconds later, well
+     * inside the interval — must try again.
+     */
+    let attempts = 0;
+    server.use(
+      http.post('/api/user-guide/session', () => {
+        attempts += 1;
+        // Only the first one fails, so the retry is observable as a success
+        // rather than as another failure that might have been the same call.
+        if (attempts === 1) return new HttpResponse(null, { status: 500 });
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderApp(<SignOutHarness />, { authenticated: true });
+    await waitFor(() => expect(attempts).toBe(1));
+
+    // No clock movement on purpose: an unthrottled retry is not what is being
+    // asserted — a retry DESPITE the interval not having elapsed is.
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitFor(() => expect(attempts).toBe(2));
+  });
 });
 
 describe('LoginPage when already signed in', () => {
