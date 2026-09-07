@@ -1,15 +1,9 @@
-import CloseIcon from '@mui/icons-material/Close';
 import PublicIcon from '@mui/icons-material/Public';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
-import IconButton from '@mui/material/IconButton';
 import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -19,6 +13,7 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { monoSx } from '../theme';
 import type { GeoData, IpInfo } from '../types';
+import AppDialog from './AppDialog';
 
 interface IpInfoDialogProps {
   open: boolean;
@@ -44,24 +39,24 @@ export default function IpInfoDialog({
   const geo = info?.geoData ?? null;
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" scroll="paper">
-      <DialogTitle sx={{ pr: 6 }}>
-        <Stack
-          direction="row"
-          spacing={1}
-          sx={{
-            alignItems: 'center',
-          }}
-        >
+    // Draggable, like every other dialog here, and for a reason this one feels
+    // most: it is opened *from a row* to explain that row, and a panel pinned to
+    // the middle of the screen covers the table it is about.
+    <AppDialog
+      open={open}
+      onClose={onClose}
+      maxWidth="md"
+      scroll="paper"
+      title={
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <PublicIcon color="primary" />
           <span>IP information</span>
           <Chip label={ipAddress} size="small" sx={monoSx} />
         </Stack>
-        <IconButton onClick={onClose} aria-label="Close" sx={{ position: 'absolute', right: 8, top: 8 }}>
-          <CloseIcon />
-        </IconButton>
-      </DialogTitle>
-      <DialogContent dividers>
+      }
+      actions={<Button onClick={onClose}>Close</Button>}
+    >
+      <Box>
         {loading && (
           <Stack
             direction="row"
@@ -129,11 +124,8 @@ export default function IpInfoDialog({
             </Section>
           </Stack>
         )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-      </DialogActions>
-    </Dialog>
+      </Box>
+    </AppDialog>
   );
 }
 

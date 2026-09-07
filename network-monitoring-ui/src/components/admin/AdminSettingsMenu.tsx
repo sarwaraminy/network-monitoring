@@ -1,8 +1,5 @@
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import StorageOutlinedIcon from '@mui/icons-material/StorageOutlined';
-import Dialog from '@mui/material/Dialog';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
 import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
@@ -13,6 +10,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { type ComponentType, type ReactElement, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import AppDialog from '../AppDialog';
 import QueryConsoleStatus from './QueryConsoleStatus';
 
 /**
@@ -127,17 +125,16 @@ export default function AdminSettingsMenu() {
         Mounted only while open, and unmounted on close, so a tool's own query
         runs when somebody asks for it rather than on every page load — and a
         second visit re-reads rather than showing what was true last time.
+
+        `AppDialog` rather than a bare one so this panel drags like every other:
+        an administrator reading why the console will not start usually wants to
+        see the page underneath while they do it.
       */}
-      <Dialog open={open !== null} onClose={() => setOpen(null)} fullWidth maxWidth="sm">
-        {open && (
-          <>
-            <DialogTitle>{open.title}</DialogTitle>
-            <DialogContent>
-              <open.Component />
-            </DialogContent>
-          </>
-        )}
-      </Dialog>
+      {open && (
+        <AppDialog open onClose={() => setOpen(null)} title={open.title} subtitle={open.description}>
+          <open.Component />
+        </AppDialog>
+      )}
     </>
   );
 }
