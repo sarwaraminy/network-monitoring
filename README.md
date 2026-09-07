@@ -1847,6 +1847,25 @@ are also the illustrations in the [user guide](user-guide/index.html), which cov
 same screens from an operator's side rather than a developer's: what each one is telling
 you, and which actions each role is allowed to take.
 
+They are captured by a script rather than by hand, which is why: they had gone stale
+twice — once wholesale after the MUI rewrite, and again when the delivery settings moved
+under the administration gear. A screenshot of a screen that no longer exists is the one
+a reader trusts over the application in front of them.
+
+```bash
+npm run dev                                   # in another terminal
+npm i -D playwright && npx playwright install chromium   # once
+SHOT_EMAIL=you@example.com SHOT_PASSWORD='...' node scripts/capture-screenshots.mjs
+node scripts/capture-screenshots.mjs delivery administration-settings   # or just these
+```
+
+`playwright` is deliberately **not** a dependency of this project: it is a browser
+download for a task nobody runs in CI, and adding it would put it in every install and
+every `npm audit`. Install it when you need to recapture. Credentials come from the
+environment rather than arguments so a shell history does not keep them, and each shot
+signs in fresh — a shot that depended on the state the last one left behind changes when
+the order does, and the failure looks like a UI bug rather than a script bug.
+
 **Dashboard** — what the detectors found, and which hosts keep appearing
 
 ![Dashboard](./user-guide/screenshots/dashboard.png)
