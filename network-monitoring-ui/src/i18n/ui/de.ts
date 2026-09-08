@@ -268,6 +268,23 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
 
   // --- Schweregrad- und Detektornamen ---
 
+  'dashboard.load_failed': 'Das Dashboard konnte nicht geladen werden',
+  'dashboard.total_all_time': '{count} insgesamt, seit Beginn',
+  'dashboard.capture_running': 'Läuft',
+  'dashboard.capture_idle': 'Inaktiv',
+  'dashboard.pcap_unavailable': 'pcap-Bibliothek nicht verfügbar',
+  'dashboard.no_capture': 'Keine Aufzeichnung gestartet',
+  'dashboard.per_hour': 'Nach Schweregrad, pro Stunde',
+  'dashboard.per_day': 'Nach Schweregrad, pro Tag',
+  'dashboard.hours_count': '{count, plural, one {# Stunde} other {# Stunden}}',
+  'dashboard.days_count': '{count, plural, one {# Tag} other {# Tage}}',
+  'dashboard.occurrences': '{count, plural, one {# Vorkommen} other {# Vorkommen}}',
+  'common.never': 'nie',
+  'suppressions.preview_none': 'Keine der letzten {examined} Meldungen entspricht dieser Regel.',
+  'suppressions.preview_matched':
+    'Hätte {matched} der letzten {examined} Meldungen ausgeblendet — {occurrences} Beobachtungen insgesamt.',
+  'suppressions.preview_window': 'Untersucht von {from} bis {to}',
+
   'severity.critical': 'Kritisch',
   'severity.high': 'Hoch',
   'severity.medium': 'Mittel',

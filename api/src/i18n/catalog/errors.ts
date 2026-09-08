@@ -26,3 +26,19 @@ export const errorMessages: Renderer = createRenderer(ERROR_CATALOGS);
 export function renderError(key: string, params: MessageParams, locale: Locale): string {
   return errorMessages.render({ key, params }, locale);
 }
+
+/**
+ * Whether this catalogue can turn `key` into a sentence.
+ *
+ * For the caller that has something better than a key to show when it cannot —
+ * every error response carries an English `message` beside its `code`, and a
+ * reader is better served by an English sentence than by `error.session_expired`.
+ * Without this check the browser renders whatever identifier it was given, and
+ * does it silently, because rendering "succeeded".
+ *
+ * The case is not exotic: a server that ships a new code reaches browsers holding
+ * a bundle from before it, and during a rolling deploy both are live at once.
+ */
+export function knowsError(key: string): boolean {
+  return errorMessages.has(key);
+}

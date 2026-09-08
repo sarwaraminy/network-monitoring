@@ -31,6 +31,21 @@ export interface Formatters {
   time(value: string | number | Date): string;
   /** A count. Grouped and digit-shaped per locale, which for a count is correct. */
   number(value: number): string;
+  /**
+   * "3 minutes ago", in the reader's language.
+   *
+   * Two pages had a hand-rolled copy of this that returned English units — `just
+   * now`, `5m ago`, `2d ago` — with a bare `toLocaleString()` for the
+   * out-of-range fallback. So the freshness line was English in a German
+   * interface, and the one date it did print followed the browser rather than the
+   * app. `Intl.RelativeTimeFormat` is the whole fix: it has the units, the plural
+   * rules and the "yesterday"/"gestern" special cases for every locale here.
+   *
+   * A future or unreadable timestamp falls back to the absolute form rather than
+   * rendering "in 3 minutes", which for a *last seen* column would be a claim
+   * about the future that the data cannot support.
+   */
+  relativeTime(value: string | number | Date): string;
 }
 
 function asDate(value: string | number | Date): Date {
@@ -43,6 +58,9 @@ export function createFormatters(locale: Locale): Formatters {
   const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'medium' });
   const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' });
   const number = new Intl.NumberFormat(locale);
+  // `numeric: 'auto'` is what produces "yesterday" rather than "1 day ago", and
+  // the equivalent in each other language.
+  const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
 
   return {
     dateTime: (value) => dateTime.format(asDate(value)),
@@ -57,6 +75,17 @@ export function createFormatters(locale: Locale): Formatters {
       }).format(asDate(value)),
     time: (value) => time.format(asDate(value)),
     number: (value) => number.format(value),
+    relativeTime: (value) => {
+      const at = asDate(value);
+      const elapsed = Date.now() - at.getTime();
+      if (!Number.isFinite(elapsed) || elapsed < 0) return dateTime.format(at);
+
+      const minutes = Math.floor(elapsed / 60_000);
+      if (minutes < 60) return relative.format(-minutes, 'minute');
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return relative.format(-hours, 'hour');
+      return relative.format(-Math.floor(hours / 24), 'day');
+    },
   };
 }
 

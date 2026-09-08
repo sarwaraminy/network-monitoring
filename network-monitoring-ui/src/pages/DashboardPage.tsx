@@ -20,10 +20,11 @@ import { ALL_SENSORS, queryKeys } from '../api/queryClient';
 import MagnitudeBarChart from '../charts/MagnitudeBarChart';
 import SeverityTrendChart from '../charts/SeverityTrendChart';
 import { useChartPalette } from '../charts/useChartPalette';
-import { KIND_LABEL } from '../components/SeverityChip';
+import { KIND_LABEL, SEVERITY_STYLE } from '../components/SeverityChip';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { distinctMacCount, useKnownDevices, useSensors } from '../hooks/useAlerts';
+import { useFormatters } from '../i18n/format';
 import { useT } from '../i18n/ui';
 import type { AlertKind } from '../types';
 
@@ -66,6 +67,7 @@ const PERIODS = [
  */
 export default function DashboardPage() {
   const t = useT();
+  const fmt = useFormatters();
   const [days, setDays] = useState<number>(7);
   const [sensor, setSensor] = useState<string>('');
   const navigate = useNavigate();
@@ -173,7 +175,7 @@ export default function DashboardPage() {
       />
 
       {dashboard.error && (
-        <Alert severity="error">{describeError(dashboard.error, 'Could not load the dashboard')}</Alert>
+        <Alert severity="error">{describeError(dashboard.error, t('dashboard.load_failed'))}</Alert>
       )}
 
       <Grid container spacing={1.5}>
@@ -181,7 +183,7 @@ export default function DashboardPage() {
           <StatTile
             label={t('dashboard.open_findings')}
             value={data?.unacknowledged ?? 0}
-            caption={`${(data?.total ?? 0).toLocaleString()} total, all time`}
+            caption={t('dashboard.total_all_time', { count: fmt.number(data?.total ?? 0) })}
             icon={<WarningAmberOutlinedIcon />}
             accent={palette.bar}
             loading={loading}
@@ -202,11 +204,13 @@ export default function DashboardPage() {
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
             label={t('dashboard.capture')}
-            value={capturing ? 'Running' : 'Idle'}
+            value={capturing ? t('dashboard.capture_running') : t('dashboard.capture_idle')}
             caption={
               interfaceStatus.data?.captureAvailable === false
-                ? 'pcap library unavailable'
-                : (interfaceStatus.data?.linkType ?? 'No capture started')
+                ? t('dashboard.pcap_unavailable')
+                : // The link type is a libpcap identifier (EN10MB), not prose — left
+                  // as it is for the reason the catalogue gives about identifiers.
+                  (interfaceStatus.data?.linkType ?? t('dashboard.no_capture'))
             }
             icon={<RadarIcon />}
             accent={capturing ? palette.bar : undefined}
@@ -229,11 +233,19 @@ export default function DashboardPage() {
         <Grid size={{ xs: 12, lg: 7 }}>
           <ChartCard
             title={t('dashboard.over_time')}
-            subtitle={`By severity, per ${bucket}`}
+            subtitle={bucket === 'hour' ? t('dashboard.per_hour') : t('dashboard.per_day')}
             loading={loading}
             action={
               data && data.trend.length > 0 ? (
-                <Chip size="small" variant="outlined" label={`${data.trend.length} ${bucket}s`} />
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={
+                    bucket === 'hour'
+                      ? t('dashboard.hours_count', { count: data.trend.length })
+                      : t('dashboard.days_count', { count: data.trend.length })
+                  }
+                />
               ) : null
             }
           >
@@ -252,7 +264,7 @@ export default function DashboardPage() {
               data={(data?.byKind ?? []).map((row) => ({
                 label: KIND_LABEL[row.kind as AlertKind] ? t(KIND_LABEL[row.kind as AlertKind]) : row.kind,
                 value: row.count,
-                detail: `${row.occurrences.toLocaleString()} occurrences`,
+                detail: t('dashboard.occurrences', { count: row.occurrences }),
               }))}
               emptyMessage={t('dashboard.no_findings')}
             />
@@ -270,7 +282,7 @@ export default function DashboardPage() {
               data={(data?.topSources ?? []).map((row) => ({
                 label: row.sourceIp,
                 value: row.count,
-                detail: `${row.occurrences.toLocaleString()} occurrences`,
+                detail: t('dashboard.occurrences', { count: row.occurrences }),
               }))}
               emptyMessage={t('dashboard.no_source_findings')}
               labelsAreIdentifiers
@@ -287,7 +299,12 @@ export default function DashboardPage() {
             <MagnitudeBarChart
               valueLabel={t('dashboard.findings')}
               data={(['critical', 'high', 'medium', 'low', 'info'] as const)
-                .map((severity) => ({ label: capitalise(severity), value: data?.bySeverity[severity] ?? 0 }))
+                .map((severity) => ({
+                  // The keys SeverityChip renders, so a severity does not appear
+                  // in English on this chart and translated on the row beside it.
+                  label: t(SEVERITY_STYLE[severity].labelKey),
+                  value: data?.bySeverity[severity] ?? 0,
+                }))
                 .filter((row) => row.value > 0)}
               emptyMessage={t('dashboard.no_findings')}
             />
@@ -323,10 +340,6 @@ function ChartCard({
       {loading ? <Skeleton variant="rounded" height={260} /> : children}
     </SurfaceCard>
   );
-}
-
-function capitalise(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 // Re-exported so tests can assert against the same palette the charts use.

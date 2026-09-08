@@ -261,6 +261,23 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
 
   // --- نام‌های شدت و آشکارساز ---
 
+  'dashboard.load_failed': 'داشبورد بارگیری نشد',
+  'dashboard.total_all_time': '{count} در مجموع، از آغاز',
+  'dashboard.capture_running': 'در حال اجرا',
+  'dashboard.capture_idle': 'غیرفعال',
+  'dashboard.pcap_unavailable': 'کتابخانهٔ pcap در دسترس نیست',
+  'dashboard.no_capture': 'هیچ ضبطی آغاز نشده',
+  'dashboard.per_hour': 'بر اساس شدت، در هر ساعت',
+  'dashboard.per_day': 'بر اساس شدت، در هر روز',
+  'dashboard.hours_count': '{count, plural, one {# ساعت} other {# ساعت}}',
+  'dashboard.days_count': '{count, plural, one {# روز} other {# روز}}',
+  'dashboard.occurrences': '{count, plural, one {# رخداد} other {# رخداد}}',
+  'common.never': 'هیچ‌گاه',
+  'suppressions.preview_none': 'هیچ‌کدام از {examined} هشدار اخیر با این قاعده مطابقت ندارد.',
+  'suppressions.preview_matched':
+    'از {examined} هشدار اخیر، {matched} مورد را پنهان می‌کرد — در مجموع {occurrences} مشاهده.',
+  'suppressions.preview_window': 'بررسی‌شده از {from} تا {to}',
+
   'severity.critical': 'بحرانی',
   'severity.high': 'زیاد',
   'severity.medium': 'متوسط',

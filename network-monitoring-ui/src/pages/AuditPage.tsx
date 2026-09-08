@@ -12,8 +12,11 @@ import { describeError } from '../api/client';
 import DataGrid from '../components/DataGrid';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useLocale } from '../contexts/LocaleContext';
 import { useAuditActions, useAuditEvents } from '../hooks/useAudit';
+import { findingText } from '../i18n/findings';
 import { useFormatters } from '../i18n/format';
+import type { Locale } from '../i18n/generated/locales';
 import { useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 import type { AuditEvent } from '../types';
@@ -52,6 +55,33 @@ function ActionCell({ row, labels }: { row: AuditEvent; labels: Map<string, stri
 }
 
 /**
+ * Turns a finding's stored message key back into the sentence it stands for.
+ *
+ * The trail records what was deleted, and since V17 an alert carries a key and a
+ * params object rather than English prose — so `alert.delete` details arrive as
+ * `messageKey: port_scan.packet` with a JSON blob beside them. Printed verbatim
+ * that is not readable in any language, which is a worse outcome than the English
+ * it replaced.
+ *
+ * It matters more here than on a normal screen because this table is append-only:
+ * an entry written while this was unrendered keeps its raw shape for good, so the
+ * cost of leaving it is a permanent band of unreadable rows rather than a display
+ * bug somebody can fix later.
+ *
+ * The pair collapses into `title`, which is the key the pre-V17 entries already
+ * used, so the two eras of the trail read identically and a reader cannot tell
+ * which side of the migration an entry came from.
+ */
+function withRenderedFinding(detail: Record<string, unknown>, locale: Locale): Record<string, unknown> {
+  if (typeof detail.messageKey !== 'string') return detail;
+
+  const { messageKey, messageParams, ...rest } = detail;
+  const { title } = findingText({ messageKey, messageParams, title: null, description: null }, locale);
+  // First, so it reads where the prose used to.
+  return { title, ...rest };
+}
+
+/**
  * The detail object, rendered as text.
  *
  * Deliberately plain: this is a record, and a record is more useful legible than
@@ -60,7 +90,8 @@ function ActionCell({ row, labels }: { row: AuditEvent; labels: Map<string, stri
  * component in the first place.
  */
 function DetailCell({ detail }: { detail: Record<string, unknown> }) {
-  const entries = Object.entries(detail);
+  const { locale } = useLocale();
+  const entries = Object.entries(withRenderedFinding(detail, locale));
   if (entries.length === 0)
     return (
       <Typography variant="caption" color="text.secondary">

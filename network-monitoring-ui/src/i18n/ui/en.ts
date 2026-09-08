@@ -276,6 +276,23 @@ export const UI_EN = {
   // readable, and a SIEM rule keys on them. These are the labels, which are the
   // half a person reads.
 
+  'dashboard.load_failed': 'Could not load the dashboard',
+  'dashboard.total_all_time': '{count} total, all time',
+  'dashboard.capture_running': 'Running',
+  'dashboard.capture_idle': 'Idle',
+  'dashboard.pcap_unavailable': 'pcap library unavailable',
+  'dashboard.no_capture': 'No capture started',
+  'dashboard.per_hour': 'By severity, per hour',
+  'dashboard.per_day': 'By severity, per day',
+  'dashboard.hours_count': '{count, plural, one {# hour} other {# hours}}',
+  'dashboard.days_count': '{count, plural, one {# day} other {# days}}',
+  'dashboard.occurrences': '{count, plural, one {# occurrence} other {# occurrences}}',
+  'common.never': 'never',
+  'suppressions.preview_none': 'Nothing among the last {examined} alerts matches this rule.',
+  'suppressions.preview_matched':
+    'Would have hidden {matched} of the last {examined} alerts — {occurrences} observations in total.',
+  'suppressions.preview_window': 'Examined {from} to {to}',
+
   'severity.critical': 'Critical',
   'severity.high': 'High',
   'severity.medium': 'Medium',

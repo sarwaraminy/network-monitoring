@@ -25,6 +25,7 @@ import DataGrid, { numericColumn } from '../components/DataGrid';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useFormatters } from '../i18n/format';
 import { useT } from '../i18n/ui';
 import type { IntelFeedOrigin, IntelFeedStatus } from '../types';
 
@@ -92,6 +93,7 @@ const ORIGIN_ORDER: IntelFeedOrigin[] = ['failed', 'cache', 'file', 'network'];
 
 export default function ThreatIntelPage() {
   const t = useT();
+  const fmt = useFormatters();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const palette = useChartPalette();
@@ -221,7 +223,7 @@ export default function ThreatIntelPage() {
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
             label={t('intel.last_loaded')}
-            value={data?.loadedAt ? relativeTime(data.loadedAt) : 'never'}
+            value={data?.loadedAt ? fmt.relativeTime(data.loadedAt) : t('common.never')}
             caption={
               data?.refreshSeconds ? `refreshes every ${Math.round(data.refreshSeconds / 3600)}h` : undefined
             }
@@ -473,18 +475,4 @@ function DisabledNotice() {
       </Stack>
     </SurfaceCard>
   );
-}
-
-/** "3 minutes ago" — absolute timestamps make freshness hard to judge at a glance. */
-function relativeTime(iso: string): string {
-  const elapsed = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(elapsed) || elapsed < 0) return new Date(iso).toLocaleString();
-
-  const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }

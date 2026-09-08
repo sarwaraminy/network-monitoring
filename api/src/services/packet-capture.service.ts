@@ -117,7 +117,13 @@ export class PacketCaptureService {
 
     const available = this.getNetworkInterfaces();
     if (!available.some((device) => device.name === interfaceName)) {
-      throw HttpError.of(404, 'error.interface_not_found', { name: interfaceName });
+      // 400, not 404. The interface name arrives in the request body, so this is
+      // "the value you sent is not one of the valid ones" — the same class as the
+      // empty-name check above it. A 404 says the endpoint does not exist, which
+      // sends any client that branches on status looking for a routing problem.
+      // It was 400 before the message-key conversion and the change to 404 came
+      // along with that mechanical edit rather than as a decision.
+      throw HttpError.of(400, 'error.interface_not_found', { name: interfaceName });
     }
 
     const filter = buildFilter(filterIpAddress);

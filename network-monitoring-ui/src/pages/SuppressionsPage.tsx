@@ -39,6 +39,7 @@ import DataGrid, { numericColumn } from '../components/DataGrid';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useFormatters } from '../i18n/format';
 import { useT } from '../i18n/ui';
 import { ALERT_KINDS, type AlertKind, type SuppressionDraft, type SuppressionRule } from '../types';
 
@@ -359,6 +360,7 @@ function RuleTable({
   onDelete,
 }: Readonly<RuleTableProps>) {
   const t = useT();
+  const fmt = useFormatters();
   const columns = useMemo<MRT_ColumnDef<SuppressionRule>[]>(() => {
     const base: MRT_ColumnDef<SuppressionRule>[] = [
       {
@@ -429,7 +431,7 @@ function RuleTable({
               </Typography>
               {row.original.lastMatchAt && (
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  {relativeTime(row.original.lastMatchAt)}
+                  {fmt.relativeTime(row.original.lastMatchAt)}
                 </Typography>
               )}
             </Box>
@@ -446,12 +448,12 @@ function RuleTable({
             return (
               <Tooltip title={t('suppressions.no_expiry')}>
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                  never
+                  {t('common.never')}
                 </Typography>
               </Tooltip>
             );
           }
-          return <Typography variant="body2">{new Date(value).toLocaleString()}</Typography>;
+          return <Typography variant="body2">{fmt.dateTime(value)}</Typography>;
         },
       },
     ];
@@ -499,7 +501,7 @@ function RuleTable({
         },
       },
     ];
-  }, [invalid, now, isAdmin, onEdit, onToggle, onDelete, t]);
+  }, [invalid, now, isAdmin, onEdit, onToggle, onDelete, t, fmt]);
 
   return (
     <SurfaceCard
@@ -553,6 +555,7 @@ interface RuleDialogProps {
  */
 function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
   const t = useT();
+  const fmt = useFormatters();
   const [draft, setDraft] = useState<SuppressionDraft>(() =>
     rule
       ? {
@@ -712,13 +715,21 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
               >
                 <Typography variant="body2">
                   {preview.data.matched === 0
-                    ? `Nothing among the last ${preview.data.examined.toLocaleString()} alerts matches this rule.`
-                    : `Would have hidden ${preview.data.matched.toLocaleString()} of the last ${preview.data.examined.toLocaleString()} alerts — ${preview.data.occurrences.toLocaleString()} observations in total.`}
+                    ? t('suppressions.preview_none', {
+                        examined: fmt.number(preview.data.examined),
+                      })
+                    : t('suppressions.preview_matched', {
+                        matched: fmt.number(preview.data.matched),
+                        examined: fmt.number(preview.data.examined),
+                        occurrences: fmt.number(preview.data.occurrences),
+                      })}
                 </Typography>
                 {preview.data.window && (
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
-                    Examined {new Date(preview.data.window.from).toLocaleString()} to{' '}
-                    {new Date(preview.data.window.to).toLocaleString()}
+                    {t('suppressions.preview_window', {
+                      from: fmt.dateTime(preview.data.window.from),
+                      to: fmt.dateTime(preview.data.window.to),
+                    })}
                   </Typography>
                 )}
                 {preview.data.samples.length > 0 && (
@@ -774,18 +785,4 @@ function fromLocalInput(value: string): string | null {
   if (value === '') return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-/** "3 minutes ago" — matching the threat-intel page, for the same reason. */
-function relativeTime(iso: string): string {
-  const elapsed = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(elapsed) || elapsed < 0) return new Date(iso).toLocaleString();
-
-  const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }
