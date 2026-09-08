@@ -17,6 +17,7 @@ import { describeError } from '../api/client';
 import { fetchNotifyStatus, sendNotifyTest } from '../api/notify.api';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useFormatters } from '../i18n/format';
 import { useT } from '../i18n/ui';
 
 /**
@@ -360,6 +361,7 @@ function GateRow({
 }
 
 function StatRow({ label, value, loading }: Readonly<{ label: string; value: number; loading: boolean }>) {
+  const fmt = useFormatters();
   return (
     <Box>
       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
@@ -369,7 +371,7 @@ function StatRow({ label, value, loading }: Readonly<{ label: string; value: num
         <Skeleton width={64} height={32} />
       ) : (
         <Typography variant="h5" component="p" sx={{ lineHeight: 1.2 }}>
-          {value.toLocaleString()}
+          {fmt.number(value)}
         </Typography>
       )}
     </Box>

@@ -424,16 +424,19 @@ const DetectorCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ cell }) => {
   );
 };
 
-const FindingCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ row, cell }) => (
-  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
-    <Typography variant="body2" noWrap sx={{ fontWeight: 550 }}>
-      {cell.getValue<string>()}
-    </Typography>
-    {row.original.occurrences > 1 && (
-      <Chip size="small" variant="outlined" label={`×${row.original.occurrences.toLocaleString()}`} />
-    )}
-  </Stack>
-);
+const FindingCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ row, cell }) => {
+  const fmt = useFormatters();
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+      <Typography variant="body2" noWrap sx={{ fontWeight: 550 }}>
+        {cell.getValue<string>()}
+      </Typography>
+      {row.original.occurrences > 1 && (
+        <Chip size="small" variant="outlined" label={`\u00d7${fmt.number(row.original.occurrences)}`} />
+      )}
+    </Stack>
+  );
+};
 
 const sourceCell =
   (showIp: (ipAddress: string) => void): MRT_ColumnDef<AlertRecord>['Cell'] =>

@@ -5,6 +5,7 @@ import Skeleton from '@mui/material/Skeleton';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import type { ReactNode } from 'react';
+import { useFormatters } from '../i18n/format';
 
 interface StatTileProps {
   label: string;
@@ -37,6 +38,7 @@ export default function StatTile({
   onClick,
   loading = false,
 }: StatTileProps) {
+  const fmt = useFormatters();
   const body = (
     <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', p: 2 }}>
       <Box
@@ -57,7 +59,7 @@ export default function StatTile({
           <Skeleton width={72} height={34} />
         ) : (
           <Typography variant="h5" component="p" sx={{ lineHeight: 1.15 }}>
-            {typeof value === 'number' ? value.toLocaleString() : value}
+            {typeof value === 'number' ? fmt.number(value) : value}
           </Typography>
         )}
         {caption && (

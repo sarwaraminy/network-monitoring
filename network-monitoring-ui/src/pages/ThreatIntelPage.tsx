@@ -294,6 +294,7 @@ const OriginCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => {
 };
 
 const IndicatorCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => {
+  const fmt = useFormatters();
   const value = cell.getValue<number>();
   return (
     <Typography
@@ -307,17 +308,18 @@ const IndicatorCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) =>
         fontWeight: value === 0 ? 600 : 400,
       }}
     >
-      {value.toLocaleString()}
+      {fmt.number(value)}
     </Typography>
   );
 };
 
 const SkippedCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => {
   const t = useT();
+  const fmt = useFormatters();
   return (
     <Tooltip title={t('intel.skipped_explain')}>
       <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-        {cell.getValue<number>().toLocaleString()}
+        {fmt.number(cell.getValue<number>())}
       </Typography>
     </Tooltip>
   );
@@ -412,6 +414,7 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
 }
 
 function TypeRow({ label, value, loading }: Readonly<{ label: string; value: number; loading: boolean }>) {
+  const fmt = useFormatters();
   return (
     <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline' }}>
       <Typography variant="body2" sx={{ flexGrow: 1, color: 'text.secondary' }}>
@@ -421,7 +424,7 @@ function TypeRow({ label, value, loading }: Readonly<{ label: string; value: num
         <Skeleton width={48} />
       ) : (
         <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-          {value.toLocaleString()}
+          {fmt.number(value)}
         </Typography>
       )}
     </Stack>

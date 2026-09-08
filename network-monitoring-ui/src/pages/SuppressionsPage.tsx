@@ -429,7 +429,7 @@ function RuleTable({
                   fontWeight: count > 0 ? 600 : 400,
                 }}
               >
-                {count.toLocaleString()}
+                {fmt.number(count)}
               </Typography>
               {row.original.lastMatchAt && (
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
@@ -739,8 +739,8 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
                     {preview.data.samples.slice(0, 5).map((sample) => (
                       <Typography key={sample.id} variant="caption" sx={{ display: 'block' }}>
                         {kindLabel(sample.kind)} · {sample.sourceIp ?? 'unknown'}
-                        {sample.targetIp ? ` → ${sample.targetIp}` : ''} ·{' '}
-                        {sample.occurrences.toLocaleString()}×
+                        {sample.targetIp ? ` → ${sample.targetIp}` : ''} · {fmt.number(sample.occurrences)}
+                        \u00d7
                       </Typography>
                     ))}
                   </Box>

@@ -1,6 +1,7 @@
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { BarChart } from '@mui/x-charts/BarChart';
+import { useFormatters } from '../i18n/format';
 import { useChartPalette } from './useChartPalette';
 
 export interface MagnitudeDatum {
@@ -54,6 +55,7 @@ export default function MagnitudeBarChart({
   labelsAreIdentifiers = false,
 }: Props) {
   const palette = useChartPalette();
+  const fmt = useFormatters();
 
   if (data.length === 0) {
     return (
@@ -102,7 +104,7 @@ export default function MagnitudeBarChart({
           // Direct label at the bar tip, so the value is readable without
           // tracing back to the axis. Zero is left unlabelled rather than
           // printing a "0" that adds nothing.
-          barLabel: (item) => (item.value ? item.value.toLocaleString() : null),
+          barLabel: (item) => (item.value ? fmt.number(item.value) : null),
           barLabelPlacement: 'outside',
           valueFormatter: (value, context) => {
             const datum = sorted[context.dataIndex];

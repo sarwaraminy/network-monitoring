@@ -72,10 +72,13 @@ export function chartPalette(mode: 'light' | 'dark'): ChartPalette {
 /** Severities in ordinal order, most severe first. */
 export const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
 
-export const SEVERITY_LABEL: Record<Severity, string> = {
-  critical: 'Critical',
-  high: 'High',
-  medium: 'Medium',
-  low: 'Low',
-  info: 'Info',
-};
+/*
+ * There is no SEVERITY_LABEL here any more.
+ *
+ * It held the same five words as `SEVERITY_STYLE[…].labelKey` in
+ * components/SeverityChip.tsx, and only that one went through the translation
+ * pass — so the trend chart's legend read "Critical/High/…" beside tiles and
+ * chips showing "Kritisch/Hoch/…", from the same data on the same screen. Two
+ * spellings of one list is what let them diverge; the chart reads the keyed one
+ * now.
+ */

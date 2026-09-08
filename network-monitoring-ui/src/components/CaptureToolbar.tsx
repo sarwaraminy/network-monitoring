@@ -15,6 +15,7 @@ import Typography from '@mui/material/Typography';
 import { type ReactNode, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import type { UsePacketCapture } from '../hooks/usePacketCapture';
+import { useFormatters } from '../i18n/format';
 import { type Translate, useT } from '../i18n/ui';
 import { DisclosureCaret } from './DisclosureCaret';
 import SurfaceCard from './SurfaceCard';
@@ -69,6 +70,7 @@ export default function CaptureToolbar({
   onLayoutSettled,
 }: Readonly<CaptureToolbarProps>) {
   const t = useT();
+  const fmt = useFormatters();
   /*
    * Open to begin with, because the first thing anyone does on this page is
    * choose an interface and press Start. It folds away afterwards by hand, which
@@ -295,7 +297,7 @@ export default function CaptureToolbar({
                 color: 'text.secondary',
               }}
             >
-              {status.droppedPackets.toLocaleString()} older packet(s) dropped from the buffer
+              {t('capture.dropped', { count: fmt.number(status.droppedPackets) })}
             </Typography>
           )}
         </Stack>

@@ -163,7 +163,7 @@ export default function PacketTable({
           <Chip
             size="small"
             variant="outlined"
-            label={`${(packets.length - rows.length).toLocaleString()} non-IP hidden`}
+            label={t('packets.non_ip_hidden', { count: fmt.number(packets.length - rows.length) })}
           />
         )}
       </Stack>

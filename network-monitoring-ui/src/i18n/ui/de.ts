@@ -288,6 +288,8 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'Live-Aufzeichnung ist auf dem Server nicht verfügbar: Die Paketaufzeichnungsbibliothek konnte ' +
     'nicht geladen werden. Installieren Sie Npcap (Windows) oder libpcap (Linux/macOS) und starten ' +
     'Sie die API neu. Alles andere auf dieser Seite funktioniert weiterhin.',
+  'capture.dropped': '{count} ältere Pakete aus dem Puffer verworfen',
+  'packets.non_ip_hidden': '{count} Nicht-IP ausgeblendet',
   'capture.loading_interfaces': 'Schnittstellen werden geladen…',
   'capture.no_interfaces': 'Der Server meldet keine Schnittstellen',
   'capture.hide_settings': 'Aufzeichnungseinstellungen ausblenden',
@@ -403,6 +405,8 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'packets.captured': 'Aufgezeichnete Pakete',
   'packets.shown': '{count} angezeigt',
   'common.clear': 'Leeren',
+  'grid.page_range': '{start}–{end} von {total}',
+  'grid.page_range_filtered': '{range}, gefiltert aus {unfiltered}',
   'common.rows_per_page': 'Zeilen pro Seite',
   'common.all_sensors': 'Alle Sensoren',
   'common.all_detectors': 'Alle Prüfungen',

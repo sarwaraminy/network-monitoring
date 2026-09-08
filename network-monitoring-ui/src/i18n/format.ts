@@ -85,20 +85,37 @@ export function createFormatters(locale: Locale): Formatters {
   // the equivalent in each other language.
   const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
 
+  /*
+   * `day` takes options, so it cannot be a single instance like the four above —
+   * but it was building a new `Intl.DateTimeFormat` on EVERY call, directly under
+   * the comment saying that is the expensive thing not to do. The dashboard's
+   * five-year period is one constructor per trend bucket, up to 1825 per render,
+   * on exactly the path that comment was written about.
+   *
+   * Keyed on the serialised options so the signature is unchanged and the common
+   * call — no options at all — hits the same entry every time.
+   */
+  const days = new Map<string, Intl.DateTimeFormat>();
+  const dayFormat = (options?: Intl.DateTimeFormatOptions): Intl.DateTimeFormat => {
+    const key = JSON.stringify(options ?? {});
+    let format = days.get(key);
+    if (!format) {
+      format = new Intl.DateTimeFormat(locale, {
+        month: 'short',
+        day: 'numeric',
+        // UTC, matching the buckets the server groups by. A day boundary drawn in
+        // the reader's timezone would not line up with the one the rollup used.
+        timeZone: 'UTC',
+        ...options,
+      });
+      days.set(key, format);
+    }
+    return format;
+  };
+
   return {
     dateTime: (value) => safely(asDate(value), (at) => dateTime.format(at)),
-    day: (value, options) =>
-      safely(asDate(value), (at) =>
-        new Intl.DateTimeFormat(locale, {
-          month: 'short',
-          day: 'numeric',
-          // UTC, matching the buckets the server groups by. A day boundary drawn
-          // in the reader's timezone would not line up with the one the rollup
-          // used.
-          timeZone: 'UTC',
-          ...options,
-        }).format(at),
-      ),
+    day: (value, options) => safely(asDate(value), (at) => dayFormat(options).format(at)),
     time: (value) => safely(asDate(value), (at) => time.format(at)),
     number: (value) => (Number.isFinite(value) ? number.format(value) : UNREADABLE_DATE),
     relativeTime: (value) =>

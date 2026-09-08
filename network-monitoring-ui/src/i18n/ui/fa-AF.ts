@@ -280,6 +280,8 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'capture.unavailable_note':
     'ضبط زنده روی سرور در دسترس نیست: کتابخانهٔ ضبط بسته بارگذاری نشد. Npcap (ویندوز) یا libpcap ' +
     '(لینوکس/مک) را نصب کنید و API را دوباره راه‌اندازی کنید. باقی این صفحه همچنان کار می‌کند.',
+  'capture.dropped': '{count} بستهٔ قدیمی‌تر از بافر دور انداخته شد',
+  'packets.non_ip_hidden': '{count} غیر IP پنهان شد',
   'capture.loading_interfaces': 'در حال بارگیری رابط‌ها…',
   'capture.no_interfaces': 'سرور هیچ رابطی گزارش نکرد',
   'capture.hide_settings': 'پنهان‌کردن تنظیمات ضبط',
@@ -389,6 +391,8 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'packets.captured': 'بسته‌های ضبط‌شده',
   'packets.shown': '{count} نمایش‌داده‌شده',
   'common.clear': 'پاک کردن',
+  'grid.page_range': '{start}–{end} از {total}',
+  'grid.page_range_filtered': '{range}، فیلترشده از {unfiltered}',
   'common.rows_per_page': 'ردیف در هر صفحه',
   'common.all_sensors': 'همهٔ حسگرها',
   'common.all_detectors': 'همهٔ آشکارسازها',

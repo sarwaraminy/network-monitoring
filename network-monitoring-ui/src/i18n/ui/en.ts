@@ -296,6 +296,8 @@ export const UI_EN = {
     'Live capture is unavailable on the server: the packet capture library could not be loaded. ' +
     'Install Npcap (Windows) or libpcap (Linux/macOS) and restart the API. Everything else on this ' +
     'page still works.',
+  'capture.dropped': '{count} older packets dropped from the buffer',
+  'packets.non_ip_hidden': '{count} non-IP hidden',
   'capture.loading_interfaces': 'Loading interfaces…',
   'capture.no_interfaces': 'No interfaces reported by the server',
   'capture.hide_settings': 'Hide capture settings',
@@ -410,6 +412,8 @@ export const UI_EN = {
   'packets.captured': 'Captured packets',
   'packets.shown': '{count} shown',
   'common.clear': 'Clear',
+  'grid.page_range': '{start}–{end} of {total}',
+  'grid.page_range_filtered': '{range}, filtered from {unfiltered}',
   'common.rows_per_page': 'Rows per page',
   'common.all_sensors': 'All sensors',
   'common.all_detectors': 'All detectors',

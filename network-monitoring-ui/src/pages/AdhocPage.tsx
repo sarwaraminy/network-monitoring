@@ -18,6 +18,7 @@ import QueryConsoleStatus from '../components/admin/QueryConsoleStatus';
 import DataGrid from '../components/DataGrid';
 import { DisclosureCaret } from '../components/DisclosureCaret';
 import SurfaceCard from '../components/SurfaceCard';
+import { useFormatters } from '../i18n/format';
 import { useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 
@@ -67,6 +68,7 @@ function renderCell(value: unknown): string {
 
 export default function AdhocPage() {
   const t = useT();
+  const fmt = useFormatters();
   const [sql, setSql] = useState('');
   const [result, setResult] = useState<AdhocResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -308,8 +310,8 @@ export default function AdhocPage() {
       */}
       {result?.rowsAffected !== undefined && (
         <Alert severity="success" sx={{ '& .MuiAlert-message': monoSx }}>
-          {result.command} — {result.rowsAffected.toLocaleString()}{' '}
-          {result.rowsAffected === 1 ? 'row' : 'rows'} affected in {result.durationMs} ms
+          {result.command} — {fmt.number(result.rowsAffected)} {result.rowsAffected === 1 ? 'row' : 'rows'}{' '}
+          affected in {result.durationMs} ms
         </Alert>
       )}
 

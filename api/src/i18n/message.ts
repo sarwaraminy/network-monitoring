@@ -15,10 +15,19 @@
  *
  * - **Identifiers pass as strings.** An IP address, MAC, port, byte count or
  *   hostname must render as the operator will see it in `tcpdump`, the switch
- *   and the firewall. ICU formats a `number` argument through
- *   `Intl.NumberFormat`, which in `fa-AF` yields Eastern Arabic-Indic digits
- *   (۴۴۵ for 445) and grouping separators — a port nobody can paste and no
- *   `grep` will match.
+ *   and the firewall.
+ *
+ *   This paragraph used to say a bare `{port}` given a number would render as
+ *   `۴۴۵` in `fa-AF`. It does not: `intl-messageformat` renders an unqualified
+ *   argument with `String(value)`, so a number there comes out `445`. Localised
+ *   digits appear only where the pattern asks for them — `{port, number}`, or a
+ *   `#` inside `plural`.
+ *
+ *   The convention is still the right one, for a narrower reason: it makes the
+ *   argument's type carry its meaning, so nobody has to check the pattern before
+ *   deciding. An identifier that later gains a `, number` in one locale's
+ *   translation would then be unpasteable and ungreppable, and passing it as a
+ *   string is what makes that unrepresentable rather than merely unlikely.
  * - **Counts pass as numbers**, because they are the arguments of `plural` and
  *   because localised digits are correct for prose ("۳ یافته").
  *

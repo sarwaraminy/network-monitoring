@@ -2,11 +2,12 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { useMemo } from 'react';
+import { SEVERITY_STYLE } from '../components/SeverityChip';
 import { createFormatters, type Formatters, useFormatters } from '../i18n/format';
 import { DEFAULT_LOCALE } from '../i18n/generated/locales';
 import { useT } from '../i18n/ui';
 import type { AlertTrendPoint } from '../types';
-import { SEVERITY_LABEL, SEVERITY_ORDER } from './palette';
+import { SEVERITY_ORDER } from './palette';
 import { useChartPalette } from './useChartPalette';
 
 /**
@@ -85,11 +86,11 @@ export default function SeverityTrendChart({ trend, bucket, height = 260 }: Read
         present.length > 0
           ? present.map((severity) => ({
               data: trend.map((point) => point[severity]),
-              label: SEVERITY_LABEL[severity],
+              label: t(SEVERITY_STYLE[severity].labelKey),
               stack: 'severity',
               color: palette.severity[severity],
             }))
-          : [{ data: trend.map(() => 0), label: 'No findings', color: palette.grid }]
+          : [{ data: trend.map(() => 0), label: t('dashboard.no_findings'), color: palette.grid }]
       }
       // A legend is always present once two or more series are plotted; identity
       // must never rest on colour alone.

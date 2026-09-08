@@ -4,6 +4,7 @@ import { useColorScheme } from '@mui/material/styles';
 import Typography from '@mui/material/Typography';
 import {
   MaterialReactTable,
+  type MRT_Cell,
   type MRT_ColumnDef,
   type MRT_RowData,
   type MRT_TableOptions,
@@ -14,6 +15,7 @@ import { MRT_Localization_FA } from 'material-react-table/locales/fa';
 import type { ReactNode } from 'react';
 import { useLocale } from '../contexts/LocaleContext';
 import useViewportFitHeight from '../hooks/useViewportFitHeight';
+import { useFormatters } from '../i18n/format';
 import { sharedTableOptions } from '../tableTheme';
 import { GRID_METRICS, SURFACE } from '../theme';
 import GridPagination from './GridPagination';
@@ -102,13 +104,23 @@ export function numericColumn<T extends MRT_RowData>(column: MRT_ColumnDef<T>): 
                 ? { fontVariantNumeric: 'tabular-nums', ...bodySx }
                 : (bodySx ?? { fontVariantNumeric: 'tabular-nums' }),
           },
-    Cell:
-      column.Cell ??
-      (({ cell }) => {
-        const value = cell.getValue<unknown>();
-        return typeof value === 'number' ? value.toLocaleString() : ((value as ReactNode) ?? '');
-      }),
+    Cell: column.Cell ?? (NumericCell as MRT_ColumnDef<T>['Cell']),
   };
+}
+
+/**
+ * The default renderer for a numeric column.
+ *
+ * A named component rather than an inline arrow, because MRT renders `Cell` as a
+ * component and that is what lets it hold the formatter hook. It used to call
+ * `value.toLocaleString()`, which takes the BROWSER's locale — so a German
+ * reader saw `1,240` in a grid cell and `1.240` in the caption beneath it, from
+ * the same card.
+ */
+function NumericCell({ cell }: { cell: MRT_Cell<MRT_RowData> }): ReactNode {
+  const fmt = useFormatters();
+  const value = cell.getValue<unknown>();
+  return typeof value === 'number' ? fmt.number(value) : ((value as ReactNode) ?? '');
 }
 
 /**
