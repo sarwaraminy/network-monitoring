@@ -1,5 +1,5 @@
 import * as jestDom from '@testing-library/jest-dom/matchers';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, expect, vi } from 'vitest';
 import { server } from './server';
 
@@ -33,6 +33,23 @@ import { server } from './server';
  * moved for an unrelated reason.
  */
 expect.extend(jestDom);
+
+/**
+ * How long `waitFor` and `findBy*` keep trying.
+ *
+ * Testing Library's own default is one second and is not covered by
+ * `testTimeout: 15_000` in vitest.config.ts — that bounds the whole test, while
+ * `asyncUtilTimeout` bounds each poll loop inside it, and the two are set in
+ * different places. The comment on `testTimeout` says charts and tables render a
+ * lot of nodes; that is just as true here, and the shortfall shows as a flake
+ * rather than as a failure: a `waitFor` that loses its second to a parallel
+ * worker fails once, then passes alone and passes on a re-run.
+ *
+ * Five seconds rather than fifteen. This is the budget for one condition to
+ * become true, not for a test, and a genuinely wrong assertion should still
+ * report in a few seconds rather than sit there.
+ */
+configure({ asyncUtilTimeout: 5_000 });
 
 beforeAll(() => {
   // An unhandled request is a bug in the test, not something to paper over.

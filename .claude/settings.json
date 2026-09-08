@@ -47,7 +47,7 @@
       "Bash(grep -oE \"\\\\b\\(barLabel|label\\)\\\\??:[^;]{0,50}\" node_modules/@mui/x-charts/models/seriesType/bar.d.ts)",
       "Bash(curl -s -m 15 -H 'Authorization: Bearer __TRACKED_VAR__' http://localhost:8080/api/alerts/dashboard?days=7 -w '\\\\n[%{http_code}]\\\\n')",
       "Bash(python3 -c ' *)",
-      "Bash(npx vitest *)",
+      "Bash(node scripts/ui.mjs vitest *)",
       "Bash(echo \"EXIT: $?\")",
       "Bash(rm -rf api/dist network-monitoring-ui/build network-monitoring-ui/*.tsbuildinfo)",
       "Bash(gh pr *)",
@@ -57,11 +57,11 @@
       "Bash(curl -s -o /dev/null -w '%{http_code}' -m 8 http://localhost:8097/ready)",
       "PowerShell(npm run typecheck)",
       "PowerShell(git checkout -- package-lock.json)",
-      "PowerShell(npx vitest run --root network-monitoring-ui 2>&1)",
+      "PowerShell(npm run test:ui 2>&1)",
       "PowerShell(npx biome format --write api/src/services/alert.service.ts network-monitoring-ui/src/pages/DashboardPage.tsx network-monitoring-ui/src/test/fixtures.ts network-monitoring-ui/src/test/setup.ts network-monitoring-ui/src/types/index.ts 2>&1)",
       "PowerShell($env:JWT_SECRET = 'local-test-secret-not-for-production-abcdef123456'; npm run test:api 2>&1 | Select-Object -Last 60)",
       "PowerShell($env:JWT_SECRET = 'local-test-secret-not-for-production-abcdef123456'; npm run test:api 2>&1 | Select-Object -Last 30)",
-      "PowerShell(npx vitest run --root network-monitoring-ui 2>&1 | Select-String -Pattern 'Test Files|Tests ' | Select-Object -Last 2; $env:JWT_SECRET='b'; npm run build 2>&1 | Select-String -Pattern 'built in|error' | Select-Object -Last 2; npx biome ci 2>&1 | Select-String -Pattern 'Checked|Found' | Select-Object -Last 2)",
+      "PowerShell(npm run test:ui 2>&1 | Select-String -Pattern 'Test Files|Tests ' | Select-Object -Last 2; $env:JWT_SECRET='b'; npm run build 2>&1 | Select-String -Pattern 'built in|error' | Select-Object -Last 2; npx biome ci 2>&1 | Select-String -Pattern 'Checked|Found' | Select-Object -Last 2)",
       "PowerShell(Set-Location \"c:\\\\Users\\\\Sawar Amini\\\\Downloads\\\\react-projects\\\\Personal Porjects\\\\network-monitoring\"; $env:JWT_SECRET='local-test-secret-abcdef123456789012345'; npm run test:api 2>&1 | Select-Object -Last 40)"
     ]
   }

@@ -36,19 +36,27 @@ export default defineConfig({
         // MUI together avoids the circular-chunk warning they produce when split
         // from each other.
         //
-        // `advancedChunks` rather than `manualChunks`, because vite 8 bundles
+        // `codeSplitting` rather than `manualChunks`, because vite 8 bundles
         // with rolldown and rolldown takes only the *function* form of
         // `manualChunks`. The object form that used to be here became a type
         // error rather than being silently ignored, which is the good outcome —
         // ignored, it would have meant no framework chunk at all.
         //
-        // Measured rather than assumed, since this rewrite could quietly undo
-        // what the paragraph above is about. The entry still costs what it did:
-        // ~1.01 MB across index + framework + a shared chunk, against ~1.02 MB
-        // as index + framework under vite 7. The route chunks that matter —
-        // DataGrid, DashboardPage — are still separate and still lazy, so the
-        // login page is not downloading the tables and the charts.
-        advancedChunks: {
+        // `codeSplitting` rather than `advancedChunks`, which is the same option
+        // under its old name and is deprecated in the rolldown vite 8 ships. That
+        // matters more than tidiness: `advancedChunks` does *not* have the
+        // property the paragraph above relies on. When it goes there will be no
+        // type error and no failed build — the group silently stops applying and
+        // the measurement below quietly stops being true. It also loses to
+        // `codeSplitting` if both are set, so this has to be a rename.
+        //
+        // Measured rather than assumed, since this rewrite could undo what the
+        // paragraph above is about. The entry still costs what it did: ~1.01 MB
+        // across index + framework + a shared chunk, against ~1.02 MB as index +
+        // framework under vite 7. The route chunks that matter — DataGrid,
+        // DashboardPage — are still separate and still lazy, so the login page is
+        // not downloading the tables and the charts.
+        codeSplitting: {
           groups: [
             {
               name: 'framework',
