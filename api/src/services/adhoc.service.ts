@@ -6,6 +6,7 @@ import { DEFAULT_LOCALE } from '../i18n/locales.js';
 import type { MessageParams } from '../i18n/message.js';
 import { componentLogger } from '../logger.js';
 import { HttpError } from '../middleware/error-handler.js';
+import type { AdhocSettings } from './adhoc-settings.js';
 import { currentAdhocSettings } from './adhoc-settings.service.js';
 
 const log = componentLogger('adhoc');
@@ -213,6 +214,39 @@ export interface AdhocStatus {
 /** True once `startAdhoc` has proved the sandbox holds. */
 export function adhocReady(): boolean {
   return pool !== null;
+}
+
+/**
+ * Whether this statement has to be audited, decided from the live pool.
+ *
+ * "Write mode forces auditing to `all`" is stated in `env.ts` and applied in
+ * `effectiveAdhocSettings`, which computes it from the *settings*. Whether a
+ * statement can actually write is not a setting — it is the identity of the role
+ * the pool authenticated as, which is `activeMode`. Those two are the same fact
+ * only while nothing is changing.
+ *
+ * `PUT /api/adhoc/settings` is where they come apart. It updates the settings
+ * cache, awaits an `INSERT` into `audit_events` inside the same transaction, and
+ * only then stops and restarts the pool. Turning write mode OFF therefore
+ * loosens `audit` first and narrows the role second, and in the window between —
+ * one round trip wide — a concurrent `POST /api/adhoc/query` read `audit: 'off'`
+ * from the settings while `activeMode` was still `'write'`. A `DELETE` in that
+ * window committed with no `adhoc.query` row: the one combination the rule
+ * exists to forbid, reached through the code that enforces it.
+ *
+ * Turning write mode ON was never affected, and the asymmetry is the tell: there
+ * the setting tightens first and the role widens second, so the two disagree in
+ * the safe direction. A rule that holds in one direction only is not being
+ * enforced, it is being got away with.
+ *
+ * So the force is applied here instead, against the fact the write itself is
+ * decided from. `effectiveAdhocSettings` keeps its version because that is what
+ * the settings *mean* and what the administration panel shows; this is what a
+ * statement is judged by.
+ */
+export function currentAuditMode(): AdhocSettings['audit'] {
+  if (pool !== null && activeMode === 'write') return 'all';
+  return currentAdhocSettings().audit;
 }
 
 /** Everything an administrator needs to know about why the console is or is not up. */

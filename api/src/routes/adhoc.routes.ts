@@ -7,6 +7,7 @@ import {
   adhocReady,
   adhocStatus,
   assertRunnable,
+  currentAuditMode,
   runAdhocQuery,
   startAdhoc,
   stopAdhoc,
@@ -235,10 +236,19 @@ adhocRouter.put(
  * which on a monitoring server means dropping a live capture to fix a console.
  *
  * It grants nothing new, and that is deliberate: it re-runs the same
- * `startAdhoc` the boot ran, against the same environment, and `startAdhoc`
- * refuses without `ADHOC_ENABLED` and without a password exactly as it does at
- * startup. There is no request body and nothing to configure — this cannot turn
- * the console on, it can only discover that the environment already did.
+ * `startAdhoc` the boot ran, against the same resolved settings, and
+ * `startAdhoc` refuses without `enabled` and without a password exactly as it
+ * does at startup. There is no request body and nothing to configure — this
+ * cannot turn the console on, it can only discover that something else already
+ * did.
+ *
+ * That "something else" used to be the environment alone, and this docblock said
+ * so until V15 made the stored row a source too. `startAdhoc` reads
+ * `currentAdhocSettings().enabled`, which is the *resolved* value — environment
+ * where it is set, the administrator's saved row otherwise — and the comment
+ * beside that read has said as much since V15 while this one went on claiming
+ * the opposite. No privilege is gained either way; a comment stating the reverse
+ * of the code is its own defect, and one this repository keeps finding.
  *
  * Refuses while the console is running rather than restarting it. A recheck is
  * for something that is broken, and re-provisioning a working console would
@@ -330,13 +340,13 @@ adhocRouter.post(
      * mid-query records nothing. Worth stating, because it is the one thing the
      * quieter mode gives up.
      */
-    if (currentAdhocSettings().audit === 'all') await record({ sql });
+    if (currentAuditMode() === 'all') await record({ sql });
 
     let result: Awaited<ReturnType<typeof runAdhocQuery>>;
     try {
       result = await runAdhocQuery(sql);
     } catch (error) {
-      if (currentAdhocSettings().audit === 'refused') {
+      if (currentAuditMode() === 'refused') {
         await record({ sql, refused: (error as Error).message });
       }
       throw error;

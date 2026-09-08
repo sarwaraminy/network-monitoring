@@ -9,6 +9,7 @@ import {
   type AdhocSettings,
   adhocEnvironmentSource,
   effectiveAdhocSettings,
+  invalidAdhocEnvironmentVariables,
   resolveAdhocSettings,
   type StoredAdhocSettings,
 } from './adhoc-settings.js';
@@ -80,6 +81,21 @@ export async function loadAdhocSettings(): Promise<AdhocSettings> {
   }
 
   settings = effectiveAdhocSettings(resolution);
+
+  /*
+   * Logged after the resolve, so it reports what was actually ignored rather
+   * than what merely looked wrong. Not fatal, for the reason `parseFieldValue`
+   * gives — but not silent either, which is the half that was missing. Same
+   * shape as the delivery warning in `notify/settings.service.ts`.
+   */
+  const invalid = invalidAdhocEnvironmentVariables(adhocEnvironmentSource());
+  if (invalid.length > 0) {
+    log.warn(
+      { variables: invalid },
+      'These environment variables do not parse and are being ignored; using the stored or default value instead',
+    );
+  }
+
   return settings;
 }
 
@@ -141,10 +157,13 @@ export function changedAdhocFields(
  * **Nothing is written when nothing changed.** Every field of the patch schema
  * is optional, so `PUT {}` parses — and without a diff it bumped `updated_at`,
  * overwrote `updated_by` with whoever sent it, and appended `{changed: {}}` to a
- * table that is append-only by trigger and outside retention's reach. Skipping
- * the write as well as the audit goes a step further than the delivery path,
- * deliberately: a no-op save should not reattribute the last real change to
- * somebody who pressed Save without editing anything.
+ * table that is append-only by trigger and outside retention's reach. A no-op
+ * save must not reattribute the last real change to somebody who pressed Save
+ * without editing anything.
+ *
+ * This used to note that it went a step further than the delivery path, which
+ * skipped only the audit entry and still ran the upsert. That was the gap rather
+ * than the difference, and `saveDeliverySettings` closes it the same way now.
  */
 export async function saveAdhocSettings(
   patch: Partial<NewAdhocSettingsRow>,
