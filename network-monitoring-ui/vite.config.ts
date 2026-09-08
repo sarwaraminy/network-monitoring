@@ -35,14 +35,25 @@ export default defineConfig({
         // a stable file name keeps it cached across deploys. Grouping React and
         // MUI together avoids the circular-chunk warning they produce when split
         // from each other.
-        manualChunks: {
-          framework: [
-            'react',
-            'react-dom',
-            'react-router-dom',
-            '@mui/material',
-            '@emotion/react',
-            '@emotion/styled',
+        //
+        // `advancedChunks` rather than `manualChunks`, because vite 8 bundles
+        // with rolldown and rolldown takes only the *function* form of
+        // `manualChunks`. The object form that used to be here became a type
+        // error rather than being silently ignored, which is the good outcome —
+        // ignored, it would have meant no framework chunk at all.
+        //
+        // Measured rather than assumed, since this rewrite could quietly undo
+        // what the paragraph above is about. The entry still costs what it did:
+        // ~1.01 MB across index + framework + a shared chunk, against ~1.02 MB
+        // as index + framework under vite 7. The route chunks that matter —
+        // DataGrid, DashboardPage — are still separate and still lazy, so the
+        // login page is not downloading the tables and the charts.
+        advancedChunks: {
+          groups: [
+            {
+              name: 'framework',
+              test: /[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|@mui[\\/]material|@emotion[\\/](react|styled))[\\/]/,
+            },
           ],
         },
       },

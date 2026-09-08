@@ -35,7 +35,11 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["vite/client"]
+    // `node` is named explicitly. Vite 7's `vite/client` pulled `@types/node`
+    // in transitively; vite 8's does not, so `process` and `node:fs` in the
+    // test files stopped resolving — a transitive type reference is not
+    // something to depend on either way.
+    "types": ["vite/client", "node"]
   },
   "include": ["src"]
 }

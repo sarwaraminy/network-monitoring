@@ -2191,6 +2191,7 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **Vite 8, rolldown and Vitest 4** — the build moves off esbuild/Rollup onto rolldown, which took production builds from ~9s to ~1.2s. Three things broke and none of them were the bundler: jest-dom's type augmentation targets `vitest`'s `Assertion`, which Vitest 4 moved to `@vitest/expect`, silently turning all 346 `toBeInTheDocument` calls into TS2339; vite 8's optional esbuild peer conflicts with the one drizzle-kit pins, so npm nests vite and vitest under the UI workspace and `@testing-library/jest-dom/vitest` — hoisted to the root — can no longer resolve `vitest` at all; and the root scripts named `vite` and `vitest` directly, which stopped resolving for the same reason. `manualChunks`' object form is gone from rolldown, so the framework chunk is now an `advancedChunks` group, measured to confirm the entry still costs what it did rather than becoming the single blob the comment there warns about | *this branch* |
 | **The interface speaks German and Dari** — layers 2–4 of the internationalisation work: `DirectionProvider` supplies the theme direction, an emotion RTL cache and `dir`/`lang` on the document; `<Identifier>` isolates the addresses, MACs and ports that never pass through a message, including the chart axis where no component can wrap them; `HttpError.of(status, code, params)` renders its own English `message` from the code the response carries, so scripts keep a stable string while a person reads their own language; and `useT()` covers the navigation, the alerts page, the dashboard, the audit trail, sign-in, sign-up and the rest of the page chrome. Dates and numbers followed the application's locale rather than the browser's for the first time, and Afghanistan's Solar Hijri calendar turned out to cost nothing — `fa-AF` already selects it in CLDR, with the Afghan month names rather than the Iranian ones | #55 |
 | **Findings stop being English prose** — the first of the four internationalisation layers, and the one that got more expensive every day it waited. Detectors emitted interpolated sentences, so no later translation could recover the structure that had been interpolated away: once `445` is inside a sentence nothing tells it from a byte count. A finding now stores a message key and its parameters, rendered in the reader's language at display time; English, German and Dari catalogues ship, ICU MessageFormat handles the plural categories the three do not share, and interpolated identifiers are bidi-isolated centrally so an address cannot render with its octets reordered inside a right-to-left sentence | #55 |
 | **`sensor_id` on findings, devices and rollups** — two installations sharing one database wrote into each other's rows: `alerts.dedup_key` was globally unique although the key is derived from what was observed, and `known_devices` was keyed on the MAC alone, so a device one sensor had learned silently switched off new-device detection on every other | #54 |
@@ -2230,11 +2231,7 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
    administration panels' long-form prose was converted in #55, and `DataGrid`'s numeric
    cell already formats through the application locale — the conflict described with the
    query console's grid does not exist, because that page renders its own cells.
-2. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
-   type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
-   `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
-   `.bin`.
-3. **Small, and each independently useful:**
+2. **Small, and each independently useful:**
    - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,
