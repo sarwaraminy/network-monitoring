@@ -21,12 +21,15 @@
 // Linux runners does not have to agree with a developer's Windows tree for both
 // to work.
 //
-// `npm run <script> -w network-monitoring-ui` would have been the obvious
-// alternative and is not usable: an `npm` invoked from inside an npm script
-// resolves through the PATH npm itself sets, which on at least one maintainer's
-// machine finds an npm 2.15.12 left in the user profile. It appends the
-// workspace name as a positional argument and fails. A nested package manager is
-// a dependency on the environment's own state; `node` is not.
+// `npm run <script> -w network-monitoring-ui` is the obvious alternative and is
+// not used, for a reason worth writing down: npm puts *every* ancestor
+// directory's `node_modules/.bin` on PATH when it runs a script. A checkout
+// under a home directory that once had `npm install` run in it therefore
+// inherits whatever npm that pulled in — here, an npm 2.15.12 dragged in by
+// `irm`, which appended the workspace name as a positional argument and failed.
+// That particular install has since been disabled, but the shape of it has not:
+// a nested package manager resolves through the environment's accumulated state,
+// and `node` does not.
 //
 //   node scripts/ui.mjs vite build
 //   node scripts/ui.mjs vitest run
