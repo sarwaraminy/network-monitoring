@@ -61,7 +61,7 @@ export const ERRORS_FA_AF: PartialErrorCatalog = {
 
   // --- احراز هویت و دسترسی ---
 
-  'error.invalid_credentials': 'ایمیل یا گذرواژه نادرست است',
+  'error.invalid_credentials': 'ایمیل یا گذرواژه نادرست است.',
   'error.missing_authorization': 'سرایند Authorization موجود نیست.',
   'error.not_authenticated': 'وارد نشده‌اید.',
   'error.insufficient_permissions': 'دسترسی کافی نیست.',
@@ -102,11 +102,9 @@ export const ERRORS_FA_AF: PartialErrorCatalog = {
   // --- ضبط ---
 
   'error.capture_unavailable': '{detail}',
-  'error.capture_failed': '{context}: {detail}',
 
   // --- آخرین چاره ---
 
   'error.network_unreachable': 'دسترسی به سرور API ممکن نیست. آیا در حال اجراست؟',
   'error.internal': 'خطای داخلی سرور',
-  'error.unexpected': 'خطای غیرمنتظره',
 };

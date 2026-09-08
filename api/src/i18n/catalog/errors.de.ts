@@ -58,7 +58,7 @@ export const ERRORS_DE: PartialErrorCatalog = {
 
   // --- Authentifizierung und Berechtigung ---
 
-  'error.invalid_credentials': 'E-Mail-Adresse oder Passwort ist falsch',
+  'error.invalid_credentials': 'E-Mail-Adresse oder Passwort ist falsch.',
   'error.missing_authorization': 'Authorization-Header fehlt.',
   'error.not_authenticated': 'Nicht angemeldet.',
   'error.insufficient_permissions': 'Unzureichende Berechtigungen.',
@@ -105,11 +105,9 @@ export const ERRORS_DE: PartialErrorCatalog = {
   // --- Mitschnitt ---
 
   'error.capture_unavailable': '{detail}',
-  'error.capture_failed': '{context}: {detail}',
 
   // --- Letzte Instanz ---
 
   'error.network_unreachable': 'Der API-Server ist nicht erreichbar. Läuft er?',
   'error.internal': 'Interner Serverfehler',
-  'error.unexpected': 'Unerwarteter Fehler',
 };

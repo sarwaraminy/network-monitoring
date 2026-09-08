@@ -75,7 +75,7 @@ export const ERRORS_EN = {
 
   // --- Authentication and authorisation ---
 
-  'error.invalid_credentials': 'Invalid email or password',
+  'error.invalid_credentials': 'Invalid email or password.',
   'error.missing_authorization': 'Missing Authorization header.',
   'error.not_authenticated': 'Not authenticated.',
   'error.insufficient_permissions': 'Insufficient permissions.',
@@ -117,7 +117,6 @@ export const ERRORS_EN = {
   // --- Capture ---
 
   'error.capture_unavailable': '{detail}',
-  'error.capture_failed': '{context}: {detail}',
 
   // --- Last resort ---
 
@@ -126,7 +125,6 @@ export const ERRORS_EN = {
   // read in exactly the same place as the server's own errors.
   'error.network_unreachable': 'Cannot reach the API server. Is it running?',
   'error.internal': 'Internal server error',
-  'error.unexpected': 'Unexpected error',
 } as const;
 
 export type ErrorMessageKey = keyof typeof ERRORS_EN;

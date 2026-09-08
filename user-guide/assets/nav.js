@@ -26,6 +26,7 @@
         { href: 'about.html', title: 'About Network Monitoring' },
         { href: 'getting-started.html', title: 'Signing in' },
         { href: 'interface.html', title: 'Finding your way around' },
+        { href: 'language.html', title: 'Language' },
       ],
     },
     {

@@ -14,9 +14,13 @@
  * Conventions, because getting these wrong is invisible until somebody reads the
  * interface in Dari:
  *
- * - **Identifiers interpolate as strings**, never as `{n, number}`. See the note
- *   on `MessagePrimitive` in ../message.ts: a port formatted as a number becomes
- *   ۴۴۵ under `fa-AF` and stops matching what the firewall shows.
+ * - **Identifiers interpolate as strings**, never as `{n, number}`. Not because a
+ *   bare `{port}` would localise the digits — it would not; `intl-messageformat`
+ *   renders an unqualified argument with `String(value)`, so a number there comes
+ *   out `445`. It is that the argument's type is what carries its meaning, so a
+ *   pattern that later gains `, number` in one locale's translation cannot
+ *   silently turn a port into `۴۴۵` and stop it matching what the firewall shows.
+ *   See the note on `MessagePrimitive` in ../message.ts.
  * - **Counts use `plural`.** English and German agree on two categories and Dari
  *   does not, which is the whole reason this is ICU MessageFormat rather than a
  *   lookup table.

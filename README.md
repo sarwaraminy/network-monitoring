@@ -2292,9 +2292,13 @@ known.
    being absent.
 
    Two rules the catalogue enforces, both invisible until somebody reads the interface in
-   Dari. **Identifiers interpolate as strings, counts as numbers**: ICU formats a numeric
-   argument through `Intl.NumberFormat`, so a port passed as a number renders `۴۴۵` in Dari
-   and `1,433` in English, and stops matching what the switch and `tcpdump` print.
+   Dari. **Identifiers interpolate as strings, counts as numbers.** Not because a bare
+   `{port}` localises digits — it does not; `intl-messageformat` renders an unqualified
+   argument with `String(value)`, so a number there comes out `445` in every language.
+   Localised digits appear only where the pattern asks: `{port, number}`, or a `#` inside a
+   `plural`. The rule is that the argument's *type* carries its meaning, so a pattern that
+   later gains `, number` in one locale's translation cannot quietly render a port as `۴۴۵`
+   and stop it matching what the switch and `tcpdump` print.
    **Interpolated strings are bidi-isolated at render time**, centrally, rather than at each
    of the interpolation sites — see the note on FSI/PDI in `api/src/i18n/render.ts`.
 

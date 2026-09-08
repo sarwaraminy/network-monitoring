@@ -129,7 +129,9 @@ export class FlowScanDetector {
           messageParams: {
             source,
             // A string, not a number: a port is an identifier rather than a
-            // quantity, and ICU would otherwise format it. See ../i18n/message.ts.
+            // quantity, and the type is what keeps it one — a bare `{port}` does
+            // not localise digits, but a pattern gaining `, number` later would.
+            // See ../i18n/message.ts.
             port: String(flow.dstPort),
             count: distinctHosts,
             seconds: windowSeconds,

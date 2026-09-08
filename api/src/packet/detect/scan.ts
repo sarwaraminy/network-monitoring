@@ -103,9 +103,10 @@ export class ScanDetector implements Detector {
           messageKey: 'host_sweep.packet',
           messageParams: {
             source,
-            // A string, not a number: ICU would format a numeric argument through
-            // `Intl.NumberFormat`, and a port is an identifier rather than a
-            // quantity. See ../../i18n/message.ts.
+            // A string, not a number: a port is an identifier rather than a
+            // quantity, and the type is what keeps it one — a bare `{port}` does
+            // not localise digits, but a pattern gaining `, number` later would.
+            // See ../../i18n/message.ts.
             port: String(tcp.dstPort),
             count: distinctHosts,
             seconds: Math.round(env.detection.scanWindowMs / 1000),
