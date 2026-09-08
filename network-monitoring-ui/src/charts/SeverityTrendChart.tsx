@@ -4,6 +4,7 @@ import { BarChart } from '@mui/x-charts/BarChart';
 import { useMemo } from 'react';
 import { createFormatters, type Formatters, useFormatters } from '../i18n/format';
 import { DEFAULT_LOCALE } from '../i18n/generated/locales';
+import { useT } from '../i18n/ui';
 import type { AlertTrendPoint } from '../types';
 import { SEVERITY_LABEL, SEVERITY_ORDER } from './palette';
 import { useChartPalette } from './useChartPalette';
@@ -52,6 +53,7 @@ interface Props {
  * neighbouring steps read as distinct without drawing a border around them.
  */
 export default function SeverityTrendChart({ trend, bucket, height = 260 }: Readonly<Props>) {
+  const t = useT();
   const palette = useChartPalette();
 
   const format = useFormatters();
@@ -71,7 +73,7 @@ export default function SeverityTrendChart({ trend, bucket, height = 260 }: Read
   );
 
   if (trend.length === 0) {
-    return <EmptyPlot height={height} message="No findings in this period." />;
+    return <EmptyPlot height={height} message={t('chart.no_findings_period')} />;
   }
 
   return (

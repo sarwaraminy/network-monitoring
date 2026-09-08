@@ -5,6 +5,7 @@ import PaginationItem from '@mui/material/PaginationItem';
 import Select from '@mui/material/Select';
 import Typography from '@mui/material/Typography';
 import type { MRT_RowData, MRT_TableInstance } from 'material-react-table';
+import { useT } from '../i18n/ui';
 import { SURFACE } from '../theme';
 
 /**
@@ -90,6 +91,7 @@ export function describePageRange({ total, unfiltered, page, pageSize }: PageFac
 export default function GridPagination<T extends MRT_RowData>({
   table,
 }: Readonly<{ table: MRT_TableInstance<T> }>) {
+  const t = useT();
   const facts = pageFactsOf(table);
   const options = ROWS_PER_PAGE_OPTIONS.includes(facts.pageSize as (typeof ROWS_PER_PAGE_OPTIONS)[number])
     ? [...ROWS_PER_PAGE_OPTIONS]
@@ -125,7 +127,7 @@ export default function GridPagination<T extends MRT_RowData>({
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          Rows per page
+          {t('common.rows_per_page')}
         </Typography>
         <Select
           size="small"

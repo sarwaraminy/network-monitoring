@@ -293,6 +293,131 @@ export const UI_EN = {
     'Would have hidden {matched} of the last {examined} alerts — {occurrences} observations in total.',
   'suppressions.preview_window': 'Examined {from} to {to}',
 
+  // --- Shared controls and chrome ---
+
+  'common.refresh': 'Refresh',
+  'common.cancel': 'Cancel',
+  'common.close': 'Close',
+  'common.discard': 'Discard',
+  'delivery.settings_title': 'Settings',
+  'delivery.read_failed': 'Could not read the delivery settings',
+  'delivery.moved_note':
+    'Delivery settings moved to Administration settings — the gear in the header — so there is one place to change them rather than two. This page keeps what nothing else has: whether delivery is working, and the test send.',
+  'login.admin_required': 'Capturing traffic requires an administrator session',
+  'packets.captured': 'Captured packets',
+  'packets.shown': '{count} shown',
+  'common.clear': 'Clear',
+  'common.rows_per_page': 'Rows per page',
+  'common.all_sensors': 'All sensors',
+  'common.all_detectors': 'All detectors',
+  'common.all_actions': 'All actions',
+  'common.any_kind': 'Any kind',
+  'common.open_only': 'Open only',
+  'common.no_error_message': 'No error message was provided.',
+  'common.try_again': 'Try again',
+  'common.reload_app': 'Reload the app',
+  'common.render_failed': 'Something broke while rendering this page',
+  'capture.start': 'Start capture',
+  'capture.stop': 'Stop',
+  'capture.capturing': 'Capturing',
+  'capture.idle': 'Idle',
+  'ipinfo.title': 'IP information',
+  'ipinfo.country': 'Country',
+  'ipinfo.region': 'Region',
+  'ipinfo.city': 'City',
+  'ipinfo.coordinates': 'Coordinates',
+  'alerts.nothing_to_report': 'Nothing to report',
+  'chart.no_findings_period': 'No findings in this period.',
+  'suppressions.new_rule': 'New rule',
+  'adhoc.no_rows': 'The query ran and returned no rows.',
+  'intel.off': 'Threat intelligence is off',
+  'intel.licence_note': "Check each feed's licence before relying on it commercially.",
+
+  // --- Alert delivery ---
+
+  'delivery.section.0': 'Gates',
+  'delivery.section.0_subtitle': 'Applied to the channels a person reads, never to the SIEM feed',
+  'delivery.field.enabled': 'Deliver alerts',
+  'delivery.field.enabled_help': 'Off means findings are recorded and nobody is told. Syslog is unaffected.',
+  'delivery.field.minSeverity': 'Minimum severity',
+  'delivery.field.digestSeconds': 'Digest window (s)',
+  'delivery.field.digestSeconds_help':
+    'Findings are batched for this long, so one burst is one message. Zero means no batching.',
+  'delivery.field.throttleSeconds': 'Per-finding throttle (s)',
+  'delivery.field.throttleSeconds_help': 'The same finding will not notify again inside this window.',
+  'delivery.field.maxPerHour': 'Max messages per hour',
+  'delivery.field.maxPerHour_help': 'A hard ceiling, whatever detection does.',
+  'delivery.field.includeEvidence': 'Include evidence',
+  'delivery.field.includeEvidence_help':
+    'Evidence never contains passwords or payloads, but it does contain internal addresses and ' +
+    'usernames — which a third-party chat service would then hold.',
+  'delivery.field.dashboardUrl': 'Dashboard link',
+  'delivery.field.dashboardUrl_help': 'Linked from every message, e.g. https://nmt.example.com/alerts',
+  'delivery.section.1': 'Webhook',
+  'delivery.section.1_subtitle': 'Slack, Teams, Discord, or anything accepting JSON',
+  'delivery.field.webhookUrl': 'Webhook URL',
+  'delivery.field.webhookUrl_help':
+    'For Teams, create a Workflows webhook — its URL is on logic.azure.com. Treated as a ' +
+    'credential and never shown back.',
+  'delivery.field.webhookFormat': 'Payload format',
+  'delivery.field.webhookFormat_help':
+    '`auto` reads the host and picks the right shape, including the retired Office 365 connector ' +
+    'for a webhook.office.com URL.',
+  'delivery.section.2': 'Email',
+  'delivery.section.2_subtitle':
+    'An internal relay needs no credentials and is the right answer for an on-prem sensor',
+  'delivery.field.emailHost': 'SMTP host',
+  'delivery.field.emailPort': 'Port',
+  'delivery.field.emailSecure': 'Implicit TLS',
+  'delivery.field.emailSecure_help':
+    'True only for port 465. On 587 leave this off — STARTTLS is negotiated instead, and setting ' +
+    'it here hangs until the socket times out.',
+  'delivery.field.emailFrom': 'From address',
+  'delivery.field.emailTo': 'Recipients',
+  'delivery.field.emailTo_help': 'One per line, or comma-separated.',
+  'delivery.field.emailAuthMethod': 'Authentication',
+  'delivery.field.emailAuthMethod_help':
+    'OAuth2 is XOAUTH2 with a refresh token, for a Microsoft 365 or Google tenant that permits ' +
+    'nothing else.',
+  'delivery.field.emailUser': 'Username',
+  'delivery.field.emailUser_help':
+    'Leave empty for a relay that needs no authentication. Under OAuth2 this is the mailbox being ' +
+    'sent from, and is required.',
+  'delivery.field.emailPassword': 'Password',
+  'delivery.field.emailPassword_help':
+    'Microsoft 365 and Google disable basic SMTP AUTH by default, so a correct password can still ' +
+    'be rejected.',
+  'delivery.field.emailOauthTokenUrl': 'Token endpoint',
+  'delivery.field.emailOauthTokenUrl_help':
+    'Microsoft: https://login.microsoftonline.com/[tenant]/oauth2/v2.0/token — Google: ' +
+    'https://oauth2.googleapis.com/token',
+  'delivery.field.emailOauthClientId': 'Client ID',
+  'delivery.field.emailOauthClientSecret': 'Client secret',
+  'delivery.field.emailOauthRefreshToken': 'Refresh token',
+  'delivery.field.emailOauthRefreshToken_help':
+    'Obtained once, by consenting to the app registration. Nodemailer exchanges it for an access ' +
+    'token and renews that on its own.',
+  'delivery.field.emailOauthScope': 'Scope',
+  'delivery.field.emailOauthScope_help':
+    'Optional. Google ignores it; some Microsoft tenants need ' +
+    'https://outlook.office.com/SMTP.Send offline_access.',
+  'delivery.section.3': 'Syslog / SIEM',
+  'delivery.section.3_subtitle':
+    'Ungated on purpose: a SIEM correlates for itself and needs the complete stream',
+  'delivery.field.syslogHost': 'Collector host',
+  'delivery.field.syslogPort': 'Port',
+  'delivery.field.syslogProtocol': 'Protocol',
+  'delivery.field.syslogFormat': 'Format',
+  'delivery.field.syslogRfc': 'RFC',
+  'delivery.field.syslogRfc_help': '3164 has no year and no timezone in its timestamp; prefer 5424.',
+  'delivery.field.syslogFacility': 'Facility',
+  'delivery.field.syslogFacility_help': '16–23 are the local-use facilities; 16 is local0.',
+  'delivery.field.syslogAppName': 'App name',
+  'delivery.field.syslogIncludeEvidence': 'Include evidence',
+  'delivery.field.syslogIncludeEvidence_help':
+    'On by default here, unlike the chat channels: the disclosure argument does not apply to a ' +
+    'collector inside your own network.',
+
   // --- Accounts and roles ---
 
   'users.loading': 'Asking the server…',
@@ -474,9 +599,6 @@ export const UI_EN = {
 
   // --- Shared across pages ---
 
-  'common.refresh': 'Refresh',
-  'common.close': 'Close',
-  'common.cancel': 'Cancel',
   'common.save': 'Save',
   'common.delete': 'Delete',
   'common.loading': 'Loading…',

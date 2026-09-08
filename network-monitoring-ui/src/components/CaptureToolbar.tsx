@@ -273,7 +273,7 @@ export default function CaptureToolbar({
             icon={<FiberManualRecordIcon sx={{ fontSize: 12 }} />}
             color={capturing ? 'success' : 'default'}
             variant={capturing ? 'filled' : 'outlined'}
-            label={capturing ? 'Capturing' : 'Idle'}
+            label={capturing ? t('capture.capturing') : t('capture.idle')}
           />
           {status?.linkType && <Chip size="small" variant="outlined" label={`Link: ${status.linkType}`} />}
           {status?.filter && <Chip size="small" variant="outlined" label={`Filter: ${status.filter}`} />}
@@ -313,7 +313,7 @@ export default function CaptureToolbar({
             onClick={start}
             disabled={!canStart || captureUnavailable}
           >
-            Start capture
+            {t('capture.start')}
           </Button>
           <Button
             variant="outlined"
@@ -322,7 +322,7 @@ export default function CaptureToolbar({
             onClick={stop}
             disabled={!capturing || busy}
           >
-            Stop
+            {t('capture.stop')}
           </Button>
           <Button
             variant="outlined"
@@ -331,7 +331,7 @@ export default function CaptureToolbar({
             onClick={clear}
             disabled={busy}
           >
-            Clear
+            {t('common.clear')}
           </Button>
         </Stack>
       </Stack>

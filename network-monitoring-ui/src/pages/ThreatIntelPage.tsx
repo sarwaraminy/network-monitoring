@@ -428,13 +428,14 @@ function TypeRow({ label, value, loading }: Readonly<{ label: string; value: num
 
 /** Local copy of the stat tile, so the accent bar reads against this palette. */
 function DisabledNotice() {
+  const t = useT();
   return (
     <SurfaceCard>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
         <ErrorOutlineIcon sx={{ color: 'text.disabled', mt: 0.25 }} />
         <Box>
           <Typography variant="subtitle1" sx={{ fontWeight: 650 }}>
-            Threat intelligence is off
+            {t('intel.off')}
           </Typography>
           <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
             Nothing is being matched against known-malicious addresses or domains. It is off by default
@@ -468,7 +469,7 @@ function DisabledNotice() {
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 0.5 }}>
             <DnsOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Check each feed's licence before relying on it commercially.
+              {t('intel.licence_note')}
             </Typography>
           </Stack>
         </Box>

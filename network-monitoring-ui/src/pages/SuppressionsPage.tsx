@@ -234,7 +234,7 @@ export default function SuppressionsPage() {
               startIcon={<AddIcon />}
               onClick={() => setEditing({ rule: null })}
             >
-              New rule
+              {t('suppressions.new_rule')}
             </Button>
           ) : null
         }
@@ -623,7 +623,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
             onChange={(event) => set('kind', (event.target.value || null) as AlertKind | null)}
             helperText={t('suppressions.kind_helper')}
           >
-            <MenuItem value="">Any kind</MenuItem>
+            <MenuItem value="">{t('common.any_kind')}</MenuItem>
             {ALERT_KINDS.map((kind) => (
               <MenuItem key={kind} value={kind}>
                 {kindLabel(kind)}
@@ -750,7 +750,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={save.isPending}>
-          Cancel
+          {t('common.cancel')}
         </Button>
         <Button
           variant="contained"

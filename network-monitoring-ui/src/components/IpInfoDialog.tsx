@@ -53,11 +53,11 @@ export default function IpInfoDialog({
       title={
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <PublicIcon color="primary" />
-          <span>IP information</span>
+          <span>{t('ipinfo.title')}</span>
           <Chip label={<Identifier mono={false}>{ipAddress}</Identifier>} size="small" sx={monoSx} />
         </Stack>
       }
-      actions={<Button onClick={onClose}>Close</Button>}
+      actions={<Button onClick={onClose}>{t('common.close')}</Button>}
     >
       <Box>
         {loading && (

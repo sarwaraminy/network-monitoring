@@ -207,7 +207,7 @@ export default function LoginPage() {
               }}
             >
               <LockOutlinedIcon sx={{ fontSize: 15 }} />
-              <Typography variant="caption">Capturing traffic requires an administrator session</Typography>
+              <Typography variant="caption">{t('login.admin_required')}</Typography>
             </Stack>
           </Stack>
         </CardContent>

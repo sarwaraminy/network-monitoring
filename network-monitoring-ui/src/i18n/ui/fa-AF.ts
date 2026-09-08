@@ -278,6 +278,131 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'از {examined} هشدار اخیر، {matched} مورد را پنهان می‌کرد — در مجموع {occurrences} مشاهده.',
   'suppressions.preview_window': 'بررسی‌شده از {from} تا {to}',
 
+  // --- کنترل‌های مشترک ---
+
+  'common.refresh': 'تازه‌سازی',
+  'common.cancel': 'انصراف',
+  'common.close': 'بستن',
+  'common.discard': 'دورانداختن',
+  'delivery.settings_title': 'تنظیمات',
+  'delivery.read_failed': 'تنظیمات تحویل خوانده نشد',
+  'delivery.moved_note':
+    'تنظیمات تحویل به «تنظیمات مدیریت» منتقل شد — چرخ‌دنده در سربرگ — تا به‌جای دو جا، یک جا برای تغییر آن‌ها باشد. این صفحه چیزی را نگه می‌دارد که جای دیگری نیست: اینکه آیا تحویل کار می‌کند، و ارسال آزمایشی.',
+  'login.admin_required': 'ضبط ترافیک به یک نشست مدیر نیاز دارد',
+  'packets.captured': 'بسته‌های ضبط‌شده',
+  'packets.shown': '{count} نمایش‌داده‌شده',
+  'common.clear': 'پاک کردن',
+  'common.rows_per_page': 'ردیف در هر صفحه',
+  'common.all_sensors': 'همهٔ حسگرها',
+  'common.all_detectors': 'همهٔ آشکارسازها',
+  'common.all_actions': 'همهٔ کنش‌ها',
+  'common.any_kind': 'هر نوعی',
+  'common.open_only': 'فقط باز',
+  'common.no_error_message': 'هیچ پیام خطایی ارائه نشد.',
+  'common.try_again': 'دوباره تلاش کنید',
+  'common.reload_app': 'بارگیری دوبارهٔ برنامه',
+  'common.render_failed': 'در نمایش این صفحه چیزی خراب شد',
+  'capture.start': 'آغاز ضبط',
+  'capture.stop': 'توقف',
+  'capture.capturing': 'در حال ضبط',
+  'capture.idle': 'غیرفعال',
+  'ipinfo.title': 'اطلاعات IP',
+  'ipinfo.country': 'کشور',
+  'ipinfo.region': 'منطقه',
+  'ipinfo.city': 'شهر',
+  'ipinfo.coordinates': 'مختصات',
+  'alerts.nothing_to_report': 'چیزی برای گزارش نیست',
+  'chart.no_findings_period': 'در این بازه یافته‌ای نیست.',
+  'suppressions.new_rule': 'قاعدهٔ تازه',
+  'adhoc.no_rows': 'پرس‌وجو اجرا شد و هیچ ردیفی برنگرداند.',
+  'intel.off': 'اطلاعات تهدید خاموش است',
+  'intel.licence_note': 'پیش از تکیه بر هر خوراک برای مقاصد تجاری، پروانهٔ آن را بررسی کنید.',
+
+  // --- تحویل هشدارها ---
+
+  'delivery.section.0': 'دروازه‌ها',
+  'delivery.section.0_subtitle': 'بر کانال‌هایی اعمال می‌شود که انسان می‌خواند، هرگز بر جریان SIEM',
+  'delivery.field.enabled': 'تحویل هشدارها',
+  'delivery.field.enabled_help':
+    'خاموش یعنی یافته‌ها ثبت می‌شوند و به کسی گفته نمی‌شود. syslog تحت تأثیر قرار نمی‌گیرد.',
+  'delivery.field.minSeverity': 'کمینهٔ شدت',
+  'delivery.field.digestSeconds': 'بازهٔ خلاصه (ثانیه)',
+  'delivery.field.digestSeconds_help':
+    'یافته‌ها به این اندازه دسته می‌شوند، تا یک انفجار یک پیام شود. صفر یعنی بدون دسته‌بندی.',
+  'delivery.field.throttleSeconds': 'محدودیت هر یافته (ثانیه)',
+  'delivery.field.throttleSeconds_help': 'همان یافته درون این بازه دوباره اطلاع‌رسانی نمی‌کند.',
+  'delivery.field.maxPerHour': 'بیشینهٔ پیام در ساعت',
+  'delivery.field.maxPerHour_help': 'یک سقف قطعی، هر چه شناسایی انجام دهد.',
+  'delivery.field.includeEvidence': 'گنجاندن شواهد',
+  'delivery.field.includeEvidence_help':
+    'شواهد هرگز رمز یا محتوای بسته را در بر ندارد، اما نشانی‌های داخلی و نام‌های کاربری را دارد ' +
+    '— که آنگاه یک سرویس گفت‌وگوی بیرونی آن را نگه می‌دارد.',
+  'delivery.field.dashboardUrl': 'پیوند داشبورد',
+  'delivery.field.dashboardUrl_help': 'در هر پیام پیوند داده می‌شود، مثلاً https://nmt.example.com/alerts',
+  'delivery.section.1': 'وب‌هوک',
+  'delivery.section.1_subtitle': 'Slack، Teams، Discord یا هر چیزی که JSON بپذیرد',
+  'delivery.field.webhookUrl': 'نشانی وب‌هوک',
+  'delivery.field.webhookUrl_help':
+    'برای Teams یک وب‌هوک Workflows بسازید — نشانی آن روی logic.azure.com است. به‌عنوان ' +
+    'اعتبارنامه رفتار می‌شود و هرگز بازگردانده نمی‌شود.',
+  'delivery.field.webhookFormat': 'قالب بار',
+  'delivery.field.webhookFormat_help':
+    '«auto» میزبان را می‌خواند و شکل درست را برمی‌گزیند، از جمله رابط بازنشستهٔ Office 365 برای ' +
+    'نشانی webhook.office.com.',
+  'delivery.section.2': 'ایمیل',
+  'delivery.section.2_subtitle':
+    'یک رلهٔ داخلی به اعتبارنامه نیاز ندارد و پاسخ درست برای یک حسگر درون‌سازمانی است',
+  'delivery.field.emailHost': 'میزبان SMTP',
+  'delivery.field.emailPort': 'درگاه',
+  'delivery.field.emailSecure': 'TLS ضمنی',
+  'delivery.field.emailSecure_help':
+    'تنها برای درگاه ۴۶۵ درست است. روی ۵۸۷ آن را خاموش بگذارید — به‌جایش STARTTLS مذاکره می‌شود، ' +
+    'و روشن‌کردن آن اینجا تا پایان مهلت اتصال معلق می‌ماند.',
+  'delivery.field.emailFrom': 'نشانی فرستنده',
+  'delivery.field.emailTo': 'گیرندگان',
+  'delivery.field.emailTo_help': 'هر کدام در یک سطر، یا جداشده با کاما.',
+  'delivery.field.emailAuthMethod': 'احراز هویت',
+  'delivery.field.emailAuthMethod_help':
+    'OAuth2 همان XOAUTH2 با توکن تازه‌سازی است، برای مستأجری از Microsoft 365 یا Google که چیز ' +
+    'دیگری را نمی‌پذیرد.',
+  'delivery.field.emailUser': 'نام کاربری',
+  'delivery.field.emailUser_help':
+    'برای رله‌ای که احراز هویت نمی‌خواهد خالی بگذارید. زیر OAuth2 این همان صندوقی است که از آن ' +
+    'فرستاده می‌شود و الزامی است.',
+  'delivery.field.emailPassword': 'رمز',
+  'delivery.field.emailPassword_help':
+    'Microsoft 365 و Google به‌صورت پیش‌فرض SMTP AUTH ساده را غیرفعال می‌کنند، بنابراین رمز درست ' +
+    'هم ممکن است رد شود.',
+  'delivery.field.emailOauthTokenUrl': 'نقطهٔ پایانی توکن',
+  'delivery.field.emailOauthTokenUrl_help':
+    'مایکروسافت: https://login.microsoftonline.com/[tenant]/oauth2/v2.0/token — گوگل: ' +
+    'https://oauth2.googleapis.com/token',
+  'delivery.field.emailOauthClientId': 'شناسهٔ کارخواه',
+  'delivery.field.emailOauthClientSecret': 'راز کارخواه',
+  'delivery.field.emailOauthRefreshToken': 'توکن تازه‌سازی',
+  'delivery.field.emailOauthRefreshToken_help':
+    'یک‌بار با رضایت‌دادن به ثبت برنامه به دست می‌آید. Nodemailer آن را با توکن دسترسی مبادله ' +
+    'می‌کند و خودش آن را تازه می‌کند.',
+  'delivery.field.emailOauthScope': 'دامنه',
+  'delivery.field.emailOauthScope_help':
+    'اختیاری. گوگل آن را نادیده می‌گیرد؛ برخی مستأجران مایکروسافت به ' +
+    'https://outlook.office.com/SMTP.Send offline_access نیاز دارند.',
+  'delivery.section.3': 'Syslog / SIEM',
+  'delivery.section.3_subtitle': 'به‌عمد بدون دروازه: یک SIEM خودش همبستگی می‌سازد و به جریان کامل نیاز دارد',
+  'delivery.field.syslogHost': 'میزبان گردآورنده',
+  'delivery.field.syslogPort': 'درگاه',
+  'delivery.field.syslogProtocol': 'پروتکل',
+  'delivery.field.syslogFormat': 'قالب',
+  'delivery.field.syslogRfc': 'RFC',
+  'delivery.field.syslogRfc_help': '۳۱۶۴ در مهر زمانی خود نه سال دارد و نه منطقهٔ زمانی؛ ۵۴۲۴ را ترجیح دهید.',
+  'delivery.field.syslogFacility': 'Facility',
+  'delivery.field.syslogFacility_help': '۱۶ تا ۲۳ برای استفادهٔ محلی‌اند؛ ۱۶ همان local0 است.',
+  'delivery.field.syslogAppName': 'نام برنامه',
+  'delivery.field.syslogIncludeEvidence': 'گنجاندن شواهد',
+  'delivery.field.syslogIncludeEvidence_help':
+    'اینجا به‌صورت پیش‌فرض روشن است، برخلاف کانال‌های گفت‌وگو: استدلال افشا دربارهٔ گردآورنده‌ای ' +
+    'درون شبکهٔ خودتان صدق نمی‌کند.',
+
   // --- حساب‌ها و نقش‌ها ---
 
   'users.loading': 'در حال پرسش از سرور…',
@@ -455,9 +580,6 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
 
   // --- مشترک میان صفحه‌ها ---
 
-  'common.refresh': 'به‌روزرسانی',
-  'common.close': 'بستن',
-  'common.cancel': 'انصراف',
   'common.save': 'ذخیره',
   'common.delete': 'حذف',
   'common.loading': 'در حال بارگذاری…',

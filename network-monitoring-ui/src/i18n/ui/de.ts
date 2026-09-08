@@ -285,6 +285,136 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'Hätte {matched} der letzten {examined} Meldungen ausgeblendet — {occurrences} Beobachtungen insgesamt.',
   'suppressions.preview_window': 'Untersucht von {from} bis {to}',
 
+  // --- Gemeinsame Bedienelemente ---
+
+  'common.refresh': 'Aktualisieren',
+  'common.cancel': 'Abbrechen',
+  'common.close': 'Schließen',
+  'common.discard': 'Verwerfen',
+  'delivery.settings_title': 'Einstellungen',
+  'delivery.read_failed': 'Die Zustellungseinstellungen konnten nicht gelesen werden',
+  'delivery.moved_note':
+    'Die Zustellungseinstellungen sind zu den Administrationseinstellungen umgezogen — dem Zahnrad in der Kopfzeile — damit es eine Stelle zum Ändern gibt statt zwei. Diese Seite behält, was sonst nirgends steht: ob die Zustellung funktioniert, und den Testversand.',
+  'login.admin_required': 'Für das Aufzeichnen von Datenverkehr ist eine Administratorsitzung nötig',
+  'packets.captured': 'Aufgezeichnete Pakete',
+  'packets.shown': '{count} angezeigt',
+  'common.clear': 'Leeren',
+  'common.rows_per_page': 'Zeilen pro Seite',
+  'common.all_sensors': 'Alle Sensoren',
+  'common.all_detectors': 'Alle Prüfungen',
+  'common.all_actions': 'Alle Aktionen',
+  'common.any_kind': 'Beliebige Art',
+  'common.open_only': 'Nur offene',
+  'common.no_error_message': 'Es wurde keine Fehlermeldung übermittelt.',
+  'common.try_again': 'Erneut versuchen',
+  'common.reload_app': 'Anwendung neu laden',
+  'common.render_failed': 'Beim Darstellen dieser Seite ist etwas fehlgeschlagen',
+  'capture.start': 'Aufzeichnung starten',
+  'capture.stop': 'Stoppen',
+  'capture.capturing': 'Zeichnet auf',
+  'capture.idle': 'Inaktiv',
+  'ipinfo.title': 'IP-Informationen',
+  'ipinfo.country': 'Land',
+  'ipinfo.region': 'Region',
+  'ipinfo.city': 'Stadt',
+  'ipinfo.coordinates': 'Koordinaten',
+  'alerts.nothing_to_report': 'Nichts zu melden',
+  'chart.no_findings_period': 'Keine Funde in diesem Zeitraum.',
+  'suppressions.new_rule': 'Neue Regel',
+  'adhoc.no_rows': 'Die Abfrage lief und lieferte keine Zeilen.',
+  'intel.off': 'Bedrohungsdaten sind ausgeschaltet',
+  'intel.licence_note': 'Prüfen Sie die Lizenz jeder Quelle, bevor Sie sich kommerziell darauf verlassen.',
+
+  // --- Alarmzustellung ---
+
+  'delivery.section.0': 'Filter',
+  'delivery.section.0_subtitle': 'Gilt für die Kanäle, die ein Mensch liest, nie für den SIEM-Datenstrom',
+  'delivery.field.enabled': 'Alarme zustellen',
+  'delivery.field.enabled_help':
+    'Aus bedeutet: Funde werden aufgezeichnet und niemand wird benachrichtigt. Syslog bleibt davon ' +
+    'unberührt.',
+  'delivery.field.minSeverity': 'Mindest-Schweregrad',
+  'delivery.field.digestSeconds': 'Sammelfenster (s)',
+  'delivery.field.digestSeconds_help':
+    'Funde werden so lange gebündelt, sodass ein Ausbruch eine Nachricht ergibt. Null bedeutet ' +
+    'keine Bündelung.',
+  'delivery.field.throttleSeconds': 'Sperrzeit je Fund (s)',
+  'delivery.field.throttleSeconds_help':
+    'Derselbe Fund löst innerhalb dieses Zeitraums keine weitere Benachrichtigung aus.',
+  'delivery.field.maxPerHour': 'Maximale Nachrichten pro Stunde',
+  'delivery.field.maxPerHour_help': 'Eine harte Obergrenze, unabhängig von der Erkennung.',
+  'delivery.field.includeEvidence': 'Belege einschließen',
+  'delivery.field.includeEvidence_help':
+    'Belege enthalten nie Passwörter oder Nutzdaten, wohl aber interne Adressen und ' +
+    'Benutzernamen — die ein fremder Chat-Dienst dann vorhält.',
+  'delivery.field.dashboardUrl': 'Dashboard-Link',
+  'delivery.field.dashboardUrl_help':
+    'Wird in jeder Nachricht verlinkt, z. B. https://nmt.example.com/alerts',
+  'delivery.section.1': 'Webhook',
+  'delivery.section.1_subtitle': 'Slack, Teams, Discord oder alles, was JSON annimmt',
+  'delivery.field.webhookUrl': 'Webhook-URL',
+  'delivery.field.webhookUrl_help':
+    'Für Teams einen Workflows-Webhook anlegen — seine URL liegt auf logic.azure.com. Wird als ' +
+    'Anmeldedaten behandelt und nie zurückgegeben.',
+  'delivery.field.webhookFormat': 'Nutzdatenformat',
+  'delivery.field.webhookFormat_help':
+    '„auto“ liest den Host und wählt die passende Form, einschließlich des eingestellten ' +
+    'Office-365-Connectors für eine webhook.office.com-URL.',
+  'delivery.section.2': 'E-Mail',
+  'delivery.section.2_subtitle':
+    'Ein internes Relay braucht keine Anmeldedaten und ist die richtige Wahl für einen Sensor vor Ort',
+  'delivery.field.emailHost': 'SMTP-Host',
+  'delivery.field.emailPort': 'Port',
+  'delivery.field.emailSecure': 'Implizites TLS',
+  'delivery.field.emailSecure_help':
+    'Nur für Port 465 zutreffend. Auf 587 ausgeschaltet lassen — dort wird stattdessen STARTTLS ' +
+    'ausgehandelt, und ein Einschalten hier hängt, bis die Verbindung abläuft.',
+  'delivery.field.emailFrom': 'Absenderadresse',
+  'delivery.field.emailTo': 'Empfänger',
+  'delivery.field.emailTo_help': 'Eine pro Zeile oder durch Komma getrennt.',
+  'delivery.field.emailAuthMethod': 'Authentifizierung',
+  'delivery.field.emailAuthMethod_help':
+    'OAuth2 ist XOAUTH2 mit einem Refresh-Token, für einen Microsoft-365- oder Google-Mandanten, ' +
+    'der nichts anderes zulässt.',
+  'delivery.field.emailUser': 'Benutzername',
+  'delivery.field.emailUser_help':
+    'Für ein Relay ohne Authentifizierung leer lassen. Unter OAuth2 ist dies das sendende Postfach ' +
+    'und erforderlich.',
+  'delivery.field.emailPassword': 'Passwort',
+  'delivery.field.emailPassword_help':
+    'Microsoft 365 und Google deaktivieren einfaches SMTP AUTH standardmäßig, daher kann auch ein ' +
+    'richtiges Passwort abgelehnt werden.',
+  'delivery.field.emailOauthTokenUrl': 'Token-Endpunkt',
+  'delivery.field.emailOauthTokenUrl_help':
+    'Microsoft: https://login.microsoftonline.com/[tenant]/oauth2/v2.0/token — Google: ' +
+    'https://oauth2.googleapis.com/token',
+  'delivery.field.emailOauthClientId': 'Client-ID',
+  'delivery.field.emailOauthClientSecret': 'Client-Secret',
+  'delivery.field.emailOauthRefreshToken': 'Refresh-Token',
+  'delivery.field.emailOauthRefreshToken_help':
+    'Einmalig durch Zustimmung zur App-Registrierung erhalten. Nodemailer tauscht es gegen ein ' +
+    'Access-Token und erneuert dieses selbst.',
+  'delivery.field.emailOauthScope': 'Scope',
+  'delivery.field.emailOauthScope_help':
+    'Optional. Google ignoriert ihn; manche Microsoft-Mandanten brauchen ' +
+    'https://outlook.office.com/SMTP.Send offline_access.',
+  'delivery.section.3': 'Syslog / SIEM',
+  'delivery.section.3_subtitle':
+    'Absichtlich ungefiltert: Ein SIEM korreliert selbst und braucht den vollständigen Datenstrom',
+  'delivery.field.syslogHost': 'Collector-Host',
+  'delivery.field.syslogPort': 'Port',
+  'delivery.field.syslogProtocol': 'Protokoll',
+  'delivery.field.syslogFormat': 'Format',
+  'delivery.field.syslogRfc': 'RFC',
+  'delivery.field.syslogRfc_help': '3164 hat weder Jahr noch Zeitzone im Zeitstempel; 5424 ist vorzuziehen.',
+  'delivery.field.syslogFacility': 'Facility',
+  'delivery.field.syslogFacility_help': '16–23 sind die Facilities zur lokalen Verwendung; 16 ist local0.',
+  'delivery.field.syslogAppName': 'App-Name',
+  'delivery.field.syslogIncludeEvidence': 'Belege einschließen',
+  'delivery.field.syslogIncludeEvidence_help':
+    'Hier standardmäßig an, anders als bei den Chat-Kanälen: Das Offenlegungsargument gilt nicht ' +
+    'für einen Collector im eigenen Netz.',
+
   // --- Konten und Rollen ---
 
   'users.loading': 'Server wird abgefragt…',
@@ -476,9 +606,6 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
 
   // --- Seitenübergreifend ---
 
-  'common.refresh': 'Aktualisieren',
-  'common.close': 'Schließen',
-  'common.cancel': 'Abbrechen',
   'common.save': 'Speichern',
   'common.delete': 'Löschen',
   'common.loading': 'Wird geladen…',

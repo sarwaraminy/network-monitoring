@@ -334,7 +334,7 @@ export default function AdhocPage() {
           {result.rows.length === 0 ? (
             <Box sx={{ p: 2 }}>
               <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                The query ran and returned no rows.
+                {t('adhoc.no_rows')}
               </Typography>
             </Box>
           ) : (

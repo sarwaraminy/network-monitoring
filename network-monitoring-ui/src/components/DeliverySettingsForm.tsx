@@ -16,7 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { describeError } from '../api/client';
 import { fetchDeliverySettings, saveDeliverySettings } from '../api/notify.api';
-import { useT } from '../i18n/ui';
+import { type UiMessageKey, useT } from '../i18n/ui';
 import type { DeliverySettingsPatch, DeliverySettingsResponse } from '../types';
 import SurfaceCard from './SurfaceCard';
 
@@ -48,9 +48,14 @@ type FieldKind = 'switch' | 'number' | 'text' | 'select' | 'secret' | 'list';
 
 interface FieldDef {
   key: string;
-  label: string;
+  /**
+   * Catalogue keys, not sentences — this table is module-level, so it is built
+   * once at import before any locale exists. See QueryConsoleSettings, which
+   * carries the same reasoning.
+   */
+  labelKey: UiMessageKey;
   kind: FieldKind;
-  help?: string;
+  helpKey?: UiMessageKey;
   options?: readonly string[];
   /** Rendered narrow, so a port does not get a full-width box. */
   narrow?: true;
@@ -68,183 +73,200 @@ interface FieldDef {
 }
 
 interface Section {
-  title: string;
-  subtitle: string;
+  title: UiMessageKey;
+  subtitle: UiMessageKey;
   fields: FieldDef[];
 }
 
 const SECTIONS: Section[] = [
   {
-    title: 'Gates',
-    subtitle: 'Applied to the channels a person reads, never to the SIEM feed',
+    title: 'delivery.section.0',
+    subtitle: 'delivery.section.0_subtitle',
     fields: [
       {
         key: 'enabled',
-        label: 'Deliver alerts',
+        labelKey: 'delivery.field.enabled',
         kind: 'switch',
-        help: 'Off means findings are recorded and nobody is told. Syslog is unaffected.',
+        helpKey: 'delivery.field.enabled_help',
       },
       {
         key: 'minSeverity',
-        label: 'Minimum severity',
+        labelKey: 'delivery.field.minSeverity',
         kind: 'select',
         options: ['critical', 'high', 'medium', 'low', 'info'],
         narrow: true,
       },
       {
         key: 'digestSeconds',
-        label: 'Digest window (s)',
+        labelKey: 'delivery.field.digestSeconds',
         kind: 'number',
         narrow: true,
-        help: 'Findings are batched for this long, so one burst is one message. Zero means no batching.',
+        helpKey: 'delivery.field.digestSeconds_help',
       },
       {
         key: 'throttleSeconds',
-        label: 'Per-finding throttle (s)',
+        labelKey: 'delivery.field.throttleSeconds',
         kind: 'number',
         narrow: true,
-        help: 'The same finding will not notify again inside this window.',
+        helpKey: 'delivery.field.throttleSeconds_help',
       },
       {
         key: 'maxPerHour',
-        label: 'Max messages per hour',
+        labelKey: 'delivery.field.maxPerHour',
         kind: 'number',
         narrow: true,
-        help: 'A hard ceiling, whatever detection does.',
+        helpKey: 'delivery.field.maxPerHour_help',
       },
       {
         key: 'includeEvidence',
-        label: 'Include evidence',
+        labelKey: 'delivery.field.includeEvidence',
         kind: 'switch',
-        help: 'Evidence never contains passwords or payloads, but it does contain internal addresses and usernames — which a third-party chat service would then hold.',
+        helpKey: 'delivery.field.includeEvidence_help',
       },
       {
         key: 'dashboardUrl',
-        label: 'Dashboard link',
+        labelKey: 'delivery.field.dashboardUrl',
         kind: 'text',
-        help: 'Linked from every message, e.g. https://nmt.example.com/alerts',
+        helpKey: 'delivery.field.dashboardUrl_help',
       },
     ],
   },
   {
-    title: 'Webhook',
-    subtitle: 'Slack, Teams, Discord, or anything accepting JSON',
+    title: 'delivery.section.1',
+    subtitle: 'delivery.section.1_subtitle',
     fields: [
       {
         key: 'webhookUrl',
-        label: 'Webhook URL',
+        labelKey: 'delivery.field.webhookUrl',
         kind: 'secret',
-        help: 'For Teams, create a Workflows webhook — its URL is on logic.azure.com. Treated as a credential and never shown back.',
+        helpKey: 'delivery.field.webhookUrl_help',
       },
       {
         key: 'webhookFormat',
-        label: 'Payload format',
+        labelKey: 'delivery.field.webhookFormat',
         kind: 'select',
         options: ['auto', 'slack', 'teams', 'teams-connector', 'discord', 'generic'],
         narrow: true,
-        help: '`auto` reads the host and picks the right shape, including the retired Office 365 connector for a webhook.office.com URL.',
+        helpKey: 'delivery.field.webhookFormat_help',
       },
     ],
   },
   {
-    title: 'Email',
-    subtitle: 'An internal relay needs no credentials and is the right answer for an on-prem sensor',
+    title: 'delivery.section.2',
+    subtitle: 'delivery.section.2_subtitle',
     fields: [
-      { key: 'emailHost', label: 'SMTP host', kind: 'text' },
-      { key: 'emailPort', label: 'Port', kind: 'number', narrow: true },
+      { key: 'emailHost', labelKey: 'delivery.field.emailHost', kind: 'text' },
+      { key: 'emailPort', labelKey: 'delivery.field.emailPort', kind: 'number', narrow: true },
       {
         key: 'emailSecure',
-        label: 'Implicit TLS',
+        labelKey: 'delivery.field.emailSecure',
         kind: 'switch',
-        help: 'True only for port 465. On 587 leave this off — STARTTLS is negotiated instead, and setting it here hangs until the socket times out.',
+        helpKey: 'delivery.field.emailSecure_help',
       },
-      { key: 'emailFrom', label: 'From address', kind: 'text' },
-      { key: 'emailTo', label: 'Recipients', kind: 'list', help: 'One per line, or comma-separated.' },
+      { key: 'emailFrom', labelKey: 'delivery.field.emailFrom', kind: 'text' },
+      {
+        key: 'emailTo',
+        labelKey: 'delivery.field.emailTo',
+        kind: 'list',
+        helpKey: 'delivery.field.emailTo_help',
+      },
       {
         key: 'emailAuthMethod',
-        label: 'Authentication',
+        labelKey: 'delivery.field.emailAuthMethod',
         kind: 'select',
         options: ['password', 'oauth2'],
         narrow: true,
-        help: 'OAuth2 is XOAUTH2 with a refresh token, for a Microsoft 365 or Google tenant that permits nothing else.',
+        helpKey: 'delivery.field.emailAuthMethod_help',
       },
       {
         key: 'emailUser',
-        label: 'Username',
+        labelKey: 'delivery.field.emailUser',
         kind: 'text',
-        help: 'Leave empty for a relay that needs no authentication. Under OAuth2 this is the mailbox being sent from, and is required.',
+        helpKey: 'delivery.field.emailUser_help',
       },
       {
         key: 'emailPassword',
-        label: 'Password',
+        labelKey: 'delivery.field.emailPassword',
         kind: 'secret',
         showWhen: { key: 'emailAuthMethod', equals: 'password' },
-        help: 'Microsoft 365 and Google disable basic SMTP AUTH by default, so a correct password can still be rejected.',
+        helpKey: 'delivery.field.emailPassword_help',
       },
       {
         key: 'emailOauthTokenUrl',
-        label: 'Token endpoint',
+        labelKey: 'delivery.field.emailOauthTokenUrl',
         kind: 'text',
         showWhen: { key: 'emailAuthMethod', equals: 'oauth2' },
-        help: 'Microsoft: https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token — Google: https://oauth2.googleapis.com/token',
+        helpKey: 'delivery.field.emailOauthTokenUrl_help',
       },
       {
         key: 'emailOauthClientId',
-        label: 'Client ID',
+        labelKey: 'delivery.field.emailOauthClientId',
         kind: 'text',
         showWhen: { key: 'emailAuthMethod', equals: 'oauth2' },
       },
       {
         key: 'emailOauthClientSecret',
-        label: 'Client secret',
+        labelKey: 'delivery.field.emailOauthClientSecret',
         kind: 'secret',
         showWhen: { key: 'emailAuthMethod', equals: 'oauth2' },
       },
       {
         key: 'emailOauthRefreshToken',
-        label: 'Refresh token',
+        labelKey: 'delivery.field.emailOauthRefreshToken',
         kind: 'secret',
         showWhen: { key: 'emailAuthMethod', equals: 'oauth2' },
-        help: 'Obtained once, by consenting to the app registration. Nodemailer exchanges it for an access token and renews that on its own.',
+        helpKey: 'delivery.field.emailOauthRefreshToken_help',
       },
       {
         key: 'emailOauthScope',
-        label: 'Scope',
+        labelKey: 'delivery.field.emailOauthScope',
         kind: 'text',
         showWhen: { key: 'emailAuthMethod', equals: 'oauth2' },
-        help: 'Optional. Google ignores it; some Microsoft tenants need https://outlook.office.com/SMTP.Send offline_access.',
+        helpKey: 'delivery.field.emailOauthScope_help',
       },
     ],
   },
   {
-    title: 'Syslog / SIEM',
-    subtitle: 'Ungated on purpose: a SIEM correlates for itself and needs the complete stream',
+    title: 'delivery.section.3',
+    subtitle: 'delivery.section.3_subtitle',
     fields: [
-      { key: 'syslogHost', label: 'Collector host', kind: 'text' },
-      { key: 'syslogPort', label: 'Port', kind: 'number', narrow: true },
-      { key: 'syslogProtocol', label: 'Protocol', kind: 'select', options: ['udp', 'tcp'], narrow: true },
-      { key: 'syslogFormat', label: 'Format', kind: 'select', options: ['cef', 'json'], narrow: true },
+      { key: 'syslogHost', labelKey: 'delivery.field.syslogHost', kind: 'text' },
+      { key: 'syslogPort', labelKey: 'delivery.field.syslogPort', kind: 'number', narrow: true },
+      {
+        key: 'syslogProtocol',
+        labelKey: 'delivery.field.syslogProtocol',
+        kind: 'select',
+        options: ['udp', 'tcp'],
+        narrow: true,
+      },
+      {
+        key: 'syslogFormat',
+        labelKey: 'delivery.field.syslogFormat',
+        kind: 'select',
+        options: ['cef', 'json'],
+        narrow: true,
+      },
       {
         key: 'syslogRfc',
-        label: 'RFC',
+        labelKey: 'delivery.field.syslogRfc',
         kind: 'select',
         options: ['5424', '3164'],
         narrow: true,
-        help: '3164 has no year and no timezone in its timestamp; prefer 5424.',
+        helpKey: 'delivery.field.syslogRfc_help',
       },
       {
         key: 'syslogFacility',
-        label: 'Facility',
+        labelKey: 'delivery.field.syslogFacility',
         kind: 'number',
         narrow: true,
-        help: '16–23 are the local-use facilities; 16 is local0.',
+        helpKey: 'delivery.field.syslogFacility_help',
       },
-      { key: 'syslogAppName', label: 'App name', kind: 'text', narrow: true },
+      { key: 'syslogAppName', labelKey: 'delivery.field.syslogAppName', kind: 'text', narrow: true },
       {
         key: 'syslogIncludeEvidence',
-        label: 'Include evidence',
+        labelKey: 'delivery.field.syslogIncludeEvidence',
         kind: 'switch',
-        help: 'On by default here, unlike the chat channels: the disclosure argument does not apply to a collector inside your own network.',
+        helpKey: 'delivery.field.syslogIncludeEvidence_help',
       },
     ],
   },
@@ -457,10 +479,8 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
 
   if (settings.error) {
     return (
-      <SurfaceCard title="Settings" embedded={embedded}>
-        <Alert severity="error">
-          {describeError(settings.error, 'Could not read the delivery settings')}
-        </Alert>
+      <SurfaceCard title={t('delivery.settings_title')} embedded={embedded}>
+        <Alert severity="error">{describeError(settings.error, t('delivery.read_failed'))}</Alert>
       </SurfaceCard>
     );
   }
@@ -477,7 +497,11 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
    */
   if (settings.isPending || !settings.data) {
     return (
-      <SurfaceCard title="Settings" subtitle={t('delivery.form_loading')} embedded={embedded}>
+      <SurfaceCard
+        title={t('delivery.settings_title')}
+        subtitle={t('delivery.form_loading')}
+        embedded={embedded}
+      >
         <Stack spacing={2}>
           {[0, 1, 2, 3, 4, 5].map((row) => (
             <Skeleton key={row} height={44} />
@@ -489,7 +513,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
 
   return (
     <SurfaceCard
-      title="Settings"
+      title={t('delivery.settings_title')}
       subtitle={t('delivery.form_subtitle')}
       embedded={embedded}
       headerActions={
@@ -504,7 +528,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
             onClick={() => setDraft({})}
             disabled={changedFields.length === 0 || save.isPending}
           >
-            Discard
+            {t('common.discard')}
           </Button>
           <Button
             size="small"
@@ -553,10 +577,10 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
         {SECTIONS.map((section) => (
           <Box key={section.title}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              {section.title}
+              {t(section.title)}
             </Typography>
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
-              {section.subtitle}
+              {t(section.subtitle)}
             </Typography>
             <Divider sx={{ mb: 2 }} />
 
@@ -576,7 +600,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
                   // The pinned chip (with its own tooltip naming the variable) sits next to
                   // every pinned field already, so the helper text only needs to say
                   // whatever is specific to the field, not restate that it is pinned.
-                  const helper = field.help;
+                  const helper = field.helpKey ? t(field.helpKey) : undefined;
                   const fullRowSx = { flex: '1 1 100%', minWidth: 0 };
                   const narrowSx = { flex: '0 1 200px', minWidth: 160 };
 
@@ -591,12 +615,12 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
                               onChange={(event) =>
                                 setDraft((current) => ({ ...current, [field.key]: event.target.checked }))
                               }
-                              slotProps={{ input: { 'aria-label': field.label } }}
+                              slotProps={{ input: { 'aria-label': t(field.labelKey) } }}
                             />
                           }
                           label={
                             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                              <span>{field.label}</span>
+                              <span>{t(field.labelKey)}</span>
                               {isPinned && <PinnedChip name={ENV_NAMES[field.key]} />}
                             </Stack>
                           }
@@ -616,7 +640,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
                       <Box key={field.key} sx={fullRowSx}>
                         <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
                           <TextField
-                            label={field.label}
+                            label={t(field.labelKey)}
                             size="small"
                             fullWidth={!field.narrow}
                             type="password"
@@ -648,7 +672,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
                               onClick={() => clearSecret(field.key)}
                               disabled={save.isPending}
                             >
-                              Clear
+                              {t('common.clear')}
                             </Button>
                           )}
                         </Stack>
@@ -671,7 +695,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
                   return (
                     <Box key={field.key} sx={field.narrow ? narrowSx : fullRowSx}>
                       <TextField
-                        label={field.label}
+                        label={t(field.labelKey)}
                         size="small"
                         select={isSelect}
                         multiline={isList}

@@ -231,7 +231,7 @@ export default function AuditPage() {
           sx={{ minWidth: 230 }}
           slotProps={{ htmlInput: { 'aria-label': 'Filter by action' } }}
         >
-          <MenuItem value="">All actions</MenuItem>
+          <MenuItem value="">{t('common.all_actions')}</MenuItem>
           {(actions.data ?? []).map((option) => (
             <MenuItem key={option.action} value={option.action}>
               {option.label}

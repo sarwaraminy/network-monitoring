@@ -283,7 +283,7 @@ export default function AlertsPage() {
             onChange={(event) => setSensor(event.target.value)}
             sx={{ minWidth: 170 }}
           >
-            <MenuItem value="">All sensors</MenuItem>
+            <MenuItem value="">{t('common.all_sensors')}</MenuItem>
             {sensors.map((entry) => (
               <MenuItem key={entry.sensorId} value={entry.sensorId}>
                 {/* "(this one)" rather than the raw name alone: an operator
@@ -303,7 +303,7 @@ export default function AlertsPage() {
           onChange={(event) => setKind(event.target.value as AlertKind | '')}
           sx={{ minWidth: 190 }}
         >
-          <MenuItem value="">All detectors</MenuItem>
+          <MenuItem value="">{t('common.all_detectors')}</MenuItem>
           {ALERT_KINDS.map((value) => (
             <MenuItem key={value} value={value}>
               {t(KIND_LABEL[value])}
@@ -332,10 +332,10 @@ export default function AlertsPage() {
               onChange={(event) => setHideAcknowledged(event.target.checked)}
             />
           }
-          label={<Typography variant="body2">Open only</Typography>}
+          label={<Typography variant="body2">{t('common.open_only')}</Typography>}
         />
         <Button size="small" startIcon={<RefreshIcon />} onClick={load} disabled={loading}>
-          Refresh
+          {t('common.refresh')}
         </Button>
       </Stack>
     ),
@@ -343,7 +343,7 @@ export default function AlertsPage() {
       <Box sx={{ py: 7, textAlign: 'center' }}>
         <ShieldOutlinedIcon sx={{ fontSize: 40, color: 'success.main', opacity: 0.7 }} />
         <Typography variant="subtitle1" sx={{ mt: 1 }}>
-          Nothing to report
+          {t('alerts.nothing_to_report')}
         </Typography>
         <Typography
           variant="body2"
@@ -520,7 +520,7 @@ function EvidencePanel({ alert }: Readonly<{ alert: AlertRecord }>) {
               color: 'text.disabled',
             }}
           >
-            No structured evidence recorded.
+            {t('alerts.no_evidence')}
           </Typography>
         ) : (
           <Box

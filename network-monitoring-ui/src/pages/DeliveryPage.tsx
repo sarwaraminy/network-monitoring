@@ -122,9 +122,10 @@ export default function DeliveryPage() {
       */}
       {isAdmin && (
         <Alert severity="info" icon={<SettingsOutlinedIcon fontSize="small" />}>
-          Delivery settings moved to <strong>Administration settings</strong> — the gear in the header — so
-          there is one place to change them rather than two. This page keeps what nothing else has: whether
-          delivery is working, and the test send.
+          {/* One key rather than three around the <strong>: splitting a sentence
+              to keep emphasis freezes English word order into every other
+              language. See QueryConsoleSettings, same trade. */}
+          {t('delivery.moved_note')}
         </Alert>
       )}
 

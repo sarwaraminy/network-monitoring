@@ -136,7 +136,7 @@ export default function DashboardPage() {
                 onChange={(event) => setSensor(event.target.value)}
                 sx={{ minWidth: 170 }}
               >
-                <MenuItem value="">All sensors</MenuItem>
+                <MenuItem value="">{t('common.all_sensors')}</MenuItem>
                 {sensors.map((entry) => (
                   <MenuItem key={entry.sensorId} value={entry.sensorId}>
                     {entry.sensorId}
@@ -168,7 +168,7 @@ export default function DashboardPage() {
               onClick={() => void dashboard.refetch()}
               disabled={dashboard.isFetching}
             >
-              Refresh
+              {t('common.refresh')}
             </Button>
           </>
         }
