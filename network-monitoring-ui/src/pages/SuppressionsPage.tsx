@@ -40,7 +40,7 @@ import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
 import { useFormatters } from '../i18n/format';
-import { useT } from '../i18n/ui';
+import { type Translate, useT } from '../i18n/ui';
 import { ALERT_KINDS, type AlertKind, type SuppressionDraft, type SuppressionRule } from '../types';
 
 /**
@@ -122,12 +122,12 @@ function kindLabel(kind: string): string {
 }
 
 /** One line describing what a rule covers, in the order an operator reads it. */
-function describeRule(rule: SuppressionRule): string {
+function describeRule(rule: SuppressionRule, t: Translate): string {
   const parts: string[] = [];
-  parts.push(rule.kind ? kindLabel(rule.kind) : 'Any finding');
-  if (rule.sourceCidr) parts.push(`from ${rule.sourceCidr}`);
-  if (rule.targetCidr) parts.push(`to ${rule.targetCidr}`);
-  if (rule.port !== null) parts.push(`on port ${rule.port}`);
+  parts.push(rule.kind ? kindLabel(rule.kind) : t('suppressions.any_finding'));
+  if (rule.sourceCidr) parts.push(t('suppressions.rule_from', { cidr: rule.sourceCidr }));
+  if (rule.targetCidr) parts.push(t('suppressions.rule_to', { cidr: rule.targetCidr }));
+  if (rule.port !== null) parts.push(t('suppressions.rule_port', { port: rule.port }));
   return parts.join(' ');
 }
 
@@ -367,11 +367,13 @@ function RuleTable({
         id: 'covers',
         header: t('suppressions.covers'),
         size: 300,
-        accessorFn: describeRule,
+        // `t` is closed over rather than passed by MRT, which calls the accessor
+        // with the row alone.
+        accessorFn: (rule: SuppressionRule) => describeRule(rule, t),
         Cell: ({ row }) => (
           <>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {describeRule(row.original)}
+              {describeRule(row.original, t)}
             </Typography>
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
               #{row.original.id} · added by {row.original.createdBy}

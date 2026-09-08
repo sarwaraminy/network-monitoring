@@ -9,7 +9,10 @@ import {
   type MRT_TableOptions,
   useMaterialReactTable,
 } from 'material-react-table';
+import { MRT_Localization_DE } from 'material-react-table/locales/de';
+import { MRT_Localization_FA } from 'material-react-table/locales/fa';
 import type { ReactNode } from 'react';
+import { useLocale } from '../contexts/LocaleContext';
 import useViewportFitHeight from '../hooks/useViewportFitHeight';
 import { sharedTableOptions } from '../tableTheme';
 import { GRID_METRICS, SURFACE } from '../theme';
@@ -215,6 +218,27 @@ export default function DataGrid<T extends MRT_RowData>(props: Readonly<DataGrid
   return <DataGridBase {...(props as unknown as DataGridProps<MRT_RowData>)} />;
 }
 
+/**
+ * The table's own chrome, in the reader's language.
+ *
+ * MRT owns a surprising amount of visible text — the column menu (Sort, Hide,
+ * Group by), the row-actions header, the pagination labels, the search
+ * placeholder, the no-results line — and none of it goes through this
+ * application's catalogue, so it stayed English while everything around it
+ * translated. These are the package's own bundles.
+ *
+ * `fa` for Dari, with the caveat: it is Iranian Persian, and the two differ. It
+ * is used here and not for dates, which is where the difference actually bites —
+ * see i18n/format.ts on Afghan versus Iranian month names. "Sortieren"/"مرتب‌سازی"
+ * carries no calendar, so the shared vocabulary is right; a Solar Hijri month
+ * would not be.
+ */
+const GRID_LOCALIZATION = {
+  en: undefined,
+  de: MRT_Localization_DE,
+  'fa-AF': MRT_Localization_FA,
+} as const;
+
 function DataGridBase({
   columns,
   data,
@@ -239,6 +263,7 @@ function DataGridBase({
    * derive its menu colour, and that throws on `var(...)`. So it gets a real hex
    * for the scheme that is actually showing.
    */
+  const { locale } = useLocale();
   const { mode, systemMode } = useColorScheme();
   const resolved = mode === 'system' ? systemMode : mode;
   const scheme = resolved === 'dark' ? 'dark' : 'light';
@@ -267,6 +292,8 @@ function DataGridBase({
   const containerSx = { flex: 1, minHeight: 0 };
 
   const table = useMaterialReactTable({
+    // English is MRT's own default, so it is left unset rather than restated.
+    ...(GRID_LOCALIZATION[locale] ? { localization: GRID_LOCALIZATION[locale] } : {}),
     // Defaults a caller may replace.
     enableStickyHeader: true,
     // Off deliberately. MRT draws a resize handle at the right edge of every

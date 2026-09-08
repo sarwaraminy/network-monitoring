@@ -39,17 +39,17 @@ import {
 import { useIpInfo } from '../hooks/useIpInfo';
 import { findingText, useFindingText } from '../i18n/findings';
 import { useFormatters } from '../i18n/format';
-import { useT } from '../i18n/ui';
+import { type Translate, type UiMessageKey, useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 import { ALERT_KINDS, type AlertKind, type Alert as AlertRecord, type Severity } from '../types';
 
 const WINDOWS = [
-  { value: '', label: 'All time' },
-  { value: '1h', label: 'Last hour' },
-  { value: '24h', label: 'Last 24 hours' },
-  { value: '7d', label: 'Last 7 days' },
-  { value: '30d', label: 'Last 30 days' },
-] as const;
+  { value: '', labelKey: 'period.all' },
+  { value: '1h', labelKey: 'period.1h' },
+  { value: '24h', labelKey: 'period.24h' },
+  { value: '7d', labelKey: 'period.7d' },
+  { value: '30d', labelKey: 'period.30d' },
+] as const satisfies readonly { value: string; labelKey: UiMessageKey }[];
 
 /**
  * The primary view: security findings, most urgent first.
@@ -320,7 +320,7 @@ export default function AlertsPage() {
         >
           {WINDOWS.map((window) => (
             <MenuItem key={window.value} value={window.value}>
-              {window.label}
+              {t(window.labelKey)}
             </MenuItem>
           ))}
         </TextField>
@@ -540,7 +540,7 @@ function EvidencePanel({ alert }: Readonly<{ alert: AlertRecord }>) {
                     color: 'text.secondary',
                   }}
                 >
-                  {humanizeKey(key)}
+                  {evidenceLabel(key, t)}
                 </Typography>
                 <Box sx={{ ...monoSx, wordBreak: 'break-word' }}>{formatValue(value)}</Box>
               </Box>
@@ -598,7 +598,27 @@ function Metric({
 }
 
 /** `distinctPortsProbed` -> `Distinct ports probed`. */
-function humanizeKey(key: string): string {
+/**
+ * The name an evidence field is shown under.
+ *
+ * Catalogue first, mechanical English second. This used to be only the second
+ * half — `feedNote` split on case into "Feed note" — which is correct English
+ * and untranslatable, so the one part of an alert that says what was actually
+ * observed stayed English in every language.
+ *
+ * The fallback stays, and is why this is not a plain lookup: evidence is an open
+ * `jsonb` shape, so a detector can add a field tomorrow and this has to render
+ * it rather than a bare key. An unknown field then reads as English words in a
+ * German interface — the same trade the finding renderer already makes for a key
+ * its translator has not reached.
+ */
+function evidenceLabel(key: string, t: Translate): string {
+  const catalogued = `evidence.${key}` as UiMessageKey;
+  // The renderer returns the key itself when it has no pattern for it, which is
+  // what "not in the catalogue" looks like from here.
+  const translated = t(catalogued);
+  if (translated !== catalogued) return translated;
+
   const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
   return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
 }

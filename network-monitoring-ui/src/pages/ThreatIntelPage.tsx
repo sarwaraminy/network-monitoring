@@ -204,7 +204,7 @@ export default function ThreatIntelPage() {
           <StatTile
             label={t('intel.indicators_loaded')}
             value={data?.stats.total ?? 0}
-            caption={data?.enabled ? 'matched on every packet and flow' : 'threat intelligence is off'}
+            caption={data?.enabled ? t('intel.matched_on_all') : t('intel.is_off')}
             icon={<InventoryOutlinedIcon />}
             accent={palette.bar}
             loading={loading}
@@ -225,7 +225,9 @@ export default function ThreatIntelPage() {
             label={t('intel.last_loaded')}
             value={data?.loadedAt ? fmt.relativeTime(data.loadedAt) : t('common.never')}
             caption={
-              data?.refreshSeconds ? `refreshes every ${Math.round(data.refreshSeconds / 3600)}h` : undefined
+              data?.refreshSeconds
+                ? t('intel.refreshes_every', { hours: Math.round(data.refreshSeconds / 3600) })
+                : undefined
             }
             icon={<ScheduleOutlinedIcon />}
             loading={loading}

@@ -76,7 +76,7 @@ export default function IpInfoDialog({
                 color: 'text.secondary',
               }}
             >
-              Running reverse DNS, WHOIS and geolocation lookups…
+              {t('ipinfo.looking_up')}
             </Typography>
           </Stack>
         )}
@@ -101,7 +101,9 @@ export default function IpInfoDialog({
                 <GeoTable geo={geo} />
               ) : (
                 <NotAvailable
-                  label={geo?.message ? `Lookup failed: ${geo.message}` : 'No geolocation data'}
+                  label={
+                    geo?.message ? t('ipinfo.lookup_failed', { reason: geo.message }) : t('ipinfo.no_geo')
+                  }
                 />
               )}
             </Section>
@@ -169,12 +171,13 @@ function NotAvailable({ label }: Readonly<{ label: string }>) {
 }
 
 function GeoTable({ geo }: Readonly<{ geo: GeoData }>) {
+  const t = useT();
   const rows: Array<[string, React.ReactNode]> = [
-    ['Country', geo.country],
-    ['Region', geo.regionName],
-    ['City', geo.city],
+    [t('ipinfo.country'), geo.country],
+    [t('ipinfo.region'), geo.regionName],
+    [t('ipinfo.city'), geo.city],
     ['Postal code', geo.zip],
-    ['Coordinates', formatCoordinates(geo)],
+    [t('ipinfo.coordinates'), formatCoordinates(geo)],
     ['Timezone', geo.timezone],
     ['ISP', geo.isp],
     ['Organization', geo.org],

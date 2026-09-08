@@ -293,6 +293,65 @@ export const UI_EN = {
     'Would have hidden {matched} of the last {examined} alerts — {occurrences} observations in total.',
   'suppressions.preview_window': 'Examined {from} to {to}',
 
+  // --- Evidence field names ---
+  //
+  // Keyed by the evidence property the detectors emit. `humanizeKey` used to turn
+  // `feedNote` into "Feed note" mechanically, which is correct English and was
+  // never translatable — so the one part of an alert that says what was actually
+  // observed stayed in English in every language.
+
+  'evidence.feed': 'Feed',
+  'evidence.feedNote': 'Feed note',
+  'evidence.exporter': 'Exporter',
+  'evidence.direction': 'Direction',
+  'evidence.indicator': 'Indicator',
+  'evidence.indicatorType': 'Indicator type',
+  'evidence.matchedAddress': 'Matched address',
+  'evidence.observedVia': 'Observed via',
+  'evidence.flowBytes': 'Flow bytes',
+  'evidence.flowPackets': 'Flow packets',
+  'evidence.destinationPort': 'Destination port',
+  'evidence.port': 'Port',
+  'evidence.count': 'Count',
+  'evidence.seconds': 'Seconds',
+  'evidence.scanner': 'Scanner',
+  'evidence.service': 'Service',
+  'evidence.hasService': 'Has service',
+  'evidence.sampleHosts': 'Sample hosts',
+  'evidence.distinctPortsProbed': 'Distinct ports probed',
+  'evidence.distinctHostsProbed': 'Distinct hosts probed',
+  'evidence.distinctTargets': 'Distinct targets',
+  'evidence.attemptsInWindow': 'Attempts in window',
+  'evidence.username': 'Username',
+  'evidence.passwordLength': 'Password length',
+  'evidence.passwordRecorded': 'Password recorded',
+  'evidence.previousMac': 'Previous MAC',
+  'evidence.knownDevicesBefore': 'Known devices before',
+  'evidence.vendor': 'Vendor',
+
+  // --- Periods, and the rest of the chrome ---
+
+  'period.1h': 'Last hour',
+  'period.12m': 'Last 12 months',
+  'period.24h': 'Last 24 hours',
+  'period.7d': 'Last 7 days',
+  'period.30d': 'Last 30 days',
+  'period.90d': 'Last 90 days',
+  'period.1y': 'Last year',
+  'period.5y': 'Last 5 years',
+  'period.all': 'All time',
+  'grid.actions': 'Actions',
+  'ipinfo.looking_up': 'Running reverse DNS, WHOIS and geolocation lookups…',
+  'ipinfo.lookup_failed': 'Lookup failed: {reason}',
+  'ipinfo.no_geo': 'No geolocation data',
+  'suppressions.any_finding': 'Any finding',
+  'suppressions.rule_from': 'from {cidr}',
+  'suppressions.rule_to': 'to {cidr}',
+  'suppressions.rule_port': 'on port {port}',
+  'intel.matched_on_all': 'matched on every packet and flow',
+  'intel.is_off': 'threat intelligence is off',
+  'intel.refreshes_every': 'refreshes every {hours}h',
+
   // --- Shared controls and chrome ---
 
   'common.refresh': 'Refresh',

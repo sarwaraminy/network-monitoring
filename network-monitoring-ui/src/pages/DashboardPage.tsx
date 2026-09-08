@@ -25,7 +25,7 @@ import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { distinctMacCount, useKnownDevices, useSensors } from '../hooks/useAlerts';
 import { useFormatters } from '../i18n/format';
-import { useT } from '../i18n/ui';
+import { type UiMessageKey, useT } from '../i18n/ui';
 import type { AlertKind } from '../types';
 
 /**
@@ -46,13 +46,13 @@ import type { AlertKind } from '../types';
  * reaches, which is worth doing if that case shows up in practice.
  */
 const PERIODS = [
-  { value: 1, label: 'Last 24 hours' },
-  { value: 7, label: 'Last 7 days' },
-  { value: 30, label: 'Last 30 days' },
-  { value: 90, label: 'Last 90 days' },
-  { value: 365, label: 'Last 12 months' },
-  { value: 1825, label: 'Last 5 years' },
-] as const;
+  { value: 1, labelKey: 'period.24h' },
+  { value: 7, labelKey: 'period.7d' },
+  { value: 30, labelKey: 'period.30d' },
+  { value: 90, labelKey: 'period.90d' },
+  { value: 365, labelKey: 'period.12m' },
+  { value: 1825, labelKey: 'period.5y' },
+] as const satisfies readonly { value: number; labelKey: UiMessageKey }[];
 
 /**
  * The landing page: what is happening, at a glance.
@@ -155,7 +155,7 @@ export default function DashboardPage() {
             >
               {PERIODS.map((period) => (
                 <MenuItem key={period.value} value={period.value}>
-                  {period.label}
+                  {t(period.labelKey)}
                 </MenuItem>
               ))}
             </TextField>
