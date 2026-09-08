@@ -5,7 +5,6 @@ import PaginationItem from '@mui/material/PaginationItem';
 import Select from '@mui/material/Select';
 import Typography from '@mui/material/Typography';
 import type { MRT_RowData, MRT_TableInstance } from 'material-react-table';
-import { type Formatters, useFormatters } from '../i18n/format';
 import { type Translate, useT } from '../i18n/ui';
 import { SURFACE } from '../theme';
 
@@ -81,29 +80,18 @@ export function pageFactsOf<T extends MRT_RowData>(table: MRT_TableInstance<T>):
  * ours do not, and a range against a total that silently shrank is the reading
  * that misleads.
  */
-export function describePageRange(
-  { total, unfiltered, page, pageSize }: PageFacts,
-  t: Translate,
-  fmt: Formatters,
-): string {
+export function describePageRange({ total, unfiltered, page, pageSize }: PageFacts, t: Translate): string {
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = Math.min(page * pageSize, total);
-  const range = t('grid.page_range', {
-    start: fmt.number(start),
-    end: fmt.number(end),
-    total: fmt.number(total),
-  });
+  const range = t('grid.page_range', { start, end, total });
 
-  return total < unfiltered
-    ? t('grid.page_range_filtered', { range, unfiltered: fmt.number(unfiltered) })
-    : range;
+  return total < unfiltered ? t('grid.page_range_filtered', { range, unfiltered }) : range;
 }
 
 export default function GridPagination<T extends MRT_RowData>({
   table,
 }: Readonly<{ table: MRT_TableInstance<T> }>) {
   const t = useT();
-  const fmt = useFormatters();
   const facts = pageFactsOf(table);
   const options = ROWS_PER_PAGE_OPTIONS.includes(facts.pageSize as (typeof ROWS_PER_PAGE_OPTIONS)[number])
     ? [...ROWS_PER_PAGE_OPTIONS]
@@ -178,7 +166,7 @@ export default function GridPagination<T extends MRT_RowData>({
           aria-live="polite"
           sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}
         >
-          {describePageRange(facts, t, fmt)}
+          {describePageRange(facts, t)}
         </Typography>
         <MuiPagination
           count={facts.pageCount}

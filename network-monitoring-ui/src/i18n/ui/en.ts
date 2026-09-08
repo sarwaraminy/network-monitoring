@@ -276,7 +276,7 @@ export const UI_EN = {
   // half a person reads.
 
   'dashboard.load_failed': 'Could not load the dashboard',
-  'dashboard.total_all_time': '{count} total, all time',
+  'dashboard.total_all_time': '{count, number} total, all time',
   'dashboard.capture_running': 'Running',
   'dashboard.capture_idle': 'Idle',
   'dashboard.pcap_unavailable': 'pcap library unavailable',
@@ -287,17 +287,17 @@ export const UI_EN = {
   'dashboard.days_count': '{count, plural, one {# day} other {# days}}',
   'dashboard.occurrences': '{count, plural, one {# occurrence} other {# occurrences}}',
   'common.never': 'never',
-  'suppressions.preview_none': 'Nothing among the last {examined} alerts matches this rule.',
+  'suppressions.preview_none': 'Nothing among the last {examined, number} alerts matches this rule.',
   'suppressions.preview_matched':
-    'Would have hidden {matched} of the last {examined} alerts — {occurrences} observations in total.',
+    'Would have hidden {matched, number} of the last {examined, number} alerts — {occurrences, number} observations in total.',
   'suppressions.preview_window': 'Examined {from} to {to}',
 
   'capture.unavailable_note':
     'Live capture is unavailable on the server: the packet capture library could not be loaded. ' +
     'Install Npcap (Windows) or libpcap (Linux/macOS) and restart the API. Everything else on this ' +
     'page still works.',
-  'capture.dropped': '{count} older packets dropped from the buffer',
-  'packets.non_ip_hidden': '{count} non-IP hidden',
+  'capture.dropped': '{count, number} older packets dropped from the buffer',
+  'packets.non_ip_hidden': '{count, number} non-IP hidden',
   'capture.loading_interfaces': 'Loading interfaces…',
   'capture.no_interfaces': 'No interfaces reported by the server',
   'capture.hide_settings': 'Hide capture settings',
@@ -346,7 +346,7 @@ export const UI_EN = {
   'suppressions.deleted_toast': 'Rule deleted.',
   'suppressions.delete_failed': 'Could not delete the rule',
   'suppressions.confirm_delete':
-    'Delete rule #{id}? Its record of {count} hidden findings goes with it. Switching it off keeps ' +
+    'Delete rule #{id}? Its record of {count, number} hidden findings goes with it. Switching it off keeps ' +
     'both.',
   'suppressions.read_failed': 'Could not read the suppression rules',
   'suppressions.invalid_warning':
@@ -616,10 +616,10 @@ export const UI_EN = {
     'Delivery settings moved to Administration settings — the gear in the header — so there is one place to change them rather than two. This page keeps what nothing else has: whether delivery is working, and the test send.',
   'login.admin_required': 'Capturing traffic requires an administrator session',
   'packets.captured': 'Captured packets',
-  'packets.shown': '{count} shown',
+  'packets.shown': '{count, number} shown',
   'common.clear': 'Clear',
-  'grid.page_range': '{start}–{end} of {total}',
-  'grid.page_range_filtered': '{range}, filtered from {unfiltered}',
+  'grid.page_range': '{start, number}–{end, number} of {total, number}',
+  'grid.page_range_filtered': '{range}, filtered from {unfiltered, number}',
   'common.rows_per_page': 'Rows per page',
   'common.all_sensors': 'All sensors',
   'common.all_detectors': 'All detectors',

@@ -90,6 +90,51 @@ describe('the interface catalogue', () => {
     return names;
   };
 
+  /**
+   * Argument names with the node types they appear as.
+   *
+   * A `Set` per name, because one pattern may legitimately use the same argument
+   * in two roles — `{flag, select, …}: {flag}`.
+   */
+  const argumentTypesOf = (pattern: string, locale: string): Map<string, Set<number>> => {
+    const types = new Map<string, Set<number>>();
+
+    const walk = (nodes: readonly IcuNode[]): void => {
+      for (const node of nodes) {
+        if (typeof node.value === 'string' && node.type !== 0 && node.type !== 7) {
+          const seen = types.get(node.value) ?? new Set<number>();
+          seen.add(node.type);
+          types.set(node.value, seen);
+        }
+        if (node.options) {
+          for (const option of Object.values(node.options)) {
+            if (Array.isArray(option.value)) walk(option.value as IcuNode[]);
+          }
+        }
+        if (Array.isArray(node.children)) walk(node.children as IcuNode[]);
+      }
+    };
+
+    walk(new IntlMessageFormat(pattern, locale).getAst() as unknown as IcuNode[]);
+    return types;
+  };
+
+  const TYPE_NAMES: Readonly<Record<number, string>> = {
+    1: 'plain',
+    2: 'number',
+    3: 'date',
+    4: 'time',
+    5: 'select',
+    6: 'plural',
+    8: 'tag',
+  };
+
+  const describeTypes = (types: Set<number>): string =>
+    [...types]
+      .map((type) => TYPE_NAMES[type] ?? `type ${type}`)
+      .sort()
+      .join('+');
+
   /*
    * The largest catalogue of the four, and the one that was not covered.
    *
@@ -131,6 +176,50 @@ describe('the interface catalogue', () => {
     }
 
     expect(mismatches).toEqual([]);
+  });
+
+  /*
+   * The same check on what each argument is used *as*, which the names check
+   * cannot see.
+   *
+   * A translation that turns a plain `{count}` into `{count, plural, …}`
+   * interpolates the same argument, so the case above stays green — but a call
+   * site passing a pre-formatted string gives ICU nothing to select a branch on,
+   * and that locale alone renders the raw key. The mirror case is quieter: a
+   * `{port}` that gains `, number` in one translation displays `445` as `۴۴۵`,
+   * which stops matching what the switch prints.
+   *
+   * This suite is where such a divergence would first appear, because the
+   * interface catalogue is the one being translated by hand.
+   */
+  it('keeps every translation using its arguments the same way', () => {
+    const divergent: string[] = [];
+
+    for (const locale of LOCALES) {
+      if (locale === 'en') continue;
+
+      for (const [key, pattern] of Object.entries(CATALOGS[locale])) {
+        const source = (UI_EN as Record<string, string>)[key];
+        if (source === undefined) continue;
+
+        const expected = argumentTypesOf(source, 'en');
+        const actual = argumentTypesOf(pattern as string, locale);
+
+        for (const [argument, types] of expected) {
+          const found = actual.get(argument);
+          // A name the translation drops belongs to the case above.
+          if (!found) continue;
+          if (found.size !== types.size || ![...types].every((type) => found.has(type))) {
+            divergent.push(
+              `${locale} ${key}: {${argument}} is ${describeTypes(types)} in English, ` +
+                `${describeTypes(found)} here`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(divergent).toEqual([]);
   });
 
   it('has no key the application never asks for', async () => {

@@ -156,7 +156,6 @@ const EMPTY_DRAFT: SuppressionDraft = {
 
 export default function SuppressionsPage() {
   const t = useT();
-  const fmt = useFormatters();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const queryClient = useQueryClient();
@@ -214,14 +213,14 @@ export default function SuppressionsPage() {
         window.confirm(
           t('suppressions.confirm_delete', {
             id: rule.id,
-            count: fmt.number(rule.matchCount),
+            count: rule.matchCount,
           }),
         )
       ) {
         remove.mutate(rule);
       }
     },
-    [remove, t, fmt],
+    [remove, t],
   );
 
   const rules = listing.data?.rules ?? [];
@@ -513,7 +512,7 @@ function RuleTable({
               >
                 <IconButton
                   size="small"
-                  aria-label={t('suppressions.toggle_rule', { enabled: String(rule.enabled), id: rule.id })}
+                  aria-label={t('suppressions.toggle_rule', { enabled: rule.enabled, id: rule.id })}
                   onClick={() => onToggle(rule)}
                 >
                   {rule.enabled ? (
@@ -756,12 +755,12 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
                 <Typography variant="body2">
                   {preview.data.matched === 0
                     ? t('suppressions.preview_none', {
-                        examined: fmt.number(preview.data.examined),
+                        examined: preview.data.examined,
                       })
                     : t('suppressions.preview_matched', {
-                        matched: fmt.number(preview.data.matched),
-                        examined: fmt.number(preview.data.examined),
-                        occurrences: fmt.number(preview.data.occurrences),
+                        matched: preview.data.matched,
+                        examined: preview.data.examined,
+                        occurrences: preview.data.occurrences,
                       })}
                 </Typography>
                 {preview.data.window && (

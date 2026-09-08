@@ -268,7 +268,7 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   // --- Schweregrad- und Detektornamen ---
 
   'dashboard.load_failed': 'Das Dashboard konnte nicht geladen werden',
-  'dashboard.total_all_time': '{count} insgesamt, seit Beginn',
+  'dashboard.total_all_time': '{count, number} insgesamt, seit Beginn',
   'dashboard.capture_running': 'Läuft',
   'dashboard.capture_idle': 'Inaktiv',
   'dashboard.pcap_unavailable': 'pcap-Bibliothek nicht verfügbar',
@@ -279,17 +279,17 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'dashboard.days_count': '{count, plural, one {# Tag} other {# Tage}}',
   'dashboard.occurrences': '{count, plural, one {# Vorkommen} other {# Vorkommen}}',
   'common.never': 'nie',
-  'suppressions.preview_none': 'Keine der letzten {examined} Meldungen entspricht dieser Regel.',
+  'suppressions.preview_none': 'Keine der letzten {examined, number} Meldungen entspricht dieser Regel.',
   'suppressions.preview_matched':
-    'Hätte {matched} der letzten {examined} Meldungen ausgeblendet — {occurrences} Beobachtungen insgesamt.',
+    'Hätte {matched, number} der letzten {examined, number} Meldungen ausgeblendet — {occurrences, number} Beobachtungen insgesamt.',
   'suppressions.preview_window': 'Untersucht von {from} bis {to}',
 
   'capture.unavailable_note':
     'Live-Aufzeichnung ist auf dem Server nicht verfügbar: Die Paketaufzeichnungsbibliothek konnte ' +
     'nicht geladen werden. Installieren Sie Npcap (Windows) oder libpcap (Linux/macOS) und starten ' +
     'Sie die API neu. Alles andere auf dieser Seite funktioniert weiterhin.',
-  'capture.dropped': '{count} ältere Pakete aus dem Puffer verworfen',
-  'packets.non_ip_hidden': '{count} Nicht-IP ausgeblendet',
+  'capture.dropped': '{count, number} ältere Pakete aus dem Puffer verworfen',
+  'packets.non_ip_hidden': '{count, number} Nicht-IP ausgeblendet',
   'capture.loading_interfaces': 'Schnittstellen werden geladen…',
   'capture.no_interfaces': 'Der Server meldet keine Schnittstellen',
   'capture.hide_settings': 'Aufzeichnungseinstellungen ausblenden',
@@ -347,7 +347,7 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'suppressions.deleted_toast': 'Regel gelöscht.',
   'suppressions.delete_failed': 'Die Regel konnte nicht gelöscht werden',
   'suppressions.confirm_delete':
-    'Regel #{id} löschen? Ihr Nachweis über {count} ausgeblendete Funde geht mit. Ausschalten ' +
+    'Regel #{id} löschen? Ihr Nachweis über {count, number} ausgeblendete Funde geht mit. Ausschalten ' +
     'behält beides.',
   'suppressions.read_failed': 'Die Unterdrückungsregeln konnten nicht gelesen werden',
   'suppressions.invalid_warning':
@@ -628,10 +628,10 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'Die Zustellungseinstellungen sind zu den Administrationseinstellungen umgezogen — dem Zahnrad in der Kopfzeile — damit es eine Stelle zum Ändern gibt statt zwei. Diese Seite behält, was sonst nirgends steht: ob die Zustellung funktioniert, und den Testversand.',
   'login.admin_required': 'Für das Aufzeichnen von Datenverkehr ist eine Administratorsitzung nötig',
   'packets.captured': 'Aufgezeichnete Pakete',
-  'packets.shown': '{count} angezeigt',
+  'packets.shown': '{count, number} angezeigt',
   'common.clear': 'Leeren',
-  'grid.page_range': '{start}–{end} von {total}',
-  'grid.page_range_filtered': '{range}, gefiltert aus {unfiltered}',
+  'grid.page_range': '{start, number}–{end, number} von {total, number}',
+  'grid.page_range_filtered': '{range}, gefiltert aus {unfiltered, number}',
   'common.rows_per_page': 'Zeilen pro Seite',
   'common.all_sensors': 'Alle Sensoren',
   'common.all_detectors': 'Alle Prüfungen',

@@ -24,7 +24,6 @@ import { KIND_LABEL, SEVERITY_STYLE } from '../components/SeverityChip';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { distinctMacCount, useKnownDevices, useSensors } from '../hooks/useAlerts';
-import { useFormatters } from '../i18n/format';
 import { type UiMessageKey, useT } from '../i18n/ui';
 import type { AlertKind } from '../types';
 
@@ -67,7 +66,6 @@ const PERIODS = [
  */
 export default function DashboardPage() {
   const t = useT();
-  const fmt = useFormatters();
   const [days, setDays] = useState<number>(7);
   const [sensor, setSensor] = useState<string>('');
   const navigate = useNavigate();
@@ -183,7 +181,7 @@ export default function DashboardPage() {
           <StatTile
             label={t('dashboard.open_findings')}
             value={data?.unacknowledged ?? 0}
-            caption={t('dashboard.total_all_time', { count: fmt.number(data?.total ?? 0) })}
+            caption={t('dashboard.total_all_time', { count: data?.total ?? 0 })}
             icon={<WarningAmberOutlinedIcon />}
             accent={palette.bar}
             loading={loading}

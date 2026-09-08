@@ -6,7 +6,6 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import type { MRT_ColumnDef, MRT_TableOptions } from 'material-react-table';
 import { useMemo } from 'react';
-import { useFormatters } from '../i18n/format';
 import { useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 import type { Packet } from '../types';
@@ -42,7 +41,6 @@ export default function PacketTable({
   fitHeightDeps,
 }: Readonly<PacketTableProps>) {
   const t = useT();
-  const fmt = useFormatters();
   const rows = useMemo(() => packets.filter((packet) => Boolean(packet.destinationIpAddress)), [packets]);
 
   const columns = useMemo<MRT_ColumnDef<Packet>[]>(
@@ -158,12 +156,12 @@ export default function PacketTable({
         >
           {t('packets.captured')}
         </Typography>
-        <Chip size="small" label={t('packets.shown', { count: fmt.number(rows.length) })} />
+        <Chip size="small" label={t('packets.shown', { count: rows.length })} />
         {packets.length !== rows.length && (
           <Chip
             size="small"
             variant="outlined"
-            label={t('packets.non_ip_hidden', { count: fmt.number(packets.length - rows.length) })}
+            label={t('packets.non_ip_hidden', { count: packets.length - rows.length })}
           />
         )}
       </Stack>

@@ -261,7 +261,7 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   // --- نام‌های شدت و آشکارساز ---
 
   'dashboard.load_failed': 'داشبورد بارگیری نشد',
-  'dashboard.total_all_time': '{count} در مجموع، از آغاز',
+  'dashboard.total_all_time': '{count, number} در مجموع، از آغاز',
   'dashboard.capture_running': 'در حال اجرا',
   'dashboard.capture_idle': 'غیرفعال',
   'dashboard.pcap_unavailable': 'کتابخانهٔ pcap در دسترس نیست',
@@ -272,16 +272,16 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'dashboard.days_count': '{count, plural, one {# روز} other {# روز}}',
   'dashboard.occurrences': '{count, plural, one {# رخداد} other {# رخداد}}',
   'common.never': 'هیچ‌گاه',
-  'suppressions.preview_none': 'هیچ‌کدام از {examined} هشدار اخیر با این قاعده مطابقت ندارد.',
+  'suppressions.preview_none': 'هیچ‌کدام از {examined, number} هشدار اخیر با این قاعده مطابقت ندارد.',
   'suppressions.preview_matched':
-    'از {examined} هشدار اخیر، {matched} مورد را پنهان می‌کرد — در مجموع {occurrences} مشاهده.',
+    'از {examined, number} هشدار اخیر، {matched, number} مورد را پنهان می‌کرد — در مجموع {occurrences, number} مشاهده.',
   'suppressions.preview_window': 'بررسی‌شده از {from} تا {to}',
 
   'capture.unavailable_note':
     'ضبط زنده روی سرور در دسترس نیست: کتابخانهٔ ضبط بسته بارگذاری نشد. Npcap (ویندوز) یا libpcap ' +
     '(لینوکس/مک) را نصب کنید و API را دوباره راه‌اندازی کنید. باقی این صفحه همچنان کار می‌کند.',
-  'capture.dropped': '{count} بستهٔ قدیمی‌تر از بافر دور انداخته شد',
-  'packets.non_ip_hidden': '{count} غیر IP پنهان شد',
+  'capture.dropped': '{count, number} بستهٔ قدیمی‌تر از بافر دور انداخته شد',
+  'packets.non_ip_hidden': '{count, number} غیر IP پنهان شد',
   'capture.loading_interfaces': 'در حال بارگیری رابط‌ها…',
   'capture.no_interfaces': 'سرور هیچ رابطی گزارش نکرد',
   'capture.hide_settings': 'پنهان‌کردن تنظیمات ضبط',
@@ -330,7 +330,8 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'suppressions.deleted_toast': 'قاعده حذف شد.',
   'suppressions.delete_failed': 'قاعده حذف نشد',
   'suppressions.confirm_delete':
-    'قاعدهٔ #{id} حذف شود؟ سابقهٔ {count} یافتهٔ پنهان‌شدهٔ آن هم می‌رود. خاموش‌کردن هر دو را ' + 'نگه می‌دارد.',
+    'قاعدهٔ #{id} حذف شود؟ سابقهٔ {count, number} یافتهٔ پنهان‌شدهٔ آن هم می‌رود. خاموش‌کردن هر دو را ' +
+    'نگه می‌دارد.',
   'suppressions.read_failed': 'قواعد سرکوب خوانده نشد',
   'suppressions.invalid_warning':
     '{count, plural, one {# قاعده} other {# قاعده}} نمی‌تواند با چیزی همخوان شود، پس یافته‌هایی که ' +
@@ -591,10 +592,10 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'تنظیمات تحویل به «تنظیمات مدیریت» منتقل شد — چرخ‌دنده در سربرگ — تا به‌جای دو جا، یک جا برای تغییر آن‌ها باشد. این صفحه چیزی را نگه می‌دارد که جای دیگری نیست: اینکه آیا تحویل کار می‌کند، و ارسال آزمایشی.',
   'login.admin_required': 'ضبط ترافیک به یک نشست مدیر نیاز دارد',
   'packets.captured': 'بسته‌های ضبط‌شده',
-  'packets.shown': '{count} نمایش‌داده‌شده',
+  'packets.shown': '{count, number} نمایش‌داده‌شده',
   'common.clear': 'پاک کردن',
-  'grid.page_range': '{start}–{end} از {total}',
-  'grid.page_range_filtered': '{range}، فیلترشده از {unfiltered}',
+  'grid.page_range': '{start, number}–{end, number} از {total, number}',
+  'grid.page_range_filtered': '{range}، فیلترشده از {unfiltered, number}',
   'common.rows_per_page': 'ردیف در هر صفحه',
   'common.all_sensors': 'همهٔ حسگرها',
   'common.all_detectors': 'همهٔ آشکارسازها',

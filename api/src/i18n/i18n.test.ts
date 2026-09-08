@@ -67,9 +67,15 @@ describe('rendering a message', () => {
       listed: 'because {reasons}',
       reason: 'reason {n}',
       broken: 'unclosed {',
+      chosen: '{flag, select, true {on} other {off}} for {where}',
+      both: '{flag, select, true {yes} other {no}}: {flag}',
     },
     de: { greeting: 'Gesehen bei {where}' },
-    'fa-AF': { greeting: '{where} دیده شد در' },
+    'fa-AF': {
+      greeting: '{where} دیده شد در',
+      chosen: '{flag, select, true {on} other {off}} for {where}',
+      both: '{flag, select, true {yes} other {no}}: {flag}',
+    },
   });
 
   it('uses the requested locale', () => {
@@ -137,6 +143,36 @@ describe('rendering a message', () => {
   it('leaves left-to-right locales unmarked', () => {
     const rendered = renderer.render({ key: 'greeting', params: { where: '192.168.1.10' } }, 'en');
     assert.equal(rendered, 'Seen at 192.168.1.10');
+  });
+
+  /*
+   * The isolation and `select` collided, and only in RTL. ICU matches a select
+   * operand against the option names, so `⁨true⁩` matches nothing and the pattern
+   * falls to `other` — an enabled suppression rule announcing itself as "Enable
+   * rule N" in Dari and nowhere else, which is exactly the kind of defect a
+   * reader of that language cannot check against the English.
+   *
+   * Asserted for a string operand specifically. A boolean was never isolated and
+   * so never broke; the point of the fix is that the call site no longer has to
+   * know which it passed.
+   */
+  it('does not isolate a value the pattern only compares', () => {
+    assert.equal(
+      renderer.render({ key: 'chosen', params: { flag: 'true', where: 'x' } }, 'fa-AF'),
+      `on for ${FSI}x${PDI}`,
+    );
+    assert.equal(
+      renderer.render({ key: 'chosen', params: { flag: true, where: 'x' } }, 'fa-AF'),
+      `on for ${FSI}x${PDI}`,
+    );
+  });
+
+  it('still isolates a value that is compared and then displayed', () => {
+    // The display is the use that needs the isolation, so it wins — and the
+    // comparison has to be written against the isolated form, which is why a
+    // pattern like this is worth failing loudly rather than half-fixing.
+    const rendered = renderer.render({ key: 'both', params: { flag: 'true' } }, 'fa-AF');
+    assert.ok(rendered.includes(`${FSI}true${PDI}`), rendered);
   });
 });
 
