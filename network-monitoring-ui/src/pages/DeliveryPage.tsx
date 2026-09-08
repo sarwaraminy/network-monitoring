@@ -18,7 +18,7 @@ import { fetchNotifyStatus, sendNotifyTest } from '../api/notify.api';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
 import { useFormatters } from '../i18n/format';
-import { useT } from '../i18n/ui';
+import { type UiMessageKey, useT } from '../i18n/ui';
 
 /**
  * Alert delivery.
@@ -47,9 +47,9 @@ import { useT } from '../i18n/ui';
  */
 
 /** Only the two that need explaining; the rest read fine as a number. */
-const GATE_NOTES: Record<string, string> = {
-  throttle: 'The same finding will not notify again inside this window.',
-  ceiling: 'A hard limit on messages per hour, whatever detection does.',
+const GATE_NOTES: Record<string, UiMessageKey> = {
+  throttle: 'delivery.gate.throttle_note',
+  ceiling: 'delivery.gate.ceiling_note',
 };
 
 export default function DeliveryPage() {
@@ -75,13 +75,16 @@ export default function DeliveryPage() {
         // delivered" sends you to the logs; "email failed: invalid login" does not.
         text:
           failed.length > 0
-            ? `Delivered to ${result.delivered}. Failed: ${failed.map((entry) => `${entry.channel} — ${entry.detail}`).join('; ')}`
-            : `Delivered to ${result.delivered} channel(s). Check that each one arrived.`,
+            ? t('delivery.test_partial', {
+                delivered: result.delivered,
+                failures: failed.map((entry) => `${entry.channel} — ${entry.detail}`).join('; '),
+              })
+            : t('delivery.test_ok', { delivered: result.delivered }),
       });
       void queryClient.invalidateQueries({ queryKey: ['notify', 'status'] });
     },
     onError: (error) => {
-      setMessage({ severity: 'error', text: describeError(error, 'Test send failed') });
+      setMessage({ severity: 'error', text: describeError(error, t('delivery.test_failed')) });
     },
   });
 
@@ -105,7 +108,7 @@ export default function DeliveryPage() {
                 onClick={() => test.mutate()}
                 disabled={test.isPending || (data?.channels.length ?? 0) === 0}
               >
-                {test.isPending ? 'Sending…' : 'Send test'}
+                {test.isPending ? t('delivery.sending') : t('delivery.send_test')}
               </Button>
             </Stack>
           ) : null
@@ -131,7 +134,7 @@ export default function DeliveryPage() {
       )}
 
       {status.error && (
-        <Alert severity="error">{describeError(status.error, 'Could not read delivery status')}</Alert>
+        <Alert severity="error">{describeError(status.error, t('delivery.status_failed'))}</Alert>
       )}
 
       {message && (
@@ -142,10 +145,8 @@ export default function DeliveryPage() {
 
       {!loading && data && data.channels.length === 0 && (
         <Alert severity="warning">
-          Nothing is configured, so findings are recorded and nobody is told.
-          {isAdmin
-            ? ' Set a collector host, a webhook URL, or an SMTP host with recipients under the settings gear — no file to edit and no restart.'
-            : ' An administrator can configure a webhook, email or a syslog collector.'}
+          {t('delivery.nothing_configured')}
+          {isAdmin ? t('delivery.nothing_configured_admin') : t('delivery.nothing_configured_user')}
         </Alert>
       )}
 
@@ -156,10 +157,10 @@ export default function DeliveryPage() {
       */}
       {!loading && data && !data.enabled && data.channels.length > 0 && (
         <Alert severity="info">
-          Channels are configured but delivery is switched off, so no alert will be sent.
-          {isAdmin ? ' Turn on "Deliver alerts" under the settings gear.' : ''} A test send still works — it
-          deliberately bypasses this, since the question it answers is whether delivery reaches you at all.
-          {data.syslog.configured && ' Syslog is unaffected: it is independent of this switch.'}
+          {t('delivery.switched_off')}
+          {isAdmin ? t('delivery.switched_off_admin') : ''}
+          {t('delivery.test_still_works')}
+          {data.syslog.configured && t('delivery.syslog_unaffected')}
         </Alert>
       )}
 
@@ -173,35 +174,34 @@ export default function DeliveryPage() {
             <Stack spacing={1.5}>
               <ChannelRow
                 icon={<ChatOutlinedIcon />}
-                name="Webhook"
+                name={t('delivery.channel.webhook')}
                 configured={data?.webhook.configured ?? false}
                 detail={
                   data?.webhook.format
-                    ? `${data.webhook.format} format`
-                    : 'Slack, Teams, Discord or plain JSON'
+                    ? t('delivery.channel.webhook_format', { format: data.webhook.format })
+                    : t('delivery.channel.webhook_hint')
                 }
                 loading={loading}
               />
               <ChannelRow
                 icon={<MailOutlineIcon />}
-                name="Email"
+                name={t('delivery.channel.email')}
                 configured={data?.email.configured ?? false}
                 detail={
                   data?.email.configured
-                    ? `${data.email.recipients} recipient${data.email.recipients === 1 ? '' : 's'}`
+                    ? t('delivery.channel.recipients', { count: data.email.recipients })
                     : // The server's own reason when it has one. An OAuth2 mailbox
                       // missing its refresh token has a host, a sender and recipients
                       // already, so the standing sentence would name the three things
                       // that are not the problem.
-                      (data?.email.reason ?? 'SMTP host, sender and at least one recipient')
+                      (data?.email.reason ?? t('delivery.channel.email_hint'))
                 }
                 loading={loading}
               />
             </Stack>
 
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 2.5 }}>
-              Four limits apply before anything is sent. Each one is also a reason an alert you expected did
-              not arrive, which is why they are here rather than buried in a config file.
+              {t('delivery.four_limits')}
             </Typography>
 
             <Stack spacing={1} sx={{ mt: 1.5 }}>
@@ -239,9 +239,9 @@ export default function DeliveryPage() {
           >
             <ChannelRow
               icon={<DnsOutlinedIcon />}
-              name="Syslog"
+              name={t('delivery.channel.syslog')}
               configured={data?.syslog.configured ?? false}
-              detail={data?.syslog.target ?? 'Set SYSLOG_HOST to switch it on'}
+              detail={data?.syslog.target ?? t('delivery.channel.syslog_hint')}
               loading={loading}
             />
 
@@ -260,17 +260,14 @@ export default function DeliveryPage() {
                 <GateRow label={t('delivery.framing')} value={`RFC ${data.syslog.rfc}`} loading={false} />
                 <GateRow
                   label={t('delivery.evidence')}
-                  value={data.syslog.includeEvidence ? 'included' : 'omitted'}
+                  value={data.syslog.includeEvidence ? t('delivery.included') : t('delivery.omitted')}
                   loading={false}
                 />
               </Stack>
             )}
 
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 2.5 }}>
-              None of the limits on the left apply here. A SIEM correlates and deduplicates itself, and it
-              does so assuming it holds the complete event stream — a digest makes every rule that counts
-              events over a window silently under-report, and turns suppressed events into what look like
-              quiet periods.
+              {t('delivery.siem_note')}
             </Typography>
           </SurfaceCard>
         </Grid>
@@ -312,6 +309,7 @@ function ChannelRow({
   detail: string;
   loading: boolean;
 }>) {
+  const t = useT();
   if (loading) return <Skeleton variant="rounded" height={52} />;
 
   return (
@@ -329,7 +327,7 @@ function ChannelRow({
         size="small"
         variant="outlined"
         color={configured ? 'success' : 'default'}
-        label={configured ? 'Configured' : 'Off'}
+        label={configured ? t('delivery.configured') : t('delivery.off')}
       />
     </Stack>
   );

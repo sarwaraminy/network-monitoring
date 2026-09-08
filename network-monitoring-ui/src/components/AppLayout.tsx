@@ -190,7 +190,7 @@ export default function AppLayout() {
             </IconButton>
           </Tooltip>
 
-          <Tooltip title={user?.email ?? 'Account'}>
+          <Tooltip title={user?.email ?? t('common.account')}>
             <IconButton onClick={(event) => setMenuAnchor(event.currentTarget)} sx={{ p: 0.5 }}>
               <Avatar sx={{ width: 34, height: 34, bgcolor: 'primary.main', fontSize: '0.85rem' }}>
                 {initials || '?'}

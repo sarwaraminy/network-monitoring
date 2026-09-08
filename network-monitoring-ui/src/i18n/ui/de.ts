@@ -325,6 +325,231 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'Ein lokaler Dateipfad funktioniert ebenfalls und ist die richtige Wahl, wenn dieser Host keinen ' +
     'ausgehenden Internetzugang hat.',
 
+  // --- Unterdrückungsregeln, Zustellungsstatus und Quellenzustand ---
+
+  'suppressions.state.active': 'Aktiv',
+  'suppressions.state.active_hint':
+    'Funde, die dieser Regel entsprechen, werden verworfen, bevor sie gespeichert werden.',
+  'suppressions.state.disabled': 'Aus',
+  'suppressions.state.disabled_hint':
+    'Ausgeschaltet. Passende Funde werden normal gespeichert und zugestellt.',
+  'suppressions.state.expired': 'Abgelaufen',
+  'suppressions.state.expired_hint':
+    'Der Ablauf ist überschritten, daher unterdrückt diese Regel nichts mehr. Verlängern oder ' +
+    'löschen Sie sie.',
+  'suppressions.state.invalid': 'Ungültig',
+  'suppressions.state.invalid_hint':
+    'Der Server konnte den Adressbereich dieser Regel nicht auswerten, daher trifft sie auf nichts ' +
+    'zu. Korrigieren Sie den Bereich — Funde, die Sie für unterdrückt halten, sind es nicht.',
+  'suppressions.enabled_toast': 'Regel #{id} ist an. Passende Funde werden verworfen.',
+  'suppressions.disabled_toast': 'Regel #{id} ist aus. Passende Funde werden wieder gespeichert.',
+  'suppressions.update_failed': 'Die Regel konnte nicht aktualisiert werden',
+  'suppressions.deleted_toast': 'Regel gelöscht.',
+  'suppressions.delete_failed': 'Die Regel konnte nicht gelöscht werden',
+  'suppressions.confirm_delete':
+    'Regel #{id} löschen? Ihr Nachweis über {count} ausgeblendete Funde geht mit. Ausschalten ' +
+    'behält beides.',
+  'suppressions.read_failed': 'Die Unterdrückungsregeln konnten nicht gelesen werden',
+  'suppressions.invalid_warning':
+    '{count, plural, one {# Regel kann} other {# Regeln können}} auf nichts zutreffen, daher werden ' +
+    'Funde, die Sie für unterdrückt halten, nicht unterdrückt:',
+  'suppressions.created_toast': 'Regel #{id} erstellt und in Kraft.',
+  'suppressions.updated_toast': 'Regel #{id} aktualisiert.',
+  'suppressions.added_by': ' · hinzugefügt von ',
+  'suppressions.edit_rule': 'Regel {id} bearbeiten',
+  'suppressions.switch_off_hint': 'Ausschalten — passende Funde kehren zurück',
+  'suppressions.switch_on_hint': 'Einschalten',
+  'suppressions.toggle_rule': 'Regel {id} {enabled, select, true {deaktivieren} other {aktivieren}}',
+  'suppressions.delete_rule': 'Regel {id} löschen',
+  'suppressions.in_force_count': '{count} in Kraft',
+  'suppressions.search': 'Regeln durchsuchen',
+  'suppressions.check_failed': 'Die Regel konnte nicht geprüft werden',
+  'suppressions.save_failed': 'Die Regel konnte nicht gespeichert werden',
+  'suppressions.edit_title': 'Regel #{id} bearbeiten',
+  'suppressions.new_title': 'Neue Unterdrückungsregel',
+  'suppressions.dialog_note':
+    'Ein Fund wird unterdrückt, wenn er jedem ausgefüllten Feld entspricht. Ein leeres Feld ' +
+    'bedeutet „beliebig“. Unterdrückte Funde werden verworfen, sodass nachgelagert nichts — weder ' +
+    'die Meldungsliste noch der Webhook noch der SIEM-Datenstrom — sie je zu sehen bekommt.',
+  'suppressions.cidr_placeholder': '10.20.30.40 oder 10.20.30.0/24',
+  'suppressions.checking': 'Wird geprüft…',
+  'suppressions.check_against': 'Gegen aktuelle Meldungen prüfen',
+  'suppressions.unknown_source': 'unbekannt',
+  'suppressions.saving': 'Wird gespeichert…',
+  'suppressions.save_changes': 'Änderungen speichern',
+  'suppressions.create_rule': 'Regel erstellen',
+
+  'delivery.gate.throttle_note':
+    'Derselbe Fund löst innerhalb dieses Zeitraums keine weitere Benachrichtigung aus.',
+  'delivery.gate.ceiling_note':
+    'Eine harte Obergrenze für Nachrichten pro Stunde, unabhängig von der Erkennung.',
+  'delivery.test_partial': 'An {delivered} zugestellt. Fehlgeschlagen: {failures}',
+  'delivery.test_ok': 'An {delivered} Kanal/Kanäle zugestellt. Prüfen Sie, ob jeder davon angekommen ist.',
+  'delivery.test_failed': 'Testversand fehlgeschlagen',
+  'delivery.sending': 'Wird gesendet…',
+  'delivery.send_test': 'Test senden',
+  'delivery.status_failed': 'Der Zustellungsstatus konnte nicht gelesen werden',
+  'delivery.nothing_configured':
+    'Nichts ist konfiguriert, daher werden Funde aufgezeichnet und niemand wird benachrichtigt.',
+  'delivery.nothing_configured_admin':
+    ' Legen Sie unter dem Einstellungs-Zahnrad einen Collector-Host, eine Webhook-URL oder einen ' +
+    'SMTP-Host mit Empfängern fest — keine Datei zu bearbeiten und kein Neustart.',
+  'delivery.nothing_configured_user':
+    ' Eine Administratorin oder ein Administrator kann einen Webhook, E-Mail oder einen ' +
+    'Syslog-Collector einrichten.',
+  'delivery.switched_off':
+    'Kanäle sind konfiguriert, aber die Zustellung ist ausgeschaltet, daher wird keine Meldung ' +
+    'gesendet.',
+  'delivery.switched_off_admin': ' Schalten Sie „Alarme zustellen“ unter dem Einstellungs-Zahnrad ein.',
+  'delivery.test_still_works':
+    ' Ein Testversand funktioniert weiterhin — er umgeht dies absichtlich, denn die Frage, die er ' +
+    'beantwortet, ist, ob die Zustellung Sie überhaupt erreicht.',
+  'delivery.syslog_unaffected': ' Syslog ist davon unberührt: Es ist von diesem Schalter unabhängig.',
+  'delivery.channel.webhook': 'Webhook',
+  'delivery.channel.webhook_hint': 'Slack, Teams, Discord oder einfaches JSON',
+  'delivery.channel.webhook_format': 'Format {format}',
+  'delivery.channel.email': 'E-Mail',
+  'delivery.channel.email_hint': 'SMTP-Host, Absender und mindestens ein Empfänger',
+  'delivery.channel.recipients': '{count, plural, one {# Empfänger} other {# Empfänger}}',
+  'delivery.channel.syslog': 'Syslog',
+  'delivery.channel.syslog_hint': 'Setzen Sie SYSLOG_HOST, um es einzuschalten',
+  'delivery.four_limits':
+    'Vier Grenzen greifen, bevor etwas gesendet wird. Jede davon ist auch ein Grund, warum eine ' +
+    'erwartete Meldung nicht ankam — deshalb stehen sie hier und nicht vergraben in einer ' +
+    'Konfigurationsdatei.',
+  'delivery.siem_note':
+    'Keine der Grenzen links gilt hier. Ein SIEM korreliert und dedupliziert selbst, und tut das ' +
+    'unter der Annahme, den vollständigen Ereignisstrom zu haben — eine Bündelung lässt jede Regel, ' +
+    'die Ereignisse über ein Zeitfenster zählt, stillschweigend zu wenig melden und macht ' +
+    'unterdrückte Ereignisse zu scheinbar ruhigen Phasen.',
+  'delivery.included': 'enthalten',
+  'delivery.omitted': 'weggelassen',
+  'delivery.configured': 'Konfiguriert',
+  'delivery.off': 'Aus',
+  'delivery.saved': 'Gespeichert. Die Änderung ist bereits in Kraft — kein Neustart nötig.',
+  'delivery.save_failed': 'Die Einstellungen konnten nicht gespeichert werden',
+  'delivery.tls_587':
+    'Port 587 mit implizitem TLS hängt, bis die Verbindung abläuft: 587 erwartet STARTTLS. ' +
+    'Verwenden Sie Port 465 oder schalten Sie implizites TLS aus.',
+  'delivery.tls_465':
+    'Port 465 erwartet implizites TLS ab dem ersten Byte. Schalten Sie implizites TLS ein oder ' +
+    'verwenden Sie Port 587.',
+  'delivery.all_pinned_note':
+    'Jedes geänderte Feld ist jetzt in der Umgebung gesetzt und kann nicht gespeichert werden. ' +
+    'Verwerfen Sie, um diese Änderungen zu löschen.',
+  'delivery.unsaved': '{count} nicht gespeichert',
+  'delivery.saving': 'Wird gespeichert…',
+  'delivery.save_changes': 'Änderungen speichern',
+  'delivery.pinned_note':
+    '{count, plural, one {# Einstellung ist} other {# Einstellungen sind}} in der Umgebung gesetzt ' +
+    'und können hier nicht geändert werden. Entfernen Sie die Variable aus api/.env (oder Ihrer ' +
+    'Compose-Datei), um sie von dieser Seite aus zu verwalten.',
+  'delivery.secret_stored_unused': 'gespeichert und von der aktuellen Methode nicht verwendet',
+  'delivery.secret_configured': 'konfiguriert — tippen zum Ersetzen',
+  'delivery.secret_unset': 'nicht konfiguriert',
+  'delivery.secret_unused_note':
+    'Die aktuelle Authentifizierungsmethode verwendet dies nicht. Es ist weiterhin gespeichert — ' +
+    'löschen Sie es, sofern Sie nicht zurückwechseln wollen.',
+  'delivery.set_not_set': 'Nicht gesetzt',
+  'delivery.pinned_by': 'Durch {name} gesetzt. Entfernen Sie es aus api/.env, um es hier zu bearbeiten.',
+  'delivery.the_environment': 'die Umgebung',
+  'delivery.environment': 'Umgebung',
+
+  'intel.health_failing': '{count} fehlgeschlagen',
+  'intel.health_stale': '{count} auf einer zwischengespeicherten Kopie',
+  'intel.health_ok': 'alle geladen',
+  'intel.reloaded_toast': '{count} Indikatoren aus {feeds} Quelle(n) neu geladen.',
+  'intel.reload_failed': 'Neuladen fehlgeschlagen',
+  'intel.status_failed': 'Der Status der Bedrohungsdaten konnte nicht gelesen werden',
+  'intel.no_feeds_body':
+    'Bedrohungsdaten sind eingeschaltet, aber es sind keine Quellen konfiguriert, daher wird nichts ' +
+    'abgeglichen. Setzen Sie',
+  'intel.no_feeds_tail': 'auf ein oder mehrere name=ort-Paare.',
+  'intel.failed_feeds':
+    '{count, plural, one {# Quelle konnte} other {# Quellen konnten}} überhaupt nicht geladen ' +
+    'werden: {names}. Deren Indikatoren werden nicht abgeglichen.',
+  'intel.stale_feeds':
+    '{count, plural, one {# Quelle ist} other {# Quellen sind}} auf eine zwischengespeicherte Kopie ' +
+    'zurückgefallen: {names}. Die Erkennung funktioniert weiterhin, aber diese Indikatoren sind nur ' +
+    'so aktuell wie der letzte erfolgreiche Download.',
+  'intel.search': 'Quellen durchsuchen',
+
+  // --- Prüfprotokoll, Meldungen und Konsole ---
+
+  'audit.empty_failed':
+    'Das Protokoll konnte nicht gelesen werden — das ist also keine Aussage darüber, dass nichts ' +
+    'geschehen ist.',
+  'audit.empty_none':
+    'Es wurde noch nichts gelöscht, geändert oder umgeleitet. Einträge erscheinen hier, sobald es ' +
+    'so weit ist.',
+  'audit.empty_for_action': 'Keine Einträge für diese Aktion.',
+  'audit.admin_only':
+    'Das Prüfprotokoll ist für Administratoren sichtbar. Es hält fest, wer etwas gelöscht, ' +
+    'geändert oder umgeleitet hat, und nennt Konten.',
+  'audit.filter_by_action': 'Nach Aktion filtern',
+  'audit.load_failed': 'Das Prüfprotokoll konnte nicht geladen werden',
+  'audit.actions_failed':
+    'Die Aktionsliste konnte nicht geladen werden — das Filtern nach Aktion ist nicht verfügbar',
+  'audit.loading_more': 'Wird geladen…',
+  'audit.load_older': 'Ältere Einträge laden',
+
+  'alerts.load_failed': 'Die Meldungen konnten nicht geladen werden',
+  'alerts.summary_failed': 'Die Meldungsübersicht konnte nicht geladen werden',
+  'alerts.update_failed': 'Die Meldung konnte nicht aktualisiert werden',
+  'alerts.delete_failed': 'Die Meldung konnte nicht gelöscht werden',
+  'alerts.delete_finding': 'Fund {id} löschen',
+  'alerts.this_sensor': ' (dieser)',
+  'alerts.empty_body':
+    'Keine Funde entsprechen diesen Filtern. Eine leere Liste während einer Aufzeichnung bedeutet, ' +
+    'dass die Prüfungen nichts Verdächtiges gesehen haben — das erwartete Ergebnis in einem ' +
+    'gesunden Netz.',
+  'alerts.yes': 'ja',
+  'alerts.no': 'nein',
+  'alerts.evidence_more': '{shown} und {count} weitere',
+
+  'adhoc.admin_only': 'Die Abfragekonsole steht nur Administratoren zur Verfügung.',
+  'adhoc.availability_failed':
+    'Der Server konnte nicht gefragt werden, ob die Abfragekonsole verfügbar ist. {detail}',
+  'adhoc.hide_query': 'Abfrage ausblenden',
+  'adhoc.show_query': 'Abfrage anzeigen',
+  'adhoc.running': 'Läuft',
+  'adhoc.run': 'Ausführen',
+  'adhoc.shortcut_note':
+    'Strg/Cmd + Enter führt ebenfalls aus. Schreibzugriffe und die Spalten mit Geheimnissen werden ' +
+    'von der Datenbank abgelehnt, nicht von dieser Seite.',
+  'adhoc.rows_affected': '{command} — {count, plural, one {# Zeile} other {# Zeilen}} betroffen in {ms} ms',
+  'adhoc.rows_in': '{count, plural, one {# Zeile} other {# Zeilen}} in {ms} ms',
+
+  'packets.search': 'Pakete durchsuchen',
+  'packets.frame_data': 'Frame-Daten ({bytes} Bytes)',
+  'packets.no_frame_data': 'Keine Frame-Daten aufgezeichnet',
+  'packets.padding': 'Ethernet-Auffüllung ({bytes} Bytes)',
+  'packets.no_padding': 'Keine Auffüllung in diesem Frame',
+  'packets.waiting': 'Warte auf Pakete…',
+  'packets.none_yet':
+    'Noch keine Pakete aufgezeichnet. Wählen Sie eine Schnittstelle und starten Sie eine ' + 'Aufzeichnung.',
+  'capture.start_failed': 'Die Aufzeichnung konnte nicht gestartet werden',
+  'capture.stop_failed': 'Die Aufzeichnung konnte nicht gestoppt werden',
+  'capture.clear_failed': 'Die aufgezeichneten Pakete konnten nicht geleert werden',
+  'capture.interfaces_failed': 'Die Netzwerkschnittstellen konnten nicht geladen werden',
+  'capture.packets_failed': 'Die aufgezeichneten Pakete konnten nicht abgerufen werden',
+  'capture.filter_chip': 'Filter: {filter}',
+  'capture.findings_chip': '{count, plural, one {# Fund} other {# Funde}} — Meldungen ansehen',
+
+  'ipinfo.postal_code': 'Postleitzahl',
+  'ipinfo.timezone': 'Zeitzone',
+  'ipinfo.isp': 'ISP',
+  'ipinfo.organization': 'Organisation',
+  'ipinfo.lookup_of_failed': '{ipAddress} konnte nicht abgefragt werden',
+  'login.failed': 'Anmeldung fehlgeschlagen',
+  'signup.create_failed': 'Das Konto konnte nicht erstellt werden',
+  'signup.min_length': 'Mindestens {count} Zeichen',
+  'signup.mismatch': 'Die Passwörter stimmen nicht überein',
+  'signup.on_the_server': 'auf dem Server.',
+  'common.account': 'Konto',
+  'common.nothing_to_show': 'Nichts anzuzeigen.',
+  'common.something_wrong': 'Etwas ist schiefgelaufen',
+
   // --- Administrationsmenü ---
 
   'admin.group.database': 'Datenbank',

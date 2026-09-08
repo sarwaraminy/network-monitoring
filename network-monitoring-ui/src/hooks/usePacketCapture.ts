@@ -11,6 +11,7 @@ import {
   stopCapture,
 } from '../api/packets.api';
 import { ALERTS_ROOT_KEY, queryKeys } from '../api/queryClient';
+import { useT } from '../i18n/ui';
 
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const POLL_INTERVAL_MS =
@@ -29,6 +30,7 @@ export const DEFAULT_TIMEOUT_MS = 10;
  * it keeps showing the last good data instead of blanking on a transient failure.
  */
 export function usePacketCapture(scope: CaptureScope) {
+  const t = useT();
   const client = useQueryClient();
 
   const [selectedInterface, setSelectedInterface] = useState('');
@@ -86,7 +88,7 @@ export function usePacketCapture(scope: CaptureScope) {
       client.setQueryData(queryKeys.captureStatus(scope), status);
       void refreshAll();
     },
-    onError: (error) => setActionError(describeError(error, 'Could not start the capture')),
+    onError: (error) => setActionError(describeError(error, t('capture.start_failed'))),
   });
 
   const stopMutation = useMutation({
@@ -97,7 +99,7 @@ export function usePacketCapture(scope: CaptureScope) {
       void client.invalidateQueries({ queryKey: ALERTS_ROOT_KEY });
       void refreshAll();
     },
-    onError: (error) => setActionError(describeError(error, 'Could not stop the capture')),
+    onError: (error) => setActionError(describeError(error, t('capture.stop_failed'))),
   });
 
   const clearMutation = useMutation({
@@ -106,7 +108,7 @@ export function usePacketCapture(scope: CaptureScope) {
       client.setQueryData(queryKeys.packets(scope), []);
       void refreshAll();
     },
-    onError: (error) => setActionError(describeError(error, 'Could not clear the captured packets')),
+    onError: (error) => setActionError(describeError(error, t('capture.clear_failed'))),
   });
 
   const busy = startMutation.isPending || stopMutation.isPending || clearMutation.isPending;
@@ -114,10 +116,8 @@ export function usePacketCapture(scope: CaptureScope) {
   // The first load error that matters, whichever query hit it, plus any failed action.
   const error =
     actionError ||
-    (interfacesQuery.error
-      ? describeError(interfacesQuery.error, 'Could not load network interfaces')
-      : '') ||
-    (packetsQuery.error ? describeError(packetsQuery.error, 'Could not fetch captured packets') : '');
+    (interfacesQuery.error ? describeError(interfacesQuery.error, t('capture.interfaces_failed')) : '') ||
+    (packetsQuery.error ? describeError(packetsQuery.error, t('capture.packets_failed')) : '');
 
   const canStart =
     !capturing && !busy && selectedInterface !== '' && (scope !== 'filtered-ip' || filterIp.trim() !== '');

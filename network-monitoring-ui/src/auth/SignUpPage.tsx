@@ -109,7 +109,7 @@ export default function SignUpPage() {
       // account has nowhere to go but /login.
       navigate(isAdmin ? '/dashboard' : '/login', { replace: true });
     } catch (error) {
-      setErrorMessage(describeError(error, 'Could not create the account'));
+      setErrorMessage(describeError(error, t('signup.create_failed')));
     } finally {
       setSubmitting(false);
     }
@@ -153,7 +153,8 @@ export default function SignUpPage() {
         <CardContent>
           <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
             {t('signup.ask_admin')}{' '}
-            <code>npm run user -- create --email you@example.com --generate --role ADMIN</code> on the server.
+            <code>npm run user -- create --email you@example.com --generate --role ADMIN</code>{' '}
+            {t('signup.on_the_server')}
           </Typography>
           <Button variant="contained" onClick={() => navigate('/login')}>
             {t('signup.back_to_sign_in')}
@@ -200,7 +201,7 @@ export default function SignUpPage() {
                   onChange={(event) => update('password', event.target.value)}
                   autoComplete="new-password"
                   error={passwordTooShort}
-                  helperText={passwordTooShort ? `At least ${MIN_PASSWORD_LENGTH} characters` : ' '}
+                  helperText={passwordTooShort ? t('signup.min_length', { count: MIN_PASSWORD_LENGTH }) : ' '}
                   fullWidth
                   required
                 />
@@ -213,7 +214,7 @@ export default function SignUpPage() {
                   onChange={(event) => setConfirmPassword(event.target.value)}
                   autoComplete="new-password"
                   error={passwordsDiffer}
-                  helperText={passwordsDiffer ? 'Passwords do not match' : ' '}
+                  helperText={passwordsDiffer ? t('signup.mismatch') : ' '}
                   fullWidth
                   required
                 />

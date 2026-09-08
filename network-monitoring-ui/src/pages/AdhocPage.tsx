@@ -18,7 +18,6 @@ import QueryConsoleStatus from '../components/admin/QueryConsoleStatus';
 import DataGrid from '../components/DataGrid';
 import { DisclosureCaret } from '../components/DisclosureCaret';
 import SurfaceCard from '../components/SurfaceCard';
-import { useFormatters } from '../i18n/format';
 import { useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 
@@ -68,7 +67,6 @@ function renderCell(value: unknown): string {
 
 export default function AdhocPage() {
   const t = useT();
-  const fmt = useFormatters();
   const [sql, setSql] = useState('');
   const [result, setResult] = useState<AdhocResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -184,8 +182,8 @@ export default function AdhocPage() {
       <SurfaceCard title={t('nav.adhoc')} titleComponent="h1" titleVariant="h5">
         <Alert severity={forbidden ? 'info' : 'error'}>
           {forbidden
-            ? 'The query console is available to administrators only.'
-            : `The server could not be asked whether the query console is available. ${describeError(availability.error)}`}
+            ? t('adhoc.admin_only')
+            : t('adhoc.availability_failed', { detail: describeError(availability.error) })}
         </Alert>
       </SurfaceCard>
     );
@@ -218,7 +216,7 @@ export default function AdhocPage() {
           <IconButton
             size="small"
             onClick={() => setShowEditor((open) => !open)}
-            aria-label={showEditor ? 'Hide the query' : 'Show the query'}
+            aria-label={showEditor ? t('adhoc.hide_query') : t('adhoc.show_query')}
             aria-expanded={showEditor}
             // Points at what it opens, so the state it announces describes
             // something real — the rule the sidebar's rail button is held to.
@@ -279,11 +277,10 @@ export default function AdhocPage() {
               onClick={() => void run()}
               disabled={running || sql.trim() === ''}
             >
-              {running ? 'Running' : 'Run'}
+              {running ? t('adhoc.running') : t('adhoc.run')}
             </Button>
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Ctrl/Cmd + Enter also runs. Writes and the columns holding secrets are refused by the database,
-              not by this page.
+              {t('adhoc.shortcut_note')}
             </Typography>
           </Stack>
 
@@ -310,8 +307,11 @@ export default function AdhocPage() {
       */}
       {result?.rowsAffected !== undefined && (
         <Alert severity="success" sx={{ '& .MuiAlert-message': monoSx }}>
-          {result.command} — {fmt.number(result.rowsAffected)} {result.rowsAffected === 1 ? 'row' : 'rows'}{' '}
-          affected in {result.durationMs} ms
+          {t('adhoc.rows_affected', {
+            command: result.command,
+            count: result.rowsAffected,
+            ms: result.durationMs,
+          })}
         </Alert>
       )}
 
@@ -322,7 +322,7 @@ export default function AdhocPage() {
           headerActions={
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                {result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'} in {result.durationMs} ms
+                {t('adhoc.rows_in', { count: result.rows.length, ms: result.durationMs })}
               </Typography>
               {/*
                 Said plainly rather than implied by a round number. Reading a

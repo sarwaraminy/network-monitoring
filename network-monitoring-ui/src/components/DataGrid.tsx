@@ -16,6 +16,7 @@ import type { ReactNode } from 'react';
 import { useLocale } from '../contexts/LocaleContext';
 import useViewportFitHeight from '../hooks/useViewportFitHeight';
 import { useFormatters } from '../i18n/format';
+import { useT } from '../i18n/ui';
 import { sharedTableOptions } from '../tableTheme';
 import { GRID_METRICS, SURFACE } from '../theme';
 import GridPagination from './GridPagination';
@@ -255,7 +256,7 @@ function DataGridBase({
   columns,
   data,
   isLoading = false,
-  emptyMessage = 'Nothing to show.',
+  emptyMessage,
   disableFitHeight = false,
   fallbackMaxHeight = '55vh',
   fitHeightDeps = [],
@@ -276,6 +277,7 @@ function DataGridBase({
    * for the scheme that is actually showing.
    */
   const { locale } = useLocale();
+  const t = useT();
   const { mode, systemMode } = useColorScheme();
   const resolved = mode === 'system' ? systemMode : mode;
   const scheme = resolved === 'dark' ? 'dark' : 'light';
@@ -363,7 +365,7 @@ function DataGridBase({
       (() => (
         <Box sx={{ py: 6, textAlign: 'center' }}>
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            {emptyMessage}
+            {emptyMessage ?? t('common.nothing_to_show')}
           </Typography>
         </Box>
       )),

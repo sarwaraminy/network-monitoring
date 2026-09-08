@@ -124,20 +124,20 @@ export default function PacketTable({
   );
 
   const tableOptions = {
-    muiSearchTextFieldProps: { placeholder: 'Search packets', sx: { minWidth: 240 } },
+    muiSearchTextFieldProps: { placeholder: t('packets.search'), sx: { minWidth: 240 } },
     renderDetailPanel: ({ row }) => (
       <Stack spacing={2} sx={{ px: 1, py: 1.5, maxWidth: 900 }}>
         <Box>
           <Typography variant="subtitle2" gutterBottom>
-            Frame data ({hexByteCount(row.original.dataHexStream)} bytes)
+            {t('packets.frame_data', { bytes: hexByteCount(row.original.dataHexStream) })}
           </Typography>
-          <HexDump hexStream={row.original.dataHexStream} emptyLabel="No frame data captured" />
+          <HexDump hexStream={row.original.dataHexStream} emptyLabel={t('packets.no_frame_data')} />
         </Box>
         <Box>
           <Typography variant="subtitle2" gutterBottom>
-            Ethernet padding ({hexByteCount(row.original.ethernetPadHexStream)} bytes)
+            {t('packets.padding', { bytes: hexByteCount(row.original.ethernetPadHexStream) })}
           </Typography>
-          <HexDump hexStream={row.original.ethernetPadHexStream} emptyLabel="No padding on this frame" />
+          <HexDump hexStream={row.original.ethernetPadHexStream} emptyLabel={t('packets.no_padding')} />
         </Box>
       </Stack>
     ),
@@ -176,9 +176,7 @@ export default function PacketTable({
             color: 'text.secondary',
           }}
         >
-          {capturing
-            ? 'Waiting for packets…'
-            : 'No packets captured yet. Choose an interface and start a capture.'}
+          {capturing ? t('packets.waiting') : t('packets.none_yet')}
         </Typography>
       </Box>
     ),

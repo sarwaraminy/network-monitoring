@@ -26,7 +26,7 @@ import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
 import { useFormatters } from '../i18n/format';
-import { type UiMessageKey, useT } from '../i18n/ui';
+import { type Translate, type UiMessageKey, useT } from '../i18n/ui';
 import type { IntelFeedOrigin, IntelFeedStatus } from '../types';
 
 /**
@@ -67,10 +67,10 @@ const ORIGIN: Record<
   },
 };
 /** The one-line summary under the feed count: the worst state, named. */
-function feedHealthCaption(failed: number, stale: number): string {
-  if (failed > 0) return `${failed} failing`;
-  if (stale > 0) return `${stale} on a cached copy`;
-  return 'all loaded';
+function feedHealthCaption(failed: number, stale: number, t: Translate): string {
+  if (failed > 0) return t('intel.health_failing', { count: failed });
+  if (stale > 0) return t('intel.health_stale', { count: stale });
+  return t('intel.health_ok');
 }
 
 /**
@@ -113,7 +113,7 @@ export default function ThreatIntelPage() {
       const loaded = result.sources.filter((feed) => feed.from !== 'failed').length;
       setMessage({
         severity: 'success',
-        text: `Reloaded ${result.indicators.toLocaleString()} indicators from ${loaded} feed(s).`,
+        text: t('intel.reloaded_toast', { count: fmt.number(result.indicators), feeds: loaded }),
       });
       void queryClient.invalidateQueries({ queryKey: ['intel', 'status'] });
     },
@@ -121,7 +121,7 @@ export default function ThreatIntelPage() {
       // The server distinguishes "already running" from "every source failed",
       // and both leave the previous indicators in place. Saying so matters —
       // otherwise a failed reload reads as "no indicators".
-      setMessage({ severity: 'error', text: describeError(error, 'Reload failed') });
+      setMessage({ severity: 'error', text: describeError(error, t('intel.reload_failed')) });
     },
   });
 
@@ -153,9 +153,7 @@ export default function ThreatIntelPage() {
       />
 
       {status.error && (
-        <Alert severity="error">
-          {describeError(status.error, 'Could not read threat-intelligence status')}
-        </Alert>
+        <Alert severity="error">{describeError(status.error, t('intel.status_failed'))}</Alert>
       )}
 
       {message && (
@@ -168,11 +166,11 @@ export default function ThreatIntelPage() {
 
       {!loading && data?.enabled && data.sources.length === 0 && (
         <Alert severity="warning">
-          Threat intelligence is enabled but no feeds are configured, so nothing is being matched. Set
+          {t('intel.no_feeds_body')}
           <Box component="code" sx={{ mx: 0.75 }}>
             INTEL_FEEDS
           </Box>
-          to one or more <Box component="code">name=location</Box> pairs.
+          {t('intel.no_feeds_tail')}
         </Alert>
       )}
 
@@ -183,16 +181,19 @@ export default function ThreatIntelPage() {
       */}
       {failedFeeds.length > 0 && (
         <Alert severity="error">
-          {failedFeeds.length} feed{failedFeeds.length === 1 ? '' : 's'} could not be loaded at all:{' '}
-          {failedFeeds.map((feed) => feed.name).join(', ')}. Those indicators are not being matched.
+          {t('intel.failed_feeds', {
+            count: failedFeeds.length,
+            names: failedFeeds.map((feed) => feed.name).join(', '),
+          })}
         </Alert>
       )}
 
       {failedFeeds.length === 0 && staleFeeds.length > 0 && (
         <Alert severity="warning">
-          {staleFeeds.length} feed{staleFeeds.length === 1 ? '' : 's'} fell back to a cached copy:{' '}
-          {staleFeeds.map((feed) => feed.name).join(', ')}. Detection still works, but these indicators are
-          only as fresh as the last successful download.
+          {t('intel.stale_feeds', {
+            count: staleFeeds.length,
+            names: staleFeeds.map((feed) => feed.name).join(', '),
+          })}
         </Alert>
       )}
 
@@ -211,7 +212,7 @@ export default function ThreatIntelPage() {
           <StatTile
             label={t('intel.feeds')}
             value={data?.sources.length ?? 0}
-            caption={feedHealthCaption(failedFeeds.length, staleFeeds.length)}
+            caption={feedHealthCaption(failedFeeds.length, staleFeeds.length, t)}
             icon={<CloudDoneOutlinedIcon />}
             accent={failedFeeds.length > 0 ? palette.severity.critical : undefined}
             loading={loading}
@@ -397,7 +398,7 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
           enableFullScreenToggle: false,
           enableHiding: false,
           initialState: { density: 'comfortable', sorting: [{ id: 'from', desc: false }] },
-          muiSearchTextFieldProps: { placeholder: 'Search feeds', sx: { minWidth: 180 } },
+          muiSearchTextFieldProps: { placeholder: t('intel.search'), sx: { minWidth: 180 } },
           muiTableBodyRowProps: ({ row }) => ({
             sx: {
               // The left edge the alerts table uses for severity, in the colour

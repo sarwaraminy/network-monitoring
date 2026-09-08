@@ -278,7 +278,13 @@ export default function CaptureToolbar({
           {status?.linkType && (
             <Chip size="small" variant="outlined" label={t('capture.link_type', { type: status.linkType })} />
           )}
-          {status?.filter && <Chip size="small" variant="outlined" label={`Filter: ${status.filter}`} />}
+          {status?.filter && (
+            <Chip
+              size="small"
+              variant="outlined"
+              label={t('capture.filter_chip', { filter: status.filter })}
+            />
+          )}
           {status && status.findingCount > 0 && (
             <Chip
               size="small"
@@ -287,7 +293,7 @@ export default function CaptureToolbar({
               component={RouterLink}
               to="/alerts"
               clickable
-              label={`${status.findingCount} finding${status.findingCount === 1 ? '' : 's'} — view alerts`}
+              label={t('capture.findings_chip', { count: status.findingCount })}
             />
           )}
           {status && status.droppedPackets > 0 && (

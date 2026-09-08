@@ -311,6 +311,208 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'intel.local_file_note':
     'مسیر یک پروندهٔ محلی نیز کار می‌کند و انتخاب درست برای میزبانی است که اینترنت خروجی ندارد.',
 
+  // --- قواعد سرکوب، وضعیت تحویل و سلامت خوراک‌ها ---
+
+  'suppressions.state.active': 'فعال',
+  'suppressions.state.active_hint': 'یافته‌های همخوان با این قاعده پیش از ذخیره‌شدن دور انداخته می‌شوند.',
+  'suppressions.state.disabled': 'خاموش',
+  'suppressions.state.disabled_hint': 'خاموش است. یافته‌های همخوان مانند همیشه ذخیره و تحویل می‌شوند.',
+  'suppressions.state.expired': 'منقضی',
+  'suppressions.state.expired_hint':
+    'زمان انقضا گذشته است، پس این قاعده دیگر چیزی را سرکوب نمی‌کند. آن را تمدید یا حذف کنید.',
+  'suppressions.state.invalid': 'نامعتبر',
+  'suppressions.state.invalid_hint':
+    'سرور نتوانست بازهٔ نشانی این قاعده را تجزیه کند، پس با هیچ‌چیز همخوان نیست. بازه را ویرایش ' +
+    'کنید — یافته‌هایی که گمان می‌کنید سرکوب شده‌اند، نشده‌اند.',
+  'suppressions.enabled_toast': 'قاعدهٔ #{id} روشن است. یافته‌های همخوان دور انداخته می‌شوند.',
+  'suppressions.disabled_toast': 'قاعدهٔ #{id} خاموش است. یافته‌های همخوان دوباره ذخیره می‌شوند.',
+  'suppressions.update_failed': 'قاعده به‌روز نشد',
+  'suppressions.deleted_toast': 'قاعده حذف شد.',
+  'suppressions.delete_failed': 'قاعده حذف نشد',
+  'suppressions.confirm_delete':
+    'قاعدهٔ #{id} حذف شود؟ سابقهٔ {count} یافتهٔ پنهان‌شدهٔ آن هم می‌رود. خاموش‌کردن هر دو را ' + 'نگه می‌دارد.',
+  'suppressions.read_failed': 'قواعد سرکوب خوانده نشد',
+  'suppressions.invalid_warning':
+    '{count, plural, one {# قاعده} other {# قاعده}} نمی‌تواند با چیزی همخوان شود، پس یافته‌هایی که ' +
+    'گمان می‌کنید سرکوب شده‌اند سرکوب نمی‌شوند:',
+  'suppressions.created_toast': 'قاعدهٔ #{id} ساخته شد و در اثر است.',
+  'suppressions.updated_toast': 'قاعدهٔ #{id} به‌روز شد.',
+  'suppressions.added_by': ' · افزوده‌شده توسط ',
+  'suppressions.edit_rule': 'ویرایش قاعدهٔ {id}',
+  'suppressions.switch_off_hint': 'خاموش کنید — یافته‌های همخوان بازمی‌گردند',
+  'suppressions.switch_on_hint': 'روشن کنید',
+  'suppressions.toggle_rule': '{enabled, select, true {غیرفعال‌کردن} other {فعال‌کردن}} قاعدهٔ {id}',
+  'suppressions.delete_rule': 'حذف قاعدهٔ {id}',
+  'suppressions.in_force_count': '{count} در اثر',
+  'suppressions.search': 'جست‌وجوی قواعد',
+  'suppressions.check_failed': 'قاعده بررسی نشد',
+  'suppressions.save_failed': 'قاعده ذخیره نشد',
+  'suppressions.edit_title': 'ویرایش قاعدهٔ #{id}',
+  'suppressions.new_title': 'قاعدهٔ سرکوب تازه',
+  'suppressions.dialog_note':
+    'یک یافته زمانی سرکوب می‌شود که با هر میدانی که پر می‌کنید همخوان باشد. میدان خالی یعنی «هر ' +
+    'چیزی». یافته‌های سرکوب‌شده دور انداخته می‌شوند، پس هیچ‌چیز در پایین‌دست — فهرست هشدارها، ' +
+    'وب‌هوک، جریان SIEM — هرگز آن‌ها را نمی‌بیند.',
+  'suppressions.cidr_placeholder': '10.20.30.40 یا 10.20.30.0/24',
+  'suppressions.checking': 'در حال بررسی…',
+  'suppressions.check_against': 'بررسی در برابر هشدارهای اخیر',
+  'suppressions.unknown_source': 'ناشناخته',
+  'suppressions.saving': 'در حال ذخیره…',
+  'suppressions.save_changes': 'ذخیرهٔ تغییرات',
+  'suppressions.create_rule': 'ساختن قاعده',
+
+  'delivery.gate.throttle_note': 'همان یافته درون این بازه دوباره اطلاع‌رسانی نمی‌کند.',
+  'delivery.gate.ceiling_note': 'سقفی قطعی برای پیام در ساعت، هر چه شناسایی انجام دهد.',
+  'delivery.test_partial': 'به {delivered} تحویل شد. ناکام: {failures}',
+  'delivery.test_ok': 'به {delivered} کانال تحویل شد. بررسی کنید که هر یک رسیده باشد.',
+  'delivery.test_failed': 'ارسال آزمایشی ناکام ماند',
+  'delivery.sending': 'در حال ارسال…',
+  'delivery.send_test': 'ارسال آزمایشی',
+  'delivery.status_failed': 'وضعیت تحویل خوانده نشد',
+  'delivery.nothing_configured': 'هیچ‌چیز پیکربندی نشده، پس یافته‌ها ثبت می‌شوند و به کسی گفته نمی‌شود.',
+  'delivery.nothing_configured_admin':
+    ' زیر چرخ‌دندهٔ تنظیمات یک میزبان گردآورنده، یک نشانی وب‌هوک، یا یک میزبان SMTP با گیرندگان ' +
+    'تعیین کنید — نه پرونده‌ای برای ویرایش و نه راه‌اندازی دوباره.',
+  'delivery.nothing_configured_user': ' یک مدیر می‌تواند وب‌هوک، ایمیل یا گردآورندهٔ syslog را پیکربندی کند.',
+  'delivery.switched_off': 'کانال‌ها پیکربندی شده‌اند اما تحویل خاموش است، پس هیچ هشداری فرستاده نمی‌شود.',
+  'delivery.switched_off_admin': ' «تحویل هشدارها» را زیر چرخ‌دندهٔ تنظیمات روشن کنید.',
+  'delivery.test_still_works':
+    ' ارسال آزمایشی همچنان کار می‌کند — به‌عمد از این می‌گذرد، چون پرسشی که پاسخ می‌دهد این است ' +
+    'که آیا تحویل اصلاً به شما می‌رسد.',
+  'delivery.syslog_unaffected': ' syslog تحت تأثیر نیست: از این کلید مستقل است.',
+  'delivery.channel.webhook': 'وب‌هوک',
+  'delivery.channel.webhook_hint': 'Slack، Teams، Discord یا JSON ساده',
+  'delivery.channel.webhook_format': 'قالب {format}',
+  'delivery.channel.email': 'ایمیل',
+  'delivery.channel.email_hint': 'میزبان SMTP، فرستنده و دست‌کم یک گیرنده',
+  'delivery.channel.recipients': '{count, plural, one {# گیرنده} other {# گیرنده}}',
+  'delivery.channel.syslog': 'Syslog',
+  'delivery.channel.syslog_hint': 'برای روشن‌کردن، SYSLOG_HOST را تنظیم کنید',
+  'delivery.four_limits':
+    'پیش از فرستادن هر چیزی، چهار حد اعمال می‌شود. هر یک از آن‌ها دلیلی است برای اینکه چرا هشداری ' +
+    'که انتظارش را داشتید نرسید — و برای همین اینجا هستند، نه دفن‌شده در یک پروندهٔ پیکربندی.',
+  'delivery.siem_note':
+    'هیچ‌یک از حدهای سمت چپ اینجا اعمال نمی‌شود. یک SIEM خودش همبستگی می‌سازد و تکرارها را حذف ' +
+    'می‌کند، و این کار را با این فرض انجام می‌دهد که جریان کامل رویدادها را دارد — خلاصه‌سازی باعث ' +
+    'می‌شود هر قاعده‌ای که رویدادها را در یک بازه می‌شمارد خاموشانه کمتر گزارش دهد، و رویدادهای ' +
+    'سرکوب‌شده را به دوره‌هایی به‌ظاهر آرام تبدیل می‌کند.',
+  'delivery.included': 'گنجانده‌شده',
+  'delivery.omitted': 'حذف‌شده',
+  'delivery.configured': 'پیکربندی‌شده',
+  'delivery.off': 'خاموش',
+  'delivery.saved': 'ذخیره شد. تغییر هم‌اکنون در اثر است — نیازی به راه‌اندازی دوباره نیست.',
+  'delivery.save_failed': 'تنظیمات ذخیره نشد',
+  'delivery.tls_587':
+    'درگاه ۵۸۷ با TLS ضمنی تا پایان مهلت اتصال معلق می‌ماند: ۵۸۷ انتظار STARTTLS دارد. از درگاه ' +
+    '۴۶۵ استفاده کنید، یا TLS ضمنی را خاموش کنید.',
+  'delivery.tls_465':
+    'درگاه ۴۶۵ از نخستین بایت انتظار TLS ضمنی دارد. TLS ضمنی را روشن کنید، یا از درگاه ۵۸۷ ' +
+    'استفاده کنید.',
+  'delivery.all_pinned_note':
+    'هر میدان تغییریافته اکنون در محیط تنظیم شده و ذخیره نمی‌شود. برای پاک‌کردن این ویرایش‌ها ' +
+    'دور بیندازید.',
+  'delivery.unsaved': '{count} ذخیره‌نشده',
+  'delivery.saving': 'در حال ذخیره…',
+  'delivery.save_changes': 'ذخیرهٔ تغییرات',
+  'delivery.pinned_note':
+    '{count, plural, one {# تنظیم} other {# تنظیم}} در محیط تعیین شده و اینجا تغییرپذیر نیست. ' +
+    'برای مدیریت از این صفحه، متغیر را از api/.env (یا پروندهٔ Compose خود) بردارید.',
+  'delivery.secret_stored_unused': 'ذخیره‌شده، و روش کنونی از آن استفاده نمی‌کند',
+  'delivery.secret_configured': 'پیکربندی‌شده — برای جایگزینی تایپ کنید',
+  'delivery.secret_unset': 'پیکربندی‌نشده',
+  'delivery.secret_unused_note':
+    'روش احراز هویت کنونی از این استفاده نمی‌کند. هنوز ذخیره شده است — مگر آنکه قصد بازگشت ' +
+    'دارید، آن را پاک کنید.',
+  'delivery.set_not_set': 'تنظیم‌نشده',
+  'delivery.pinned_by': 'توسط {name} تنظیم شده. برای ویرایش اینجا، آن را از api/.env بردارید.',
+  'delivery.the_environment': 'محیط',
+  'delivery.environment': 'محیط',
+
+  'intel.health_failing': '{count} ناکام',
+  'intel.health_stale': '{count} روی نسخهٔ ذخیره‌شده',
+  'intel.health_ok': 'همه بارگذاری شد',
+  'intel.reloaded_toast': '{count} نشانگر از {feeds} خوراک دوباره بارگیری شد.',
+  'intel.reload_failed': 'بارگیری دوباره ناکام ماند',
+  'intel.status_failed': 'وضعیت اطلاعات تهدید خوانده نشد',
+  'intel.no_feeds_body':
+    'اطلاعات تهدید روشن است اما هیچ خوراکی پیکربندی نشده، پس چیزی تطبیق داده نمی‌شود. تنظیم کنید',
+  'intel.no_feeds_tail': 'به یک یا چند جفت نام=مکان.',
+  'intel.failed_feeds':
+    '{count, plural, one {# خوراک} other {# خوراک}} اصلاً بارگذاری نشد: {names}. نشانگرهای آن‌ها ' +
+    'تطبیق داده نمی‌شوند.',
+  'intel.stale_feeds':
+    '{count, plural, one {# خوراک} other {# خوراک}} به نسخهٔ ذخیره‌شده بازگشت: {names}. شناسایی ' +
+    'همچنان کار می‌کند، اما این نشانگرها تنها به تازگی آخرین دانلود موفق‌اند.',
+  'intel.search': 'جست‌وجوی خوراک‌ها',
+
+  // --- رد حسابرسی، هشدارها و کنسول ---
+
+  'audit.empty_failed': 'رد حسابرسی خوانده نشد، پس این به معنای آن نیست که چیزی رخ نداده است.',
+  'audit.empty_none':
+    'هنوز چیزی حذف، تغییر یا تغییرمسیر نشده است. به‌محض اینکه چنین شود، ورودی‌ها اینجا نمایان ' + 'می‌شوند.',
+  'audit.empty_for_action': 'برای این کنش ورودی‌ای نیست.',
+  'audit.admin_only':
+    'رد حسابرسی برای مدیران دیدنی است. ثبت می‌کند چه کسی چه چیزی را حذف، تغییر یا تغییرمسیر داده ' +
+    'و نام حساب‌ها را می‌آورد.',
+  'audit.filter_by_action': 'پالایش بر پایهٔ کنش',
+  'audit.load_failed': 'رد حسابرسی بارگیری نشد',
+  'audit.actions_failed': 'فهرست کنش‌ها بارگیری نشد — پالایش بر پایهٔ کنش در دسترس نیست',
+  'audit.loading_more': 'در حال بارگیری…',
+  'audit.load_older': 'بارگیری ورودی‌های قدیمی‌تر',
+
+  'alerts.load_failed': 'هشدارها بارگیری نشد',
+  'alerts.summary_failed': 'خلاصهٔ هشدارها بارگیری نشد',
+  'alerts.update_failed': 'هشدار به‌روز نشد',
+  'alerts.delete_failed': 'هشدار حذف نشد',
+  'alerts.delete_finding': 'حذف یافتهٔ {id}',
+  'alerts.this_sensor': ' (همین یکی)',
+  'alerts.empty_body':
+    'هیچ یافته‌ای با این پالایه‌ها همخوان نیست. فهرست خالی در هنگام ضبط یعنی آشکارسازها چیز ' +
+    'مشکوکی ندیده‌اند — که در یک شبکهٔ سالم نتیجهٔ مورد انتظار است.',
+  'alerts.yes': 'بله',
+  'alerts.no': 'نه',
+  'alerts.evidence_more': '{shown} و {count} مورد دیگر',
+
+  'adhoc.admin_only': 'کنسول پرس‌وجو تنها در دسترس مدیران است.',
+  'adhoc.availability_failed': 'نشد از سرور پرسید که آیا کنسول پرس‌وجو در دسترس است. {detail}',
+  'adhoc.hide_query': 'پنهان‌کردن پرس‌وجو',
+  'adhoc.show_query': 'نمایش پرس‌وجو',
+  'adhoc.running': 'در حال اجرا',
+  'adhoc.run': 'اجرا',
+  'adhoc.shortcut_note':
+    'Ctrl/Cmd + Enter هم اجرا می‌کند. نوشتن و ستون‌های دارای رازها را پایگاه داده رد می‌کند، نه ' + 'این صفحه.',
+  'adhoc.rows_affected': '{command} — {count, plural, one {# ردیف} other {# ردیف}} در {ms} ms',
+  'adhoc.rows_in': '{count, plural, one {# ردیف} other {# ردیف}} در {ms} ms',
+
+  'packets.search': 'جست‌وجوی بسته‌ها',
+  'packets.frame_data': 'دادهٔ فریم ({bytes} بایت)',
+  'packets.no_frame_data': 'هیچ دادهٔ فریمی ضبط نشد',
+  'packets.padding': 'پرکنندهٔ اترنت ({bytes} بایت)',
+  'packets.no_padding': 'این فریم پرکننده ندارد',
+  'packets.waiting': 'در انتظار بسته‌ها…',
+  'packets.none_yet': 'هنوز بسته‌ای ضبط نشده. یک رابط برگزینید و ضبط را آغاز کنید.',
+  'capture.start_failed': 'ضبط آغاز نشد',
+  'capture.stop_failed': 'ضبط متوقف نشد',
+  'capture.clear_failed': 'بسته‌های ضبط‌شده پاک نشد',
+  'capture.interfaces_failed': 'رابط‌های شبکه بارگیری نشد',
+  'capture.packets_failed': 'بسته‌های ضبط‌شده دریافت نشد',
+  'capture.filter_chip': 'پالایه: {filter}',
+  'capture.findings_chip': '{count, plural, one {# یافته} other {# یافته}} — دیدن هشدارها',
+
+  'ipinfo.postal_code': 'کد پستی',
+  'ipinfo.timezone': 'منطقهٔ زمانی',
+  'ipinfo.isp': 'ISP',
+  'ipinfo.organization': 'سازمان',
+  'ipinfo.lookup_of_failed': 'جست‌وجوی {ipAddress} ناکام ماند',
+  'login.failed': 'ورود ناکام ماند',
+  'signup.create_failed': 'حساب ساخته نشد',
+  'signup.min_length': 'دست‌کم {count} نویسه',
+  'signup.mismatch': 'رمزها یکسان نیستند',
+  'signup.on_the_server': 'روی سرور.',
+  'common.account': 'حساب',
+  'common.nothing_to_show': 'چیزی برای نمایش نیست.',
+  'common.something_wrong': 'چیزی خطا رفت',
+
   // --- منوی مدیریت ---
 
   'admin.group.database': 'پایگاه داده',

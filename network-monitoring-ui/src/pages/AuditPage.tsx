@@ -17,7 +17,7 @@ import { useAuditActions, useAuditEvents } from '../hooks/useAudit';
 import { findingText } from '../i18n/findings';
 import { useFormatters } from '../i18n/format';
 import type { Locale } from '../i18n/generated/locales';
-import { useT } from '../i18n/ui';
+import { type Translate, useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 import type { AuditEvent } from '../types';
 
@@ -122,11 +122,13 @@ function DetailCell({ detail }: { detail: Record<string, unknown> }) {
  * something was deleted that nothing had been, next to a message saying the check
  * failed. Of the two ways for this page to be wrong, that is the worse one.
  */
-function emptyMessage(action: string, failed: boolean): string {
-  if (failed) return 'The trail could not be read, so this is not a statement that nothing happened.';
-  return action === ''
-    ? 'Nothing has been deleted, changed or redirected yet. Entries appear here as soon as something is.'
-    : 'No entries for this action.';
+function emptyMessage(action: string, failed: boolean, t: Translate): string {
+  // The failed branch is the one that has to translate. It exists so an operator
+  // checking whether something was deleted does not read a failed load as
+  // "nothing was", and a reader who cannot parse the sentence loses exactly that
+  // distinction — an empty table and an error they cannot read.
+  if (failed) return t('audit.empty_failed');
+  return action === '' ? t('audit.empty_none') : t('audit.empty_for_action');
 }
 
 export default function AuditPage() {
@@ -207,10 +209,7 @@ export default function AuditPage() {
   if (!isAdmin) {
     return (
       <SurfaceCard title={t('audit.title')} titleComponent="h1" titleVariant="h5">
-        <Alert severity="info">
-          The audit trail is visible to administrators. It records who deleted, changed or redirected things,
-          and it names accounts.
-        </Alert>
+        <Alert severity="info">{t('audit.admin_only')}</Alert>
       </SurfaceCard>
     );
   }
@@ -229,7 +228,7 @@ export default function AuditPage() {
           value={action}
           onChange={(event) => setAction(event.target.value)}
           sx={{ minWidth: 230 }}
-          slotProps={{ htmlInput: { 'aria-label': 'Filter by action' } }}
+          slotProps={{ htmlInput: { 'aria-label': t('audit.filter_by_action') } }}
         >
           <MenuItem value="">{t('common.all_actions')}</MenuItem>
           {(actions.data ?? []).map((option) => (
@@ -242,7 +241,7 @@ export default function AuditPage() {
     >
       {trail.isError && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {describeError(trail.error, 'Could not load the audit trail')}
+          {describeError(trail.error, t('audit.load_failed'))}
         </Alert>
       )}
       {/*
@@ -254,10 +253,7 @@ export default function AuditPage() {
        */}
       {!trail.isError && actions.isError && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          {describeError(
-            actions.error,
-            'Could not load the list of actions — filtering by action is unavailable',
-          )}
+          {describeError(actions.error, t('audit.actions_failed'))}
         </Alert>
       )}
 
@@ -265,7 +261,7 @@ export default function AuditPage() {
         columns={columns}
         data={events}
         isLoading={trail.isPending}
-        emptyMessage={emptyMessage(action, trail.isError)}
+        emptyMessage={emptyMessage(action, trail.isError, t)}
         tableOptions={{
           // `data` is only the pages fetched so far, not the whole trail — MRT's
           // global search box and column sorting both operate client-side on that
@@ -287,7 +283,7 @@ export default function AuditPage() {
             onClick={() => void trail.fetchNextPage()}
             disabled={trail.isFetchingNextPage}
           >
-            {trail.isFetchingNextPage ? 'Loading…' : 'Load older entries'}
+            {trail.isFetchingNextPage ? t('audit.loading_more') : t('audit.load_older')}
           </Button>
         </Stack>
       )}

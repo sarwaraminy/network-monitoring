@@ -16,7 +16,7 @@ interface Props {
   height?: number;
   /** Names the quantity, since a single-series chart carries no legend. */
   valueLabel: string;
-  emptyMessage?: string;
+  emptyMessage: string;
   /**
    * True when the category labels are technical identifiers — IP addresses,
    * detector kinds — rather than prose.
@@ -51,7 +51,7 @@ export default function MagnitudeBarChart({
   data,
   height = 260,
   valueLabel,
-  emptyMessage = 'Nothing to show yet.',
+  emptyMessage,
   labelsAreIdentifiers = false,
 }: Props) {
   const palette = useChartPalette();

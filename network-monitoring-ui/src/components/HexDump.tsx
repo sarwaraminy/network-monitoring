@@ -12,13 +12,7 @@ const BYTES_PER_ROW = 16;
  * The old table put the entire stream into one cell, which for a 65 KB snapshot
  * length meant a ~196 000 character string per row.
  */
-export default function HexDump({
-  hexStream,
-  emptyLabel = 'No data',
-}: {
-  hexStream: string;
-  emptyLabel?: string;
-}) {
+export default function HexDump({ hexStream, emptyLabel }: { hexStream: string; emptyLabel: string }) {
   const rows = useMemo(() => toRows(hexStream), [hexStream]);
 
   if (rows.length === 0) {

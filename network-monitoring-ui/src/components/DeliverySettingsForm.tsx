@@ -381,12 +381,12 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
         for (const key of Object.keys(patch)) delete next[key];
         return next;
       });
-      setMessage({ severity: 'success', text: 'Saved. The change is already in force — no restart needed.' });
+      setMessage({ severity: 'success', text: t('delivery.saved') });
     },
     onError: (error) => {
       // The server's own message is the useful one: it names a pinned field, or the
       // bound a number missed.
-      setMessage({ severity: 'error', text: describeError(error, 'Could not save the settings') });
+      setMessage({ severity: 'error', text: describeError(error, t('delivery.save_failed')) });
     },
   });
 
@@ -399,10 +399,10 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
     const port = Number(currentValue('emailPort', 'number'));
 
     if (secure && port === 587) {
-      return 'Port 587 with implicit TLS on will hang until the socket times out: 587 expects STARTTLS. Use port 465, or turn implicit TLS off.';
+      return t('delivery.tls_587');
     }
     if (!secure && port === 465) {
-      return 'Port 465 expects implicit TLS from the first byte. Turn implicit TLS on, or use port 587.';
+      return t('delivery.tls_465');
     }
     return null;
   })();
@@ -469,7 +469,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
     // is still showing, and nothing else on screen changes.
     setMessage({
       severity: 'error',
-      text: 'Every changed field is now set in the environment and cannot be saved. Discard to clear these edits.',
+      text: t('delivery.all_pinned_note'),
     });
   };
 
@@ -520,7 +520,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           {changedFields.length > 0 && (
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              {changedFields.length} unsaved
+              {t('delivery.unsaved', { count: changedFields.length })}
             </Typography>
           )}
           <Button
@@ -536,7 +536,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
             onClick={submit}
             disabled={changedFields.length === 0 || save.isPending}
           >
-            {save.isPending ? 'Saving…' : 'Save changes'}
+            {save.isPending ? t('delivery.saving') : t('delivery.save_changes')}
           </Button>
         </Stack>
       }
@@ -566,10 +566,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
 
       {pinned.size > 0 && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          {pinned.size} setting{pinned.size === 1 ? ' is' : 's are'} set in the environment and cannot be
-          changed here. Remove the variable from <Box component="code">api/.env</Box> (or your Compose file)
-          to manage it from this page — deployments that pin their configuration in a file are meant to keep
-          that guarantee.
+          {t('delivery.pinned_note', { count: pinned.size })}
         </Alert>
       )}
 
@@ -655,16 +652,12 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
                             }
                             placeholder={
                               stranded
-                                ? 'stored, and not used by the current method'
+                                ? t('delivery.secret_stored_unused')
                                 : state?.configured
-                                  ? 'configured — type to replace'
-                                  : 'not configured'
+                                  ? t('delivery.secret_configured')
+                                  : t('delivery.secret_unset')
                             }
-                            helperText={
-                              stranded
-                                ? 'The current authentication method does not use this. It is still stored — clear it unless you plan to switch back.'
-                                : helper
-                            }
+                            helperText={stranded ? t('delivery.secret_unused_note') : helper}
                           />
                           {state?.configured && !isPinned && (
                             <Button
@@ -681,7 +674,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
                             size="small"
                             variant="outlined"
                             color={state?.configured ? 'success' : 'default'}
-                            label={state?.configured ? 'Configured' : 'Not set'}
+                            label={state?.configured ? t('delivery.configured') : t('delivery.set_not_set')}
                           />
                           {isPinned && <PinnedChip name={ENV_NAMES[field.key]} />}
                         </Stack>
@@ -734,8 +727,9 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
 }
 
 function PinnedChip({ name }: Readonly<{ name?: string }>) {
+  const t = useT();
   return (
-    <Tooltip title={`Set by ${name ?? 'the environment'}. Remove it from api/.env to edit this here.`}>
+    <Tooltip title={t('delivery.pinned_by', { name: name ?? t('delivery.the_environment') })}>
       {/*
         Wraps rather than truncates: a narrow field's column is well short of
         SYSLOG_INCLUDE_EVIDENCE, and a chip that ellipsizes the one thing an admin
@@ -745,7 +739,7 @@ function PinnedChip({ name }: Readonly<{ name?: string }>) {
         size="small"
         variant="outlined"
         icon={<LockOutlinedIcon sx={{ fontSize: 14 }} />}
-        label={name ?? 'environment'}
+        label={name ?? t('delivery.environment')}
         sx={{
           height: 'auto',
           maxWidth: '100%',

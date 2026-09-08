@@ -70,7 +70,7 @@ export default function LoginPage() {
       await login(email, password);
       navigate(redirectTo, { replace: true });
     } catch (error) {
-      setErrorMessage(describeError(error, 'Login failed'));
+      setErrorMessage(describeError(error, t('login.failed')));
     } finally {
       setSubmitting(false);
     }

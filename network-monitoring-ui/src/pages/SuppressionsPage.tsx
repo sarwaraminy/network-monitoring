@@ -36,11 +36,12 @@ import {
   updateSuppression,
 } from '../api/suppressions.api';
 import DataGrid, { numericColumn } from '../components/DataGrid';
+import { KIND_LABEL } from '../components/SeverityChip';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
 import { useFormatters } from '../i18n/format';
-import { type Translate, useT } from '../i18n/ui';
+import { type Translate, type UiMessageKey, useT } from '../i18n/ui';
 import { ALERT_KINDS, type AlertKind, type SuppressionDraft, type SuppressionRule } from '../types';
 
 /**
@@ -69,29 +70,27 @@ type RuleState = 'active' | 'disabled' | 'expired' | 'invalid';
 
 const STATE: Record<
   RuleState,
-  { label: string; color: 'success' | 'default' | 'warning' | 'error'; hint: string }
+  { labelKey: UiMessageKey; color: 'success' | 'default' | 'warning' | 'error'; hintKey: UiMessageKey }
 > = {
   active: {
-    label: 'Active',
+    labelKey: 'suppressions.state.active',
     color: 'success',
-    hint: 'Findings matching this rule are being dropped before they are stored.',
+    hintKey: 'suppressions.state.active_hint',
   },
   disabled: {
-    label: 'Off',
+    labelKey: 'suppressions.state.disabled',
     color: 'default',
-    hint: 'Switched off. Findings that match are stored and delivered as normal.',
+    hintKey: 'suppressions.state.disabled_hint',
   },
   expired: {
-    label: 'Expired',
+    labelKey: 'suppressions.state.expired',
     color: 'warning',
-    hint: 'The expiry has passed, so this rule no longer suppresses anything. Extend it or delete it.',
+    hintKey: 'suppressions.state.expired_hint',
   },
   invalid: {
-    label: 'Invalid',
+    labelKey: 'suppressions.state.invalid',
     color: 'error',
-    hint:
-      'The server could not parse this rule’s address range, so it matches nothing at all. ' +
-      'Edit the range — findings you believe are suppressed are not.',
+    hintKey: 'suppressions.state.invalid_hint',
   },
 };
 
@@ -115,8 +114,21 @@ const ROW_EDGE: Record<RuleState, string> = {
   invalid: 'error.main',
 };
 
-/** `port_scan` reads as "Port scan" in a table; the wire value stays in the filter. */
-function kindLabel(kind: string): string {
+/**
+ * A detector's name, as a person reads it.
+ *
+ * `KIND_LABEL` first — the same keyed map the alerts table renders, so the two
+ * screens cannot disagree about what `port_scan` is called. This used to
+ * un-snake-case mechanically into "Port scan", which is correct English and
+ * untranslatable, and duplicated a list that had already been keyed.
+ *
+ * The mechanical form stays as the fallback for a kind the catalogue has not
+ * heard of, which is what keeps a detector added later rendering as words.
+ */
+function kindLabel(kind: string, t: Translate): string {
+  const keyed = KIND_LABEL[kind as AlertKind];
+  if (keyed) return t(keyed);
+
   const spaced = kind.replace(/_/g, ' ');
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
@@ -124,7 +136,7 @@ function kindLabel(kind: string): string {
 /** One line describing what a rule covers, in the order an operator reads it. */
 function describeRule(rule: SuppressionRule, t: Translate): string {
   const parts: string[] = [];
-  parts.push(rule.kind ? kindLabel(rule.kind) : t('suppressions.any_finding'));
+  parts.push(rule.kind ? kindLabel(rule.kind, t) : t('suppressions.any_finding'));
   if (rule.sourceCidr) parts.push(t('suppressions.rule_from', { cidr: rule.sourceCidr }));
   if (rule.targetCidr) parts.push(t('suppressions.rule_to', { cidr: rule.targetCidr }));
   if (rule.port !== null) parts.push(t('suppressions.rule_port', { port: rule.port }));
@@ -143,6 +155,7 @@ const EMPTY_DRAFT: SuppressionDraft = {
 
 export default function SuppressionsPage() {
   const t = useT();
+  const fmt = useFormatters();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const queryClient = useQueryClient();
@@ -168,23 +181,23 @@ export default function SuppressionsPage() {
       setMessage({
         severity: 'success',
         text: updated.enabled
-          ? `Rule #${updated.id} is on. Matching findings are being dropped.`
-          : `Rule #${updated.id} is off. Matching findings will be stored again.`,
+          ? t('suppressions.enabled_toast', { id: updated.id })
+          : t('suppressions.disabled_toast', { id: updated.id }),
       });
       refresh();
     },
     onError: (error) =>
-      setMessage({ severity: 'error', text: describeError(error, 'Could not update the rule') }),
+      setMessage({ severity: 'error', text: describeError(error, t('suppressions.update_failed')) }),
   });
 
   const remove = useMutation({
     mutationFn: (rule: SuppressionRule) => deleteSuppression(rule.id),
     onSuccess: () => {
-      setMessage({ severity: 'success', text: 'Rule deleted.' });
+      setMessage({ severity: 'success', text: t('suppressions.deleted_toast') });
       refresh();
     },
     onError: (error) =>
-      setMessage({ severity: 'error', text: describeError(error, 'Could not delete the rule') }),
+      setMessage({ severity: 'error', text: describeError(error, t('suppressions.delete_failed')) }),
   });
 
   const handleEdit = useCallback((rule: SuppressionRule) => setEditing({ rule }), []);
@@ -195,13 +208,16 @@ export default function SuppressionsPage() {
       // count, which is the only record of what the rule hid.
       if (
         window.confirm(
-          `Delete rule #${rule.id}? Its record of ${rule.matchCount.toLocaleString()} hidden findings goes with it. Switching it off keeps both.`,
+          t('suppressions.confirm_delete', {
+            id: rule.id,
+            count: fmt.number(rule.matchCount),
+          }),
         )
       ) {
         remove.mutate(rule);
       }
     },
-    [remove],
+    [remove, t, fmt],
   );
 
   const rules = listing.data?.rules ?? [];
@@ -241,7 +257,7 @@ export default function SuppressionsPage() {
       />
 
       {listing.error && (
-        <Alert severity="error">{describeError(listing.error, 'Could not read the suppression rules')}</Alert>
+        <Alert severity="error">{describeError(listing.error, t('suppressions.read_failed'))}</Alert>
       )}
 
       {message && (
@@ -258,8 +274,7 @@ export default function SuppressionsPage() {
       */}
       {invalid.size > 0 && (
         <Alert severity="error">
-          {invalid.size} rule{invalid.size === 1 ? '' : 's'} cannot match anything, so findings you believe
-          are suppressed are not being suppressed:
+          {t('suppressions.invalid_warning', { count: invalid.size })}
           <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
             {[...invalid].map(([id, reason]) => (
               <li key={id}>
@@ -275,7 +290,7 @@ export default function SuppressionsPage() {
           <StatTile
             label={t('suppressions.rules')}
             value={rules.length}
-            caption={`${inForce} in force`}
+            caption={t('suppressions.in_force_count', { count: inForce })}
             icon={<RuleFolderOutlinedIcon />}
             loading={listing.isPending}
           />
@@ -328,7 +343,9 @@ export default function SuppressionsPage() {
             setEditing(null);
             setMessage({
               severity: 'success',
-              text: created ? `Rule #${saved.id} created and in force.` : `Rule #${saved.id} updated.`,
+              text: created
+                ? t('suppressions.created_toast', { id: saved.id })
+                : t('suppressions.updated_toast', { id: saved.id }),
             });
             refresh();
           }}
@@ -376,7 +393,9 @@ function RuleTable({
               {describeRule(row.original, t)}
             </Typography>
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-              #{row.original.id} · added by {row.original.createdBy}
+              #{row.original.id}
+              {t('suppressions.added_by')}
+              {row.original.createdBy}
             </Typography>
           </>
         ),
@@ -395,18 +414,18 @@ function RuleTable({
         id: 'state',
         header: t('suppressions.state'),
         size: 130,
-        accessorFn: (rule) => STATE[ruleState(rule, invalid, now)].label,
+        accessorFn: (rule) => t(STATE[ruleState(rule, invalid, now)].labelKey),
         filterVariant: 'select',
         // Built explicitly, or MRT faces the raw accessor values and the dropdown
         // drifts from what the chips say.
-        filterSelectOptions: Object.values(STATE).map((state) => state.label),
+        filterSelectOptions: Object.values(STATE).map((state) => t(state.labelKey)),
         Cell: ({ row }) => {
           const state = STATE[ruleState(row.original, invalid, now)];
           // The server's own reason beats the generic hint when there is one.
           const reason = invalid.get(row.original.id);
           return (
-            <Tooltip title={reason ? `${reason}. ${state.hint}` : state.hint}>
-              <Chip size="small" variant="outlined" color={state.color} label={state.label} />
+            <Tooltip title={reason ? `${reason}. ${t(state.hintKey)}` : t(state.hintKey)}>
+              <Chip size="small" variant="outlined" color={state.color} label={t(state.labelKey)} />
             </Tooltip>
           );
         },
@@ -476,14 +495,20 @@ function RuleTable({
           return (
             <Stack direction="row" spacing={0.5}>
               <Tooltip title={t('suppressions.edit')}>
-                <IconButton size="small" aria-label={`Edit rule ${rule.id}`} onClick={() => onEdit(rule)}>
+                <IconButton
+                  size="small"
+                  aria-label={t('suppressions.edit_rule', { id: rule.id })}
+                  onClick={() => onEdit(rule)}
+                >
                   <EditOutlinedIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <Tooltip title={rule.enabled ? 'Switch off — matching findings return' : 'Switch on'}>
+              <Tooltip
+                title={rule.enabled ? t('suppressions.switch_off_hint') : t('suppressions.switch_on_hint')}
+              >
                 <IconButton
                   size="small"
-                  aria-label={`${rule.enabled ? 'Disable' : 'Enable'} rule ${rule.id}`}
+                  aria-label={t('suppressions.toggle_rule', { enabled: String(rule.enabled), id: rule.id })}
                   onClick={() => onToggle(rule)}
                 >
                   {rule.enabled ? (
@@ -494,7 +519,11 @@ function RuleTable({
                 </IconButton>
               </Tooltip>
               <Tooltip title={t('suppressions.delete')}>
-                <IconButton size="small" aria-label={`Delete rule ${rule.id}`} onClick={() => onDelete(rule)}>
+                <IconButton
+                  size="small"
+                  aria-label={t('suppressions.delete_rule', { id: rule.id })}
+                  onClick={() => onDelete(rule)}
+                >
                   <DeleteOutlineIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
@@ -525,7 +554,7 @@ function RuleTable({
           // this table by anything else is fine for reading, but the default has to
           // be the real one or "first match wins" means nothing on screen.
           initialState: { density: 'comfortable', sorting: [{ id: 'covers', desc: false }] },
-          muiSearchTextFieldProps: { placeholder: 'Search rules', sx: { minWidth: 180 } },
+          muiSearchTextFieldProps: { placeholder: t('suppressions.search'), sx: { minWidth: 180 } },
           muiTableBodyRowProps: ({ row }) => ({
             sx: {
               borderLeft: '4px solid',
@@ -589,7 +618,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
         targetCidr: draft.targetCidr,
         port: draft.port,
       }),
-    onError: (mutationError) => setError(describeError(mutationError, 'Could not check the rule')),
+    onError: (mutationError) => setError(describeError(mutationError, t('suppressions.check_failed'))),
   });
 
   const save = useMutation({
@@ -597,17 +626,20 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
     onSuccess: (saved) => onSaved(saved, rule === null),
     // Server-side messages are the useful ones here — they name the field and say
     // how to write a range — so they are shown verbatim rather than replaced.
-    onError: (mutationError) => setError(describeError(mutationError, 'Could not save the rule')),
+    onError: (mutationError) => setError(describeError(mutationError, t('suppressions.save_failed'))),
   });
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>{rule ? `Edit rule #${rule.id}` : 'New suppression rule'}</DialogTitle>
+      <DialogTitle>
+        {rule ? t('suppressions.edit_title', { id: rule.id }) : t('suppressions.new_title')}
+      </DialogTitle>
       <DialogContent>
         <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
-          A finding is suppressed when it matches <strong>every</strong> field you fill in. Leave a field
-          empty to mean "any". Suppressed findings are dropped, so nothing downstream — the alert list, the
-          webhook, the SIEM feed — will ever see them.
+          {/* One key rather than fragments around the <strong>: splitting a
+              sentence to keep emphasis freezes English word order into every
+              other language. */}
+          {t('suppressions.dialog_note')}
         </Typography>
 
         {error && (
@@ -628,7 +660,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
             <MenuItem value="">{t('common.any_kind')}</MenuItem>
             {ALERT_KINDS.map((kind) => (
               <MenuItem key={kind} value={kind}>
-                {kindLabel(kind)}
+                {kindLabel(kind, t)}
               </MenuItem>
             ))}
           </TextField>
@@ -640,7 +672,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
               fullWidth
               value={draft.sourceCidr ?? ''}
               onChange={(event) => set('sourceCidr', event.target.value.trim() || null)}
-              placeholder="10.20.30.40 or 10.20.30.0/24"
+              placeholder={t('suppressions.cidr_placeholder')}
               helperText={t('suppressions.source_helper')}
             />
             <TextField
@@ -705,7 +737,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
               disabled={!hasCriterion || preview.isPending}
               onClick={() => preview.mutate()}
             >
-              {preview.isPending ? 'Checking…' : 'Check against recent alerts'}
+              {preview.isPending ? t('suppressions.checking') : t('suppressions.check_against')}
             </Button>
 
             {preview.data && (
@@ -738,7 +770,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
                   <Box sx={{ mt: 1 }}>
                     {preview.data.samples.slice(0, 5).map((sample) => (
                       <Typography key={sample.id} variant="caption" sx={{ display: 'block' }}>
-                        {kindLabel(sample.kind)} · {sample.sourceIp ?? 'unknown'}
+                        {kindLabel(sample.kind, t)} · {sample.sourceIp ?? t('suppressions.unknown_source')}
                         {sample.targetIp ? ` → ${sample.targetIp}` : ''} · {fmt.number(sample.occurrences)}
                         \u00d7
                       </Typography>
@@ -761,7 +793,11 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
           // the operator is not told off after typing a reason.
           disabled={save.isPending || !hasCriterion || draft.reason.trim().length < 3}
         >
-          {save.isPending ? 'Saving…' : rule ? 'Save changes' : 'Create rule'}
+          {save.isPending
+            ? t('suppressions.saving')
+            : rule
+              ? t('suppressions.save_changes')
+              : t('suppressions.create_rule')}
         </Button>
       </DialogActions>
     </Dialog>

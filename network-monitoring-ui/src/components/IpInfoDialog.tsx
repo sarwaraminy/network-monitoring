@@ -176,11 +176,11 @@ function GeoTable({ geo }: Readonly<{ geo: GeoData }>) {
     [t('ipinfo.country'), geo.country],
     [t('ipinfo.region'), geo.regionName],
     [t('ipinfo.city'), geo.city],
-    ['Postal code', geo.zip],
+    [t('ipinfo.postal_code'), geo.zip],
     [t('ipinfo.coordinates'), formatCoordinates(geo)],
-    ['Timezone', geo.timezone],
-    ['ISP', geo.isp],
-    ['Organization', geo.org],
+    [t('ipinfo.timezone'), geo.timezone],
+    [t('ipinfo.isp'), geo.isp],
+    [t('ipinfo.organization'), geo.org],
     ['AS', geo.as],
   ];
 

@@ -327,6 +327,212 @@ export const UI_EN = {
   'intel.local_file_note':
     'A local file path works too, and is the right choice where this host has no outbound internet.',
 
+  // --- Suppression rules, delivery status and feed health ---
+
+  'suppressions.state.active': 'Active',
+  'suppressions.state.active_hint': 'Findings matching this rule are being dropped before they are stored.',
+  'suppressions.state.disabled': 'Off',
+  'suppressions.state.disabled_hint': 'Switched off. Findings that match are stored and delivered as normal.',
+  'suppressions.state.expired': 'Expired',
+  'suppressions.state.expired_hint':
+    'The expiry has passed, so this rule no longer suppresses anything. Extend it or delete it.',
+  'suppressions.state.invalid': 'Invalid',
+  'suppressions.state.invalid_hint':
+    'The server could not parse this rule’s address range, so it matches nothing at all. Edit the ' +
+    'range — findings you believe are suppressed are not.',
+  'suppressions.enabled_toast': 'Rule #{id} is on. Matching findings are being dropped.',
+  'suppressions.disabled_toast': 'Rule #{id} is off. Matching findings will be stored again.',
+  'suppressions.update_failed': 'Could not update the rule',
+  'suppressions.deleted_toast': 'Rule deleted.',
+  'suppressions.delete_failed': 'Could not delete the rule',
+  'suppressions.confirm_delete':
+    'Delete rule #{id}? Its record of {count} hidden findings goes with it. Switching it off keeps ' +
+    'both.',
+  'suppressions.read_failed': 'Could not read the suppression rules',
+  'suppressions.invalid_warning':
+    '{count, plural, one {# rule} other {# rules}} cannot match anything, so findings you believe ' +
+    'are suppressed are not being suppressed:',
+  'suppressions.created_toast': 'Rule #{id} created and in force.',
+  'suppressions.updated_toast': 'Rule #{id} updated.',
+  'suppressions.added_by': ' · added by ',
+  'suppressions.edit_rule': 'Edit rule {id}',
+  'suppressions.switch_off_hint': 'Switch off — matching findings return',
+  'suppressions.switch_on_hint': 'Switch on',
+  'suppressions.toggle_rule': '{enabled, select, true {Disable} other {Enable}} rule {id}',
+  'suppressions.delete_rule': 'Delete rule {id}',
+  'suppressions.in_force_count': '{count} in force',
+  'suppressions.search': 'Search rules',
+  'suppressions.check_failed': 'Could not check the rule',
+  'suppressions.save_failed': 'Could not save the rule',
+  'suppressions.edit_title': 'Edit rule #{id}',
+  'suppressions.new_title': 'New suppression rule',
+  'suppressions.dialog_note':
+    'A finding is suppressed when it matches every field you fill in. Leave a field empty to mean ' +
+    '"any". Suppressed findings are dropped, so nothing downstream — the alert list, the webhook, ' +
+    'the SIEM feed — will ever see them.',
+  'suppressions.cidr_placeholder': '10.20.30.40 or 10.20.30.0/24',
+  'suppressions.checking': 'Checking…',
+  'suppressions.check_against': 'Check against recent alerts',
+  'suppressions.unknown_source': 'unknown',
+  'suppressions.saving': 'Saving…',
+  'suppressions.save_changes': 'Save changes',
+  'suppressions.create_rule': 'Create rule',
+
+  'delivery.gate.throttle_note': 'The same finding will not notify again inside this window.',
+  'delivery.gate.ceiling_note': 'A hard limit on messages per hour, whatever detection does.',
+  'delivery.test_partial': 'Delivered to {delivered}. Failed: {failures}',
+  'delivery.test_ok': 'Delivered to {delivered} channel(s). Check that each one arrived.',
+  'delivery.test_failed': 'Test send failed',
+  'delivery.sending': 'Sending…',
+  'delivery.send_test': 'Send test',
+  'delivery.status_failed': 'Could not read delivery status',
+  'delivery.nothing_configured': 'Nothing is configured, so findings are recorded and nobody is told.',
+  'delivery.nothing_configured_admin':
+    ' Set a collector host, a webhook URL, or an SMTP host with recipients under the settings gear ' +
+    '— no file to edit and no restart.',
+  'delivery.nothing_configured_user':
+    ' An administrator can configure a webhook, email or a syslog collector.',
+  'delivery.switched_off': 'Channels are configured but delivery is switched off, so no alert will be sent.',
+  'delivery.switched_off_admin': ' Turn on "Deliver alerts" under the settings gear.',
+  'delivery.test_still_works':
+    ' A test send still works — it deliberately bypasses this, since the question it answers is ' +
+    'whether delivery reaches you at all.',
+  'delivery.syslog_unaffected': ' Syslog is unaffected: it is independent of this switch.',
+  'delivery.channel.webhook': 'Webhook',
+  'delivery.channel.webhook_hint': 'Slack, Teams, Discord or plain JSON',
+  'delivery.channel.webhook_format': '{format} format',
+  'delivery.channel.email': 'Email',
+  'delivery.channel.email_hint': 'SMTP host, sender and at least one recipient',
+  'delivery.channel.recipients': '{count, plural, one {# recipient} other {# recipients}}',
+  'delivery.channel.syslog': 'Syslog',
+  'delivery.channel.syslog_hint': 'Set SYSLOG_HOST to switch it on',
+  'delivery.four_limits':
+    'Four limits apply before anything is sent. Each one is also a reason an alert you expected did ' +
+    'not arrive, which is why they are here rather than buried in a config file.',
+  'delivery.siem_note':
+    'None of the limits on the left apply here. A SIEM correlates and deduplicates itself, and it ' +
+    'does so assuming it holds the complete event stream — a digest makes every rule that counts ' +
+    'events over a window silently under-report, and turns suppressed events into what look like ' +
+    'quiet periods.',
+  'delivery.included': 'included',
+  'delivery.omitted': 'omitted',
+  'delivery.configured': 'Configured',
+  'delivery.off': 'Off',
+  'delivery.saved': 'Saved. The change is already in force — no restart needed.',
+  'delivery.save_failed': 'Could not save the settings',
+  'delivery.tls_587':
+    'Port 587 with implicit TLS on will hang until the socket times out: 587 expects STARTTLS. Use ' +
+    'port 465, or turn implicit TLS off.',
+  'delivery.tls_465':
+    'Port 465 expects implicit TLS from the first byte. Turn implicit TLS on, or use port 587.',
+  'delivery.all_pinned_note':
+    'Every changed field is now set in the environment and cannot be saved. Discard to clear these ' +
+    'edits.',
+  'delivery.unsaved': '{count} unsaved',
+  'delivery.saving': 'Saving…',
+  'delivery.save_changes': 'Save changes',
+  'delivery.pinned_note':
+    '{count, plural, one {# setting is} other {# settings are}} set in the environment and cannot ' +
+    'be changed here. Remove the variable from api/.env (or your Compose file) to manage it from ' +
+    'this page.',
+  'delivery.secret_stored_unused': 'stored, and not used by the current method',
+  'delivery.secret_configured': 'configured — type to replace',
+  'delivery.secret_unset': 'not configured',
+  'delivery.secret_unused_note':
+    'The current authentication method does not use this. It is still stored — clear it unless you ' +
+    'plan to switch back.',
+  'delivery.set_not_set': 'Not set',
+  'delivery.pinned_by': 'Set by {name}. Remove it from api/.env to edit this here.',
+  'delivery.the_environment': 'the environment',
+  'delivery.environment': 'environment',
+
+  'intel.health_failing': '{count} failing',
+  'intel.health_stale': '{count} on a cached copy',
+  'intel.health_ok': 'all loaded',
+  'intel.reloaded_toast': 'Reloaded {count} indicators from {feeds} feed(s).',
+  'intel.reload_failed': 'Reload failed',
+  'intel.status_failed': 'Could not read threat-intelligence status',
+  'intel.no_feeds_body':
+    'Threat intelligence is enabled but no feeds are configured, so nothing is being matched. Set',
+  'intel.no_feeds_tail': 'to one or more name=location pairs.',
+  'intel.failed_feeds':
+    '{count, plural, one {# feed} other {# feeds}} could not be loaded at all: {names}. Those ' +
+    'indicators are not being matched.',
+  'intel.stale_feeds':
+    '{count, plural, one {# feed} other {# feeds}} fell back to a cached copy: {names}. Detection ' +
+    'still works, but these indicators are only as fresh as the last successful download.',
+  'intel.search': 'Search feeds',
+
+  // --- Audit trail, alerts and console: the last prose ---
+
+  'audit.empty_failed': 'The trail could not be read, so this is not a statement that nothing happened.',
+  'audit.empty_none':
+    'Nothing has been deleted, changed or redirected yet. Entries appear here as soon as ' + 'something is.',
+  'audit.empty_for_action': 'No entries for this action.',
+  'audit.admin_only':
+    'The audit trail is visible to administrators. It records who deleted, changed or redirected ' +
+    'things, and it names accounts.',
+  'audit.filter_by_action': 'Filter by action',
+  'audit.load_failed': 'Could not load the audit trail',
+  'audit.actions_failed': 'Could not load the list of actions — filtering by action is unavailable',
+  'audit.loading_more': 'Loading…',
+  'audit.load_older': 'Load older entries',
+
+  'alerts.load_failed': 'Could not load alerts',
+  'alerts.summary_failed': 'Could not load the alert summary',
+  'alerts.update_failed': 'Could not update the alert',
+  'alerts.delete_failed': 'Could not delete the alert',
+  'alerts.delete_finding': 'Delete finding {id}',
+  'alerts.this_sensor': ' (this one)',
+  'alerts.empty_body':
+    'No findings match these filters. An empty list during a capture means the detectors saw ' +
+    'nothing suspicious — which is the expected result on a healthy network.',
+  'alerts.yes': 'yes',
+  'alerts.no': 'no',
+  'alerts.evidence_more': '{shown}, and {count} more',
+
+  'adhoc.admin_only': 'The query console is available to administrators only.',
+  'adhoc.availability_failed':
+    'The server could not be asked whether the query console is available. {detail}',
+  'adhoc.hide_query': 'Hide the query',
+  'adhoc.show_query': 'Show the query',
+  'adhoc.running': 'Running',
+  'adhoc.run': 'Run',
+  'adhoc.shortcut_note':
+    'Ctrl/Cmd + Enter also runs. Writes and the columns holding secrets are refused by the ' +
+    'database, not by this page.',
+  'adhoc.rows_affected': '{command} — {count, plural, one {# row} other {# rows}} affected in {ms} ms',
+  'adhoc.rows_in': '{count, plural, one {# row} other {# rows}} in {ms} ms',
+
+  'packets.search': 'Search packets',
+  'packets.frame_data': 'Frame data ({bytes} bytes)',
+  'packets.no_frame_data': 'No frame data captured',
+  'packets.padding': 'Ethernet padding ({bytes} bytes)',
+  'packets.no_padding': 'No padding on this frame',
+  'packets.waiting': 'Waiting for packets…',
+  'packets.none_yet': 'No packets captured yet. Choose an interface and start a capture.',
+  'capture.start_failed': 'Could not start the capture',
+  'capture.stop_failed': 'Could not stop the capture',
+  'capture.clear_failed': 'Could not clear the captured packets',
+  'capture.interfaces_failed': 'Could not load network interfaces',
+  'capture.packets_failed': 'Could not fetch captured packets',
+  'capture.filter_chip': 'Filter: {filter}',
+  'capture.findings_chip': '{count, plural, one {# finding} other {# findings}} — view alerts',
+
+  'ipinfo.postal_code': 'Postal code',
+  'ipinfo.timezone': 'Timezone',
+  'ipinfo.isp': 'ISP',
+  'ipinfo.organization': 'Organization',
+  'ipinfo.lookup_of_failed': 'Could not look up {ipAddress}',
+  'login.failed': 'Login failed',
+  'signup.create_failed': 'Could not create the account',
+  'signup.min_length': 'At least {count} characters',
+  'signup.mismatch': 'Passwords do not match',
+  'signup.on_the_server': 'on the server.',
+  'common.account': 'Account',
+  'common.nothing_to_show': 'Nothing to show.',
+  'common.something_wrong': 'Something went wrong',
+
   // --- Administration menu (the dialog's own list) ---
 
   'admin.group.database': 'Database',

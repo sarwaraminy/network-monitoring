@@ -2,6 +2,7 @@ import axios, { type AxiosError } from 'axios';
 import { knowsError, renderError } from '../i18n/generated/catalog/errors';
 import { DEFAULT_LOCALE, type Locale } from '../i18n/generated/locales';
 import { parseMessageParams } from '../i18n/generated/message';
+import { translate } from '../i18n/ui';
 
 const TOKEN_STORAGE_KEY = 'nmt.token';
 
@@ -91,7 +92,11 @@ export function setErrorLocale(locale: Locale): void {
  * a bundle from before it, and during a rolling deploy both versions are live.
  * Falling through to `message` costs a translation and keeps the meaning.
  */
-export function describeError(error: unknown, fallback = 'Something went wrong'): string {
+export function describeError(error: unknown, fallback?: string): string {
+  // Rendered here rather than as a parameter default: `describeError` is not a
+  // component, so it reads the locale the client is already tracking for the
+  // error catalogue rather than taking a hook it cannot have.
+  const generic = fallback ?? translate(errorLocale, 'common.something_wrong');
   if (axios.isAxiosError(error)) {
     const data = error.response?.data as
       | { message?: string; code?: string; params?: Record<string, unknown> }
@@ -111,8 +116,8 @@ export function describeError(error: unknown, fallback = 'Something went wrong')
     if (error.code === 'ERR_NETWORK') {
       return renderError('error.network_unreachable', {}, errorLocale);
     }
-    return error.message || fallback;
+    return error.message || generic;
   }
   if (error instanceof Error && error.message) return error.message;
-  return fallback;
+  return generic;
 }

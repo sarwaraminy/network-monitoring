@@ -151,8 +151,8 @@ export default function AlertsPage() {
   // Whichever failed most recently; mutations report through actionError.
   const error =
     actionError ||
-    (alertsQuery.error ? describeError(alertsQuery.error, 'Could not load alerts') : '') ||
-    (summaryQuery.error ? describeError(summaryQuery.error, 'Could not load the alert summary') : '');
+    (alertsQuery.error ? describeError(alertsQuery.error, t('alerts.load_failed')) : '') ||
+    (summaryQuery.error ? describeError(summaryQuery.error, t('alerts.summary_failed')) : '');
 
   const setError = setActionError;
   const load = useCallback(() => {
@@ -165,20 +165,20 @@ export default function AlertsPage() {
     (alert: AlertRecord) => {
       setActionError('');
       acknowledge.mutate(alert, {
-        onError: (caught) => setActionError(describeError(caught, 'Could not update the alert')),
+        onError: (caught) => setActionError(describeError(caught, t('alerts.update_failed'))),
       });
     },
-    [acknowledge],
+    [acknowledge, t],
   );
 
   const handleDelete = useCallback(
     (id: number) => {
       setActionError('');
       remove.mutate(id, {
-        onError: (caught) => setActionError(describeError(caught, 'Could not delete the alert')),
+        onError: (caught) => setActionError(describeError(caught, t('alerts.delete_failed'))),
       });
     },
-    [remove],
+    [remove, t],
   );
 
   const showIp = ipInfo.show;
@@ -248,7 +248,7 @@ export default function AlertsPage() {
             <IconButton
               size="small"
               color="error"
-              aria-label={`Delete finding ${row.original.id}`}
+              aria-label={t('alerts.delete_finding', { id: row.original.id })}
               onClick={() => handleDelete(row.original.id)}
             >
               <DeleteOutlineIcon fontSize="small" />
@@ -290,7 +290,7 @@ export default function AlertsPage() {
                     reaching this page through one sensor's address needs to know
                     which of these it is, and the names are the operator's own. */}
                 {entry.sensorId}
-                {entry.self ? ' (this one)' : ''}
+                {entry.self ? t('alerts.this_sensor') : ''}
               </MenuItem>
             ))}
           </TextField>
@@ -354,8 +354,7 @@ export default function AlertsPage() {
             mt: 0.5,
           }}
         >
-          No findings match these filters. An empty list during a capture means the detectors saw nothing
-          suspicious — which is the expected result on a healthy network.
+          {t('alerts.empty_body')}
         </Typography>
       </Box>
     ),
@@ -545,7 +544,7 @@ function EvidencePanel({ alert }: Readonly<{ alert: AlertRecord }>) {
                 >
                   {evidenceLabel(key, t)}
                 </Typography>
-                <Box sx={{ ...monoSx, wordBreak: 'break-word' }}>{formatValue(value)}</Box>
+                <Box sx={{ ...monoSx, wordBreak: 'break-word' }}>{formatValue(value, t)}</Box>
               </Box>
             ))}
           </Box>
@@ -626,16 +625,21 @@ function evidenceLabel(key: string, t: Translate): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
 }
 
-function formatValue(value: unknown): string {
+function formatValue(value: unknown, t: Translate): string {
   if (value === null || value === undefined) return '—';
-  if (typeof value === 'boolean') return value ? 'yes' : 'no';
+  // A boolean in evidence is read as a word, so it is one a reader can read:
+  // `passwordRecorded: no` is the single most important value on this panel.
+  if (typeof value === 'boolean') return value ? t('alerts.yes') : t('alerts.no');
   if (Array.isArray(value)) {
     if (value.length === 0) return '—';
     // Each element formatted rather than `join`ed. `join` calls String() on every
     // element, so one object in an evidence array renders as "[object Object]"
     // and the analyst is told nothing about what was actually found.
-    const shown = value.slice(0, 24).map(formatValue).join(', ');
-    return value.length > 24 ? `${shown}, … (${value.length} total)` : shown;
+    const shown = value
+      .slice(0, 24)
+      .map((entry) => formatValue(entry, t))
+      .join(', ');
+    return value.length > 24 ? t('alerts.evidence_more', { shown, count: value.length - 24 }) : shown;
   }
   if (typeof value === 'object') return JSON.stringify(value);
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') {
