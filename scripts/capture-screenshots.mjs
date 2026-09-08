@@ -132,7 +132,67 @@ const SHOTS = {
         .waitFor({ state: 'visible' });
     },
   },
+
+  /*
+   * The language shots.
+   *
+   * Three, not three sets of fourteen. A reader deciding whether the product
+   * speaks their language needs to see that it does and what changes when it
+   * does; photographing every screen in every language would treble the set to
+   * make the same point, and treble what goes stale.
+   *
+   * So: where the switch is, what German costs in width, and what Dari does to
+   * the layout. `locale` on a shot is set before the page loads rather than
+   * clicked, because switching in the interface and then photographing means
+   * photographing whatever the menu left open.
+   */
+  'language-menu': {
+    route: '/dashboard',
+    async prepare(page) {
+      await openAccountMenu(page);
+      // The switch itself, by its group label, so this cannot photograph a menu
+      // that opened without the row this shot is named for.
+      await page.getByRole('group', { name: 'Language' }).waitFor({ state: 'visible' });
+    },
+  },
+  'dashboard-de': {
+    route: '/dashboard',
+    locale: 'de',
+    async prepare(page) {
+      // German, so the wait is on German. Waiting on the English heading here
+      // would pass while the page was still English and photograph it that way.
+      await page.getByText('Übersicht', { exact: false }).first().waitFor({ state: 'visible' });
+    },
+  },
+  'alerts-fa': {
+    route: '/alerts',
+    locale: 'fa-AF',
+    async prepare(page) {
+      // The grid, not the page chrome: the columns are where the translation and
+      // the Solar Hijri dates show, and they arrive with the data.
+      await page.getByRole('columnheader', { name: /شدت/ }).waitFor({ state: 'visible' });
+      // The direction flip is the other half of this shot. Asserted rather than
+      // assumed, because a shot of a left-to-right Dari page would look like a
+      // product that does not do RTL at all.
+      const dir = await page.evaluate(() => document.documentElement.dir);
+      if (dir !== 'rtl') throw new Error(`expected the page to be rtl, found "${dir}"`);
+    },
+  },
 };
+
+/**
+ * Opens the account menu.
+ *
+ * The trigger is an avatar whose only accessible name is the initials of
+ * whichever account this happens to be signed in as — which is not something a
+ * script can name in advance. So it is found by the avatar it wraps rather than
+ * by a label, and by that rather than by being the last button in the header,
+ * which would quietly photograph the wrong menu the day another icon is added.
+ */
+async function openAccountMenu(page) {
+  await page.getByRole('banner').locator('button:has(.MuiAvatar-root)').click();
+  await page.getByRole('menu').waitFor({ state: 'visible' });
+}
 
 /**
  * Freezes every transition, then waits for a paint.
@@ -196,6 +256,17 @@ for (const name of names) {
 
   try {
     await signIn(page);
+    if (shot.locale) {
+      /*
+       * The same key the account menu writes, set before the page that has to be
+       * in that language loads. `addInitScript` runs in every document of the
+       * context from here on, so the reload below comes up translated rather
+       * than coming up English and switching while the shot is being taken.
+       */
+      await page.addInitScript((locale) => {
+        window.localStorage.setItem('nm.locale', locale);
+      }, shot.locale);
+    }
     await page.goto(`${URL}${shot.route}`, { waitUntil: 'networkidle' });
     await shot.prepare(page);
     await settle(page);

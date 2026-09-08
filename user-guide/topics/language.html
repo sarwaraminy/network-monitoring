@@ -29,6 +29,11 @@ to findings as well as to the interface around them.</p>
 is deliberate, because for Dari the change includes the whole layout flipping, and that is
 worth seeing happen rather than arriving at.</p>
 
+<figure>
+  <img src="../screenshots/language-menu.png" alt="The account menu, open. The Language row holds three buttons: English, Deutsch and Dari, with the current one filled in.">
+  <figcaption>The account menu. Each language names itself, and the current one is filled in.</figcaption>
+</figure>
+
 <p class="note">Each language is named in itself rather than translated. Somebody who has
 landed in a language they cannot read needs to find their own, and the one word they can be
 relied on to recognise is its own name.</p>
@@ -64,7 +69,14 @@ relied on to recognise is its own name.</p>
 the language is read in. It follows the language you picked here, not your browser's own
 setting, so the whole page agrees with itself.</p>
 
-<h2>Findings written before this feature existed</h2>
+<figure>
+  <img src="../screenshots/dashboard-de.png" alt="The dashboard in German: the navigation rail, the severity tiles and the chart legends all translated.">
+  <figcaption>The dashboard in German, with the menu still open behind the change. German runs
+  about a third longer than English, which is why the tiles and the navigation rail are laid out
+  to grow rather than to truncate.</figcaption>
+</figure>
+
+<h2 id="older">Findings written before this feature existed</h2>
 
 <p>An alert stores <em>which</em> finding it is rather than a finished English sentence, and
 the sentence is written out in your language when you open it. That only applies to findings
@@ -79,6 +91,14 @@ ones in the language you chose. It resolves on its own as older findings age out
 
 <p>Dari is written right to left, so choosing it moves the navigation to the right, mirrors
 the layout, and reverses the reading order of every row.</p>
+
+<figure>
+  <img src="../screenshots/alerts-fa.png" alt="The alerts list in Dari: the navigation is on the right, the columns read right to left, and the dates are Solar Hijri. The IP addresses are still left to right.">
+  <figcaption>The alerts list in Dari. The navigation moves to the right, the columns reverse,
+  and the dates are Solar Hijri &mdash; while the addresses keep the order you would type them.
+  The finding titles are still English because every alert in this installation was raised before
+  the upgrade; see <a href="#older">above</a>.</figcaption>
+</figure>
 
 <p>Addresses stay in the order you would type them. <code>192.168.1.10</code> reads left to
 right inside a right-to-left sentence, which is what the surrounding text is arranged to

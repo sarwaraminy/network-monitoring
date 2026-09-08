@@ -2029,6 +2029,7 @@ npm run dev                                   # in another terminal
 npm i -D playwright && npx playwright install chromium   # once
 SHOT_EMAIL=you@example.com SHOT_PASSWORD='...' node scripts/capture-screenshots.mjs
 node scripts/capture-screenshots.mjs delivery administration-settings   # or just these
+node scripts/capture-screenshots.mjs language-menu dashboard-de alerts-fa  # the language set
 ```
 
 `playwright` is deliberately **not** a dependency of this project: it is a browser
@@ -2103,6 +2104,33 @@ row still carrying the bcrypt hash this repository used to publish, and the firs
 created with `npm run user`.
 
 ![Sign in](./user-guide/screenshots/login.png)
+
+**Language** — English, German and Dari, switched from the account menu. Each language names
+itself: somebody who has landed in one they cannot read needs the one word they can be relied
+on to recognise.
+
+![The account menu, with the Language row](./user-guide/screenshots/language-menu.png)
+
+**German** — roughly 30% longer than English, which is why the tiles and the navigation rail
+are laid out to grow rather than to truncate.
+
+![The dashboard in German](./user-guide/screenshots/dashboard-de.png)
+
+**Dari** — the layout mirrors, the columns reverse, and dates switch to the Solar Hijri
+calendar with Afghan month names. Addresses stay in the order you would type them: an address
+whose octets were reordered to match the paragraph is a different address.
+
+![The alerts list in Dari, right to left](./user-guide/screenshots/alerts-fa.png)
+
+The finding titles in that shot are English because every alert in the installation it was
+taken from predates the upgrade. An alert stores *which* finding it is rather than a finished
+sentence, and the sentence is written out in the reader's language when it is opened — but
+only for findings raised since. Older ones kept the English prose they were stored with, and
+there is nothing to translate them from. It resolves as they age out.
+
+Three language shots rather than three sets of fourteen. What a reader needs to see is that
+the product speaks their language and what changes when it does; photographing every screen
+in every language would treble the set to make the same point, and treble what goes stale.
 
 ---
 
@@ -2467,10 +2495,17 @@ known.
 
 #### The user guide is a content job, not an engineering one
 
-16 topics, ~1,650 lines of prose, and the screenshots are of a translated interface — so
-three languages means three sets. `scripts/capture-screenshots.mjs` already takes a
-`SHOT_*` environment, so per-language capture is a loop rather than new tooling, but the
-translation itself is the bulk of the cost and does not shrink.
+17 topics and ~1,750 lines of prose, all of it English. The guide now has a **Language**
+topic covering what switching changes, what it deliberately leaves alone, and why findings
+raised before the upgrade stay in English — but the other sixteen topics are still written
+in one language only, and that is the bulk of the cost.
+
+The screenshots turned out not to be the problem they looked like. The first estimate here
+was three sets of fourteen; what shipped is three shots — the switch, German, and Dari —
+because what a reader needs is that the product speaks their language and what changes when
+it does, not fourteen photographs making the same point three times. `locale` on a shot in
+`scripts/capture-screenshots.mjs` sets `nm.locale` before the page loads, so adding more is
+a line each if that judgement turns out to be wrong.
 
 ### Known gaps, named rather than left to be discovered
 
