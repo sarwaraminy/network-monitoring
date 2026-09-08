@@ -335,8 +335,16 @@ export class PacketCaptureService {
    */
   private toHttpError(error: unknown, contextKey: ErrorMessageKey, params: MessageParams = {}): HttpError {
     if (error instanceof HttpError) return error;
-    if (error instanceof PcapUnavailableError)
-      return HttpError.of(503, 'error.capture_unavailable', { detail: error.message });
+    if (error instanceof PcapUnavailableError) {
+      // Which library to install is prose we write, so it is in the catalogue and
+      // the platform picks the key. `detail` is the loader's own message, kept
+      // verbatim for whoever has to search for it.
+      return HttpError.of(
+        503,
+        process.platform === 'win32' ? 'error.capture_install_npcap' : 'error.capture_install_libpcap',
+        { detail: error.detail },
+      );
+    }
 
     const detail = error instanceof PcapError ? error.message : (error as Error).message;
     return HttpError.of(500, contextKey, { ...params, detail });

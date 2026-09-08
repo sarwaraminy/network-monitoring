@@ -8,9 +8,22 @@ import type { PartialNotifyCatalog } from './notify.en.js';
  */
 export const NOTIFY_DE: PartialNotifyCatalog = {
   'notify.subject_one': '{prefix}[{severity}] {title}',
-  'notify.subject_many': '{prefix}{count} Netzwerkfunde — {breakdown}',
+  'notify.subject_many': '{prefix}{count, number} Netzwerkfunde — {breakdown}',
   'notify.subject_fallback': 'Netzwerkfund',
-  'notify.severity_count': '{count} {severity}',
+  'notify.summary_one': 'Network Monitoring hat 1 Fund der Stufe {severity} gemeldet.',
+  'notify.summary_many': 'Network Monitoring hat {count, number} Funde gemeldet: {breakdown}.',
+  'notify.severity.critical': 'kritisch',
+  'notify.severity.high': 'hoch',
+  'notify.severity.medium': 'mittel',
+  'notify.severity.low': 'niedrig',
+  'notify.severity.info': 'Information',
+  'notify.label_sensor': 'Sensor',
+  'notify.label_source': 'Quelle',
+  'notify.label_target': 'Ziel',
+  'notify.label_occurrences': 'Vorkommen',
+  'notify.label_last_seen': 'Zuletzt gesehen',
+  'notify.label_evidence': 'Nachweis',
+  'notify.severity_count': '{count, number} {severity}',
   'notify.test_banner_text':
     'Dies ist eine Testbenachrichtigung von Network Monitoring. Es sind keine Funde beteiligt.',
   'notify.test_banner_html': 'Dies ist eine Testbenachrichtigung. Es sind keine Funde beteiligt.',
@@ -20,8 +33,9 @@ export const NOTIFY_DE: PartialNotifyCatalog = {
   'notify.meta_occurrences': '{count, plural, one {# Vorkommen} other {# Vorkommen}}',
   'notify.meta_last_seen': 'zuletzt gesehen {at} UTC',
   'notify.evidence_prefix': 'Belege: {evidence}',
-  'notify.and_more_text': '…und {count} weitere. Öffnen Sie das Dashboard für die vollständige Liste.',
-  'notify.and_more': '…und {count} weitere.',
+  'notify.and_more_text':
+    '…und {count, number} weitere. Öffnen Sie das Dashboard für die vollständige Liste.',
+  'notify.and_more': '…und {count, number} weitere.',
   'notify.open_dashboard': 'Dashboard öffnen',
   'notify.open_dashboard_short': 'Dashboard öffnen',
 };

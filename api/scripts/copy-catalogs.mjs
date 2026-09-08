@@ -16,7 +16,7 @@
 // one, the output is checked in and CI verifies it is current — a generated file
 // that only exists after a build is a file the editor cannot resolve and review
 // cannot read.
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -59,6 +59,32 @@ async function copyTree(sourceDir, targetDir) {
 
 const files = await copyTree(from, to);
 
+/**
+ * Everything currently sitting in the target tree.
+ *
+ * The check walked only the *source*, comparing each file it found there against
+ * its copy — so a file deleted or renamed under `api/src/i18n` left its copy
+ * behind and CI went on reporting "copies are current". A stray file is dead code
+ * rather than wrong output, because `catalog/*.ts` would be regenerated with
+ * correct imports. Worth closing anyway: this script is the only thing holding
+ * the two halves of a three-language catalogue together, and a check whose
+ * failures are unreachable reports success, which is the failure mode this
+ * repository has been bitten by before.
+ */
+async function existingFiles(dir) {
+  const found = [];
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...(await existingFiles(path)));
+    else found.push(path);
+  }
+  return found;
+}
+
+const written = new Set(files.map((file) => file.path));
+const orphans = (await existingFiles(to)).filter((path) => !written.has(path));
+
 // `--check` is what CI runs: it reports staleness rather than fixing it, because a
 // build that silently regenerates a checked-in file hides the fact that somebody
 // committed one half of a change.
@@ -68,9 +94,13 @@ if (process.argv.includes('--check')) {
     const existing = await readFile(file.path, 'utf8').catch(() => null);
     if (existing !== file.content) stale.push(file.path);
   }
-  if (stale.length > 0) {
+  if (stale.length > 0 || orphans.length > 0) {
+    const listed = [
+      ...stale.map((path) => `  stale    ${path}`),
+      ...orphans.map((path) => `  orphaned ${path}`),
+    ];
     console.error(
-      `i18n copies are out of date:\n${stale.map((path) => `  ${path}`).join('\n')}\n` +
+      `i18n copies are out of date:\n${listed.join('\n')}\n` +
         'Run `npm run i18n:sync` and commit the result.',
     );
     process.exit(1);
@@ -82,5 +112,9 @@ if (process.argv.includes('--check')) {
     await mkdir(dirname(file.path), { recursive: true });
     await writeFile(file.path, file.content, 'utf8');
   }
-  console.log(`copied i18n -> ${to} (${files.length} files)`);
+  // Removed rather than left behind: the write branch is what `--check` checks,
+  // so running the sync has to reach a state the check calls current.
+  for (const path of orphans) await rm(path);
+  const removed = orphans.length > 0 ? `, removed ${orphans.length}` : '';
+  console.log(`copied i18n -> ${to} (${files.length} files${removed})`);
 }

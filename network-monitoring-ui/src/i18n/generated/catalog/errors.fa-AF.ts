@@ -101,7 +101,18 @@ export const ERRORS_FA_AF: PartialErrorCatalog = {
 
   // --- ضبط ---
 
-  'error.capture_unavailable': '{detail}',
+  'error.capture_install_npcap':
+    'کتابخانهٔ ضبط بسته‌ها بارگیری نشد. Npcap را از https://npcap.com/#download نصب کنید. ' + '({detail})',
+  'error.capture_install_libpcap':
+    'کتابخانهٔ ضبط بسته‌ها بارگیری نشد. libpcap را نصب کنید (برای نمونه ' +
+    '`sudo apt install libpcap0.8`). ({detail})',
+  'error.no_delivery_channel':
+    'هیچ کانال تحویلی تنظیم نشده است. یک نشانی وب‌هوک، یک میزبان syslog، یا یک میزبان SMTP ' +
+    'با گیرندگان تعیین کنید — در همین صفحه یا در api/.env.',
+  'error.email_oauth_incomplete':
+    'ایمیل روی OAuth2 تنظیم شده است، اما {settings} تعیین {count, plural, one {نشده} ' +
+    'other {نشده‌اند}}، بنابراین صندوق پستی نمی‌تواند احراز هویت کند. این‌ها را در همین صفحه ' +
+    'پر کنید، یا روش احراز هویت را به گذرواژه برگردانید.',
 
   // --- آخرین چاره ---
 

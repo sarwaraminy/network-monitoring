@@ -59,7 +59,21 @@ describe('server catalogues have no key nothing asks for', () => {
     ['notify', NOTIFY_EN],
   ] as const) {
     it(`every ${name} key has a caller`, () => {
-      const orphans = Object.keys(catalog).filter((key) => !SOURCE.includes(`'${key}'`));
+      /*
+       * Keys composed from a template rather than written out.
+       *
+       * `notify.severity.*` is built as `notify.severity.${severity}`, so no
+       * literal `'notify.severity.high'` exists anywhere and a check that only
+       * looked for one would call all five dead. Collecting the template prefix
+       * keeps this honest in both directions: a key nothing composes and nothing
+       * names still fails. The same mechanism, for the same reason, as the UI
+       * catalogue's version of this check — where `evidence.${field}` needed it.
+       */
+      const composed = [...SOURCE.matchAll(/`([A-Za-z][\w.]*)\.\$\{/g)].map((match) => `${match[1]}.`);
+
+      const orphans = Object.keys(catalog).filter(
+        (key) => !SOURCE.includes(`'${key}'`) && !composed.some((prefix) => key.startsWith(prefix)),
+      );
 
       assert.deepEqual(
         orphans,

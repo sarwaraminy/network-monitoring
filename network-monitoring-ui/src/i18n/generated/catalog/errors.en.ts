@@ -120,7 +120,49 @@ export const ERRORS_EN = {
 
   // --- Capture ---
 
-  'error.capture_unavailable': '{detail}',
+  /*
+   * Two keys rather than one, and each with words of its own.
+   *
+   * This was `'error.capture_unavailable': '{detail}'`, where `{detail}` was
+   * `PcapUnavailableError.message` — a sentence this repository writes in
+   * English, carrying the install instruction. So the response had a code, the
+   * renderer rendered it, and the result was byte-identical English in all three
+   * languages: exactly the defect `toHttpError` describes removing one line up,
+   * and the more visible half of it, because the install instruction is the part
+   * a reader who does not have English most needs.
+   *
+   * Split on platform because the platform branch is prose we choose. `{detail}`
+   * is now only the loader's own words — a `dlopen` failure — which is not ours
+   * to translate and is kept verbatim for whoever has to search for it.
+   */
+  'error.capture_install_npcap':
+    'Could not load the packet capture library. Install Npcap from ' +
+    'https://npcap.com/#download. ({detail})',
+  'error.capture_install_libpcap':
+    'Could not load the packet capture library. Install libpcap (for example ' +
+    '`sudo apt install libpcap0.8`). ({detail})',
+
+  // --- Delivery ---
+
+  /*
+   * Was `res.status(400).json({ message: … })` in `notify.routes.ts` — the one
+   * 4xx body in the API written without a code, so `describeError` fell through
+   * to `data.message` and printed English into an otherwise translated page.
+   */
+  'error.no_delivery_channel':
+    'No delivery channel is configured. Set a webhook URL, a syslog host, or an SMTP host ' +
+    'with recipients — on this page, or in api/.env.',
+  /*
+   * The more specific answer when it applies, kept rather than collapsed into the
+   * one above: with nothing else configured and a half-filled OAuth2 mailbox, "no
+   * channel is configured" is true and useless. `emailBlockedReason` still holds
+   * the same sentence in English for the status DTO, which is read on the
+   * delivery page and is a separate conversion.
+   */
+  'error.email_oauth_incomplete':
+    'Email is set to OAuth2 but {settings} {count, plural, one {is} other {are}} not set, so ' +
+    'the mailbox cannot authenticate. Fill those in on this page, or set the authentication ' +
+    'method back to password.',
 
   // --- Last resort ---
 

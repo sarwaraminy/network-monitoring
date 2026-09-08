@@ -19,6 +19,7 @@ import bcrypt from 'bcryptjs';
 import { eq } from 'drizzle-orm';
 import { closeDb, db } from '../db/index.js';
 import { users } from '../db/schema.js';
+import { DEFAULT_LOCALE, isLocale, LOCALES } from '../i18n/locales.js';
 
 const BCRYPT_ROUNDS = 10;
 const MIN_PASSWORD_LENGTH = 8;
@@ -135,11 +136,23 @@ async function create(args: Args): Promise<void> {
   }
 
   const role = args.role === 'ADMIN' ? 'ADMIN' : 'USER';
+  /*
+   * Rejected rather than quietly corrected. A tag with no catalogue — `ps` is the
+   * one somebody would reach for — is accepted by the column and then ignored by
+   * `resolveLocale` forever, and nothing anywhere says why the account is in
+   * English. This is also the path that matters: bootstrap accounts are created
+   * here, which is what an administrator setting up a Dari installation uses.
+   */
+  const langCode = args.langCode ?? DEFAULT_LOCALE;
+  if (!isLocale(langCode)) {
+    throw new Error(`--lang ${langCode} has no catalogue. Supported: ${LOCALES.join(', ')}.`);
+  }
+
   await db.insert(users).values({
     email,
     password: await bcrypt.hash(password, BCRYPT_ROUNDS),
     role,
-    langCode: args.langCode ?? 'en',
+    langCode,
     firstname: args.firstname ?? email.split('@')[0] ?? 'user',
     lastname: args.lastname ?? '',
   });
@@ -179,7 +192,7 @@ function help(): void {
       Show every account.
 
   create --email <email> (--password <pw> | --generate) [--role USER|ADMIN]
-         [--firstname <name>] [--lastname <name>] [--lang en]
+         [--firstname <name>] [--lastname <name>] [--lang en|de|fa-AF]
       Create an account. --generate prints a strong random password.
 
   set-password --email <email> (--password <pw> | --generate)

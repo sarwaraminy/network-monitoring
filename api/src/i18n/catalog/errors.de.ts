@@ -104,7 +104,19 @@ export const ERRORS_DE: PartialErrorCatalog = {
 
   // --- Mitschnitt ---
 
-  'error.capture_unavailable': '{detail}',
+  'error.capture_install_npcap':
+    'Die Paketmitschnitt-Bibliothek konnte nicht geladen werden. Installieren Sie Npcap von ' +
+    'https://npcap.com/#download. ({detail})',
+  'error.capture_install_libpcap':
+    'Die Paketmitschnitt-Bibliothek konnte nicht geladen werden. Installieren Sie libpcap ' +
+    '(zum Beispiel `sudo apt install libpcap0.8`). ({detail})',
+  'error.no_delivery_channel':
+    'Es ist kein Zustellkanal konfiguriert. Legen Sie eine Webhook-URL, einen Syslog-Host ' +
+    'oder einen SMTP-Host mit Empfängern fest — auf dieser Seite oder in api/.env.',
+  'error.email_oauth_incomplete':
+    'E-Mail ist auf OAuth2 eingestellt, aber {settings} {count, plural, one {ist} other {sind}} ' +
+    'nicht gesetzt, sodass sich das Postfach nicht anmelden kann. Ergänzen Sie diese Angaben ' +
+    'auf dieser Seite, oder stellen Sie die Authentifizierung zurück auf Passwort.',
 
   // --- Letzte Instanz ---
 

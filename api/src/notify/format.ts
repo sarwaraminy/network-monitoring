@@ -17,6 +17,18 @@ function n(key: NotifyMessageKey, params: MessageParams): string {
 }
 
 /**
+ * A severity as a word rather than as its key.
+ *
+ * `high` and `critical` were interpolated raw, so even a translated subject line
+ * carried two English words in it. Returned as a `MessageRef` rather than a
+ * string so it renders with the sentence around it, in the same locale, instead
+ * of being rendered here and passed in already finished.
+ */
+function severityWord(severity: string): { key: NotifyMessageKey } {
+  return { key: `notify.severity.${severity}` as NotifyMessageKey };
+}
+
+/**
  * Message rendering.
  *
  * One summary line, then the findings, then a link. Deliberately terse: the point
@@ -47,7 +59,7 @@ export function subjectFor(notification: Notification): string {
 
   const breakdown = Object.entries(notification.countsBySeverity)
     .filter(([, count]) => (count ?? 0) > 0)
-    .map(([name, count]) => n('notify.severity_count', { count: count ?? 0, severity: name }))
+    .map(([name, count]) => n('notify.severity_count', { count: count ?? 0, severity: severityWord(name) }))
     .join(', ');
 
   return n('notify.subject_many', { prefix: `${prefix}[${severity}] `, count: total, breakdown });
@@ -290,14 +302,28 @@ export function renderTeams(notification: Notification): unknown {
        * missed it when the text ones were changed.
        */
       ...(sensorLabel(notification, finding)
-        ? [{ title: 'Sensor', value: escapeAdaptive(sensorLabel(notification, finding) as string) }]
+        ? [
+            {
+              title: n('notify.label_sensor', {}),
+              value: escapeAdaptive(sensorLabel(notification, finding) as string),
+            },
+          ]
         : []),
-      ...(finding.sourceIp ? [{ title: 'Source', value: escapeAdaptive(finding.sourceIp) }] : []),
-      ...(finding.targetIp ? [{ title: 'Target', value: escapeAdaptive(finding.targetIp) }] : []),
-      { title: 'Occurrences', value: String(finding.occurrences) },
-      { title: 'Last seen', value: finding.lastSeen.toISOString() },
+      ...(finding.sourceIp
+        ? [{ title: n('notify.label_source', {}), value: escapeAdaptive(finding.sourceIp) }]
+        : []),
+      ...(finding.targetIp
+        ? [{ title: n('notify.label_target', {}), value: escapeAdaptive(finding.targetIp) }]
+        : []),
+      { title: n('notify.label_occurrences', {}), value: String(finding.occurrences) },
+      { title: n('notify.label_last_seen', {}), value: finding.lastSeen.toISOString() },
       ...(finding.evidence
-        ? [{ title: 'Evidence', value: escapeAdaptive(compactEvidence(finding.evidence)) }]
+        ? [
+            {
+              title: n('notify.label_evidence', {}),
+              value: escapeAdaptive(compactEvidence(finding.evidence)),
+            },
+          ]
         : []),
     ];
 
@@ -397,12 +423,21 @@ export function renderTeamsConnector(notification: Notification): unknown {
         // `name` rather than `title`: this is the retired connector's schema, and
         // the two spell a fact's label differently.
         ...(sensorLabel(notification, finding)
-          ? [{ name: 'Sensor', value: escapeAdaptive(sensorLabel(notification, finding) as string) }]
+          ? [
+              {
+                name: n('notify.label_sensor', {}),
+                value: escapeAdaptive(sensorLabel(notification, finding) as string),
+              },
+            ]
           : []),
-        ...(finding.sourceIp ? [{ name: 'Source', value: escapeAdaptive(finding.sourceIp) }] : []),
-        ...(finding.targetIp ? [{ name: 'Target', value: escapeAdaptive(finding.targetIp) }] : []),
-        { name: 'Occurrences', value: String(finding.occurrences) },
-        { name: 'Last seen', value: finding.lastSeen.toISOString() },
+        ...(finding.sourceIp
+          ? [{ name: n('notify.label_source', {}), value: escapeAdaptive(finding.sourceIp) }]
+          : []),
+        ...(finding.targetIp
+          ? [{ name: n('notify.label_target', {}), value: escapeAdaptive(finding.targetIp) }]
+          : []),
+        { name: n('notify.label_occurrences', {}), value: String(finding.occurrences) },
+        { name: n('notify.label_last_seen', {}), value: finding.lastSeen.toISOString() },
       ],
       markdown: true,
     })),
@@ -430,10 +465,20 @@ export function renderDiscord(notification: Notification): unknown {
       color: Number.parseInt(SEVERITY_COLOR[finding.severity].replace('#', ''), 16),
       fields: [
         ...(sensorLabel(notification, finding)
-          ? [{ name: 'Sensor', value: sensorLabel(notification, finding) as string, inline: true }]
+          ? [
+              {
+                name: n('notify.label_sensor', {}),
+                value: sensorLabel(notification, finding) as string,
+                inline: true,
+              },
+            ]
           : []),
-        ...(finding.sourceIp ? [{ name: 'Source', value: finding.sourceIp, inline: true }] : []),
-        ...(finding.targetIp ? [{ name: 'Target', value: finding.targetIp, inline: true }] : []),
+        ...(finding.sourceIp
+          ? [{ name: n('notify.label_source', {}), value: finding.sourceIp, inline: true }]
+          : []),
+        ...(finding.targetIp
+          ? [{ name: n('notify.label_target', {}), value: finding.targetIp, inline: true }]
+          : []),
       ],
       timestamp: finding.lastSeen.toISOString(),
     })),
@@ -461,12 +506,15 @@ export function renderGeneric(notification: Notification): unknown {
 function summaryLine(notification: Notification): string {
   const total = notification.findings.length + notification.omittedCount;
   if (total === 1) {
-    return `Network Monitoring raised 1 ${notification.severity} finding.`;
+    return n('notify.summary_one', { severity: severityWord(notification.severity) });
   }
-  const parts = Object.entries(notification.countsBySeverity)
+  const breakdown = Object.entries(notification.countsBySeverity)
     .filter(([, count]) => (count ?? 0) > 0)
-    .map(([severity, count]) => `${count} ${severity}`);
-  return `Network Monitoring raised ${total} findings: ${parts.join(', ')}.`;
+    .map(([severity, count]) =>
+      n('notify.severity_count', { count: count ?? 0, severity: severityWord(severity) }),
+    )
+    .join(', ');
+  return n('notify.summary_many', { count: total, breakdown });
 }
 
 /**
