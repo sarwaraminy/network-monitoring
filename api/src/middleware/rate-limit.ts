@@ -1,6 +1,8 @@
 import rateLimit, { type Options } from 'express-rate-limit';
 import { env } from '../config/env.js';
+import type { ErrorMessageKey } from '../i18n/catalog/errors.js';
 import { componentLogger } from '../logger.js';
+import { HttpError } from './error-handler.js';
 
 const log = componentLogger('rate-limit');
 
@@ -29,9 +31,19 @@ function build(
   name: string,
   windowMs: number,
   max: number,
-  message: string,
+  /**
+   * A catalogue key, not a sentence.
+   *
+   * These bodies are written before the error handler can see them, so they used
+   * `res.json({ message })` and carried no `code` — leaving the 429 a browser
+   * shows on the LOGIN screen untranslatable. That is the one screen reached
+   * before any language preference is known, and the one most likely to be read
+   * by somebody who does not read English.
+   */
+  code: ErrorMessageKey,
   limiterOptions: LimiterOptions = {},
 ) {
+  const error = HttpError.of(429, code);
   const options: Partial<Options> = {
     windowMs,
     limit: max,
@@ -39,10 +51,16 @@ function build(
     legacyHeaders: false,
     skip: () => disabled,
     skipSuccessfulRequests: limiterOptions.countFailuresOnly === true,
-    message: { message },
+    message: { message: error.message, code: error.code, params: error.params },
     handler: (req, res, _next, opts) => {
       log.warn({ limiter: name, ip: req.ip, path: req.path }, 'Rate limit exceeded');
-      res.status(opts.statusCode).json({ message });
+      // `opts.statusCode` rather than the error's, so a caller overriding the
+      // limiter's status still wins — the body is what this is fixing.
+      res.status(opts.statusCode).json({
+        message: error.message,
+        code: error.code,
+        params: error.params,
+      });
     },
   };
   return rateLimit(options);
@@ -56,13 +74,9 @@ function build(
  * That keeps the limit meaningful against guessing while staying invisible to
  * legitimate users, including several people behind one NAT address.
  */
-export const authLimiter = build(
-  'auth',
-  60_000,
-  env.rateLimit.authPerMinute,
-  'Too many failed attempts. Wait a minute and try again.',
-  { countFailuresOnly: true },
-);
+export const authLimiter = build('auth', 60_000, env.rateLimit.authPerMinute, 'error.too_many_logins', {
+  countFailuresOnly: true,
+});
 
 /**
  * Starting a capture puts the interface into promiscuous mode and allocates a
@@ -72,19 +86,14 @@ export const captureControlLimiter = build(
   'capture-control',
   60_000,
   env.rateLimit.captureControlPerMinute,
-  'Too many capture control requests. Slow down.',
+  'error.too_many_capture',
 );
 
 /**
  * `ip-info` fans out to reverse DNS, WHOIS and a third-party geolocation API. Left
  * unbounded it would let a caller use this server to hammer someone else's.
  */
-export const lookupLimiter = build(
-  'lookup',
-  60_000,
-  env.rateLimit.lookupPerMinute,
-  'Too many lookup requests. Slow down.',
-);
+export const lookupLimiter = build('lookup', 60_000, env.rateLimit.lookupPerMinute, 'error.too_many_lookups');
 
 /** Broad backstop for everything else under /api. */
-export const apiLimiter = build('api', 60_000, env.rateLimit.apiPerMinute, 'Too many requests. Slow down.');
+export const apiLimiter = build('api', 60_000, env.rateLimit.apiPerMinute, 'error.too_many_requests');

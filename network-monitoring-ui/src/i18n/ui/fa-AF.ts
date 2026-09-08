@@ -146,7 +146,6 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'audit.what': 'چه چیزی',
   'audit.which': 'کدام',
   'audit.action': 'کنش',
-  'audit.subject': 'موضوع',
   'audit.detail': 'جزئیات',
 
   // --- قاعده‌های سرکوب ---
@@ -302,6 +301,7 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'یک نشانگر دامنه، زیردامنه‌های آن را نیز در بر می‌گیرد. نشانی‌های خصوصی و رزروشده هنگام ' +
     'بارگذاری رد می‌شوند، هر چه خوراک بگوید — یکی که به اشتباه فهرست شده باشد، هم‌زمان برای هر ' +
     'میزبان هشدار می‌دهد.',
+  'intel.enable_hint': 'برای روشن‌کردن، بیفزایید به',
   'intel.off_note':
     'هیچ‌چیز در برابر نشانی‌ها یا دامنه‌های بدخواه شناخته‌شده تطبیق داده نمی‌شود. به‌صورت پیش‌فرض ' +
     'خاموش است، چون تصمیم دربارهٔ اینکه به کدام اطلاعات اعتماد شود از آنِ شماست، و یک ابزار امنیتی ' +
@@ -362,10 +362,8 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'period.7d': '۷ روز گذشته',
   'period.30d': '۳۰ روز گذشته',
   'period.90d': '۹۰ روز گذشته',
-  'period.1y': 'سال گذشته',
   'period.5y': '۵ سال گذشته',
   'period.all': 'همهٔ زمان‌ها',
-  'grid.actions': 'کنش‌ها',
   'ipinfo.looking_up': 'در حال اجرای جست‌وجوی DNS معکوس، WHOIS و موقعیت جغرافیایی…',
   'ipinfo.lookup_failed': 'جست‌وجو ناکام ماند: {reason}',
   'ipinfo.no_geo': 'داده‌ای از موقعیت جغرافیایی نیست',
@@ -652,7 +650,6 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'guide.title': 'راهنمای کاربر',
   'guide.aria': 'راهنمای کاربر (در برگهٔ تازه باز می‌شود)',
   'admin.settings': 'تنظیمات مدیریت',
-  'admin.settings_short': 'تنظیمات',
 
   'ipinfo.domain_name': 'نام دامنه',
   'ipinfo.geolocation': 'موقعیت جغرافیایی',
@@ -678,10 +675,4 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'intel.refused_caption': 'بازه‌های خصوصی و ورودی‌های بدشکل',
 
   // --- مشترک میان صفحه‌ها ---
-
-  'common.save': 'ذخیره',
-  'common.delete': 'حذف',
-  'common.loading': 'در حال بارگذاری…',
-  'common.none': '—',
-  'common.error_generic': 'چیزی درست پیش نرفت',
 };

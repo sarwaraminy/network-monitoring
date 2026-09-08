@@ -62,6 +62,13 @@ export const ERRORS_FA_AF: PartialErrorCatalog = {
   // --- احراز هویت و دسترسی ---
 
   'error.invalid_credentials': 'ایمیل یا گذرواژه نادرست است',
+  'error.missing_authorization': 'سرایند Authorization موجود نیست.',
+  'error.not_authenticated': 'وارد نشده‌اید.',
+  'error.insufficient_permissions': 'دسترسی کافی نیست.',
+  'error.too_many_logins': 'تلاش‌های ناکام بیش از حد. یک دقیقه صبر کنید و دوباره تلاش کنید.',
+  'error.too_many_capture': 'درخواست‌های کنترل ضبط بیش از حد. آهسته‌تر.',
+  'error.too_many_lookups': 'درخواست‌های جست‌وجوی بیش از حد. آهسته‌تر.',
+  'error.too_many_requests': 'درخواست‌های بیش از حد. آهسته‌تر.',
   'error.token_invalid': 'توکن نامعتبر یا منقضی شده است.',
   'error.account_gone': 'این حساب دیگر وجود ندارد.',
   'error.signup_admin_only': 'تنها یک مدیر می‌تواند حساب بسازد.',

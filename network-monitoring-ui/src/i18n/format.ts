@@ -41,15 +41,38 @@ export interface Formatters {
    * app. `Intl.RelativeTimeFormat` is the whole fix: it has the units, the plural
    * rules and the "yesterday"/"gestern" special cases for every locale here.
    *
-   * A future or unreadable timestamp falls back to the absolute form rather than
-   * rendering "in 3 minutes", which for a *last seen* column would be a claim
-   * about the future that the data cannot support.
+   * A future timestamp falls back to the absolute form rather than rendering "in
+   * 3 minutes", which for a *last seen* column would be a claim about the future
+   * that the data cannot support. An unreadable one renders `UNREADABLE_DATE` —
+   * see `safely`.
    */
   relativeTime(value: string | number | Date): string;
 }
 
 function asDate(value: string | number | Date): Date {
   return value instanceof Date ? value : new Date(value);
+}
+
+/** What an unreadable timestamp renders as. Matches the dash used for a null. */
+const UNREADABLE_DATE = '\u2014';
+
+/**
+ * Guards every date formatter against a value that will not parse.
+ *
+ * This is not defensive padding, it is a repair. These call sites used to be
+ * `toLocaleString()`, which RETURNS the string "Invalid Date" for a bad value.
+ * `Intl.DateTimeFormat.prototype.format` THROWS `RangeError: Invalid time value`
+ * on the same input — so moving to the app locale quietly converted a wrong-looking
+ * cell into an exception.
+ *
+ * That exception is worse than it sounds. These run inside column renderers, so
+ * it does not spoil one cell: it escapes to the error boundary and takes the
+ * whole grid with it, on a page whose job is to show findings. Anything that puts
+ * a non-timestamp in a timestamp field reaches it — a null serialised oddly, a
+ * truncated value from an older row.
+ */
+function safely(at: Date, render: (valid: Date) => string): string {
+  return Number.isNaN(at.getTime()) ? UNREADABLE_DATE : render(at);
 }
 
 export function createFormatters(locale: Locale): Formatters {
@@ -63,29 +86,34 @@ export function createFormatters(locale: Locale): Formatters {
   const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
 
   return {
-    dateTime: (value) => dateTime.format(asDate(value)),
+    dateTime: (value) => safely(asDate(value), (at) => dateTime.format(at)),
     day: (value, options) =>
-      new Intl.DateTimeFormat(locale, {
-        month: 'short',
-        day: 'numeric',
-        // UTC, matching the buckets the server groups by. A day boundary drawn in
-        // the reader's timezone would not line up with the one the rollup used.
-        timeZone: 'UTC',
-        ...options,
-      }).format(asDate(value)),
-    time: (value) => time.format(asDate(value)),
-    number: (value) => number.format(value),
-    relativeTime: (value) => {
-      const at = asDate(value);
-      const elapsed = Date.now() - at.getTime();
-      if (!Number.isFinite(elapsed) || elapsed < 0) return dateTime.format(at);
+      safely(asDate(value), (at) =>
+        new Intl.DateTimeFormat(locale, {
+          month: 'short',
+          day: 'numeric',
+          // UTC, matching the buckets the server groups by. A day boundary drawn
+          // in the reader's timezone would not line up with the one the rollup
+          // used.
+          timeZone: 'UTC',
+          ...options,
+        }).format(at),
+      ),
+    time: (value) => safely(asDate(value), (at) => time.format(at)),
+    number: (value) => (Number.isFinite(value) ? number.format(value) : UNREADABLE_DATE),
+    relativeTime: (value) =>
+      safely(asDate(value), (at) => {
+        const elapsed = Date.now() - at.getTime();
+        // A future timestamp is a valid date, so the absolute form is safe here —
+        // the unreadable case never reaches this callback.
+        if (elapsed < 0) return dateTime.format(at);
 
-      const minutes = Math.floor(elapsed / 60_000);
-      if (minutes < 60) return relative.format(-minutes, 'minute');
-      const hours = Math.floor(minutes / 60);
-      if (hours < 24) return relative.format(-hours, 'hour');
-      return relative.format(-Math.floor(hours / 24), 'day');
-    },
+        const minutes = Math.floor(elapsed / 60_000);
+        if (minutes < 60) return relative.format(-minutes, 'minute');
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return relative.format(-hours, 'hour');
+        return relative.format(-Math.floor(hours / 24), 'day');
+      }),
   };
 }
 

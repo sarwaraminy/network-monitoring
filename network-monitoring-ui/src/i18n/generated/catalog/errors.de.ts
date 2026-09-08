@@ -63,6 +63,14 @@ export const ERRORS_DE: PartialErrorCatalog = {
   // --- Authentifizierung und Berechtigung ---
 
   'error.invalid_credentials': 'E-Mail-Adresse oder Passwort ist falsch',
+  'error.missing_authorization': 'Authorization-Header fehlt.',
+  'error.not_authenticated': 'Nicht angemeldet.',
+  'error.insufficient_permissions': 'Unzureichende Berechtigungen.',
+  'error.too_many_logins':
+    'Zu viele fehlgeschlagene Versuche. Warten Sie eine Minute und versuchen Sie es erneut.',
+  'error.too_many_capture': 'Zu viele Steuerungsanfragen für die Aufzeichnung. Langsamer.',
+  'error.too_many_lookups': 'Zu viele Abfrageanfragen. Langsamer.',
+  'error.too_many_requests': 'Zu viele Anfragen. Langsamer.',
   'error.token_invalid': 'Token ungültig oder abgelaufen.',
   'error.account_gone': 'Das Konto existiert nicht mehr.',
   'error.signup_admin_only': 'Nur eine administrierende Person kann Konten anlegen.',

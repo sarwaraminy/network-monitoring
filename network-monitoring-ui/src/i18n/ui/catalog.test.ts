@@ -58,11 +58,38 @@ describe('the interface catalogue', () => {
       eager: true,
     }) as Record<string, string>;
 
+    /*
+     * Excluded by SHAPE, not by substring, and that is the whole of this test.
+     *
+     * Vite names a glob key by the shortest relative path from the importing
+     * module, so the catalogues sitting beside this file are `./en.ts` — which
+     * does not contain `/i18n/ui/`. The old filter therefore kept them, `used`
+     * included the catalogues themselves, and every key was "found" by the very
+     * line that defines it. The check could not fail, and reported success while
+     * dozens of keys went unreferenced.
+     *
+     * Anything in this directory is a sibling of the catalogue rather than a
+     * caller, so the rule is "the path has to climb out".
+     */
     const used = Object.entries(sources)
-      .filter(([path]) => !path.includes('/i18n/ui/'))
+      .filter(([path]) => path.startsWith('../') && !path.includes('/i18n/ui/'))
       .map(([, source]) => source)
       .join('\n');
 
-    expect(KEYS.filter((key) => !used.includes(`'${key}'`))).toEqual([]);
+    /*
+     * Keys composed at runtime count as used.
+     *
+     * `evidence.*` is built as `evidence.${field}`, so no literal
+     * `'evidence.flowBytes'` exists anywhere and a naive check calls every one of
+     * them dead. Collecting the template prefixes keeps this honest in both
+     * directions: a key nothing composes and nothing names still fails.
+     */
+    const dynamicPrefixes = [...used.matchAll(/`([A-Za-z][\w.]*)\.\$\{/g)].map((match) => `${match[1]}.`);
+
+    const orphans = KEYS.filter(
+      (key) => !used.includes(`'${key}'`) && !dynamicPrefixes.some((prefix) => key.startsWith(prefix)),
+    );
+
+    expect(orphans).toEqual([]);
   });
 });

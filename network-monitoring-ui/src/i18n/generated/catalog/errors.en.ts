@@ -80,6 +80,13 @@ export const ERRORS_EN = {
   // --- Authentication and authorisation ---
 
   'error.invalid_credentials': 'Invalid email or password',
+  'error.missing_authorization': 'Missing Authorization header.',
+  'error.not_authenticated': 'Not authenticated.',
+  'error.insufficient_permissions': 'Insufficient permissions.',
+  'error.too_many_logins': 'Too many failed attempts. Wait a minute and try again.',
+  'error.too_many_capture': 'Too many capture control requests. Slow down.',
+  'error.too_many_lookups': 'Too many lookup requests. Slow down.',
+  'error.too_many_requests': 'Too many requests. Slow down.',
   'error.token_invalid': 'Invalid or expired token.',
   'error.account_gone': 'Account no longer exists.',
   'error.signup_admin_only': 'Only an administrator can create accounts.',

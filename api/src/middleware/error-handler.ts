@@ -42,7 +42,7 @@ export class HttpError extends Error {
 }
 
 export function notFoundHandler(req: Request, res: Response): void {
-  send(res, HttpError.of(404, 'error.no_route', { method: req.method, path: req.path }));
+  sendError(res, HttpError.of(404, 'error.no_route', { method: req.method, path: req.path }));
 }
 
 /**
@@ -54,7 +54,16 @@ export function notFoundHandler(req: Request, res: Response): void {
  * catalogue entry" and "this client is old" look the same to the reader, which
  * they should: both fall back to the message.
  */
-function send(res: Response, error: HttpError): void {
+/**
+ * Writes an `HttpError` as the body, with its code when it has one.
+ *
+ * Exported for the middleware that runs BEFORE the error handler and so cannot
+ * throw into it — `requireAuth` and the rate limiters both write a response
+ * directly. They used `res.json({ message })` with no code, which left the four
+ * highest-traffic errors in the product — an expired session, a locked-out login
+ * — as the only ones a browser could not translate.
+ */
+export function sendError(res: Response, error: HttpError): void {
   res.status(error.status).json({
     message: error.message,
     ...(error.code ? { code: error.code, params: error.params } : {}),
@@ -68,14 +77,14 @@ export function errorHandler(error: unknown, _req: Request, res: Response, next:
   }
 
   if (error instanceof HttpError) {
-    send(res, error);
+    sendError(res, error);
     return;
   }
 
   // express.json() rejects a malformed body with a raw SyntaxError, whose message
   // ("Unexpected token ...") is meaningless to an API client.
   if (isBodyParseError(error)) {
-    send(res, HttpError.of(400, 'error.body_not_json'));
+    sendError(res, HttpError.of(400, 'error.body_not_json'));
     return;
   }
 
@@ -84,10 +93,10 @@ export function errorHandler(error: unknown, _req: Request, res: Response, next:
   // it has a code. Outside production it is whatever was thrown — prose with no
   // catalogue entry, which is the case `code: null` exists for.
   if (env.isProduction) {
-    send(res, HttpError.of(500, 'error.internal'));
+    sendError(res, HttpError.of(500, 'error.internal'));
     return;
   }
-  send(res, new HttpError(500, error instanceof Error ? error.message : 'Unexpected error'));
+  sendError(res, new HttpError(500, error instanceof Error ? error.message : 'Unexpected error'));
 }
 
 /** Identifies the SyntaxError body-parser throws for an unparseable JSON body. */

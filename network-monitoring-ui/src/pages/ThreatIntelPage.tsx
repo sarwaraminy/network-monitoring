@@ -440,13 +440,11 @@ function DisabledNotice() {
             {t('intel.off')}
           </Typography>
           <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
-            Nothing is being matched against known-malicious addresses or domains. It is off by default
-            because no feeds are shipped — which intelligence to trust is your decision, and a security tool
-            should not start making outbound requests to a list nobody chose.
+            {t('intel.off_note')}
           </Typography>
 
           <Typography variant="body2" sx={{ mt: 2, fontWeight: 600 }}>
-            To enable it, add to <Box component="code">api/.env</Box>:
+            {t('intel.enable_hint')} <Box component="code">api/.env</Box>:
           </Typography>
           <Box
             component="pre"
@@ -465,7 +463,7 @@ function DisabledNotice() {
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1.5 }}>
             <FolderOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              A local file path works too, and is the right choice where this host has no outbound internet.
+              {t('intel.local_file_note')}
             </Typography>
           </Stack>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 0.5 }}>

@@ -151,7 +151,6 @@ export const UI_EN = {
   'audit.what': 'What',
   'audit.which': 'Which',
   'audit.action': 'Action',
-  'audit.subject': 'Subject',
   'audit.detail': 'Detail',
 
   // --- Suppression rules ---
@@ -318,6 +317,7 @@ export const UI_EN = {
   'intel.subdomain_note':
     'A domain indicator also covers its subdomains. Private and reserved addresses are refused on ' +
     'load, whatever a feed says — one wrongly listed would alert on every host at once.',
+  'intel.enable_hint': 'To enable it, add to',
   'intel.off_note':
     'Nothing is being matched against known-malicious addresses or domains. It is off by default ' +
     'because which intelligence to trust is your decision, and a security tool should not start ' +
@@ -383,10 +383,8 @@ export const UI_EN = {
   'period.7d': 'Last 7 days',
   'period.30d': 'Last 30 days',
   'period.90d': 'Last 90 days',
-  'period.1y': 'Last year',
   'period.5y': 'Last 5 years',
   'period.all': 'All time',
-  'grid.actions': 'Actions',
   'ipinfo.looking_up': 'Running reverse DNS, WHOIS and geolocation lookups…',
   'ipinfo.lookup_failed': 'Lookup failed: {reason}',
   'ipinfo.no_geo': 'No geolocation data',
@@ -675,7 +673,6 @@ export const UI_EN = {
   'guide.title': 'User guide',
   'guide.aria': 'User guide (opens in a new tab)',
   'admin.settings': 'Administration settings',
-  'admin.settings_short': 'Settings',
 
   'ipinfo.domain_name': 'Domain name',
   'ipinfo.geolocation': 'Geolocation',
@@ -703,12 +700,6 @@ export const UI_EN = {
   'intel.refused_caption': 'private ranges and malformed entries',
 
   // --- Shared across pages ---
-
-  'common.save': 'Save',
-  'common.delete': 'Delete',
-  'common.loading': 'Loading…',
-  'common.none': '—',
-  'common.error_generic': 'Something went wrong',
 } as const;
 
 export type UiMessageKey = keyof typeof UI_EN;

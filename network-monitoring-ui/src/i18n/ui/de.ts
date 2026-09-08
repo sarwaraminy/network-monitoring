@@ -148,7 +148,6 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'audit.what': 'Was',
   'audit.which': 'Welches',
   'audit.action': 'Aktion',
-  'audit.subject': 'Betreff',
   'audit.detail': 'Detail',
 
   // --- Unterdrückungsregeln ---
@@ -314,6 +313,7 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'Ein Domain-Indikator deckt auch seine Subdomains ab. Private und reservierte Adressen werden ' +
     'beim Laden abgelehnt, was eine Quelle auch behauptet — eine falsch gelistete würde bei jedem ' +
     'Host zugleich Alarm auslösen.',
+  'intel.enable_hint': 'Zum Einschalten hinzufügen zu',
   'intel.off_note':
     'Es wird nichts gegen bekannt bösartige Adressen oder Domains abgeglichen. Standardmäßig ' +
     'ausgeschaltet, weil die Entscheidung, welchen Daten zu trauen ist, Ihnen gehört — und ein ' +
@@ -376,10 +376,8 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'period.7d': 'Letzte 7 Tage',
   'period.30d': 'Letzte 30 Tage',
   'period.90d': 'Letzte 90 Tage',
-  'period.1y': 'Letztes Jahr',
   'period.5y': 'Letzte 5 Jahre',
   'period.all': 'Gesamter Zeitraum',
-  'grid.actions': 'Aktionen',
   'ipinfo.looking_up': 'Reverse-DNS-, WHOIS- und Geolokalisierungsabfragen laufen…',
   'ipinfo.lookup_failed': 'Abfrage fehlgeschlagen: {reason}',
   'ipinfo.no_geo': 'Keine Geolokalisierungsdaten',
@@ -685,7 +683,6 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'guide.title': 'Benutzerhandbuch',
   'guide.aria': 'Benutzerhandbuch (öffnet in einem neuen Tab)',
   'admin.settings': 'Verwaltungseinstellungen',
-  'admin.settings_short': 'Einstellungen',
 
   'ipinfo.domain_name': 'Domainname',
   'ipinfo.geolocation': 'Geolokalisierung',
@@ -711,10 +708,4 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'intel.refused_caption': 'private Bereiche und fehlerhafte Einträge',
 
   // --- Seitenübergreifend ---
-
-  'common.save': 'Speichern',
-  'common.delete': 'Löschen',
-  'common.loading': 'Wird geladen…',
-  'common.none': '—',
-  'common.error_generic': 'Etwas ist schiefgelaufen',
 };
