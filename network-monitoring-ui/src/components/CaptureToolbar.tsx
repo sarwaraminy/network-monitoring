@@ -15,7 +15,7 @@ import Typography from '@mui/material/Typography';
 import { type ReactNode, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import type { UsePacketCapture } from '../hooks/usePacketCapture';
-import { useT } from '../i18n/ui';
+import { type Translate, useT } from '../i18n/ui';
 import { DisclosureCaret } from './DisclosureCaret';
 import SurfaceCard from './SurfaceCard';
 
@@ -51,9 +51,9 @@ interface CaptureToolbarProps {
 const CONTROLS_REGION = 'capture-controls';
 
 /** What the interface dropdown says under itself, in each of its three states. */
-function interfaceHelperText(loading: boolean, count: number): string {
-  if (loading) return 'Loading interfaces…';
-  if (count === 0) return 'No interfaces reported by the server';
+function interfaceHelperText(loading: boolean, count: number, t: Translate): string {
+  if (loading) return t('capture.loading_interfaces');
+  if (count === 0) return t('capture.no_interfaces');
   // A space, not an empty string: it reserves the line so the row does not jump
   // by the height of the helper text once the interfaces land.
   return ' ';
@@ -125,7 +125,7 @@ export default function CaptureToolbar({
           <IconButton
             size="small"
             onClick={() => setShowControls((open) => !open)}
-            aria-label={showControls ? 'Hide capture settings' : 'Show capture settings'}
+            aria-label={showControls ? t('capture.hide_settings') : t('capture.show_settings')}
             aria-expanded={showControls}
             // Points at what it opens, so the state it announces describes
             // something real rather than being an assertion about nothing.
@@ -139,9 +139,7 @@ export default function CaptureToolbar({
     >
       {captureUnavailable && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          Live capture is unavailable on the server: the packet capture library could not be loaded. Install
-          Npcap (Windows) or libpcap (Linux/macOS) and restart the API. Everything else on this page still
-          works.
+          {t('capture.unavailable_note')}
         </Alert>
       )}
       {error && (
@@ -176,7 +174,7 @@ export default function CaptureToolbar({
               value={selectedInterface}
               onChange={(event) => setSelectedInterface(event.target.value)}
               disabled={capturing || loadingInterfaces}
-              helperText={interfaceHelperText(loadingInterfaces, interfaces.length)}
+              helperText={interfaceHelperText(loadingInterfaces, interfaces.length, t)}
               fullWidth
             >
               {interfaces.map((device) => (
@@ -275,7 +273,9 @@ export default function CaptureToolbar({
             variant={capturing ? 'filled' : 'outlined'}
             label={capturing ? t('capture.capturing') : t('capture.idle')}
           />
-          {status?.linkType && <Chip size="small" variant="outlined" label={`Link: ${status.linkType}`} />}
+          {status?.linkType && (
+            <Chip size="small" variant="outlined" label={t('capture.link_type', { type: status.linkType })} />
+          )}
           {status?.filter && <Chip size="small" variant="outlined" label={`Filter: ${status.filter}`} />}
           {status && status.findingCount > 0 && (
             <Chip

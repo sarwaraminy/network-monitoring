@@ -293,6 +293,52 @@ export const UI_EN = {
     'Would have hidden {matched} of the last {examined} alerts — {occurrences} observations in total.',
   'suppressions.preview_window': 'Examined {from} to {to}',
 
+  'capture.unavailable_note':
+    'Live capture is unavailable on the server: the packet capture library could not be loaded. ' +
+    'Install Npcap (Windows) or libpcap (Linux/macOS) and restart the API. Everything else on this ' +
+    'page still works.',
+  'capture.loading_interfaces': 'Loading interfaces…',
+  'capture.no_interfaces': 'No interfaces reported by the server',
+  'capture.hide_settings': 'Hide capture settings',
+  'capture.show_settings': 'Show capture settings',
+  'capture.link_type': 'Link: {type}',
+  'intel.reloading': 'Reloading…',
+  'intel.reload_feeds': 'Reload feeds',
+  'intel.origin.network': 'Live',
+  'intel.origin.network_hint': 'Downloaded on the last refresh — this feed is current.',
+  'intel.origin.cache': 'Cached',
+  'intel.origin.cache_hint':
+    'The download failed and the last saved copy was used instead. Detection still works, but these ' +
+    'indicators are as old as the last successful fetch.',
+  'intel.origin.file': 'Local file',
+  'intel.origin.file_hint': 'Read from disk. Freshness is whatever your own process makes it.',
+  'intel.origin.failed': 'Failed',
+  'intel.origin.failed_hint':
+    'Nothing could be loaded from this source. Its indicators are not being matched at all.',
+  'intel.subdomain_note':
+    'A domain indicator also covers its subdomains. Private and reserved addresses are refused on ' +
+    'load, whatever a feed says — one wrongly listed would alert on every host at once.',
+  'intel.off_note':
+    'Nothing is being matched against known-malicious addresses or domains. It is off by default ' +
+    'because which intelligence to trust is your decision, and a security tool should not start ' +
+    'making outbound requests to a list nobody chose.',
+  'intel.local_file_note':
+    'A local file path works too, and is the right choice where this host has no outbound internet.',
+
+  // --- Administration menu (the dialog's own list) ---
+
+  'admin.group.database': 'Database',
+  'admin.group.notifications': 'Notifications',
+  'admin.group.accounts': 'Accounts',
+  'admin.tool.console': 'Query console',
+  'admin.tool.console_desc': 'Whether the ad hoc SQL console can start, and why not.',
+  'admin.tool.console_settings': 'Query console settings',
+  'admin.tool.console_settings_desc': 'Switch it on or off, and set its limits, without a restart.',
+  'admin.tool.delivery': 'Delivery settings',
+  'admin.tool.delivery_desc': 'Where findings go, and how often. In force on save.',
+  'admin.tool.users': 'Users and roles',
+  'admin.tool.users_desc': 'Who is an administrator. Recorded in the audit trail.',
+
   // --- Evidence field names ---
   //
   // Keyed by the evidence property the detectors emit. `humanizeKey` used to turn

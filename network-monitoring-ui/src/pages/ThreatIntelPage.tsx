@@ -26,7 +26,7 @@ import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
 import { useFormatters } from '../i18n/format';
-import { useT } from '../i18n/ui';
+import { type UiMessageKey, useT } from '../i18n/ui';
 import type { IntelFeedOrigin, IntelFeedStatus } from '../types';
 
 /**
@@ -43,32 +43,29 @@ import type { IntelFeedOrigin, IntelFeedStatus } from '../types';
 /** How each origin is presented, and what it means for the operator. */
 const ORIGIN: Record<
   IntelFeedOrigin,
-  { label: string; color: 'success' | 'warning' | 'info' | 'error'; hint: string }
+  { labelKey: UiMessageKey; color: 'success' | 'warning' | 'info' | 'error'; hintKey: UiMessageKey }
 > = {
   network: {
-    label: 'Live',
+    labelKey: 'intel.origin.network',
     color: 'success',
-    hint: 'Downloaded on the last refresh — this feed is current.',
+    hintKey: 'intel.origin.network_hint',
   },
   cache: {
-    label: 'Cached',
+    labelKey: 'intel.origin.cache',
     color: 'warning',
-    hint:
-      'The download failed and the last saved copy was used instead. Detection still works, but these ' +
-      'indicators are as old as the last successful fetch.',
+    hintKey: 'intel.origin.cache_hint',
   },
   file: {
-    label: 'Local file',
+    labelKey: 'intel.origin.file',
     color: 'info',
-    hint: 'Read from disk. Freshness is whatever your own process makes it.',
+    hintKey: 'intel.origin.file_hint',
   },
   failed: {
-    label: 'Failed',
+    labelKey: 'intel.origin.failed',
     color: 'error',
-    hint: 'Nothing could be loaded from this source. Its indicators are not being matched at all.',
+    hintKey: 'intel.origin.failed_hint',
   },
 };
-
 /** The one-line summary under the feed count: the worst state, named. */
 function feedHealthCaption(failed: number, stale: number): string {
   if (failed > 0) return `${failed} failing`;
@@ -149,7 +146,7 @@ export default function ThreatIntelPage() {
               onClick={() => reload.mutate()}
               disabled={reload.isPending || !data?.enabled}
             >
-              {reload.isPending ? 'Reloading…' : 'Reload feeds'}
+              {reload.isPending ? t('intel.reloading') : t('intel.reload_feeds')}
             </Button>
           ) : null
         }
@@ -259,8 +256,7 @@ export default function ThreatIntelPage() {
             </Stack>
 
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 2.5 }}>
-              A domain indicator also covers its subdomains. Private and reserved addresses are refused on
-              load, whatever a feed says — one wrongly listed would alert on every host at once.
+              {t('intel.subdomain_note')}
             </Typography>
           </SurfaceCard>
         </Grid>
@@ -285,10 +281,14 @@ const FeedNameCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ row, cell }) => 
 );
 
 const OriginCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => {
+  // A function component, not a bare arrow returning JSX inside the column def:
+  // MRT calls `Cell` as a component, so the hook is legitimate here and is the
+  // only way this chip's label and tooltip can reach the catalogue.
+  const t = useT();
   const origin = ORIGIN[cell.getValue<IntelFeedOrigin>()];
   return (
-    <Tooltip title={origin.hint}>
-      <Chip size="small" variant="outlined" color={origin.color} label={origin.label} />
+    <Tooltip title={t(origin.hintKey)}>
+      <Chip size="small" variant="outlined" color={origin.color} label={t(origin.labelKey)} />
     </Tooltip>
   );
 };
@@ -353,7 +353,7 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
         // knowing the wire value, and "Live" would not be findable at all.
         filterSelectOptions: ORIGIN_ORDER.map((origin) => ({
           value: origin,
-          label: ORIGIN[origin].label,
+          label: t(ORIGIN[origin].labelKey),
         })),
         // Worst first, rather than alphabetically — which would straddle "file"
         // between "cache" and "failed" and bury the row worth acting on.

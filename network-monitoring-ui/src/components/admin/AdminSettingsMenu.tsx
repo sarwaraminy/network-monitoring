@@ -13,7 +13,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { type ComponentType, type ReactElement, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useT } from '../../i18n/ui';
+import { type UiMessageKey, useT } from '../../i18n/ui';
 import AppDialog from '../AppDialog';
 import DeliverySettingsForm from '../DeliverySettingsForm';
 import QueryConsoleSettings from './QueryConsoleSettings';
@@ -39,10 +39,18 @@ import UserRoles from './UserRoles';
 interface AdminTool {
   id: string;
   icon: ReactElement;
-  label: string;
-  description: string;
+  /**
+   * Catalogue keys, not sentences. `ADMIN_GROUPS` is module-level and exported,
+   * so it is built once at import, before a locale exists — the same reason the
+   * field tables in QueryConsoleSettings and DeliverySettingsForm hold keys.
+   *
+   * This list is the dialog itself, so leaving it in English left the menu that
+   * opens four translated panels reading entirely in English.
+   */
+  labelKey: UiMessageKey;
+  descriptionKey: UiMessageKey;
   /** Dialog heading when it opens. */
-  title: string;
+  titleKey: UiMessageKey;
   /**
    * The screen this row opens, carried on the entry itself so adding a tool is
    * genuinely one array edit rather than an entry here and an `if` somewhere else.
@@ -51,7 +59,7 @@ interface AdminTool {
 }
 
 interface AdminGroup {
-  heading: string;
+  headingKey: UiMessageKey;
   items: AdminTool[];
 }
 
@@ -69,35 +77,35 @@ function EmbeddedDeliverySettings() {
 
 export const ADMIN_GROUPS: AdminGroup[] = [
   {
-    heading: 'Database',
+    headingKey: 'admin.group.database',
     items: [
       {
         id: 'query-console',
         icon: <StorageOutlinedIcon fontSize="small" />,
-        label: 'Query console',
-        description: 'Whether the ad hoc SQL console can start, and why not.',
-        title: 'Query console',
+        labelKey: 'admin.tool.console',
+        descriptionKey: 'admin.tool.console_desc',
+        titleKey: 'admin.tool.console',
         Component: QueryConsoleStatus,
       },
       {
         id: 'query-console-settings',
         icon: <TuneOutlinedIcon fontSize="small" />,
-        label: 'Query console settings',
-        description: 'Switch it on or off, and set its limits, without a restart.',
-        title: 'Query console settings',
+        labelKey: 'admin.tool.console_settings',
+        descriptionKey: 'admin.tool.console_settings_desc',
+        titleKey: 'admin.tool.console_settings',
         Component: QueryConsoleSettings,
       },
     ],
   },
   {
-    heading: 'Notifications',
+    headingKey: 'admin.group.notifications',
     items: [
       {
         id: 'delivery-settings',
         icon: <SendOutlinedIcon fontSize="small" />,
-        label: 'Delivery settings',
-        description: 'Where findings go, and how often. In force on save.',
-        title: 'Delivery settings',
+        labelKey: 'admin.tool.delivery',
+        descriptionKey: 'admin.tool.delivery_desc',
+        titleKey: 'admin.tool.delivery',
         /*
          * The same component the Delivery page embeds, not a copy. Two forms
          * over one three-layer resolution would eventually disagree about which
@@ -109,14 +117,14 @@ export const ADMIN_GROUPS: AdminGroup[] = [
     ],
   },
   {
-    heading: 'Accounts',
+    headingKey: 'admin.group.accounts',
     items: [
       {
         id: 'user-roles',
         icon: <GroupOutlinedIcon fontSize="small" />,
-        label: 'Users and roles',
-        description: 'Who is an administrator. Recorded in the audit trail.',
-        title: 'Users and roles',
+        labelKey: 'admin.tool.users',
+        descriptionKey: 'admin.tool.users_desc',
+        titleKey: 'admin.tool.users',
         Component: UserRoles,
       },
     ],
@@ -154,14 +162,14 @@ export default function AdminSettingsMenu() {
       >
         {ADMIN_GROUPS.map((group) => (
           <List
-            key={group.heading}
+            key={group.headingKey}
             dense
             subheader={
               <Typography
                 variant="overline"
                 sx={{ px: 2, pt: 1.5, display: 'block', color: 'text.secondary' }}
               >
-                {group.heading}
+                {t(group.headingKey)}
               </Typography>
             }
           >
@@ -174,7 +182,7 @@ export default function AdminSettingsMenu() {
                 }}
               >
                 <ListItemIcon sx={{ minWidth: 36 }}>{item.icon}</ListItemIcon>
-                <ListItemText primary={item.label} secondary={item.description} />
+                <ListItemText primary={t(item.labelKey)} secondary={t(item.descriptionKey)} />
               </ListItemButton>
             ))}
           </List>
@@ -194,8 +202,8 @@ export default function AdminSettingsMenu() {
         <AppDialog
           open
           onClose={() => setOpen(null)}
-          title={open.title}
-          subtitle={open.description}
+          title={t(open.titleKey)}
+          subtitle={t(open.descriptionKey)}
           /*
            * `md` (900px) rather than the shell's `sm` default. These tools are
            * forms and tables, not confirmations: the delivery settings run to

@@ -285,6 +285,58 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'Hätte {matched} der letzten {examined} Meldungen ausgeblendet — {occurrences} Beobachtungen insgesamt.',
   'suppressions.preview_window': 'Untersucht von {from} bis {to}',
 
+  'capture.unavailable_note':
+    'Live-Aufzeichnung ist auf dem Server nicht verfügbar: Die Paketaufzeichnungsbibliothek konnte ' +
+    'nicht geladen werden. Installieren Sie Npcap (Windows) oder libpcap (Linux/macOS) und starten ' +
+    'Sie die API neu. Alles andere auf dieser Seite funktioniert weiterhin.',
+  'capture.loading_interfaces': 'Schnittstellen werden geladen…',
+  'capture.no_interfaces': 'Der Server meldet keine Schnittstellen',
+  'capture.hide_settings': 'Aufzeichnungseinstellungen ausblenden',
+  'capture.show_settings': 'Aufzeichnungseinstellungen anzeigen',
+  'capture.link_type': 'Verbindung: {type}',
+  'intel.reloading': 'Wird neu geladen…',
+  'intel.reload_feeds': 'Quellen neu laden',
+  'intel.origin.network': 'Live',
+  'intel.origin.network_hint': 'Beim letzten Aktualisieren heruntergeladen — diese Quelle ist aktuell.',
+  'intel.origin.cache': 'Zwischengespeichert',
+  'intel.origin.cache_hint':
+    'Der Download ist fehlgeschlagen, daher wurde die zuletzt gespeicherte Kopie verwendet. Die ' +
+    'Erkennung funktioniert weiterhin, aber diese Indikatoren sind so alt wie der letzte ' +
+    'erfolgreiche Abruf.',
+  'intel.origin.file': 'Lokale Datei',
+  'intel.origin.file_hint':
+    'Von der Festplatte gelesen. Die Aktualität hängt von Ihrem eigenen Verfahren ab.',
+  'intel.origin.failed': 'Fehlgeschlagen',
+  'intel.origin.failed_hint':
+    'Aus dieser Quelle konnte nichts geladen werden. Ihre Indikatoren werden überhaupt nicht ' +
+    'abgeglichen.',
+  'intel.subdomain_note':
+    'Ein Domain-Indikator deckt auch seine Subdomains ab. Private und reservierte Adressen werden ' +
+    'beim Laden abgelehnt, was eine Quelle auch behauptet — eine falsch gelistete würde bei jedem ' +
+    'Host zugleich Alarm auslösen.',
+  'intel.off_note':
+    'Es wird nichts gegen bekannt bösartige Adressen oder Domains abgeglichen. Standardmäßig ' +
+    'ausgeschaltet, weil die Entscheidung, welchen Daten zu trauen ist, Ihnen gehört — und ein ' +
+    'Sicherheitswerkzeug sollte nicht von sich aus Anfragen an eine Liste stellen, die niemand ' +
+    'gewählt hat.',
+  'intel.local_file_note':
+    'Ein lokaler Dateipfad funktioniert ebenfalls und ist die richtige Wahl, wenn dieser Host keinen ' +
+    'ausgehenden Internetzugang hat.',
+
+  // --- Administrationsmenü ---
+
+  'admin.group.database': 'Datenbank',
+  'admin.group.notifications': 'Benachrichtigungen',
+  'admin.group.accounts': 'Konten',
+  'admin.tool.console': 'Abfragekonsole',
+  'admin.tool.console_desc': 'Ob die Ad-hoc-SQL-Konsole starten kann, und warum nicht.',
+  'admin.tool.console_settings': 'Einstellungen der Abfragekonsole',
+  'admin.tool.console_settings_desc': 'Ein- oder ausschalten und ihre Grenzen setzen, ohne Neustart.',
+  'admin.tool.delivery': 'Zustellungseinstellungen',
+  'admin.tool.delivery_desc': 'Wohin Funde gehen und wie oft. Beim Speichern in Kraft.',
+  'admin.tool.users': 'Benutzer und Rollen',
+  'admin.tool.users_desc': 'Wer Administrator ist. Im Prüfprotokoll festgehalten.',
+
   // --- Feldnamen der Belege ---
 
   'evidence.feed': 'Quelle',
