@@ -2191,8 +2191,9 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
-| **The interface speaks German and Dari** — layers 2–4 of the internationalisation work: `DirectionProvider` supplies the theme direction, an emotion RTL cache and `dir`/`lang` on the document; `<Identifier>` isolates the addresses, MACs and ports that never pass through a message, including the chart axis where no component can wrap them; `HttpError.of(status, code, params)` renders its own English `message` from the code the response carries, so scripts keep a stable string while a person reads their own language; and `useT()` covers the navigation, the alerts page, the dashboard, the audit trail, sign-in, sign-up and the rest of the page chrome. Dates and numbers followed the application's locale rather than the browser's for the first time, and Afghanistan's Solar Hijri calendar turned out to cost nothing — `fa-AF` already selects it in CLDR, with the Afghan month names rather than the Iranian ones | *this branch* |
-| **Findings stop being English prose** — the first of the four internationalisation layers, and the one that got more expensive every day it waited. Detectors emitted interpolated sentences, so no later translation could recover the structure that had been interpolated away: once `445` is inside a sentence nothing tells it from a byte count. A finding now stores a message key and its parameters, rendered in the reader's language at display time; English, German and Dari catalogues ship, ICU MessageFormat handles the plural categories the three do not share, and interpolated identifiers are bidi-isolated centrally so an address cannot render with its octets reordered inside a right-to-left sentence | *this branch* |
+| **Vite 8, rolldown and Vitest 4** — the build moves off esbuild/Rollup onto rolldown, which took production builds from ~9s to ~1.2s. Three things broke and none of them were the bundler: jest-dom's type augmentation targets `vitest`'s `Assertion`, which Vitest 4 moved to `@vitest/expect`, silently turning all 346 `toBeInTheDocument` calls into TS2339; vite 8's optional esbuild peer conflicts with the one drizzle-kit pins, so npm nests vite and vitest under the UI workspace and `@testing-library/jest-dom/vitest` — hoisted to the root — can no longer resolve `vitest` at all; and the root scripts named `vite` and `vitest` directly, which stopped resolving for the same reason. `manualChunks`' object form is gone from rolldown, so the framework chunk is now a `codeSplitting` group — not `advancedChunks`, which is the same option deprecated, and which rolldown drops with a warning and nothing else when both are set. Measured to confirm the entry still costs what it did rather than becoming the single blob the comment there warns about | *this branch* |
+| **The interface speaks German and Dari** — layers 2–4 of the internationalisation work: `DirectionProvider` supplies the theme direction, an emotion RTL cache and `dir`/`lang` on the document; `<Identifier>` isolates the addresses, MACs and ports that never pass through a message, including the chart axis where no component can wrap them; `HttpError.of(status, code, params)` renders its own English `message` from the code the response carries, so scripts keep a stable string while a person reads their own language; and `useT()` covers the navigation, the alerts page, the dashboard, the audit trail, sign-in, sign-up and the rest of the page chrome. Dates and numbers followed the application's locale rather than the browser's for the first time, and Afghanistan's Solar Hijri calendar turned out to cost nothing — `fa-AF` already selects it in CLDR, with the Afghan month names rather than the Iranian ones | #55 |
+| **Findings stop being English prose** — the first of the four internationalisation layers, and the one that got more expensive every day it waited. Detectors emitted interpolated sentences, so no later translation could recover the structure that had been interpolated away: once `445` is inside a sentence nothing tells it from a byte count. A finding now stores a message key and its parameters, rendered in the reader's language at display time; English, German and Dari catalogues ship, ICU MessageFormat handles the plural categories the three do not share, and interpolated identifiers are bidi-isolated centrally so an address cannot render with its octets reordered inside a right-to-left sentence | #55 |
 | **`sensor_id` on findings, devices and rollups** — two installations sharing one database wrote into each other's rows: `alerts.dedup_key` was globally unique although the key is derived from what was observed, and `known_devices` was keyed on the MAC alone, so a device one sensor had learned silently switched off new-device detection on every other | #54 |
 | **Both query-console roles revoked, not just the read one** — `revokeAdhocLogin` took `adhocRole()`'s `read` default, so every path that switched the console off left `nm_adhocrw_<database>` holding `LOGIN`, the last write-mode password and V12's DML on the operational tables; no supported operator action reached it. Both modes now revoke wherever the console goes off, `startAdhoc` strips the mode it is not using, and the statement is `NOLOGIN PASSWORD NULL` so the credential is destroyed rather than disabled | #53 |
 | **Role management in the interface** — role was settable only in `psql`; now Administration settings → Users and roles, audited, refusing to demote the last administrator (in a locked transaction, because two administrators demoting each other loses a count-then-update race) or to demote yourself | #53 |
@@ -2214,23 +2215,23 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 ### Next, in order
 
-1. **Finish internationalisation.** All four layers have landed — findings as message keys,
-   right-to-left with bidi isolation, server error codes, and the interface strings. What is
-   left is not architecture:
-   - **Native review of the German and Dari catalogues.** Every one of them is
-     machine-drafted. Dari most urgently, since nobody on the team reads it.
-   - **The administration panels' long-form prose** still reads in English — see Layer 4
-     below for exactly which files.
-   - **A Perso-Arabic webfont**, if the system faces the stack now names turn out to look
-     wrong to somebody who reads Dari.
-   - **`DataGrid`'s generic numeric cell**, which still formats through the browser locale
-     and wants a decision rather than a patch: it is shared between ordinary tables and the
-     query console's results grid, and those want opposite things.
-2. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
-   type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
-   `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
-   `.bin`.
-3. **Small, and each independently useful:**
+1. **Finish internationalisation.** No engineering left — what remains cannot be done by
+   whoever writes the code:
+   - **Native review of the German and Dari catalogues.** All ~700 strings are
+     machine-drafted. Dari most urgently, since nobody on the team reads it. This is the
+     one that should block calling the feature finished: every guard in the repository
+     checks that a translation *exists* and interpolates correctly, and none of them can
+     tell whether it is any good.
+   - **A Perso-Arabic webfont**, if the system faces the theme now names turn out to look
+     wrong to somebody who reads Dari. Bundling Vazirmatn through `@fontsource` is the
+     answer if they do; that is a judgement made by looking, not by measuring.
+   - **The user guide** is still English in sixteen of its seventeen topics.
+
+   Two items that stood here are done and were removed rather than left to be re-read: the
+   administration panels' long-form prose was converted in #55, and `DataGrid`'s numeric
+   cell already formats through the application locale — the conflict described with the
+   query console's grid does not exist, because that page renders its own cells.
+2. **Small, and each independently useful:**
    - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
      `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
      the table; removing them removes the surface instead of protecting it. The `GET` stays,
@@ -2281,9 +2282,10 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 ### Internationalisation — English, German and Dari
 
-Planned, not started. Written down in this much detail because two of the four layers are
-cheap now and expensive later, and because **Dari is right-to-left** — which makes this an
-architectural change rather than a string-extraction exercise.
+**Shipped in #55.** Kept at this length rather than collapsed into the table above,
+because the reasoning is what a fifth language will need: which layers were cheap now and
+expensive later, why **Dari being right-to-left** made this an architectural change rather
+than a string-extraction exercise, and which decisions were made on purpose.
 
 It also finally gives `users.lang_code` a meaning. The column has existed since V1, is
 `NOT NULL`, defaults to `en`, is written by sign-up and the user CLI, and is returned in
@@ -2426,13 +2428,15 @@ known.
    the packet table, and the shared vocabulary — severity names, detector names and their
    one-line explanations — which several screens read.
 
-   **Not converted**, and this is the part to know about: the long-form explanatory prose
-   inside the administration panels — `QueryConsoleStatus`, `QueryConsoleSettings`,
-   `UserRoles`, and the field-by-field help in `DeliverySettingsForm`. That is several
-   hundred lines of paragraph text whose value is precision, and machine-drafting it into two
-   languages would produce exactly the plausible-but-wrong prose this file keeps warning
-   about. It reads in English today. `useT()` is what it needs, and the catalogue is where
-   the strings go.
+   The long-form explanatory prose inside the administration panels —
+   `QueryConsoleStatus`, `QueryConsoleSettings`, `UserRoles`, and the field-by-field help in
+   `DeliverySettingsForm` — was going to be left in English, on the argument that several
+   hundred lines of paragraph text whose value is precision would machine-draft into exactly
+   the plausible-but-wrong prose this file keeps warning about. It was converted anyway,
+   because leaving it produced a worse thing than an imperfect translation: an interface in
+   Dari with English paragraphs inside its settings dialogs, which reads as unfinished
+   rather than as untranslated. The warning stands and now applies to all ~700 strings
+   equally — see the native review at the top of the queue.
 
    The mechanism itself is complete: `src/i18n/ui/` holds the three catalogues, `useT()` is
    the hook, and `catalog.test.ts` enforces all three — every pattern parses, every key is

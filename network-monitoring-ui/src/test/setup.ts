@@ -1,6 +1,6 @@
-import '@testing-library/jest-dom/vitest';
-import { cleanup } from '@testing-library/react';
-import { afterAll, afterEach, beforeAll, vi } from 'vitest';
+import * as jestDom from '@testing-library/jest-dom/matchers';
+import { cleanup, configure } from '@testing-library/react';
+import { afterAll, afterEach, beforeAll, expect, vi } from 'vitest';
 import { server } from './server';
 
 /**
@@ -10,6 +10,46 @@ import { server } from './server';
  * real client — interceptors, error unwrapping, the bearer header — and only the
  * network itself is substituted.
  */
+
+/*
+ * jest-dom is registered by hand rather than by importing
+ * `@testing-library/jest-dom/vitest`.
+ *
+ * That entry point does `import 'vitest'` from inside jest-dom's own directory.
+ * It worked while everything sat in one hoisted `node_modules`, and stopped the
+ * day vite 8 arrived: vite 8 declares an *optional* peer on esbuild
+ * `^0.27 || ^0.28` while drizzle-kit pins `^0.25.4`, so npm resolves the
+ * conflict by nesting vite and vitest under `network-monitoring-ui/`. jest-dom
+ * stays hoisted to the root, where `vitest` is no longer resolvable, and all 32
+ * test files fail to import — before a single test runs.
+ *
+ * Nothing is actually broken by that nesting. Vite 8 bundles with rolldown and
+ * only reaches for esbuild if asked to, which this config does not, so the peer
+ * it cannot satisfy is one it does not use. Registering the matchers here is the
+ * fix for the resolution rather than for the layout: it makes the test setup
+ * stop caring where in the tree either package landed.
+ *
+ * See `jest-dom.d.ts` beside this file for the other half — the types, which
+ * moved for an unrelated reason.
+ */
+expect.extend(jestDom);
+
+/**
+ * How long `waitFor` and `findBy*` keep trying.
+ *
+ * Testing Library's own default is one second and is not covered by
+ * `testTimeout: 15_000` in vitest.config.ts — that bounds the whole test, while
+ * `asyncUtilTimeout` bounds each poll loop inside it, and the two are set in
+ * different places. The comment on `testTimeout` says charts and tables render a
+ * lot of nodes; that is just as true here, and the shortfall shows as a flake
+ * rather than as a failure: a `waitFor` that loses its second to a parallel
+ * worker fails once, then passes alone and passes on a re-run.
+ *
+ * Five seconds rather than fifteen. This is the budget for one condition to
+ * become true, not for a test, and a genuinely wrong assertion should still
+ * report in a few seconds rather than sit there.
+ */
+configure({ asyncUtilTimeout: 5_000 });
 
 beforeAll(() => {
   // An unhandled request is a bug in the test, not something to paper over.
