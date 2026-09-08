@@ -88,11 +88,22 @@ describe('numericColumn', () => {
     expect(column.muiTableBodyCellProps).toBe(asFunction);
   });
 
-  it('formats a number with locale grouping when the column has no Cell', () => {
+  it('gives a numeric column a Cell that renders through the app locale', () => {
+    /*
+     * Asserted as a component reference rather than by calling it.
+     *
+     * The default `Cell` used to be a plain arrow doing `value.toLocaleString()`,
+     * which takes the BROWSER's locale — so a German reader saw `1,240` in the
+     * cell and `1.240` in the caption beside it. It is a component now, reading
+     * the selected locale through `useFormatters`, which means calling it
+     * directly here would throw on the hook. What this pins is the contract the
+     * rest of the file is about: a numeric column with no `Cell` of its own gets
+     * the shared one, and one that brings its own keeps it.
+     */
     const column = numericColumn({ accessorKey: 'count', header: 'Count' });
-    const render = column.Cell as (props: { cell: { getValue: () => unknown } }) => unknown;
 
-    expect(render({ cell: { getValue: () => 1204 } })).toBe((1204).toLocaleString());
+    expect(typeof column.Cell).toBe('function');
+    expect(column.Cell).toBe(numericColumn({ accessorKey: 'other', header: 'Other' }).Cell);
   });
 
   it('does not replace a Cell the column already defines', () => {

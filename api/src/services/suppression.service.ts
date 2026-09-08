@@ -6,7 +6,6 @@ import { HttpError } from '../middleware/error-handler.js';
 import { type Actor, recordAudit } from './audit.service.js';
 import {
   hasSuppressionCriterion,
-  NO_CRITERIA,
   NO_SUPPRESSIONS,
   SuppressionSet,
   type UnusableRule,
@@ -480,7 +479,7 @@ export async function updateSuppression(
     // longer has: clearing the only criterion of a rule is invalid, and clearing
     // one of two is fine, and only the merge against the current row can tell them
     // apart.
-    if (!hasSuppressionCriterion(merged)) throw new HttpError(400, NO_CRITERIA);
+    if (!hasSuppressionCriterion(merged)) throw HttpError.of(400, 'error.no_suppression_criterion');
 
     const [updated] = await tx
       .update(alertSuppressions)

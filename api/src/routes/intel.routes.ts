@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { renderError } from '../i18n/catalog/errors.js';
+import { DEFAULT_LOCALE } from '../i18n/locales.js';
 import { intel } from '../intel/registry.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error-handler.js';
@@ -49,10 +51,16 @@ intelRouter.post(
     // an operator can tell whether their feeds are current.
     res.status(outcome.status === 'already-running' ? 409 : 503).json({
       status: outcome.status,
-      message:
-        outcome.status === 'already-running'
-          ? 'A reload is already in progress; the indicators below are from the previous load.'
-          : 'Reload did not produce a usable set. The previously loaded indicators are still in use.',
+      // Rendered in English for the body, with the code beside it so the browser
+      // can translate — the same two-field shape every other error uses. The
+      // `status` enum was already translatable and this sentence was not, which
+      // put two halves of one answer in different languages.
+      message: renderError(
+        outcome.status === 'already-running' ? 'error.intel_reload_running' : 'error.intel_reload_kept',
+        {},
+        DEFAULT_LOCALE,
+      ),
+      code: outcome.status === 'already-running' ? 'error.intel_reload_running' : 'error.intel_reload_kept',
       ...(outcome.status === 'failed' ? { error: outcome.error } : {}),
       ...(outcome.status === 'kept-previous' ? { attempted: outcome.attempted } : {}),
       previous: outcome.previous

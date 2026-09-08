@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { env } from '../config/env.js';
+import { renderFinding } from '../i18n/catalog/findings.js';
+import { DEFAULT_LOCALE } from '../i18n/locales.js';
 import { componentLogger } from '../logger.js';
 import type { Finding, Severity } from '../packet/detect/types.js';
 import { BoundedMap } from '../packet/detect/types.js';
@@ -16,6 +18,7 @@ import {
   type NotifiableFinding,
   type Notification,
   type NotificationChannel,
+  OUTBOUND_LOCALE,
   SEVERITY_ORDER,
   toNotifiable,
 } from './types.js';
@@ -95,6 +98,14 @@ interface RateLimitState {
   lastNotifiedAt: Array<[string, number]>;
   sentTimestamps: number[];
 }
+
+/**
+ * The deliberate test send's catalogue entry.
+ *
+ * Not a finding — no detector produces it — but it travels as one and reaches the
+ * same channels, so it needs a key for the same reason they do.
+ */
+const TEST_MESSAGE = 'notification.test';
 
 export class Notifier {
   private readonly channels: NotificationChannel[] = [];
@@ -393,6 +404,7 @@ export class Notifier {
   /** Sends a deliberate test message, bypassing every gate. */
   async sendTest(): Promise<DeliveryResult[]> {
     const now = new Date();
+    const englishTest = renderFinding(TEST_MESSAGE, {}, DEFAULT_LOCALE);
     const notification: Notification = {
       severity: 'info',
       findings: [
@@ -403,9 +415,11 @@ export class Notifier {
           sensorId: env.sensorId,
           kind: 'test',
           severity: 'info',
-          title: 'Test notification from Network Monitoring',
-          description:
-            'If you are reading this, alert delivery is configured correctly. No finding was involved.',
+          ...renderFinding(TEST_MESSAGE, {}, OUTBOUND_LOCALE),
+          // The machine feeds are English whatever the human ones are set to, and
+          // a test send reaches them too — see `NotifiableFinding`.
+          englishTitle: englishTest.title,
+          englishDescription: englishTest.description,
           sourceIp: null,
           targetIp: null,
           occurrences: 1,

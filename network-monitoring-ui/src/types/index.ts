@@ -66,8 +66,18 @@ export interface Alert {
   sensorId: string;
   kind: AlertKind;
   severity: Severity;
-  title: string;
-  description: string;
+  /**
+   * What this finding says, as a catalogue key plus what it interpolates.
+   *
+   * The pair `arp_spoofing.sprawl.title` / `.description` is derived from the key
+   * and rendered in the reader's language — see i18n/findings.ts. Null only on
+   * rows written before V17, which carry `title` and `description` instead.
+   */
+  messageKey: string | null;
+  messageParams: Record<string, unknown>;
+  /** Pre-V17 English prose. Null on everything written since. */
+  title: string | null;
+  description: string | null;
   sourceIp: string | null;
   sourceMac: string | null;
   targetIp: string | null;
@@ -300,6 +310,15 @@ export interface AuthenticatedUser {
   firstName: string;
   lastName: string | null;
   role: string;
+  /**
+   * The account's language, and the reason `users.lang_code` exists.
+   *
+   * The column has been `NOT NULL` since V1, is written by sign-up and by the user
+   * CLI, and until the interface was translated nothing read it. It is the second
+   * of the three sources `LocaleContext` consults, behind an explicit choice made
+   * in this browser.
+   */
+  langCode: string;
 }
 
 export interface LoginResponse extends AuthenticatedUser {

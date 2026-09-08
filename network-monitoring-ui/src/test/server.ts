@@ -27,7 +27,7 @@ export const handlers = [
   http.post('/auth/login', async ({ request }) => {
     const body = (await request.json()) as { email: string; password: string };
     if (body.password !== 'correct-password') {
-      return HttpResponse.json({ message: 'Invalid email or password' }, { status: 401 });
+      return HttpResponse.json({ message: 'Invalid email or password.' }, { status: 401 });
     }
     return HttpResponse.json({
       id: 1,

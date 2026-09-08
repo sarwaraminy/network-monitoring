@@ -17,6 +17,9 @@ import { describeError } from '../api/client';
 import { fetchNotifyStatus, sendNotifyTest } from '../api/notify.api';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useFormatters } from '../i18n/format';
+import { type Message, useMessageText } from '../i18n/message-state';
+import { type UiMessageKey, useT } from '../i18n/ui';
 
 /**
  * Alert delivery.
@@ -45,16 +48,19 @@ import { useAuth } from '../contexts/AuthContext';
  */
 
 /** Only the two that need explaining; the rest read fine as a number. */
-const GATE_NOTES: Record<string, string> = {
-  throttle: 'The same finding will not notify again inside this window.',
-  ceiling: 'A hard limit on messages per hour, whatever detection does.',
+const GATE_NOTES: Record<string, UiMessageKey> = {
+  throttle: 'delivery.gate.throttle_note',
+  ceiling: 'delivery.gate.ceiling_note',
 };
 
 export default function DeliveryPage() {
+  const t = useT();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const queryClient = useQueryClient();
-  const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  // Held as a key, rendered on display — see i18n/message-state.ts.
+  const [message, setMessage] = useState<{ severity: 'success' | 'error'; body: Message } | null>(null);
+  const messageText = useMessageText();
 
   const status = useQuery({
     queryKey: ['notify', 'status'],
@@ -70,15 +76,22 @@ export default function DeliveryPage() {
         severity: failed.length > 0 ? 'error' : 'success',
         // Names the channel that failed rather than reporting a count. "1 of 2
         // delivered" sends you to the logs; "email failed: invalid login" does not.
-        text:
+        // The failure detail is the server's own words and stays as it came.
+        body:
           failed.length > 0
-            ? `Delivered to ${result.delivered}. Failed: ${failed.map((entry) => `${entry.channel} — ${entry.detail}`).join('; ')}`
-            : `Delivered to ${result.delivered} channel(s). Check that each one arrived.`,
+            ? {
+                key: 'delivery.test_partial',
+                params: {
+                  delivered: result.delivered,
+                  failures: failed.map((entry) => `${entry.channel} — ${entry.detail}`).join('; '),
+                },
+              }
+            : { key: 'delivery.test_ok', params: { delivered: result.delivered } },
       });
       void queryClient.invalidateQueries({ queryKey: ['notify', 'status'] });
     },
     onError: (error) => {
-      setMessage({ severity: 'error', text: describeError(error, 'Test send failed') });
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'delivery.test_failed' } });
     },
   });
 
@@ -88,10 +101,10 @@ export default function DeliveryPage() {
   return (
     <>
       <SurfaceCard
-        title="Alert delivery"
+        title={t('delivery.title')}
         titleComponent="h1"
         titleVariant="h5"
-        subtitle="Where findings go, and whether they are getting there"
+        subtitle={t('delivery.subtitle')}
         headerActions={
           isAdmin ? (
             <Stack direction="row" spacing={1}>
@@ -102,7 +115,7 @@ export default function DeliveryPage() {
                 onClick={() => test.mutate()}
                 disabled={test.isPending || (data?.channels.length ?? 0) === 0}
               >
-                {test.isPending ? 'Sending…' : 'Send test'}
+                {test.isPending ? t('delivery.sending') : t('delivery.send_test')}
               </Button>
             </Stack>
           ) : null
@@ -120,28 +133,27 @@ export default function DeliveryPage() {
       */}
       {isAdmin && (
         <Alert severity="info" icon={<SettingsOutlinedIcon fontSize="small" />}>
-          Delivery settings moved to <strong>Administration settings</strong> — the gear in the header — so
-          there is one place to change them rather than two. This page keeps what nothing else has: whether
-          delivery is working, and the test send.
+          {/* One key rather than three around the <strong>: splitting a sentence
+              to keep emphasis freezes English word order into every other
+              language. See QueryConsoleSettings, same trade. */}
+          {t('delivery.moved_note')}
         </Alert>
       )}
 
       {status.error && (
-        <Alert severity="error">{describeError(status.error, 'Could not read delivery status')}</Alert>
+        <Alert severity="error">{describeError(status.error, t('delivery.status_failed'))}</Alert>
       )}
 
       {message && (
         <Alert severity={message.severity} onClose={() => setMessage(null)}>
-          {message.text}
+          {messageText(message.body)}
         </Alert>
       )}
 
       {!loading && data && data.channels.length === 0 && (
         <Alert severity="warning">
-          Nothing is configured, so findings are recorded and nobody is told.
-          {isAdmin
-            ? ' Set a collector host, a webhook URL, or an SMTP host with recipients under the settings gear — no file to edit and no restart.'
-            : ' An administrator can configure a webhook, email or a syslog collector.'}
+          {t('delivery.nothing_configured')}
+          {isAdmin ? t('delivery.nothing_configured_admin') : t('delivery.nothing_configured_user')}
         </Alert>
       )}
 
@@ -152,69 +164,72 @@ export default function DeliveryPage() {
       */}
       {!loading && data && !data.enabled && data.channels.length > 0 && (
         <Alert severity="info">
-          Channels are configured but delivery is switched off, so no alert will be sent.
-          {isAdmin ? ' Turn on "Deliver alerts" under the settings gear.' : ''} A test send still works — it
-          deliberately bypasses this, since the question it answers is whether delivery reaches you at all.
-          {data.syslog.configured && ' Syslog is unaffected: it is independent of this switch.'}
+          {t('delivery.switched_off')}
+          {isAdmin ? t('delivery.switched_off_admin') : ''}
+          {t('delivery.test_still_works')}
+          {data.syslog.configured && t('delivery.syslog_unaffected')}
         </Alert>
       )}
 
       <Grid container spacing={1.5}>
         <Grid size={{ xs: 12, lg: 7 }}>
           <SurfaceCard
-            title="For people"
-            subtitle="Gated, throttled and batched, so the channel does not get muted"
+            title={t('delivery.for_people')}
+            subtitle={t('delivery.for_people_subtitle')}
             sx={{ height: '100%' }}
           >
             <Stack spacing={1.5}>
               <ChannelRow
                 icon={<ChatOutlinedIcon />}
-                name="Webhook"
+                name={t('delivery.channel.webhook')}
                 configured={data?.webhook.configured ?? false}
                 detail={
                   data?.webhook.format
-                    ? `${data.webhook.format} format`
-                    : 'Slack, Teams, Discord or plain JSON'
+                    ? t('delivery.channel.webhook_format', { format: data.webhook.format })
+                    : t('delivery.channel.webhook_hint')
                 }
                 loading={loading}
               />
               <ChannelRow
                 icon={<MailOutlineIcon />}
-                name="Email"
+                name={t('delivery.channel.email')}
                 configured={data?.email.configured ?? false}
                 detail={
                   data?.email.configured
-                    ? `${data.email.recipients} recipient${data.email.recipients === 1 ? '' : 's'}`
+                    ? t('delivery.channel.recipients', { count: data.email.recipients })
                     : // The server's own reason when it has one. An OAuth2 mailbox
                       // missing its refresh token has a host, a sender and recipients
                       // already, so the standing sentence would name the three things
                       // that are not the problem.
-                      (data?.email.reason ?? 'SMTP host, sender and at least one recipient')
+                      (data?.email.reason ?? t('delivery.channel.email_hint'))
                 }
                 loading={loading}
               />
             </Stack>
 
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 2.5 }}>
-              Four limits apply before anything is sent. Each one is also a reason an alert you expected did
-              not arrive, which is why they are here rather than buried in a config file.
+              {t('delivery.four_limits')}
             </Typography>
 
             <Stack spacing={1} sx={{ mt: 1.5 }}>
-              <GateRow label="Minimum severity" value={data?.minSeverity ?? '—'} loading={loading} />
               <GateRow
-                label="Digest window"
+                label={t('delivery.min_severity')}
+                value={data?.minSeverity ?? '—'}
+                loading={loading}
+              />
+              <GateRow
+                label={t('delivery.digest_window')}
                 value={data ? `${data.digestSeconds}s` : '—'}
                 loading={loading}
               />
               <GateRow
-                label="Per-finding throttle"
+                label={t('delivery.throttle')}
                 value={data ? `${data.throttleSeconds}s` : '—'}
                 note={GATE_NOTES.throttle}
                 loading={loading}
               />
               <GateRow
-                label="Hourly ceiling"
+                label={t('delivery.hourly_ceiling')}
                 value={data ? `${data.maxPerHour}/h` : '—'}
                 note={GATE_NOTES.ceiling}
                 loading={loading}
@@ -224,52 +239,61 @@ export default function DeliveryPage() {
         </Grid>
 
         <Grid size={{ xs: 12, lg: 5 }}>
-          <SurfaceCard title="For a SIEM" subtitle="Every finding, ungated" sx={{ height: '100%' }}>
+          <SurfaceCard
+            title={t('delivery.for_siem')}
+            subtitle={t('delivery.for_siem_subtitle')}
+            sx={{ height: '100%' }}
+          >
             <ChannelRow
               icon={<DnsOutlinedIcon />}
-              name="Syslog"
+              name={t('delivery.channel.syslog')}
               configured={data?.syslog.configured ?? false}
-              detail={data?.syslog.target ?? 'Set SYSLOG_HOST to switch it on'}
+              detail={data?.syslog.target ?? t('delivery.channel.syslog_hint')}
               loading={loading}
             />
 
             {data?.syslog.configured && (
               <Stack spacing={1} sx={{ mt: 2 }}>
-                <GateRow label="Protocol" value={data.syslog.protocol.toUpperCase()} loading={false} />
-                <GateRow label="Format" value={data.syslog.format.toUpperCase()} loading={false} />
-                <GateRow label="Framing" value={`RFC ${data.syslog.rfc}`} loading={false} />
                 <GateRow
-                  label="Evidence"
-                  value={data.syslog.includeEvidence ? 'included' : 'omitted'}
+                  label={t('delivery.protocol')}
+                  value={data.syslog.protocol.toUpperCase()}
+                  loading={false}
+                />
+                <GateRow
+                  label={t('delivery.format')}
+                  value={data.syslog.format.toUpperCase()}
+                  loading={false}
+                />
+                <GateRow label={t('delivery.framing')} value={`RFC ${data.syslog.rfc}`} loading={false} />
+                <GateRow
+                  label={t('delivery.evidence')}
+                  value={data.syslog.includeEvidence ? t('delivery.included') : t('delivery.omitted')}
                   loading={false}
                 />
               </Stack>
             )}
 
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 2.5 }}>
-              None of the limits on the left apply here. A SIEM correlates and deduplicates itself, and it
-              does so assuming it holds the complete event stream — a digest makes every rule that counts
-              events over a window silently under-report, and turns suppressed events into what look like
-              quiet periods.
+              {t('delivery.siem_note')}
             </Typography>
           </SurfaceCard>
         </Grid>
 
         <Grid size={{ xs: 12 }}>
-          <SurfaceCard title="Right now" subtitle="What the queue and the limits are doing">
+          <SurfaceCard title={t('delivery.right_now')} subtitle={t('delivery.right_now_subtitle')}>
             <Grid container spacing={1.5}>
               <Grid size={{ xs: 12, sm: 4 }}>
-                <StatRow label="Queued for the next digest" value={data?.queued ?? 0} loading={loading} />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 4 }}>
-                <StatRow label="Sent in the last hour" value={data?.sentLastHour ?? 0} loading={loading} />
+                <StatRow label={t('delivery.queued')} value={data?.queued ?? 0} loading={loading} />
               </Grid>
               <Grid size={{ xs: 12, sm: 4 }}>
                 <StatRow
-                  label="Findings currently throttled"
-                  value={data?.throttledKeys ?? 0}
+                  label={t('delivery.sent_last_hour')}
+                  value={data?.sentLastHour ?? 0}
                   loading={loading}
                 />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <StatRow label={t('delivery.throttled')} value={data?.throttledKeys ?? 0} loading={loading} />
               </Grid>
             </Grid>
           </SurfaceCard>
@@ -292,6 +316,7 @@ function ChannelRow({
   detail: string;
   loading: boolean;
 }>) {
+  const t = useT();
   if (loading) return <Skeleton variant="rounded" height={52} />;
 
   return (
@@ -309,7 +334,7 @@ function ChannelRow({
         size="small"
         variant="outlined"
         color={configured ? 'success' : 'default'}
-        label={configured ? 'Configured' : 'Off'}
+        label={configured ? t('delivery.configured') : t('delivery.off')}
       />
     </Stack>
   );
@@ -320,7 +345,17 @@ function GateRow({
   value,
   note,
   loading,
-}: Readonly<{ label: string; value: string; note?: string; loading: boolean }>) {
+}: Readonly<{ label: string; value: string; note?: UiMessageKey; loading: boolean }>) {
+  // A key, not a sentence, and rendered here rather than by the caller.
+  //
+  // `GATE_NOTES` was converted to hold keys and both call sites passed them
+  // straight through, so `/delivery` rendered `delivery.gate.throttle_note` on
+  // screen in every language. Every guard reported green: `tsc` because
+  // `UiMessageKey` is a string subtype and this prop was `string`, the orphan
+  // check because the literals do appear in `GATE_NOTES`, and parity because the
+  // keys exist everywhere with no placeholders. Narrowing the prop is what makes
+  // passing an unrendered key a compile error instead of a silent one.
+  const t = useT();
   if (loading) return <Skeleton height={20} />;
 
   return (
@@ -329,7 +364,7 @@ function GateRow({
         {label}
         {note && (
           <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block' }}>
-            {note}
+            {t(note)}
           </Typography>
         )}
       </Typography>
@@ -341,6 +376,7 @@ function GateRow({
 }
 
 function StatRow({ label, value, loading }: Readonly<{ label: string; value: number; loading: boolean }>) {
+  const fmt = useFormatters();
   return (
     <Box>
       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
@@ -350,7 +386,7 @@ function StatRow({ label, value, loading }: Readonly<{ label: string; value: num
         <Skeleton width={64} height={32} />
       ) : (
         <Typography variant="h5" component="p" sx={{ lineHeight: 1.2 }}>
-          {value.toLocaleString()}
+          {fmt.number(value)}
         </Typography>
       )}
     </Box>

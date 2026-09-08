@@ -5,9 +5,11 @@ import PacketTable from '../components/PacketTable';
 import SurfaceCard from '../components/SurfaceCard';
 import { useIpInfo } from '../hooks/useIpInfo';
 import { usePacketCapture } from '../hooks/usePacketCapture';
+import { useT } from '../i18n/ui';
 
 /** Was pages/PacketCaptureWithIP.js — same page, plus a `host <ip>` BPF filter. */
 export default function PacketCaptureWithIP() {
+  const t = useT();
   const capture = usePacketCapture('filtered-ip');
   const ipInfo = useIpInfo();
   /*
@@ -24,14 +26,14 @@ export default function PacketCaptureWithIP() {
   return (
     <>
       <CaptureToolbar
-        title="Capture filtered by IP address"
-        subtitle="The same capture, narrowed to traffic involving one host"
+        title={t('capture.ip.title')}
+        subtitle={t('capture.ip.subtitle')}
         capture={capture}
         onLayoutSettled={() => setLayoutSettled((tick) => tick + 1)}
         showIpFilter
       />
 
-      <SurfaceCard title="Packets" subtitle="Newest first, decoded from the wire" bodyVariant="grid">
+      <SurfaceCard title={t('capture.packets')} subtitle={t('capture.packets_subtitle')} bodyVariant="grid">
         <PacketTable
           packets={capture.packets}
           capturing={capture.capturing}

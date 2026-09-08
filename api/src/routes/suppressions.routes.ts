@@ -145,7 +145,7 @@ suppressionsRouter.patch(
     const patch = parseOrThrow(suppressionUpdateSchema, req.body);
 
     const updated = await updateSuppression(id, patch, actorOf(req.user));
-    if (!updated) throw new HttpError(404, `No suppression rule with id ${id}`);
+    if (!updated) throw HttpError.of(404, 'error.suppression_not_found', { id: String(id) });
     res.json(updated);
   }),
 );
@@ -163,7 +163,7 @@ suppressionsRouter.delete(
   asyncHandler(async (req, res) => {
     const id = parseId(req.params.id);
     if (!(await deleteSuppression(id, actorOf(req.user)))) {
-      throw new HttpError(404, `No suppression rule with id ${id}`);
+      throw HttpError.of(404, 'error.suppression_not_found', { id: String(id) });
     }
     res.status(204).send();
   }),

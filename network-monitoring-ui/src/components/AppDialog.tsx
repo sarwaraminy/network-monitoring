@@ -10,6 +10,7 @@ import { useTheme } from '@mui/material/styles';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import type { ReactNode } from 'react';
+import { useT } from '../i18n/ui';
 import DraggableDialogPaper from './DraggableDialogPaper';
 
 /**
@@ -69,6 +70,7 @@ export default function AppDialog({
   maxWidth = 'sm',
   ...rest
 }: Readonly<AppDialogProps>) {
+  const t = useT();
   const theme = useTheme();
   /*
    * `noSsr` because this decides which of two layouts renders rather than a
@@ -119,7 +121,7 @@ export default function AppDialog({
           </Stack>
 
           {!hideClose && (
-            <IconButton size="small" onClick={onClose} aria-label="Close" edge="end">
+            <IconButton size="small" onClick={onClose} aria-label={t('common.close')} edge="end">
               <CloseIcon fontSize="small" />
             </IconButton>
           )}

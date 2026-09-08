@@ -12,7 +12,12 @@ import { describeError } from '../api/client';
 import DataGrid from '../components/DataGrid';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useLocale } from '../contexts/LocaleContext';
 import { useAuditActions, useAuditEvents } from '../hooks/useAudit';
+import { findingText } from '../i18n/findings';
+import { useFormatters } from '../i18n/format';
+import type { Locale } from '../i18n/generated/locales';
+import { type Translate, useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 import type { AuditEvent } from '../types';
 
@@ -50,6 +55,33 @@ function ActionCell({ row, labels }: { row: AuditEvent; labels: Map<string, stri
 }
 
 /**
+ * Turns a finding's stored message key back into the sentence it stands for.
+ *
+ * The trail records what was deleted, and since V17 an alert carries a key and a
+ * params object rather than English prose — so `alert.delete` details arrive as
+ * `messageKey: port_scan.packet` with a JSON blob beside them. Printed verbatim
+ * that is not readable in any language, which is a worse outcome than the English
+ * it replaced.
+ *
+ * It matters more here than on a normal screen because this table is append-only:
+ * an entry written while this was unrendered keeps its raw shape for good, so the
+ * cost of leaving it is a permanent band of unreadable rows rather than a display
+ * bug somebody can fix later.
+ *
+ * The pair collapses into `title`, which is the key the pre-V17 entries already
+ * used, so the two eras of the trail read identically and a reader cannot tell
+ * which side of the migration an entry came from.
+ */
+function withRenderedFinding(detail: Record<string, unknown>, locale: Locale): Record<string, unknown> {
+  if (typeof detail.messageKey !== 'string') return detail;
+
+  const { messageKey, messageParams, ...rest } = detail;
+  const { title } = findingText({ messageKey, messageParams, title: null, description: null }, locale);
+  // First, so it reads where the prose used to.
+  return { title, ...rest };
+}
+
+/**
  * The detail object, rendered as text.
  *
  * Deliberately plain: this is a record, and a record is more useful legible than
@@ -58,7 +90,8 @@ function ActionCell({ row, labels }: { row: AuditEvent; labels: Map<string, stri
  * component in the first place.
  */
 function DetailCell({ detail }: { detail: Record<string, unknown> }) {
-  const entries = Object.entries(detail);
+  const { locale } = useLocale();
+  const entries = Object.entries(withRenderedFinding(detail, locale));
   if (entries.length === 0)
     return (
       <Typography variant="caption" color="text.secondary">
@@ -89,14 +122,17 @@ function DetailCell({ detail }: { detail: Record<string, unknown> }) {
  * something was deleted that nothing had been, next to a message saying the check
  * failed. Of the two ways for this page to be wrong, that is the worse one.
  */
-function emptyMessage(action: string, failed: boolean): string {
-  if (failed) return 'The trail could not be read, so this is not a statement that nothing happened.';
-  return action === ''
-    ? 'Nothing has been deleted, changed or redirected yet. Entries appear here as soon as something is.'
-    : 'No entries for this action.';
+function emptyMessage(action: string, failed: boolean, t: Translate): string {
+  // The failed branch is the one that has to translate. It exists so an operator
+  // checking whether something was deleted does not read a failed load as
+  // "nothing was", and a reader who cannot parse the sentence loses exactly that
+  // distinction — an empty table and an error they cannot read.
+  if (failed) return t('audit.empty_failed');
+  return action === '' ? t('audit.empty_none') : t('audit.empty_for_action');
 }
 
 export default function AuditPage() {
+  const t = useT();
   const { user } = useAuth();
   const [action, setAction] = useState<string>('');
 
@@ -118,33 +154,34 @@ export default function AuditPage() {
 
   const events = useMemo(() => (trail.data?.pages ?? []).flatMap((page) => page.events), [trail.data]);
 
+  const format = useFormatters();
   const columns = useMemo<MRT_ColumnDef<AuditEvent>[]>(
     () => [
       {
         accessorKey: 'at',
-        header: 'When',
+        header: t('audit.when'),
         size: 185,
         Cell: ({ row }) => (
           <Typography variant="body2" sx={monoSx}>
-            {new Date(row.original.at).toLocaleString()}
+            {format.dateTime(row.original.at)}
           </Typography>
         ),
       },
       {
         accessorKey: 'actor',
-        header: 'Who',
+        header: t('audit.who'),
         size: 220,
         Cell: ({ row }) => <Typography variant="body2">{row.original.actor}</Typography>,
       },
       {
         accessorKey: 'action',
-        header: 'What',
+        header: t('audit.what'),
         size: 250,
         Cell: ({ row }) => <ActionCell row={row.original} labels={labels} />,
       },
       {
         accessorKey: 'subject',
-        header: 'Which',
+        header: t('audit.which'),
         size: 165,
         Cell: ({ row }) =>
           row.original.subject ? (
@@ -157,12 +194,12 @@ export default function AuditPage() {
       },
       {
         accessorKey: 'detail',
-        header: 'Detail',
+        header: t('audit.detail'),
         size: 420,
         Cell: ({ row }) => <DetailCell detail={row.original.detail} />,
       },
     ],
-    [labels],
+    [labels, t, format.dateTime],
   );
 
   // The route is ADMIN-only on the server and the nav entry is hidden for everyone
@@ -171,32 +208,29 @@ export default function AuditPage() {
   // fetch.
   if (!isAdmin) {
     return (
-      <SurfaceCard title="Audit Trail" titleComponent="h1" titleVariant="h5">
-        <Alert severity="info">
-          The audit trail is visible to administrators. It records who deleted, changed or redirected things,
-          and it names accounts.
-        </Alert>
+      <SurfaceCard title={t('audit.title')} titleComponent="h1" titleVariant="h5">
+        <Alert severity="info">{t('audit.admin_only')}</Alert>
       </SurfaceCard>
     );
   }
 
   return (
     <SurfaceCard
-      title="Audit Trail"
+      title={t('audit.title')}
       titleComponent="h1"
       titleVariant="h5"
-      subtitle="Who deleted, changed or redirected something — append-only, and never pruned"
+      subtitle={t('audit.subtitle')}
       headerActions={
         <TextField
           select
           size="small"
-          label="Action"
+          label={t('audit.action')}
           value={action}
           onChange={(event) => setAction(event.target.value)}
           sx={{ minWidth: 230 }}
-          slotProps={{ htmlInput: { 'aria-label': 'Filter by action' } }}
+          slotProps={{ htmlInput: { 'aria-label': t('audit.filter_by_action') } }}
         >
-          <MenuItem value="">All actions</MenuItem>
+          <MenuItem value="">{t('common.all_actions')}</MenuItem>
           {(actions.data ?? []).map((option) => (
             <MenuItem key={option.action} value={option.action}>
               {option.label}
@@ -207,7 +241,7 @@ export default function AuditPage() {
     >
       {trail.isError && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {describeError(trail.error, 'Could not load the audit trail')}
+          {describeError(trail.error, t('audit.load_failed'))}
         </Alert>
       )}
       {/*
@@ -219,10 +253,7 @@ export default function AuditPage() {
        */}
       {!trail.isError && actions.isError && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          {describeError(
-            actions.error,
-            'Could not load the list of actions — filtering by action is unavailable',
-          )}
+          {describeError(actions.error, t('audit.actions_failed'))}
         </Alert>
       )}
 
@@ -230,7 +261,7 @@ export default function AuditPage() {
         columns={columns}
         data={events}
         isLoading={trail.isPending}
-        emptyMessage={emptyMessage(action, trail.isError)}
+        emptyMessage={emptyMessage(action, trail.isError, t)}
         tableOptions={{
           // `data` is only the pages fetched so far, not the whole trail — MRT's
           // global search box and column sorting both operate client-side on that
@@ -252,7 +283,7 @@ export default function AuditPage() {
             onClick={() => void trail.fetchNextPage()}
             disabled={trail.isFetchingNextPage}
           >
-            {trail.isFetchingNextPage ? 'Loading…' : 'Load older entries'}
+            {trail.isFetchingNextPage ? t('audit.loading_more') : t('audit.load_older')}
           </Button>
         </Stack>
       )}

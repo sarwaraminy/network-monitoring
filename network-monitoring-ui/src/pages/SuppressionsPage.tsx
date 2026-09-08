@@ -36,9 +36,13 @@ import {
   updateSuppression,
 } from '../api/suppressions.api';
 import DataGrid, { numericColumn } from '../components/DataGrid';
+import { KIND_LABEL } from '../components/SeverityChip';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useFormatters } from '../i18n/format';
+import { type Message, useMessageText } from '../i18n/message-state';
+import { type Translate, type UiMessageKey, useT } from '../i18n/ui';
 import { ALERT_KINDS, type AlertKind, type SuppressionDraft, type SuppressionRule } from '../types';
 
 /**
@@ -67,29 +71,27 @@ type RuleState = 'active' | 'disabled' | 'expired' | 'invalid';
 
 const STATE: Record<
   RuleState,
-  { label: string; color: 'success' | 'default' | 'warning' | 'error'; hint: string }
+  { labelKey: UiMessageKey; color: 'success' | 'default' | 'warning' | 'error'; hintKey: UiMessageKey }
 > = {
   active: {
-    label: 'Active',
+    labelKey: 'suppressions.state.active',
     color: 'success',
-    hint: 'Findings matching this rule are being dropped before they are stored.',
+    hintKey: 'suppressions.state.active_hint',
   },
   disabled: {
-    label: 'Off',
+    labelKey: 'suppressions.state.disabled',
     color: 'default',
-    hint: 'Switched off. Findings that match are stored and delivered as normal.',
+    hintKey: 'suppressions.state.disabled_hint',
   },
   expired: {
-    label: 'Expired',
+    labelKey: 'suppressions.state.expired',
     color: 'warning',
-    hint: 'The expiry has passed, so this rule no longer suppresses anything. Extend it or delete it.',
+    hintKey: 'suppressions.state.expired_hint',
   },
   invalid: {
-    label: 'Invalid',
+    labelKey: 'suppressions.state.invalid',
     color: 'error',
-    hint:
-      'The server could not parse this rule’s address range, so it matches nothing at all. ' +
-      'Edit the range — findings you believe are suppressed are not.',
+    hintKey: 'suppressions.state.invalid_hint',
   },
 };
 
@@ -113,19 +115,32 @@ const ROW_EDGE: Record<RuleState, string> = {
   invalid: 'error.main',
 };
 
-/** `port_scan` reads as "Port scan" in a table; the wire value stays in the filter. */
-function kindLabel(kind: string): string {
+/**
+ * A detector's name, as a person reads it.
+ *
+ * `KIND_LABEL` first — the same keyed map the alerts table renders, so the two
+ * screens cannot disagree about what `port_scan` is called. This used to
+ * un-snake-case mechanically into "Port scan", which is correct English and
+ * untranslatable, and duplicated a list that had already been keyed.
+ *
+ * The mechanical form stays as the fallback for a kind the catalogue has not
+ * heard of, which is what keeps a detector added later rendering as words.
+ */
+function kindLabel(kind: string, t: Translate): string {
+  const keyed = KIND_LABEL[kind as AlertKind];
+  if (keyed) return t(keyed);
+
   const spaced = kind.replace(/_/g, ' ');
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 /** One line describing what a rule covers, in the order an operator reads it. */
-function describeRule(rule: SuppressionRule): string {
+function describeRule(rule: SuppressionRule, t: Translate): string {
   const parts: string[] = [];
-  parts.push(rule.kind ? kindLabel(rule.kind) : 'Any finding');
-  if (rule.sourceCidr) parts.push(`from ${rule.sourceCidr}`);
-  if (rule.targetCidr) parts.push(`to ${rule.targetCidr}`);
-  if (rule.port !== null) parts.push(`on port ${rule.port}`);
+  parts.push(rule.kind ? kindLabel(rule.kind, t) : t('suppressions.any_finding'));
+  if (rule.sourceCidr) parts.push(t('suppressions.rule_from', { cidr: rule.sourceCidr }));
+  if (rule.targetCidr) parts.push(t('suppressions.rule_to', { cidr: rule.targetCidr }));
+  if (rule.port !== null) parts.push(t('suppressions.rule_port', { port: rule.port }));
   return parts.join(' ');
 }
 
@@ -140,12 +155,15 @@ const EMPTY_DRAFT: SuppressionDraft = {
 };
 
 export default function SuppressionsPage() {
+  const t = useT();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const queryClient = useQueryClient();
 
   const [editing, setEditing] = useState<{ rule: SuppressionRule | null } | null>(null);
-  const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  // What to say, not the words for it — see i18n/message-state.ts.
+  const [message, setMessage] = useState<{ severity: 'success' | 'error'; body: Message } | null>(null);
+  const messageText = useMessageText();
 
   const listing = useQuery({ queryKey: ['suppressions'], queryFn: fetchSuppressions });
 
@@ -164,24 +182,25 @@ export default function SuppressionsPage() {
     onSuccess: (updated) => {
       setMessage({
         severity: 'success',
-        text: updated.enabled
-          ? `Rule #${updated.id} is on. Matching findings are being dropped.`
-          : `Rule #${updated.id} is off. Matching findings will be stored again.`,
+        body: {
+          key: updated.enabled ? 'suppressions.enabled_toast' : 'suppressions.disabled_toast',
+          params: { id: updated.id },
+        },
       });
       refresh();
     },
     onError: (error) =>
-      setMessage({ severity: 'error', text: describeError(error, 'Could not update the rule') }),
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'suppressions.update_failed' } }),
   });
 
   const remove = useMutation({
     mutationFn: (rule: SuppressionRule) => deleteSuppression(rule.id),
     onSuccess: () => {
-      setMessage({ severity: 'success', text: 'Rule deleted.' });
+      setMessage({ severity: 'success', body: { key: 'suppressions.deleted_toast' } });
       refresh();
     },
     onError: (error) =>
-      setMessage({ severity: 'error', text: describeError(error, 'Could not delete the rule') }),
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'suppressions.delete_failed' } }),
   });
 
   const handleEdit = useCallback((rule: SuppressionRule) => setEditing({ rule }), []);
@@ -192,13 +211,16 @@ export default function SuppressionsPage() {
       // count, which is the only record of what the rule hid.
       if (
         window.confirm(
-          `Delete rule #${rule.id}? Its record of ${rule.matchCount.toLocaleString()} hidden findings goes with it. Switching it off keeps both.`,
+          t('suppressions.confirm_delete', {
+            id: rule.id,
+            count: rule.matchCount,
+          }),
         )
       ) {
         remove.mutate(rule);
       }
     },
-    [remove],
+    [remove, t],
   );
 
   const rules = listing.data?.rules ?? [];
@@ -219,10 +241,10 @@ export default function SuppressionsPage() {
   return (
     <>
       <SurfaceCard
-        title="Suppression rules"
+        title={t('suppressions.title')}
         titleComponent="h1"
         titleVariant="h5"
-        subtitle="Findings you have declared expected. A matching finding is dropped before it is stored — not hidden behind a filter"
+        subtitle={t('suppressions.subtitle')}
         headerActions={
           isAdmin ? (
             <Button
@@ -231,19 +253,19 @@ export default function SuppressionsPage() {
               startIcon={<AddIcon />}
               onClick={() => setEditing({ rule: null })}
             >
-              New rule
+              {t('suppressions.new_rule')}
             </Button>
           ) : null
         }
       />
 
       {listing.error && (
-        <Alert severity="error">{describeError(listing.error, 'Could not read the suppression rules')}</Alert>
+        <Alert severity="error">{describeError(listing.error, t('suppressions.read_failed'))}</Alert>
       )}
 
       {message && (
         <Alert severity={message.severity} onClose={() => setMessage(null)}>
-          {message.text}
+          {messageText(message.body)}
         </Alert>
       )}
 
@@ -255,8 +277,7 @@ export default function SuppressionsPage() {
       */}
       {invalid.size > 0 && (
         <Alert severity="error">
-          {invalid.size} rule{invalid.size === 1 ? '' : 's'} cannot match anything, so findings you believe
-          are suppressed are not being suppressed:
+          {t('suppressions.invalid_warning', { count: invalid.size })}
           <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
             {[...invalid].map(([id, reason]) => (
               <li key={id}>
@@ -270,36 +291,36 @@ export default function SuppressionsPage() {
       <Grid container spacing={1.5}>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Rules"
+            label={t('suppressions.rules')}
             value={rules.length}
-            caption={`${inForce} in force`}
+            caption={t('suppressions.in_force_count', { count: inForce })}
             icon={<RuleFolderOutlinedIcon />}
             loading={listing.isPending}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Findings hidden"
+            label={t('suppressions.findings_hidden')}
             value={hidden}
-            caption="dropped before storage, all time"
+            caption={t('suppressions.hidden_caption')}
             icon={<VisibilityOffOutlinedIcon />}
             loading={listing.isPending}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Never matched"
+            label={t('suppressions.never_matched')}
             value={neverMatched}
-            caption="in force but has hidden nothing"
+            caption={t('suppressions.never_caption')}
             icon={<NotificationsOffOutlinedIcon />}
             loading={listing.isPending}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Expired"
+            label={t('suppressions.expired')}
             value={expired}
-            caption="no longer suppressing"
+            caption={t('suppressions.expired_caption')}
             icon={<EventBusyOutlinedIcon />}
             loading={listing.isPending}
           />
@@ -325,7 +346,10 @@ export default function SuppressionsPage() {
             setEditing(null);
             setMessage({
               severity: 'success',
-              text: created ? `Rule #${saved.id} created and in force.` : `Rule #${saved.id} updated.`,
+              body: {
+                key: created ? 'suppressions.created_toast' : 'suppressions.updated_toast',
+                params: { id: saved.id },
+              },
             });
             refresh();
           }}
@@ -356,27 +380,33 @@ function RuleTable({
   onToggle,
   onDelete,
 }: Readonly<RuleTableProps>) {
+  const t = useT();
+  const fmt = useFormatters();
   const columns = useMemo<MRT_ColumnDef<SuppressionRule>[]>(() => {
     const base: MRT_ColumnDef<SuppressionRule>[] = [
       {
         id: 'covers',
-        header: 'Covers',
+        header: t('suppressions.covers'),
         size: 300,
-        accessorFn: describeRule,
+        // `t` is closed over rather than passed by MRT, which calls the accessor
+        // with the row alone.
+        accessorFn: (rule: SuppressionRule) => describeRule(rule, t),
         Cell: ({ row }) => (
           <>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {describeRule(row.original)}
+              {describeRule(row.original, t)}
             </Typography>
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-              #{row.original.id} · added by {row.original.createdBy}
+              #{row.original.id}
+              {t('suppressions.added_by')}
+              {row.original.createdBy}
             </Typography>
           </>
         ),
       },
       {
         accessorKey: 'reason',
-        header: 'Why it is expected',
+        header: t('suppressions.why'),
         size: 280,
         Cell: ({ cell }) => (
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
@@ -386,27 +416,27 @@ function RuleTable({
       },
       {
         id: 'state',
-        header: 'State',
+        header: t('suppressions.state'),
         size: 130,
-        accessorFn: (rule) => STATE[ruleState(rule, invalid, now)].label,
+        accessorFn: (rule) => t(STATE[ruleState(rule, invalid, now)].labelKey),
         filterVariant: 'select',
         // Built explicitly, or MRT faces the raw accessor values and the dropdown
         // drifts from what the chips say.
-        filterSelectOptions: Object.values(STATE).map((state) => state.label),
+        filterSelectOptions: Object.values(STATE).map((state) => t(state.labelKey)),
         Cell: ({ row }) => {
           const state = STATE[ruleState(row.original, invalid, now)];
           // The server's own reason beats the generic hint when there is one.
           const reason = invalid.get(row.original.id);
           return (
-            <Tooltip title={reason ? `${reason}. ${state.hint}` : state.hint}>
-              <Chip size="small" variant="outlined" color={state.color} label={state.label} />
+            <Tooltip title={reason ? `${reason}. ${t(state.hintKey)}` : t(state.hintKey)}>
+              <Chip size="small" variant="outlined" color={state.color} label={t(state.labelKey)} />
             </Tooltip>
           );
         },
       },
       numericColumn({
         accessorKey: 'matchCount',
-        header: 'Hidden',
+        header: t('suppressions.hidden'),
         size: 130,
         Cell: ({ row, cell }) => {
           const count = cell.getValue<number>();
@@ -422,11 +452,11 @@ function RuleTable({
                   fontWeight: count > 0 ? 600 : 400,
                 }}
               >
-                {count.toLocaleString()}
+                {fmt.number(count)}
               </Typography>
               {row.original.lastMatchAt && (
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  {relativeTime(row.original.lastMatchAt)}
+                  {fmt.relativeTime(row.original.lastMatchAt)}
                 </Typography>
               )}
             </Box>
@@ -435,20 +465,20 @@ function RuleTable({
       }),
       {
         accessorKey: 'expiresAt',
-        header: 'Expires',
+        header: t('suppressions.expires'),
         size: 150,
         Cell: ({ cell }) => {
           const value = cell.getValue<string | null>();
           if (!value) {
             return (
-              <Tooltip title="This rule stays in force until somebody removes it.">
+              <Tooltip title={t('suppressions.no_expiry')}>
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                  never
+                  {t('common.never')}
                 </Typography>
               </Tooltip>
             );
           }
-          return <Typography variant="body2">{new Date(value).toLocaleString()}</Typography>;
+          return <Typography variant="body2">{fmt.dateTime(value)}</Typography>;
         },
       },
     ];
@@ -468,15 +498,21 @@ function RuleTable({
           const rule = row.original;
           return (
             <Stack direction="row" spacing={0.5}>
-              <Tooltip title="Edit this rule">
-                <IconButton size="small" aria-label={`Edit rule ${rule.id}`} onClick={() => onEdit(rule)}>
+              <Tooltip title={t('suppressions.edit')}>
+                <IconButton
+                  size="small"
+                  aria-label={t('suppressions.edit_rule', { id: rule.id })}
+                  onClick={() => onEdit(rule)}
+                >
                   <EditOutlinedIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <Tooltip title={rule.enabled ? 'Switch off — matching findings return' : 'Switch on'}>
+              <Tooltip
+                title={rule.enabled ? t('suppressions.switch_off_hint') : t('suppressions.switch_on_hint')}
+              >
                 <IconButton
                   size="small"
-                  aria-label={`${rule.enabled ? 'Disable' : 'Enable'} rule ${rule.id}`}
+                  aria-label={t('suppressions.toggle_rule', { enabled: rule.enabled, id: rule.id })}
                   onClick={() => onToggle(rule)}
                 >
                   {rule.enabled ? (
@@ -486,8 +522,12 @@ function RuleTable({
                   )}
                 </IconButton>
               </Tooltip>
-              <Tooltip title="Delete — the record of what it hid goes too">
-                <IconButton size="small" aria-label={`Delete rule ${rule.id}`} onClick={() => onDelete(rule)}>
+              <Tooltip title={t('suppressions.delete')}>
+                <IconButton
+                  size="small"
+                  aria-label={t('suppressions.delete_rule', { id: rule.id })}
+                  onClick={() => onDelete(rule)}
+                >
                   <DeleteOutlineIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
@@ -496,12 +536,12 @@ function RuleTable({
         },
       },
     ];
-  }, [invalid, now, isAdmin, onEdit, onToggle, onDelete]);
+  }, [invalid, now, isAdmin, onEdit, onToggle, onDelete, t, fmt]);
 
   return (
     <SurfaceCard
-      title="Rules"
-      subtitle="Read top to bottom: the first rule that matches a finding is the one that drops it"
+      title={t('suppressions.rules')}
+      subtitle={t('suppressions.rules_subtitle')}
       bodyVariant="grid"
       sx={{ height: '100%' }}
     >
@@ -509,7 +549,7 @@ function RuleTable({
         columns={columns}
         data={rules}
         isLoading={loading}
-        emptyMessage="No suppression rules. Every finding the detectors raise is being stored."
+        emptyMessage={t('suppressions.none')}
         tableOptions={{
           enableDensityToggle: false,
           enableFullScreenToggle: false,
@@ -518,7 +558,7 @@ function RuleTable({
           // this table by anything else is fine for reading, but the default has to
           // be the real one or "first match wins" means nothing on screen.
           initialState: { density: 'comfortable', sorting: [{ id: 'covers', desc: false }] },
-          muiSearchTextFieldProps: { placeholder: 'Search rules', sx: { minWidth: 180 } },
+          muiSearchTextFieldProps: { placeholder: t('suppressions.search'), sx: { minWidth: 180 } },
           muiTableBodyRowProps: ({ row }) => ({
             sx: {
               borderLeft: '4px solid',
@@ -549,6 +589,8 @@ interface RuleDialogProps {
  * rather than a second copy of it living here.
  */
 function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
+  const t = useT();
+  const fmt = useFormatters();
   const [draft, setDraft] = useState<SuppressionDraft>(() =>
     rule
       ? {
@@ -562,7 +604,8 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
         }
       : EMPTY_DRAFT,
   );
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Message | null>(null);
+  const errorText = useMessageText();
 
   const set = <K extends keyof SuppressionDraft>(key: K, value: SuppressionDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -580,7 +623,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
         targetCidr: draft.targetCidr,
         port: draft.port,
       }),
-    onError: (mutationError) => setError(describeError(mutationError, 'Could not check the rule')),
+    onError: (mutationError) => setError({ error: mutationError, fallbackKey: 'suppressions.check_failed' }),
   });
 
   const save = useMutation({
@@ -588,66 +631,69 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
     onSuccess: (saved) => onSaved(saved, rule === null),
     // Server-side messages are the useful ones here — they name the field and say
     // how to write a range — so they are shown verbatim rather than replaced.
-    onError: (mutationError) => setError(describeError(mutationError, 'Could not save the rule')),
+    onError: (mutationError) => setError({ error: mutationError, fallbackKey: 'suppressions.save_failed' }),
   });
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>{rule ? `Edit rule #${rule.id}` : 'New suppression rule'}</DialogTitle>
+      <DialogTitle>
+        {rule ? t('suppressions.edit_title', { id: rule.id }) : t('suppressions.new_title')}
+      </DialogTitle>
       <DialogContent>
         <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
-          A finding is suppressed when it matches <strong>every</strong> field you fill in. Leave a field
-          empty to mean "any". Suppressed findings are dropped, so nothing downstream — the alert list, the
-          webhook, the SIEM feed — will ever see them.
+          {/* One key rather than fragments around the <strong>: splitting a
+              sentence to keep emphasis freezes English word order into every
+              other language. */}
+          {t('suppressions.dialog_note')}
         </Typography>
 
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
+            {errorText(error)}
           </Alert>
         )}
 
         <Stack spacing={2}>
           <TextField
             select
-            label="Finding kind"
+            label={t('suppressions.kind')}
             size="small"
             value={draft.kind ?? ''}
             onChange={(event) => set('kind', (event.target.value || null) as AlertKind | null)}
-            helperText="Any kind, unless you pick one"
+            helperText={t('suppressions.kind_helper')}
           >
-            <MenuItem value="">Any kind</MenuItem>
+            <MenuItem value="">{t('common.any_kind')}</MenuItem>
             {ALERT_KINDS.map((kind) => (
               <MenuItem key={kind} value={kind}>
-                {kindLabel(kind)}
+                {kindLabel(kind, t)}
               </MenuItem>
             ))}
           </TextField>
 
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField
-              label="Source address or range"
+              label={t('suppressions.source')}
               size="small"
               fullWidth
               value={draft.sourceCidr ?? ''}
               onChange={(event) => set('sourceCidr', event.target.value.trim() || null)}
-              placeholder="10.20.30.40 or 10.20.30.0/24"
-              helperText="Where the traffic came from"
+              placeholder={t('suppressions.cidr_placeholder')}
+              helperText={t('suppressions.source_helper')}
             />
             <TextField
-              label="Target address or range"
+              label={t('suppressions.target')}
               size="small"
               fullWidth
               value={draft.targetCidr ?? ''}
               onChange={(event) => set('targetCidr', event.target.value.trim() || null)}
               placeholder="192.168.1.0/24"
-              helperText="Where it was going"
+              helperText={t('suppressions.target_helper')}
             />
           </Stack>
 
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField
-              label="Destination port"
+              label={t('suppressions.port')}
               size="small"
               fullWidth
               type="number"
@@ -656,37 +702,37 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
               // The honest caveat, next to the field rather than in documentation
               // nobody reads: a port scan names no single port, so a rule with a
               // port will never match one.
-              helperText="Only matches findings about a single port — never a port scan"
+              helperText={t('suppressions.port_helper')}
             />
             <TextField
-              label="Expires"
+              label={t('suppressions.expires')}
               size="small"
               fullWidth
               type="datetime-local"
               value={toLocalInput(draft.expiresAt)}
               onChange={(event) => set('expiresAt', fromLocalInput(event.target.value))}
               slotProps={{ inputLabel: { shrink: true } }}
-              helperText="Empty means it never expires"
+              helperText={t('suppressions.expires_helper')}
             />
           </Stack>
 
           <TextField
-            label="Why is this expected?"
+            label={t('suppressions.reason')}
             size="small"
             required
             multiline
             minRows={2}
             value={draft.reason}
             onChange={(event) => set('reason', event.target.value)}
-            placeholder="Authorised Nessus scanner, ticket OPS-1421"
-            helperText="Whoever reads this list in six months will only have this line to go on"
+            placeholder={t('suppressions.reason_placeholder')}
+            helperText={t('suppressions.reason_helper')}
           />
 
           <FormControlLabel
             control={
               <Switch checked={draft.enabled} onChange={(event) => set('enabled', event.target.checked)} />
             }
-            label="In force"
+            label={t('suppressions.in_force')}
           />
 
           <Box>
@@ -696,7 +742,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
               disabled={!hasCriterion || preview.isPending}
               onClick={() => preview.mutate()}
             >
-              {preview.isPending ? 'Checking…' : 'Check against recent alerts'}
+              {preview.isPending ? t('suppressions.checking') : t('suppressions.check_against')}
             </Button>
 
             {preview.data && (
@@ -708,22 +754,29 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
               >
                 <Typography variant="body2">
                   {preview.data.matched === 0
-                    ? `Nothing among the last ${preview.data.examined.toLocaleString()} alerts matches this rule.`
-                    : `Would have hidden ${preview.data.matched.toLocaleString()} of the last ${preview.data.examined.toLocaleString()} alerts — ${preview.data.occurrences.toLocaleString()} observations in total.`}
+                    ? t('suppressions.preview_none', {
+                        examined: preview.data.examined,
+                      })
+                    : t('suppressions.preview_matched', {
+                        matched: preview.data.matched,
+                        examined: preview.data.examined,
+                        occurrences: preview.data.occurrences,
+                      })}
                 </Typography>
                 {preview.data.window && (
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
-                    Examined {new Date(preview.data.window.from).toLocaleString()} to{' '}
-                    {new Date(preview.data.window.to).toLocaleString()}
+                    {t('suppressions.preview_window', {
+                      from: fmt.dateTime(preview.data.window.from),
+                      to: fmt.dateTime(preview.data.window.to),
+                    })}
                   </Typography>
                 )}
                 {preview.data.samples.length > 0 && (
                   <Box sx={{ mt: 1 }}>
                     {preview.data.samples.slice(0, 5).map((sample) => (
                       <Typography key={sample.id} variant="caption" sx={{ display: 'block' }}>
-                        {kindLabel(sample.kind)} · {sample.sourceIp ?? 'unknown'}
-                        {sample.targetIp ? ` → ${sample.targetIp}` : ''} ·{' '}
-                        {sample.occurrences.toLocaleString()}×
+                        {kindLabel(sample.kind, t)} · {sample.sourceIp ?? t('suppressions.unknown_source')}
+                        {sample.targetIp ? ` → ${sample.targetIp}` : ''} · {fmt.number(sample.occurrences)}×
                       </Typography>
                     ))}
                   </Box>
@@ -735,7 +788,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={save.isPending}>
-          Cancel
+          {t('common.cancel')}
         </Button>
         <Button
           variant="contained"
@@ -744,7 +797,11 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
           // the operator is not told off after typing a reason.
           disabled={save.isPending || !hasCriterion || draft.reason.trim().length < 3}
         >
-          {save.isPending ? 'Saving…' : rule ? 'Save changes' : 'Create rule'}
+          {save.isPending
+            ? t('suppressions.saving')
+            : rule
+              ? t('suppressions.save_changes')
+              : t('suppressions.create_rule')}
         </Button>
       </DialogActions>
     </Dialog>
@@ -770,18 +827,4 @@ function fromLocalInput(value: string): string | null {
   if (value === '') return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-/** "3 minutes ago" — matching the threat-intel page, for the same reason. */
-function relativeTime(iso: string): string {
-  const elapsed = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(elapsed) || elapsed < 0) return new Date(iso).toLocaleString();
-
-  const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }

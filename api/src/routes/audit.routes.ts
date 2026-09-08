@@ -39,7 +39,9 @@ auditRouter.get(
   asyncHandler(async (req, res) => {
     const parsed = auditQuerySchema.safeParse(req.query);
     if (!parsed.success) {
-      throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+      throw HttpError.of(400, 'error.validation', {
+        detail: parsed.error.issues.map((issue) => issue.message).join('; '),
+      });
     }
 
     const { limit, action, before } = parsed.data;

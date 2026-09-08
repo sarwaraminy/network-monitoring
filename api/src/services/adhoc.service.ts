@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import pg from 'pg';
 import { env } from '../config/env.js';
+import { type ErrorMessageKey, renderError } from '../i18n/catalog/errors.js';
+import { DEFAULT_LOCALE } from '../i18n/locales.js';
+import type { MessageParams } from '../i18n/message.js';
 import { componentLogger } from '../logger.js';
 import { HttpError } from '../middleware/error-handler.js';
 import { currentAdhocSettings } from './adhoc-settings.service.js';
@@ -132,8 +135,21 @@ export interface AdhocResult {
  * everything looked right. An operator with a typo got a 500 and no clue.
  */
 export class AdhocError extends HttpError {
-  constructor(message: string, status = 400) {
-    super(status, message);
+  /**
+   * Takes a catalogue key, not a sentence.
+   *
+   * It used to call `super(status, message)`, which leaves `code` null — so
+   * every instance of this class was untranslatable by construction, and this
+   * class is the whole error surface of the query console. The browser has no
+   * key to render, so the one screen where an operator is most likely to need
+   * their own language showed English whatever they had selected.
+   *
+   * `HttpError.of` renders the English message from the same key and params the
+   * response carries, so the two cannot drift.
+   */
+  constructor(code: ErrorMessageKey, params: MessageParams = {}, status = 400) {
+    const rendered = HttpError.of(status, code, params);
+    super(status, rendered.message, code, params);
     this.name = 'AdhocError';
   }
 }
@@ -772,14 +788,14 @@ async function revokeLogin(owner: pg.Pool, role: string): Promise<void> {
  * Returns the trimmed query, so the caller records what would actually run.
  */
 export function assertRunnable(sql: unknown): string {
-  if (!pool) throw new AdhocError('The query console is not enabled on this server.', 503);
-  if (typeof sql !== 'string') throw new AdhocError('Send the query as a `sql` string.');
+  if (!pool) throw new AdhocError('error.adhoc_disabled', {}, 503);
+  if (typeof sql !== 'string') throw new AdhocError('error.adhoc_sql_type');
 
   const trimmed = sql.trim();
-  if (trimmed === '') throw new AdhocError('Enter a query to run.');
+  if (trimmed === '') throw new AdhocError('error.adhoc_sql_empty');
   const { maxQueryLength } = currentAdhocSettings();
   if (trimmed.length > maxQueryLength) {
-    throw new AdhocError(`Queries are limited to ${maxQueryLength} characters.`);
+    throw new AdhocError('error.adhoc_sql_too_long', { max: String(maxQueryLength) });
   }
   return trimmed;
 }
@@ -838,7 +854,7 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
   // narrows the type, and it also closes the window where `stopAdhoc` runs
   // between the check and the connect.
   const running = pool;
-  if (!running) throw new AdhocError('The query console is not enabled on this server.', 503);
+  if (!running) throw new AdhocError('error.adhoc_disabled', {}, 503);
 
   const writing = activeMode === 'write';
   const started = Date.now();
@@ -902,7 +918,7 @@ export async function runAdhocQuery(sql: string): Promise<AdhocResult> {
      * where it can see it.
      */
     if (Array.isArray(result)) {
-      throw new AdhocError('Run one statement at a time — the query contains more than one.');
+      throw new AdhocError('error.adhoc_one_statement');
     }
 
     // Write mode has to COMMIT or the operator's DELETE is undone the moment
@@ -1006,7 +1022,7 @@ async function declareAndFetchStrict(client: pg.PoolClient, sql: string, maxRows
    */
   const declared = await client.query(`DECLARE adhoc_result NO SCROLL CURSOR FOR ${sql}`);
   if (Array.isArray(declared)) {
-    throw new AdhocError('Run one statement at a time — the query contains more than one.');
+    throw new AdhocError('error.adhoc_one_statement');
   }
   // One more than the cap, so "there were more" is knowable without counting the
   // whole result — which is the thing the cap exists to avoid doing.
@@ -1036,18 +1052,13 @@ function translate(error: unknown, timeoutMs: number): AdhocError {
     // The snapshot's timeout, not the current one: this message names the number
     // that was set on THIS statement, and a save landing mid-query would
     // otherwise have it report a limit the query was never run under.
-    return new AdhocError(
-      `The query ran longer than ${timeoutMs} ms and was stopped. Narrow it, or add a LIMIT.`,
-    );
+    return new AdhocError('error.adhoc_timeout', { ms: String(timeoutMs) });
   }
   // Not a Postgres code at all: `pg` rejects a pool acquisition with a plain
   // Error. Worth naming, because "timeout exceeded when trying to connect" reads
   // as the database being down when it means the console is busy.
   if (message?.includes('timeout exceeded when trying to connect')) {
-    return new AdhocError(
-      'The query console is busy — it runs a small number of queries at a time. Try again in a moment.',
-      503,
-    );
+    return new AdhocError('error.adhoc_busy', {}, 503);
   }
   if (code === '42501') {
     /*
@@ -1056,11 +1067,19 @@ function translate(error: unknown, timeoutMs: number): AdhocError {
      * What is true in both is that the console cannot reach the secrets or the
      * audit trail — which is usually the actual reason they are seeing this.
      */
-    const why =
-      activeMode === 'write'
-        ? 'the query console writes only the operational tables, and cannot touch the audit trail, the accounts or the columns holding secrets'
-        : 'the query console is read-only and cannot read columns holding secrets';
-    return new AdhocError(`${message ?? 'Permission denied.'} — ${why}.`);
+    // The driver's own sentence is the parameter: it names the table or column
+    // Postgres refused, which no catalogue can know. What this file authors —
+    // the clause explaining WHY the console cannot reach it — is the half that
+    // translates.
+    const detail = message ?? renderError('error.permission_denied', {}, DEFAULT_LOCALE);
+    return activeMode === 'write'
+      ? new AdhocError('error.adhoc_denied_write', { detail })
+      : new AdhocError('error.adhoc_denied_read', { detail });
   }
-  return new AdhocError(message ?? 'The query could not be run.');
+  // A driver message that is not one of the cases above is passed through as
+  // itself; there is no key for an arbitrary Postgres error, and inventing one
+  // would hide what the database said.
+  return message === undefined
+    ? new AdhocError('error.adhoc_failed')
+    : new AdhocError('error.adhoc_passthrough', { detail: message });
 }

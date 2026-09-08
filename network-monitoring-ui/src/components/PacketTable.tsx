@@ -6,10 +6,12 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import type { MRT_ColumnDef, MRT_TableOptions } from 'material-react-table';
 import { useMemo } from 'react';
+import { useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 import type { Packet } from '../types';
 import DataGrid from './DataGrid';
 import HexDump, { hexByteCount } from './HexDump';
+import Identifier from './Identifier';
 
 interface PacketTableProps {
   packets: Packet[];
@@ -38,6 +40,7 @@ export default function PacketTable({
   onIpClick,
   fitHeightDeps,
 }: Readonly<PacketTableProps>) {
+  const t = useT();
   const rows = useMemo(() => packets.filter((packet) => Boolean(packet.destinationIpAddress)), [packets]);
 
   const columns = useMemo<MRT_ColumnDef<Packet>[]>(
@@ -45,63 +48,63 @@ export default function PacketTable({
       {
         accessorFn: (row) => row.sourceIpAddress ?? '',
         id: 'sourceIpAddress',
-        header: 'Source IP',
+        header: t('packets.source_ip'),
         size: 165,
         Cell: ipCell(onIpClick),
       },
       {
         accessorFn: (row) => row.ethernetHeader.sourceAddress,
         id: 'sourceMac',
-        header: 'Source MAC',
+        header: t('packets.source_mac'),
         size: 160,
         Cell: MonoCell,
       },
       {
         accessorFn: (row) => row.destinationIpAddress ?? '',
         id: 'destinationIpAddress',
-        header: 'Destination IP',
+        header: t('packets.destination_ip'),
         size: 165,
         Cell: ipCell(onIpClick),
       },
       {
         accessorFn: (row) => row.ethernetHeader.destinationAddress,
         id: 'destinationMac',
-        header: 'Destination MAC',
+        header: t('packets.destination_mac'),
         size: 160,
         Cell: MonoCell,
       },
       {
         accessorFn: (row) => row.ethernetHeader.type,
         id: 'type',
-        header: 'EtherType',
+        header: t('packets.ethertype'),
         size: 175,
         Cell: EtherTypeCell,
       },
       {
         accessorFn: (row) => row.llcHeader?.dsap ?? '',
         id: 'llcDsap',
-        header: 'LLC DSAP',
+        header: t('packets.llc_dsap'),
         size: 140,
         Cell: MonoOrDashCell,
       },
       {
         accessorFn: (row) => row.llcHeader?.ssap ?? '',
         id: 'llcSsap',
-        header: 'LLC SSAP',
+        header: t('packets.llc_ssap'),
         size: 140,
         Cell: MonoOrDashCell,
       },
       {
         accessorFn: (row) => row.llcHeader?.control ?? '',
         id: 'llcControl',
-        header: 'LLC Control',
+        header: t('packets.llc_control'),
         size: 140,
         Cell: MonoOrDashCell,
       },
       {
         accessorFn: (row) => hexByteCount(row.dataHexStream),
         id: 'frameBytes',
-        header: 'Frame',
+        header: t('packets.frame'),
         size: 100,
         filterVariant: 'range',
         Cell: FrameBytesCell,
@@ -109,30 +112,30 @@ export default function PacketTable({
       {
         accessorFn: (row) => hexByteCount(row.ethernetPadHexStream),
         id: 'padBytes',
-        header: 'Pad',
+        header: t('packets.pad'),
         size: 90,
         filterVariant: 'range',
         Cell: PadBytesCell,
       },
     ],
-    [onIpClick],
+    [onIpClick, t],
   );
 
   const tableOptions = {
-    muiSearchTextFieldProps: { placeholder: 'Search packets', sx: { minWidth: 240 } },
+    muiSearchTextFieldProps: { placeholder: t('packets.search'), sx: { minWidth: 240 } },
     renderDetailPanel: ({ row }) => (
       <Stack spacing={2} sx={{ px: 1, py: 1.5, maxWidth: 900 }}>
         <Box>
           <Typography variant="subtitle2" gutterBottom>
-            Frame data ({hexByteCount(row.original.dataHexStream)} bytes)
+            {t('packets.frame_data', { bytes: hexByteCount(row.original.dataHexStream) })}
           </Typography>
-          <HexDump hexStream={row.original.dataHexStream} emptyLabel="No frame data captured" />
+          <HexDump hexStream={row.original.dataHexStream} emptyLabel={t('packets.no_frame_data')} />
         </Box>
         <Box>
           <Typography variant="subtitle2" gutterBottom>
-            Ethernet padding ({hexByteCount(row.original.ethernetPadHexStream)} bytes)
+            {t('packets.padding', { bytes: hexByteCount(row.original.ethernetPadHexStream) })}
           </Typography>
-          <HexDump hexStream={row.original.ethernetPadHexStream} emptyLabel="No padding on this frame" />
+          <HexDump hexStream={row.original.ethernetPadHexStream} emptyLabel={t('packets.no_padding')} />
         </Box>
       </Stack>
     ),
@@ -151,14 +154,14 @@ export default function PacketTable({
             fontWeight: 650,
           }}
         >
-          Captured packets
+          {t('packets.captured')}
         </Typography>
-        <Chip size="small" label={`${rows.length.toLocaleString()} shown`} />
+        <Chip size="small" label={t('packets.shown', { count: rows.length })} />
         {packets.length !== rows.length && (
           <Chip
             size="small"
             variant="outlined"
-            label={`${(packets.length - rows.length).toLocaleString()} non-IP hidden`}
+            label={t('packets.non_ip_hidden', { count: packets.length - rows.length })}
           />
         )}
       </Stack>
@@ -171,9 +174,7 @@ export default function PacketTable({
             color: 'text.secondary',
           }}
         >
-          {capturing
-            ? 'Waiting for packets…'
-            : 'No packets captured yet. Choose an interface and start a capture.'}
+          {capturing ? t('packets.waiting') : t('packets.none_yet')}
         </Typography>
       </Box>
     ),
@@ -187,16 +188,27 @@ export default function PacketTable({
  * IP columns need anything from the component, and they take it as an argument.
  */
 
+/*
+ * Every column in this table is an identifier — MAC addresses, EtherTypes, hex —
+ * so all of them isolate. A packet view is the place an operator compares what
+ * they see here against what `tcpdump` printed, character by character, and a
+ * right-to-left layout must not reorder any of it.
+ */
 const MonoCell: MRT_ColumnDef<Packet>['Cell'] = ({ cell }) => (
-  <Box sx={monoSx}>{cell.getValue<string>()}</Box>
+  <Identifier>{cell.getValue<string>()}</Identifier>
 );
 
 const MonoOrDashCell: MRT_ColumnDef<Packet>['Cell'] = ({ cell }) => (
-  <Box sx={monoSx}>{cell.getValue<string>() || '—'}</Box>
+  <Identifier>{cell.getValue<string>() || '—'}</Identifier>
 );
 
 const EtherTypeCell: MRT_ColumnDef<Packet>['Cell'] = ({ cell }) => (
-  <Chip size="small" variant="outlined" label={cell.getValue<string>()} sx={monoSx} />
+  <Chip
+    size="small"
+    variant="outlined"
+    label={<Identifier mono={false}>{cell.getValue<string>()}</Identifier>}
+    sx={monoSx}
+  />
 );
 
 const FrameBytesCell: MRT_ColumnDef<Packet>['Cell'] = ({ cell }) => (
@@ -229,7 +241,7 @@ function IpLink({ value, onClick }: Readonly<{ value: string; onClick: (ipAddres
       onClick={() => onClick(value)}
       sx={{ ...monoSx, display: 'inline-flex', alignItems: 'center', gap: 0.5, textAlign: 'left' }}
     >
-      {value}
+      <Identifier mono={false}>{value}</Identifier>
       <TravelExploreIcon sx={{ fontSize: 14, opacity: 0.65 }} />
     </Link>
   );

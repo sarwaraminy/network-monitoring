@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
+import { renderFinding } from '../i18n/catalog/findings.js';
 import type { Finding } from '../packet/detect/types.js';
 import type { DeliveryResult, Notification, NotificationChannel } from './types.js';
 
@@ -27,12 +28,24 @@ before(async () => {
 
 const AT = new Date('2026-07-27T10:00:00Z');
 
+const paramsFor = (dedupKey: string) => ({
+  source: dedupKey,
+  target: '10.0.0.89',
+  count: 22,
+  seconds: 60,
+});
+
+const titleOf = (dedupKey: string) => renderFinding('port_scan.packet', paramsFor(dedupKey), 'en').title;
+
 function finding(dedupKey: string): Finding {
   return {
     kind: 'port_scan',
     severity: 'high',
-    title: `Port scan ${dedupKey}`,
-    description: 'A single source attempted connections to many ports.',
+    messageKey: 'port_scan.packet',
+    // The dedup key rides in as the scanner's address so each finding still
+    // renders distinctly: these assertions are about which findings were flushed,
+    // and they read the rendered title to say so.
+    messageParams: paramsFor(dedupKey),
     dedupKey,
     sourceIp: '10.0.0.66',
     targetIp: '10.0.0.89',
@@ -88,8 +101,11 @@ describe('flush during an in-flight send', () => {
 
     assert.equal(channel.sent.length, 2, 'the finding queued mid-send must also be delivered');
     const titles = channel.sent.flatMap((n) => n.findings.map((f) => f.title));
-    assert.ok(titles.includes('Port scan first'));
-    assert.ok(titles.includes('Port scan second'), 'the second finding must not be dropped');
+    // Rendered, not typed out: the finding carries a message key and its params,
+    // and the title only exists once something renders them. Each fixture puts its
+    // dedup key in the `source` parameter, which is what makes the two distinct.
+    assert.ok(titles.includes(titleOf('first')));
+    assert.ok(titles.includes(titleOf('second')), 'the second finding must not be dropped');
   });
 
   it('resolves without sending when nothing is queued', async () => {

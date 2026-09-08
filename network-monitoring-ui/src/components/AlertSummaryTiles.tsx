@@ -4,6 +4,8 @@ import CardActionArea from '@mui/material/CardActionArea';
 import Grid from '@mui/material/Grid';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
+import { useFormatters } from '../i18n/format';
+import { useT } from '../i18n/ui';
 import { type AlertSummary, SEVERITIES, type Severity } from '../types';
 import { SEVERITY_STYLE } from './SeverityChip';
 
@@ -21,11 +23,13 @@ interface AlertSummaryTilesProps {
  * distinction the old flat log could not express.
  */
 export default function AlertSummaryTiles({ summary, selected, onSelect }: Readonly<AlertSummaryTilesProps>) {
+  const t = useT();
+  const fmt = useFormatters();
   const tiles: Array<{ key: Severity | 'all'; label: string; value: number; hex: string }> = [
-    { key: 'all', label: 'All alerts', value: summary?.total ?? 0, hex: '#1d4ed8' },
+    { key: 'all', label: t('alerts.tile.all'), value: summary?.total ?? 0, hex: '#1d4ed8' },
     ...SEVERITIES.map((severity) => ({
       key: severity,
-      label: SEVERITY_STYLE[severity].label,
+      label: t(SEVERITY_STYLE[severity].labelKey),
       value: summary?.bySeverity[severity] ?? 0,
       hex: SEVERITY_STYLE[severity].hex,
     })),
@@ -68,7 +72,7 @@ export default function AlertSummaryTiles({ summary, selected, onSelect }: Reado
                       variant="h6"
                       sx={{ lineHeight: 1.1, color: muted ? 'text.disabled' : 'text.primary' }}
                     >
-                      {tile.value.toLocaleString()}
+                      {fmt.number(tile.value)}
                     </Typography>
                     <Typography
                       variant="caption"

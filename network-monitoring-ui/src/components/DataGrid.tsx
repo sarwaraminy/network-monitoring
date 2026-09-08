@@ -4,13 +4,19 @@ import { useColorScheme } from '@mui/material/styles';
 import Typography from '@mui/material/Typography';
 import {
   MaterialReactTable,
+  type MRT_Cell,
   type MRT_ColumnDef,
   type MRT_RowData,
   type MRT_TableOptions,
   useMaterialReactTable,
 } from 'material-react-table';
+import { MRT_Localization_DE } from 'material-react-table/locales/de';
+import { MRT_Localization_FA } from 'material-react-table/locales/fa';
 import type { ReactNode } from 'react';
+import { useLocale } from '../contexts/LocaleContext';
 import useViewportFitHeight from '../hooks/useViewportFitHeight';
+import { useFormatters } from '../i18n/format';
+import { useT } from '../i18n/ui';
 import { sharedTableOptions } from '../tableTheme';
 import { GRID_METRICS, SURFACE } from '../theme';
 import GridPagination from './GridPagination';
@@ -99,13 +105,23 @@ export function numericColumn<T extends MRT_RowData>(column: MRT_ColumnDef<T>): 
                 ? { fontVariantNumeric: 'tabular-nums', ...bodySx }
                 : (bodySx ?? { fontVariantNumeric: 'tabular-nums' }),
           },
-    Cell:
-      column.Cell ??
-      (({ cell }) => {
-        const value = cell.getValue<unknown>();
-        return typeof value === 'number' ? value.toLocaleString() : ((value as ReactNode) ?? '');
-      }),
+    Cell: column.Cell ?? (NumericCell as MRT_ColumnDef<T>['Cell']),
   };
+}
+
+/**
+ * The default renderer for a numeric column.
+ *
+ * A named component rather than an inline arrow, because MRT renders `Cell` as a
+ * component and that is what lets it hold the formatter hook. It used to call
+ * `value.toLocaleString()`, which takes the BROWSER's locale — so a German
+ * reader saw `1,240` in a grid cell and `1.240` in the caption beneath it, from
+ * the same card.
+ */
+function NumericCell({ cell }: { cell: MRT_Cell<MRT_RowData> }): ReactNode {
+  const fmt = useFormatters();
+  const value = cell.getValue<unknown>();
+  return typeof value === 'number' ? fmt.number(value) : ((value as ReactNode) ?? '');
 }
 
 /**
@@ -215,11 +231,32 @@ export default function DataGrid<T extends MRT_RowData>(props: Readonly<DataGrid
   return <DataGridBase {...(props as unknown as DataGridProps<MRT_RowData>)} />;
 }
 
+/**
+ * The table's own chrome, in the reader's language.
+ *
+ * MRT owns a surprising amount of visible text — the column menu (Sort, Hide,
+ * Group by), the row-actions header, the pagination labels, the search
+ * placeholder, the no-results line — and none of it goes through this
+ * application's catalogue, so it stayed English while everything around it
+ * translated. These are the package's own bundles.
+ *
+ * `fa` for Dari, with the caveat: it is Iranian Persian, and the two differ. It
+ * is used here and not for dates, which is where the difference actually bites —
+ * see i18n/format.ts on Afghan versus Iranian month names. "Sortieren"/"مرتب‌سازی"
+ * carries no calendar, so the shared vocabulary is right; a Solar Hijri month
+ * would not be.
+ */
+const GRID_LOCALIZATION = {
+  en: undefined,
+  de: MRT_Localization_DE,
+  'fa-AF': MRT_Localization_FA,
+} as const;
+
 function DataGridBase({
   columns,
   data,
   isLoading = false,
-  emptyMessage = 'Nothing to show.',
+  emptyMessage,
   disableFitHeight = false,
   fallbackMaxHeight = '55vh',
   fitHeightDeps = [],
@@ -239,6 +276,8 @@ function DataGridBase({
    * derive its menu colour, and that throws on `var(...)`. So it gets a real hex
    * for the scheme that is actually showing.
    */
+  const { locale } = useLocale();
+  const t = useT();
   const { mode, systemMode } = useColorScheme();
   const resolved = mode === 'system' ? systemMode : mode;
   const scheme = resolved === 'dark' ? 'dark' : 'light';
@@ -267,6 +306,8 @@ function DataGridBase({
   const containerSx = { flex: 1, minHeight: 0 };
 
   const table = useMaterialReactTable({
+    // English is MRT's own default, so it is left unset rather than restated.
+    ...(GRID_LOCALIZATION[locale] ? { localization: GRID_LOCALIZATION[locale] } : {}),
     // Defaults a caller may replace.
     enableStickyHeader: true,
     // Off deliberately. MRT draws a resize handle at the right edge of every
@@ -324,7 +365,7 @@ function DataGridBase({
       (() => (
         <Box sx={{ py: 6, textAlign: 'center' }}>
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            {emptyMessage}
+            {emptyMessage ?? t('common.nothing_to_show')}
           </Typography>
         </Box>
       )),

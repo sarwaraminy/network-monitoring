@@ -1,13 +1,13 @@
 import CssBaseline from '@mui/material/CssBaseline';
-import { ThemeProvider } from '@mui/material/styles';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { type RenderOptions, render } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { setToken } from '../api/client';
 import { AuthProvider } from '../contexts/AuthContext';
+import DirectionProvider from '../contexts/DirectionProvider';
+import { LocaleProvider } from '../contexts/LocaleContext';
 import { SnackbarProvider } from '../contexts/SnackbarContext';
-import { theme } from '../theme';
 
 /**
  * Renders a component inside the providers it needs at runtime.
@@ -36,17 +36,26 @@ export interface RenderAppOptions extends Omit<RenderOptions, 'wrapper'> {
 /** The provider stack, shared by both render helpers. */
 function makeWrapper(client: QueryClient, route: string, body: (children: ReactNode) => ReactNode) {
   return function Wrapper({ children }: { children: ReactNode }) {
+    /*
+     * The same nesting as App.tsx, and it has to stay the same: the order is
+     * forced by what each provider reads from the ones above it, so a wrapper that
+     * drifted would let a component pass here and fail in the application.
+     * `DirectionProvider` supplies the theme, which is why there is no
+     * `ThemeProvider` of its own any more.
+     */
     return (
-      <ThemeProvider theme={theme} defaultMode="light">
-        <CssBaseline />
-        <QueryClientProvider client={client}>
-          <SnackbarProvider>
-            <AuthProvider>
-              <MemoryRouter initialEntries={[route]}>{body(children)}</MemoryRouter>
-            </AuthProvider>
-          </SnackbarProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
+      <QueryClientProvider client={client}>
+        <AuthProvider>
+          <LocaleProvider>
+            <DirectionProvider>
+              <CssBaseline />
+              <SnackbarProvider>
+                <MemoryRouter initialEntries={[route]}>{body(children)}</MemoryRouter>
+              </SnackbarProvider>
+            </DirectionProvider>
+          </LocaleProvider>
+        </AuthProvider>
+      </QueryClientProvider>
     );
   };
 }

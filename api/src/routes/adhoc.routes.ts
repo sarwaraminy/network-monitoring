@@ -151,17 +151,15 @@ adhocRouter.put(
   asyncHandler(async (req, res) => {
     const parsed = adhocSettingsPatchSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+      throw HttpError.of(400, 'error.validation', {
+        detail: parsed.error.issues.map((issue) => issue.message).join('; '),
+      });
     }
 
     const patch = parsed.data as Partial<NewAdhocSettingsRow>;
     const conflicts = adhocPinnedConflicts(currentAdhocResolution(), patch);
     if (conflicts.length > 0) {
-      throw new HttpError(
-        409,
-        `Set in the environment and cannot be changed here: ${conflicts.join(', ')}. ` +
-          'Remove the variable and restart the API to manage it from this page.',
-      );
+      throw HttpError.of(409, 'error.adhoc_pinned', { variables: conflicts.join(', ') });
     }
 
     const actor = actorOf(req.user);

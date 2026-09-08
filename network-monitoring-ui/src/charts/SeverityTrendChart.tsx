@@ -2,8 +2,12 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { useMemo } from 'react';
+import { SEVERITY_STYLE } from '../components/SeverityChip';
+import { createFormatters, type Formatters, useFormatters } from '../i18n/format';
+import { DEFAULT_LOCALE } from '../i18n/generated/locales';
+import { useT } from '../i18n/ui';
 import type { AlertTrendPoint } from '../types';
-import { SEVERITY_LABEL, SEVERITY_ORDER } from './palette';
+import { SEVERITY_ORDER } from './palette';
 import { useChartPalette } from './useChartPalette';
 
 /**
@@ -20,12 +24,16 @@ import { useChartPalette } from './useChartPalette';
  *    midnight in local time renames it: anywhere west of UTC, every bar would carry
  *    the previous day's date.
  */
-export function bucketLabel(bucket: 'hour' | 'day', iso: string): string {
-  const date = new Date(iso);
-
-  return bucket === 'hour'
-    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : date.toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'UTC' });
+export function bucketLabel(
+  bucket: 'hour' | 'day',
+  iso: string,
+  format: Formatters = createFormatters(DEFAULT_LOCALE),
+): string {
+  // The formatter is a parameter with a default rather than a hook call, because
+  // this is also the axis' `valueFormatter` — called by the chart outside React's
+  // render, where a hook cannot go. The default keeps the existing unit tests
+  // calling it with two arguments.
+  return bucket === 'hour' ? format.time(iso) : format.day(iso);
 }
 
 interface Props {
@@ -46,9 +54,14 @@ interface Props {
  * neighbouring steps read as distinct without drawing a border around them.
  */
 export default function SeverityTrendChart({ trend, bucket, height = 260 }: Readonly<Props>) {
+  const t = useT();
   const palette = useChartPalette();
 
-  const labels = useMemo(() => trend.map((point) => bucketLabel(bucket, point.bucket)), [trend, bucket]);
+  const format = useFormatters();
+  const labels = useMemo(
+    () => trend.map((point) => bucketLabel(bucket, point.bucket, format)),
+    [trend, bucket, format],
+  );
 
   // Least severe at the bottom, so the stack reads upward in order of seriousness.
   const stackOrder = useMemo(() => [...SEVERITY_ORDER].reverse(), []);
@@ -61,7 +74,7 @@ export default function SeverityTrendChart({ trend, bucket, height = 260 }: Read
   );
 
   if (trend.length === 0) {
-    return <EmptyPlot height={height} message="No findings in this period." />;
+    return <EmptyPlot height={height} message={t('chart.no_findings_period')} />;
   }
 
   return (
@@ -73,11 +86,11 @@ export default function SeverityTrendChart({ trend, bucket, height = 260 }: Read
         present.length > 0
           ? present.map((severity) => ({
               data: trend.map((point) => point[severity]),
-              label: SEVERITY_LABEL[severity],
+              label: t(SEVERITY_STYLE[severity].labelKey),
               stack: 'severity',
               color: palette.severity[severity],
             }))
-          : [{ data: trend.map(() => 0), label: 'No findings', color: palette.grid }]
+          : [{ data: trend.map(() => 0), label: t('dashboard.no_findings'), color: palette.grid }]
       }
       // A legend is always present once two or more series are plotted; identity
       // must never rest on colour alone.

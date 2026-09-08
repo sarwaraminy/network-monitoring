@@ -7,7 +7,9 @@ import {
   emailBlockedReason,
   environmentPinnedFields,
   isEmailConfigured,
+  isEmailPointedSomewhere,
   isWebhookConfigured,
+  missingEmailOauthSettings,
   pinnedConflicts,
 } from '../notify/settings.js';
 import {
@@ -176,11 +178,7 @@ notifyRouter.put(
       // admin can find in api/.env, `SYSLOG_APP_NAME` is — the same distinction
       // invalidEnvironmentVariables (settings.ts) makes for the boot-time warning.
       const variables = conflicts.map((field) => DELIVERY_FIELDS[field].env);
-      throw new HttpError(
-        409,
-        `Set in the environment and not editable here: ${variables.join(', ')}. ` +
-          'Remove the variable from api/.env (or your Compose file) to manage it from this page.',
-      );
+      throw HttpError.of(409, 'error.delivery_pinned', { variables: variables.join(', ') });
     }
 
     await saveDeliverySettings(patch, actorOf(req.user));
@@ -213,11 +211,31 @@ notifyRouter.put(
  * authenticate against either way, and the accurate answer naming all three would
  * have been suppressed to say it.
  */
-function nothingConfiguredMessage(): string {
-  return (
-    emailBlockedReason(currentSettings()) ??
-    'No delivery channel is configured. Set a webhook URL, a syslog host, or an SMTP host with recipients — on this page, or in api/.env.'
-  );
+/**
+ * Why a test send cannot be attempted, as an error with a code.
+ *
+ * This was the one 4xx body in the API written as `res.status(400).json({
+ * message })`. Everything else goes through `HttpError.of` or `sendError`, and
+ * the difference showed: `describeError` finds no code, falls through to
+ * `data.message`, and prints English into an otherwise translated page.
+ *
+ * The OAuth2 case is kept as its own key rather than collapsed into the general
+ * one. With nothing else configured and a half-filled mailbox, "no channel is
+ * configured" is true and useless — the operator needs to know which four
+ * settings are missing. `emailBlockedReason` still holds the same sentence in
+ * English for the status DTO, which the delivery page reads and which is a
+ * separate conversion.
+ */
+function nothingConfiguredError(): HttpError {
+  const settings = currentSettings();
+  const missing = missingEmailOauthSettings(settings);
+  if (isEmailPointedSomewhere(settings) && missing.length > 0) {
+    return HttpError.of(400, 'error.email_oauth_incomplete', {
+      settings: missing.join(', '),
+      count: missing.length,
+    });
+  }
+  return HttpError.of(400, 'error.no_delivery_channel');
 }
 
 /**
@@ -250,8 +268,7 @@ notifyRouter.post(
     const skipped = skippedEmailResult();
 
     if (notifier().configuredChannels.length === 0) {
-      res.status(400).json({ message: nothingConfiguredMessage() });
-      return;
+      throw nothingConfiguredError();
     }
 
     // Deliberately bypasses every gate, including `enabled`: the question being

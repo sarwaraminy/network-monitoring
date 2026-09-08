@@ -2029,6 +2029,7 @@ npm run dev                                   # in another terminal
 npm i -D playwright && npx playwright install chromium   # once
 SHOT_EMAIL=you@example.com SHOT_PASSWORD='...' node scripts/capture-screenshots.mjs
 node scripts/capture-screenshots.mjs delivery administration-settings   # or just these
+node scripts/capture-screenshots.mjs language-menu dashboard-de alerts-fa  # the language set
 ```
 
 `playwright` is deliberately **not** a dependency of this project: it is a browser
@@ -2104,6 +2105,33 @@ created with `npm run user`.
 
 ![Sign in](./user-guide/screenshots/login.png)
 
+**Language** — English, German and Dari, switched from the account menu. Each language names
+itself: somebody who has landed in one they cannot read needs the one word they can be relied
+on to recognise.
+
+![The account menu, with the Language row](./user-guide/screenshots/language-menu.png)
+
+**German** — roughly 30% longer than English, which is why the tiles and the navigation rail
+are laid out to grow rather than to truncate.
+
+![The dashboard in German](./user-guide/screenshots/dashboard-de.png)
+
+**Dari** — the layout mirrors, the columns reverse, and dates switch to the Solar Hijri
+calendar with Afghan month names. Addresses stay in the order you would type them: an address
+whose octets were reordered to match the paragraph is a different address.
+
+![The alerts list in Dari, right to left](./user-guide/screenshots/alerts-fa.png)
+
+The finding titles in that shot are English because every alert in the installation it was
+taken from predates the upgrade. An alert stores *which* finding it is rather than a finished
+sentence, and the sentence is written out in the reader's language when it is opened — but
+only for findings raised since. Older ones kept the English prose they were stored with, and
+there is nothing to translate them from. It resolves as they age out.
+
+Three language shots rather than three sets of fourteen. What a reader needs to see is that
+the product speaks their language and what changes when it does; photographing every screen
+in every language would treble the set to make the same point, and treble what goes stale.
+
 ---
 
 ## Troubleshooting
@@ -2163,6 +2191,8 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **The interface speaks German and Dari** — layers 2–4 of the internationalisation work: `DirectionProvider` supplies the theme direction, an emotion RTL cache and `dir`/`lang` on the document; `<Identifier>` isolates the addresses, MACs and ports that never pass through a message, including the chart axis where no component can wrap them; `HttpError.of(status, code, params)` renders its own English `message` from the code the response carries, so scripts keep a stable string while a person reads their own language; and `useT()` covers the navigation, the alerts page, the dashboard, the audit trail, sign-in, sign-up and the rest of the page chrome. Dates and numbers followed the application's locale rather than the browser's for the first time, and Afghanistan's Solar Hijri calendar turned out to cost nothing — `fa-AF` already selects it in CLDR, with the Afghan month names rather than the Iranian ones | *this branch* |
+| **Findings stop being English prose** — the first of the four internationalisation layers, and the one that got more expensive every day it waited. Detectors emitted interpolated sentences, so no later translation could recover the structure that had been interpolated away: once `445` is inside a sentence nothing tells it from a byte count. A finding now stores a message key and its parameters, rendered in the reader's language at display time; English, German and Dari catalogues ship, ICU MessageFormat handles the plural categories the three do not share, and interpolated identifiers are bidi-isolated centrally so an address cannot render with its octets reordered inside a right-to-left sentence | *this branch* |
 | **`sensor_id` on findings, devices and rollups** — two installations sharing one database wrote into each other's rows: `alerts.dedup_key` was globally unique although the key is derived from what was observed, and `known_devices` was keyed on the MAC alone, so a device one sensor had learned silently switched off new-device detection on every other | #54 |
 | **Both query-console roles revoked, not just the read one** — `revokeAdhocLogin` took `adhocRole()`'s `read` default, so every path that switched the console off left `nm_adhocrw_<database>` holding `LOGIN`, the last write-mode password and V12's DML on the operational tables; no supported operator action reached it. Both modes now revoke wherever the console goes off, `startAdhoc` strips the mode it is not using, and the statement is `NOLOGIN PASSWORD NULL` so the credential is destroyed rather than disabled | #53 |
 | **Role management in the interface** — role was settable only in `psql`; now Administration settings → Users and roles, audited, refusing to demote the last administrator (in a locked transaction, because two administrators demoting each other loses a count-then-update race) or to demote yourself | #53 |
@@ -2184,11 +2214,18 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 ### Next, in order
 
-1. **Internationalisation — English, German and Dari.** The largest item on this list, and
-   the part of it that gets more expensive every day is the same shape as the `sensor_id`
-   work that has just shipped: findings are stored as English prose. See
-   [Internationalisation](#internationalisation--english-german-and-dari) below for the
-   four layers and the decisions each one needs.
+1. **Finish internationalisation.** All four layers have landed — findings as message keys,
+   right-to-left with bidi isolation, server error codes, and the interface strings. What is
+   left is not architecture:
+   - **Native review of the German and Dari catalogues.** Every one of them is
+     machine-drafted. Dari most urgently, since nobody on the team reads it.
+   - **The administration panels' long-form prose** still reads in English — see Layer 4
+     below for exactly which files.
+   - **A Perso-Arabic webfont**, if the system faces the stack now names turn out to look
+     wrong to somebody who reads Dari.
+   - **`DataGrid`'s generic numeric cell**, which still formats through the browser locale
+     and wants a decision rather than a patch: it is shared between ordinary tables and the
+     query console's results grid, and those want opposite things.
 2. **Vite step 2** — vite 8 + `@vitejs/plugin-react` 6 + vitest 4. Needs a local jest-dom
    type shim (jest-dom augments `vitest`'s `Assertion`; Vitest 4 moved that to
    `@vitest/expect`'s `Matchers<T>`) and a fix for `vitest` no longer hoisting to the root
@@ -2248,39 +2285,68 @@ Planned, not started. Written down in this much detail because two of the four l
 cheap now and expensive later, and because **Dari is right-to-left** — which makes this an
 architectural change rather than a string-extraction exercise.
 
-It also finally gives `users.lang_code` a meaning. The column exists, is `NOT NULL`,
-defaults to `en`, is written by sign-up and the user CLI, and is returned in every user
-DTO. Nothing reads it.
+It also finally gives `users.lang_code` a meaning. The column has existed since V1, is
+`NOT NULL`, defaults to `en`, is written by sign-up and the user CLI, and is returned in
+every user DTO — and until Layer 1 nothing read it. It is now the second of the three
+sources `LocaleContext` consults, behind an explicit choice stored in the browser and ahead
+of `navigator.languages`. It also rides on the login response, not only on `GET /auth/me`,
+so the interface switches language on the sign-in itself rather than on the next reload.
 
-**Recommended library: ICU MessageFormat** (`react-intl`/FormatJS, or `i18next` with the
-ICU plugin). Not a preference about syntax — the interface counts things constantly ("3
-findings", "1 device"), and English, German and Dari do not agree on plural categories.
-Hand-rolled `count === 1 ? … : …` is wrong in Dari on day one.
+**Library: ICU MessageFormat**, via `intl-messageformat` directly rather than `react-intl`.
+The choice of ICU is not a preference about syntax — the interface counts things constantly
+("3 findings", "1 device"), and English, German and Dari do not agree on plural categories,
+so a hand-rolled `count === 1 ? … : …` is wrong in Dari on day one. Taking the formatter
+without the React binding is what avoids a *second* ICU implementation: the server needs the
+same renderer for the email body and the syslog export, so the renderer is written once in
+`api/src/i18n/` and mirrored into the UI by `api/scripts/copy-catalogs.mjs` — the same shape
+as `copy-migrations.mjs`, with `npm run i18n:check` in CI so a stale copy fails the build
+rather than drifting. The direction is API → UI and never back: finding messages are
+authored next to the detectors that emit them, which is the only place their parameters are
+known.
 
 #### The four layers, hardest first
 
-1. **Findings are stored English prose** (~4–6 d). `alerts.title` and `alerts.description`
-   are written at detection time by each detector — interpolated template strings, e.g.
-   ``` `ARP spoofing: ${ip} claimed by ${mac}` ```. Translating the interface does not
-   translate a single existing finding, and every day of capture adds rows that can never
-   be translated. **This is the one to decide before more data accumulates**, for exactly
-   the reason `sensor_id` went first.
+1. ~~**Findings are stored English prose**~~ — **done**, see V17. Detectors emit a message
+   **key plus a params object** and the text is rendered at display time, in the reader's
+   language. `Finding.messageKey` names a pair of catalogue entries (`arp_spoofing.sprawl`
+   → `.title` and `.description`), derived as a type from the English catalogue so a
+   detector naming a variant nobody wrote is a compile error.
 
-   The shape: detectors emit a message **key plus a params object**, and the text is
-   rendered at display time. Much of what the titles interpolate is already structured —
-   `source_ip`, `source_mac`, `protocol`, `port` are columns and `evidence` is `jsonb` — but
-   the descriptions carry conditional clauses ("*and is currently using X*") and derived
-   values (`new-device` computes a vendor prefix from the MAC), so it is a per-detector
-   rewrite rather than a mechanical substitution. Roughly a dozen detectors across the
-   packet and flow pipelines.
+   What the rewrite actually cost, since the estimate was the uncertain part: 22 message
+   pairs across seven detector files, plus six *fragments* — the DNS tunnelling reasons and
+   the threat-intel `via` and attribution clauses — which are prose interpolated into other
+   prose and so had to become nested references rather than pre-joined strings. Conditional
+   clauses became ICU `select` on an explicit boolean, because ICU cannot branch on a value
+   being absent.
+
+   Two rules the catalogue enforces, both invisible until somebody reads the interface in
+   Dari. **Identifiers interpolate as strings, counts as numbers.** Not because a bare
+   `{port}` localises digits — it does not; `intl-messageformat` renders an unqualified
+   argument with `String(value)`, so a number there comes out `445` in every language.
+   Localised digits appear only where the pattern asks: `{port, number}`, or a `#` inside a
+   `plural`. The rule is that the argument's *type* carries its meaning, so a pattern that
+   later gains `, number` in one locale's translation cannot quietly render a port as `۴۴۵`
+   and stop it matching what the switch and `tcpdump` print.
+   **Interpolated strings are bidi-isolated at render time**, centrally, rather than at each
+   of the interpolation sites — see the note on FSI/PDI in `api/src/i18n/render.ts`.
 
    Historical rows keep their stored prose as a fallback, deliberately: a finding from
-   before the change should stay readable in the language it was written in rather than
-   becoming a missing translation key.
+   before the change stays readable in the language it was written in rather than becoming a
+   missing translation key. `title` and `description` are nullable and never written again;
+   a CHECK constraint holds the invariant that a row carries one representation or the
+   other, because a row with neither renders a blank line while still counting towards every
+   total on the dashboard.
 
-2. **Right-to-left, and bidi isolation** (~3–5 d). The mechanical part is ordinary — MUI's
-   `createTheme({ direction: 'rtl' })`, `stylis-plugin-rtl` for emotion, `dir` on the
-   document, and `@mui/x-charts` axes and the data grid checked by hand.
+   The German and Dari catalogues are **machine-drafted and need a native speaker's review**
+   before they are relied on — Dari the more urgently, since it is the language nobody on
+   the team reads.
+
+2. ~~**Right-to-left, and bidi isolation**~~ — **done**. `DirectionProvider` supplies the
+   theme's `direction`, an emotion cache carrying `stylis-plugin-rtl`, and `dir`/`lang` on
+   the document element. Those are three mechanisms rather than one and none substitutes for
+   the others: MUI's `direction` turns MUI's own components round, the emotion plugin flips
+   the CSS *this* application writes, and only the document attribute reaches the browser's
+   own bidirectional algorithm.
 
    The part that will actually bite is **bidirectional text isolation**. An IP address, MAC,
    CIDR, port, hostname or SQL fragment placed inside a right-to-left sentence renders in
@@ -2294,20 +2360,92 @@ Hand-rolled `count === 1 ? … : …` is wrong in Dari on day one.
    sets `dir="ltr"` — plus a lint rule, rather than remembering it at each of several
    hundred interpolation sites.
 
-3. **Server prose the interface displays verbatim** (~3–4 d). 49 `HttpError` call sites
-   feed 41 `describeError` uses, and the messages are deliberately specific — "Set in the
-   environment and cannot be changed here: `ADHOC_MAX_ROWS`" is the useful half of that
-   409.
+   That is handled in two places, which between them cover every identifier on screen.
+   Inside a finding, the *renderer* isolates every interpolated string with U+2068/U+2069 —
+   Layer 1 having put all of them behind message parameters, there is exactly one place
+   where they become text. Outside one, `<Identifier>` sets `dir="ltr"` and
+   `unicode-bidi: isolate`, and is applied to the alert table's source and target columns,
+   the packet table (every column of which is an identifier), the IP information dialog and
+   the expanded finding's protocol and MAC metrics.
 
-   The decision: **return a code plus params and translate in the browser**, rather than
-   localising on the server from the caller's `lang_code`. Three reasons — the same
-   endpoints are read by scripts and by CI, a localised error is one nobody can grep for or
-   search the issue tracker with, and it keeps `Accept-Language` out of the API contract.
-   The cost is that every one of those 49 sites gains a code.
+   The awkward case is the **chart axis**, where a tick label is a string handed to
+   `@mui/x-charts` rather than an element this application renders, so no component can wrap
+   it. `MagnitudeBarChart` takes `labelsAreIdentifiers` and puts the isolation in
+   `tickLabelStyle` — SVG text is subject to the bidirectional algorithm exactly as HTML is,
+   and the top-sources chart plots IP addresses.
 
-4. **The interface strings** (~4–5 d plus translation). 42 components. The most tedious
-   layer and the least risky, so it goes last: by then layers 1–3 have settled what the
-   catalogue has to hold.
+   **Dates and numbers came with it**, and were a bug of their own: every timestamp in the
+   interface was a bare `toLocaleString()`, which follows the *browser's* locale rather than
+   the application's. `useFormatters()` binds them to the chosen language.
+
+   **The Solar Hijri calendar cost nothing.** `fa-AF` selects it in CLDR on its own, with the
+   Afghan month names (سنبله) rather than the Iranian ones (شهریور) — so the calendar
+   decision below needed no adapter, no date library, and no per-locale branch: passing the
+   application's locale to `Intl` is the whole of it.
+
+   Still open: `DataGrid`'s generic numeric cell still formats through the browser locale.
+   It is shared between ordinary tables and the query console's results grid, and those want
+   opposite things — grouping and digit shaping are right for a count and wrong for an ID
+   column — so it wants a decision rather than a patch.
+
+3. ~~**Server prose the interface displays verbatim**~~ — **done.** `HttpError.of(status,
+   code, params)` is now the normal way to raise one, and it renders `message` from the same
+   key and params the response carries, so the two cannot drift. The specific messages stayed
+   specific: "Set in the environment and cannot be changed here: `ADHOC_MAX_ROWS`" is still
+   the useful half of that 409, with the variable names as a parameter rather than summarised
+   away.
+
+   The decision held: **a code plus params, translated in the browser**, rather than
+   localised on the server from the caller's `lang_code`. Three reasons — the same endpoints
+   are read by scripts and by CI, a localised error is one nobody can grep for or search the
+   issue tracker with, and it keeps `Accept-Language` out of the API contract. The response
+   carries **both**: `message` is always the English rendering, so no existing client changes
+   and the server log keeps a stable string, and `code`/`params` ride alongside for the
+   interface.
+
+   Two of the 50 sites deliberately did *not* get a code. The zod aggregations share one —
+   `error.validation`, whose `detail` carries the joined English through untranslated —
+   because their text comes from the schemas themselves, and translating those would mean a
+   catalogue entry per field per rule that would go stale silently. The sentence around the
+   detail is translated, so the reader still learns what kind of failure it was.
+
+   `describeError` reads the code and falls back to the message. It is a plain module
+   function called from about forty `catch` blocks, so the locale is pushed to it by
+   `LocaleProvider` rather than threaded through all forty — the same shape as the access
+   token that already lives in that file. The cost is that an error already on screen when
+   the language is switched keeps its old wording until whatever produced it runs again.
+
+4. **The interface strings** — **substantially done**, and the honest accounting matters
+   more here than a tick, because "the interface is translated" is a claim somebody will
+   check by opening it.
+
+   **Converted**: the navigation and its search, the account menu, the theme and language
+   switches, the alerts page in full (columns, filters, actions, the expanded row), the
+   dashboard, the audit trail, sign-in and sign-up, the suppression rules page and its
+   dialog, threat intelligence, delivery, the query console's chrome, both capture pages and
+   the packet table, and the shared vocabulary — severity names, detector names and their
+   one-line explanations — which several screens read.
+
+   **Not converted**, and this is the part to know about: the long-form explanatory prose
+   inside the administration panels — `QueryConsoleStatus`, `QueryConsoleSettings`,
+   `UserRoles`, and the field-by-field help in `DeliverySettingsForm`. That is several
+   hundred lines of paragraph text whose value is precision, and machine-drafting it into two
+   languages would produce exactly the plausible-but-wrong prose this file keeps warning
+   about. It reads in English today. `useT()` is what it needs, and the catalogue is where
+   the strings go.
+
+   The mechanism itself is complete: `src/i18n/ui/` holds the three catalogues, `useT()` is
+   the hook, and `catalog.test.ts` enforces all three — every pattern parses, every key is
+   translated into every locale, and **no key exists that the application never asks for**,
+   which is what stops the catalogue accumulating strings nobody renders.
+
+   Two things the conversion turned up rather than translated. The sign-up form's language
+   field offered English, Dari and **Pashto** — a language this application has no catalogue
+   for — and not German, which it ships; choosing Pashto wrote a `lang_code` the interface
+   could not honour. It is derived from `LOCALES` now, sharing one endonym map with the
+   account menu's switch, so the two can no longer disagree. And `users.lang_code` now rides
+   on the login response as well as `GET /auth/me`, so the language follows a sign-in rather
+   than waiting for the next reload.
 
 #### What deliberately stays in English
 
@@ -2319,29 +2457,55 @@ Hand-rolled `count === 1 ? … : …` is wrong in Dari on day one.
 - **Server logs**, which are read with `grep` by whoever is on the host.
 - **Outbound notifications are an installation setting, not per-user.** An alert email goes
   to a team address and a webhook has no account at all, so there is no `lang_code` to read.
-  One configured language for outbound, alongside the delivery settings.
+  One configured language for outbound, alongside the delivery settings. The seam exists —
+  `OUTBOUND_LOCALE` in `notify/types.ts`, which `toNotifiable` renders through — and is
+  English today, which is what every existing installation already receives; making it a
+  stored setting is a change to one value rather than to every channel.
+- **The syslog and CEF feeds are English even when outbound is not.** `NotifiableFinding`
+  carries both renderings for exactly this reason: "outbound is one configured language" and
+  "the machine feed is English" are two different questions, and a channel that read the
+  wrong one would break every SIEM rule the day somebody switched the human channels to
+  German. Rendered at the boundary rather than inside the channel, so `cef.ts` stays the
+  pure formatter its docblock says it is.
 
 #### Decisions to make before starting
 
-- **Calendar for Dari.** Afghanistan uses the Solar Hijri (Jalali) calendar. Gregorian
-  dates with Dari month names may be acceptable for a trend axis; a date *picker* in
-  Gregorian is not, if the operators reading it think in Jalali.
-  `@mui/x-date-pickers` takes an adapter, so this is a choice rather than a rewrite — but it
-  is a choice, and guessing it wrong is a visible mistake.
-- **Digit shaping.** Eastern Arabic-Indic digits (۱۲۳) are idiomatic in Dari prose, but IP
-  addresses, ports, MACs and byte counts must stay ASCII: shaped digits stop being
-  copy-pasteable and stop matching what the switch, the firewall and `tcpdump` show.
-- **A font with Perso-Arabic coverage** — Vazirmatn or Noto Naskh Arabic. The current stack
-  has none, so Dari would render in whatever the browser substitutes.
+- ~~**Calendar for Dari.**~~ **Settled: Solar Hijri**, and it turned out to be free.
+  `fa-AF` already selects that calendar in CLDR, with the Afghan month names rather than the
+  Iranian ones, so `Intl` does it with no adapter and no date library. Note for whoever adds
+  the first date *picker*: there is not one in the interface today — `@mui/x-date-pickers` is
+  a dependency that nothing imports — so the adapter question is still open for that, and
+  `AdapterDateFnsJalali` is the answer when it arrives.
+- ~~**Digit shaping.**~~ **Settled by the type of the parameter.** Eastern Arabic-Indic
+  digits (۱۲۳) are idiomatic in Dari prose, so counts interpolate as *numbers* and are shaped.
+  IP addresses, ports, MACs and byte counts interpolate as *strings* and are not: shaped
+  digits stop being copy-pasteable and stop matching what the switch, the firewall and
+  `tcpdump` show. The rule is written down in `api/src/i18n/message.ts` and is the one thing
+  most likely to be got wrong when a detector is added.
+- ~~**A font with Perso-Arabic coverage**~~ — **partly settled.** The theme's stack now names
+  Perso-Arabic *system* faces after the Latin ones (SF Arabic, Geeza Pro, Noto Naskh Arabic,
+  Tahoma; Segoe UI was already there and covers Windows). Font fallback is per character, so
+  this changes nothing about how English or German renders. System faces rather than a
+  bundled webfont because nothing else in this interface is downloaded at runtime, which is
+  the right default for a tool expected to run on an isolated network. **Bundling Vazirmatn
+  through `@fontsource` is still the better answer if the substituted faces look wrong** —
+  that is a judgement somebody who reads Dari has to make by looking at it.
 - **German is roughly 30% longer than English.** The dashboard tiles, the navigation rail
   and the settings dialog's two-column grid are the places to check first.
 
 #### The user guide is a content job, not an engineering one
 
-16 topics, ~1,650 lines of prose, and the screenshots are of a translated interface — so
-three languages means three sets. `scripts/capture-screenshots.mjs` already takes a
-`SHOT_*` environment, so per-language capture is a loop rather than new tooling, but the
-translation itself is the bulk of the cost and does not shrink.
+17 topics and ~1,750 lines of prose, all of it English. The guide now has a **Language**
+topic covering what switching changes, what it deliberately leaves alone, and why findings
+raised before the upgrade stay in English — but the other sixteen topics are still written
+in one language only, and that is the bulk of the cost.
+
+The screenshots turned out not to be the problem they looked like. The first estimate here
+was three sets of fourteen; what shipped is three shots — the switch, German, and Dari —
+because what a reader needs is that the product speaks their language and what changes when
+it does, not fourteen photographs making the same point three times. `locale` on a shot in
+`scripts/capture-screenshots.mjs` sets `nm.locale` before the page loads, so adding more is
+a line each if that judgement turns out to be wrong.
 
 ### Known gaps, named rather than left to be discovered
 

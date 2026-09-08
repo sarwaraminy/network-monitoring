@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
@@ -359,7 +359,7 @@ describe('the console role password', () => {
     expect(warning).toHaveTextContent(/no console password is set/i);
     // Scoped to the warning: the field's own label says the same words, and a
     // page-wide query would pass on the label while the warning said nothing.
-    expect(within(warning).getByText('Console role password')).toBeInTheDocument();
+    expect(warning).toHaveTextContent(/Console role password/i);
     // The old dead end, which told a reader with no server access to edit a file
     // and restart the API.
     expect(warning).not.toHaveTextContent(/restart the API/i);

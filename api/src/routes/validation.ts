@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { SENSOR_ID_MAX_LENGTH, SENSOR_ID_PATTERN } from '../constants.js';
+import { DEFAULT_LOCALE, LOCALES } from '../i18n/locales.js';
 import { HttpError } from '../middleware/error-handler.js';
 import { parsePrefix } from '../net/prefix.js';
 import { EMAIL_AUTH_METHODS } from '../notify/settings.js';
@@ -56,7 +57,7 @@ export const idSchema = z
 /** Rejects with the same 400 every route uses. */
 export function parseId(raw: string | undefined): number {
   const parsed = idSchema.safeParse(raw);
-  if (!parsed.success) throw new HttpError(400, 'id must be a positive integer');
+  if (!parsed.success) throw HttpError.of(400, 'error.invalid_id');
   return parsed.data;
 }
 
@@ -64,7 +65,9 @@ export function parseId(raw: string | undefined): number {
 export function parseOrThrow<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer<T> {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
-    throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+    throw HttpError.of(400, 'error.validation', {
+      detail: parsed.error.issues.map((issue) => issue.message).join('; '),
+    });
   }
   return parsed.data;
 }
@@ -222,7 +225,7 @@ export function parseSince(value: string | undefined, now = Date.now()): Date | 
 
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    throw new HttpError(400, `Could not parse "since": use an ISO date or a window like 24h`);
+    throw HttpError.of(400, 'error.since_unparseable');
   }
   return parsed;
 }
@@ -558,5 +561,15 @@ export const signupSchema = z.object({
   firstname: z.string().trim().min(1, 'firstname is required').max(50),
   lastname: z.string().trim().max(50).optional().default(''),
   role: z.enum(['USER', 'ADMIN']).default('USER'),
-  langCode: z.string().trim().min(1).max(10).default('en'),
+  /*
+   * The catalogue's own list, not a length bound.
+   *
+   * `SignUpPage` was fixed for exactly this: a hand-written list let somebody
+   * choose Pashto, which has no catalogue, so the column held a tag the
+   * interface cannot honour and `resolveLocale` fell back to English forever
+   * with nothing reporting why. The dropdown can no longer disagree; this is the
+   * route it posts to, which accepted `ps` — or `zzzz` — and persisted it.
+   * Existing rows are unaffected: `resolveLocale` already handles them.
+   */
+  langCode: z.enum(LOCALES).default(DEFAULT_LOCALE),
 });

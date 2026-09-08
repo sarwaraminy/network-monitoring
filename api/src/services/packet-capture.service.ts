@@ -1,5 +1,7 @@
 import type { Logger } from 'pino';
 import { env } from '../config/env.js';
+import type { ErrorMessageKey } from '../i18n/catalog/errors.js';
+import type { MessageParams } from '../i18n/message.js';
 import { componentLogger } from '../logger.js';
 import { HttpError } from '../middleware/error-handler.js';
 import { type DecodedPacket, decodePacket, isSupportedLinkType, type LinkType } from '../packet/decode.js';
@@ -94,7 +96,7 @@ export class PacketCaptureService {
         addresses: device.addresses,
       }));
     } catch (error) {
-      throw this.toHttpError(error, 'Could not enumerate network interfaces');
+      throw this.toHttpError(error, 'error.capture_enumerate');
     }
   }
 
@@ -112,12 +114,18 @@ export class PacketCaptureService {
     if (this.capturing) return;
 
     if (!interfaceName || interfaceName.trim() === '') {
-      throw new HttpError(400, 'interfaceName is required');
+      throw HttpError.of(400, 'error.interface_required');
     }
 
     const available = this.getNetworkInterfaces();
     if (!available.some((device) => device.name === interfaceName)) {
-      throw new HttpError(400, `No such interface found: ${interfaceName}`);
+      // 400, not 404. The interface name arrives in the request body, so this is
+      // "the value you sent is not one of the valid ones" — the same class as the
+      // empty-name check above it. A 404 says the endpoint does not exist, which
+      // sends any client that branches on status looking for a routing problem.
+      // It was 400 before the message-key conversion and the change to 404 came
+      // along with that mechanical edit rather than as a decision.
+      throw HttpError.of(400, 'error.interface_not_found', { name: interfaceName });
     }
 
     const filter = buildFilter(filterIpAddress);
@@ -132,14 +140,14 @@ export class PacketCaptureService {
         promiscuous: true,
       });
     } catch (error) {
-      throw this.toHttpError(error, `Could not open ${interfaceName}`);
+      throw this.toHttpError(error, 'error.capture_open', { name: interfaceName });
     }
 
     try {
       if (filter !== '') handle.setFilter(filter);
     } catch (error) {
       handle.close();
-      throw this.toHttpError(error, 'Could not apply the capture filter');
+      throw this.toHttpError(error, 'error.capture_filter');
     }
 
     // Devices already on record, so a restart does not re-alert on the whole
@@ -315,11 +323,31 @@ export class PacketCaptureService {
   }
 
   /** 503 when the library is missing, 500 for anything else pcap reports. */
-  private toHttpError(error: unknown, context: string): HttpError {
+  /**
+   * The failure, as a whole sentence the browser can translate.
+   *
+   * `context` used to be an English phrase interpolated into
+   * `error.capture_failed: '{context}: {detail}'` — a pattern with no words of
+   * its own, so the code looked converted while the entire rendered sentence was
+   * whatever English was passed in. Each caller now names its own key and the
+   * driver's message is the only parameter, which is the half that genuinely
+   * cannot be translated: libpcap wrote it.
+   */
+  private toHttpError(error: unknown, contextKey: ErrorMessageKey, params: MessageParams = {}): HttpError {
     if (error instanceof HttpError) return error;
-    if (error instanceof PcapUnavailableError) return new HttpError(503, error.message);
-    if (error instanceof PcapError) return new HttpError(500, error.message);
-    return new HttpError(500, `${context}: ${(error as Error).message}`);
+    if (error instanceof PcapUnavailableError) {
+      // Which library to install is prose we write, so it is in the catalogue and
+      // the platform picks the key. `detail` is the loader's own message, kept
+      // verbatim for whoever has to search for it.
+      return HttpError.of(
+        503,
+        process.platform === 'win32' ? 'error.capture_install_npcap' : 'error.capture_install_libpcap',
+        { detail: error.detail },
+      );
+    }
+
+    const detail = error instanceof PcapError ? error.message : (error as Error).message;
+    return HttpError.of(500, contextKey, { ...params, detail });
   }
 }
 
@@ -339,7 +367,7 @@ function buildFilter(ipAddress: string | null | undefined): string {
   const candidate = ipAddress.trim();
   // The value goes into a BPF expression, so accept only IPv4/IPv6 literals.
   if (!isIpLiteral(candidate)) {
-    throw new HttpError(400, `Not a valid IP address: ${ipAddress}`);
+    throw HttpError.of(400, 'error.invalid_ip', { value: ipAddress });
   }
   return `host ${candidate}`;
 }

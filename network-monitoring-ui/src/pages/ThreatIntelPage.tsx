@@ -25,6 +25,9 @@ import DataGrid, { numericColumn } from '../components/DataGrid';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useFormatters } from '../i18n/format';
+import { type Message, useMessageText } from '../i18n/message-state';
+import { type Translate, type UiMessageKey, useT } from '../i18n/ui';
 import type { IntelFeedOrigin, IntelFeedStatus } from '../types';
 
 /**
@@ -41,37 +44,34 @@ import type { IntelFeedOrigin, IntelFeedStatus } from '../types';
 /** How each origin is presented, and what it means for the operator. */
 const ORIGIN: Record<
   IntelFeedOrigin,
-  { label: string; color: 'success' | 'warning' | 'info' | 'error'; hint: string }
+  { labelKey: UiMessageKey; color: 'success' | 'warning' | 'info' | 'error'; hintKey: UiMessageKey }
 > = {
   network: {
-    label: 'Live',
+    labelKey: 'intel.origin.network',
     color: 'success',
-    hint: 'Downloaded on the last refresh — this feed is current.',
+    hintKey: 'intel.origin.network_hint',
   },
   cache: {
-    label: 'Cached',
+    labelKey: 'intel.origin.cache',
     color: 'warning',
-    hint:
-      'The download failed and the last saved copy was used instead. Detection still works, but these ' +
-      'indicators are as old as the last successful fetch.',
+    hintKey: 'intel.origin.cache_hint',
   },
   file: {
-    label: 'Local file',
+    labelKey: 'intel.origin.file',
     color: 'info',
-    hint: 'Read from disk. Freshness is whatever your own process makes it.',
+    hintKey: 'intel.origin.file_hint',
   },
   failed: {
-    label: 'Failed',
+    labelKey: 'intel.origin.failed',
     color: 'error',
-    hint: 'Nothing could be loaded from this source. Its indicators are not being matched at all.',
+    hintKey: 'intel.origin.failed_hint',
   },
 };
-
 /** The one-line summary under the feed count: the worst state, named. */
-function feedHealthCaption(failed: number, stale: number): string {
-  if (failed > 0) return `${failed} failing`;
-  if (stale > 0) return `${stale} on a cached copy`;
-  return 'all loaded';
+function feedHealthCaption(failed: number, stale: number, t: Translate): string {
+  if (failed > 0) return t('intel.health_failing', { count: failed });
+  if (stale > 0) return t('intel.health_stale', { count: stale });
+  return t('intel.health_ok');
 }
 
 /**
@@ -90,11 +90,15 @@ function feedEdge(feed: IntelFeedStatus): string {
 const ORIGIN_ORDER: IntelFeedOrigin[] = ['failed', 'cache', 'file', 'network'];
 
 export default function ThreatIntelPage() {
+  const t = useT();
+  const fmt = useFormatters();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const palette = useChartPalette();
   const queryClient = useQueryClient();
-  const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  // Held as a key, rendered on display — see i18n/message-state.ts.
+  const [message, setMessage] = useState<{ severity: 'success' | 'error'; body: Message } | null>(null);
+  const messageText = useMessageText();
 
   const status = useQuery({
     queryKey: ['intel', 'status'],
@@ -112,7 +116,10 @@ export default function ThreatIntelPage() {
       const loaded = result.sources.filter((feed) => feed.from !== 'failed').length;
       setMessage({
         severity: 'success',
-        text: `Reloaded ${result.indicators.toLocaleString()} indicators from ${loaded} feed(s).`,
+        // The count goes in as a number, not as text formatted here: ICU groups it
+        // for whichever language is reading, and doing it early would freeze the
+        // digits and separators along with the words.
+        body: { key: 'intel.reloaded_toast', params: { count: result.indicators, feeds: loaded } },
       });
       void queryClient.invalidateQueries({ queryKey: ['intel', 'status'] });
     },
@@ -120,7 +127,7 @@ export default function ThreatIntelPage() {
       // The server distinguishes "already running" from "every source failed",
       // and both leave the previous indicators in place. Saying so matters —
       // otherwise a failed reload reads as "no indicators".
-      setMessage({ severity: 'error', text: describeError(error, 'Reload failed') });
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'intel.reload_failed' } });
     },
   });
 
@@ -132,10 +139,10 @@ export default function ThreatIntelPage() {
   return (
     <>
       <SurfaceCard
-        title="Threat intelligence"
+        title={t('intel.title')}
         titleComponent="h1"
         titleVariant="h5"
-        subtitle="Addresses and domains matched against indicator feeds — the one detector here that is not a threshold"
+        subtitle={t('intel.subtitle')}
         headerActions={
           isAdmin ? (
             <Button
@@ -145,21 +152,19 @@ export default function ThreatIntelPage() {
               onClick={() => reload.mutate()}
               disabled={reload.isPending || !data?.enabled}
             >
-              {reload.isPending ? 'Reloading…' : 'Reload feeds'}
+              {reload.isPending ? t('intel.reloading') : t('intel.reload_feeds')}
             </Button>
           ) : null
         }
       />
 
       {status.error && (
-        <Alert severity="error">
-          {describeError(status.error, 'Could not read threat-intelligence status')}
-        </Alert>
+        <Alert severity="error">{describeError(status.error, t('intel.status_failed'))}</Alert>
       )}
 
       {message && (
         <Alert severity={message.severity} onClose={() => setMessage(null)}>
-          {message.text}
+          {messageText(message.body)}
         </Alert>
       )}
 
@@ -167,11 +172,11 @@ export default function ThreatIntelPage() {
 
       {!loading && data?.enabled && data.sources.length === 0 && (
         <Alert severity="warning">
-          Threat intelligence is enabled but no feeds are configured, so nothing is being matched. Set
+          {t('intel.no_feeds_body')}
           <Box component="code" sx={{ mx: 0.75 }}>
             INTEL_FEEDS
           </Box>
-          to one or more <Box component="code">name=location</Box> pairs.
+          {t('intel.no_feeds_tail')}
         </Alert>
       )}
 
@@ -182,25 +187,28 @@ export default function ThreatIntelPage() {
       */}
       {failedFeeds.length > 0 && (
         <Alert severity="error">
-          {failedFeeds.length} feed{failedFeeds.length === 1 ? '' : 's'} could not be loaded at all:{' '}
-          {failedFeeds.map((feed) => feed.name).join(', ')}. Those indicators are not being matched.
+          {t('intel.failed_feeds', {
+            count: failedFeeds.length,
+            names: failedFeeds.map((feed) => feed.name).join(', '),
+          })}
         </Alert>
       )}
 
       {failedFeeds.length === 0 && staleFeeds.length > 0 && (
         <Alert severity="warning">
-          {staleFeeds.length} feed{staleFeeds.length === 1 ? '' : 's'} fell back to a cached copy:{' '}
-          {staleFeeds.map((feed) => feed.name).join(', ')}. Detection still works, but these indicators are
-          only as fresh as the last successful download.
+          {t('intel.stale_feeds', {
+            count: staleFeeds.length,
+            names: staleFeeds.map((feed) => feed.name).join(', '),
+          })}
         </Alert>
       )}
 
       <Grid container spacing={1.5}>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Indicators loaded"
+            label={t('intel.indicators_loaded')}
             value={data?.stats.total ?? 0}
-            caption={data?.enabled ? 'matched on every packet and flow' : 'threat intelligence is off'}
+            caption={data?.enabled ? t('intel.matched_on_all') : t('intel.is_off')}
             icon={<InventoryOutlinedIcon />}
             accent={palette.bar}
             loading={loading}
@@ -208,9 +216,9 @@ export default function ThreatIntelPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Feeds"
+            label={t('intel.feeds')}
             value={data?.sources.length ?? 0}
-            caption={feedHealthCaption(failedFeeds.length, staleFeeds.length)}
+            caption={feedHealthCaption(failedFeeds.length, staleFeeds.length, t)}
             icon={<CloudDoneOutlinedIcon />}
             accent={failedFeeds.length > 0 ? palette.severity.critical : undefined}
             loading={loading}
@@ -218,10 +226,12 @@ export default function ThreatIntelPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Last loaded"
-            value={data?.loadedAt ? relativeTime(data.loadedAt) : 'never'}
+            label={t('intel.last_loaded')}
+            value={data?.loadedAt ? fmt.relativeTime(data.loadedAt) : t('common.never')}
             caption={
-              data?.refreshSeconds ? `refreshes every ${Math.round(data.refreshSeconds / 3600)}h` : undefined
+              data?.refreshSeconds
+                ? t('intel.refreshes_every', { hours: Math.round(data.refreshSeconds / 3600) })
+                : undefined
             }
             icon={<ScheduleOutlinedIcon />}
             loading={loading}
@@ -229,9 +239,9 @@ export default function ThreatIntelPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Refused on load"
+            label={t('intel.refused')}
             value={data?.stats.rejected ?? 0}
-            caption="private ranges and malformed entries"
+            caption={t('intel.refused_caption')}
             icon={<GppMaybeOutlinedIcon />}
             loading={loading}
           />
@@ -244,17 +254,16 @@ export default function ThreatIntelPage() {
         </Grid>
 
         <Grid size={{ xs: 12, lg: 4 }}>
-          <SurfaceCard title="What is loaded" subtitle="By indicator type" sx={{ height: '100%' }}>
+          <SurfaceCard title={t('intel.what_loaded')} subtitle={t('intel.by_type')} sx={{ height: '100%' }}>
             <Stack spacing={1}>
-              <TypeRow label="IPv4 addresses" value={data?.stats.ipv4 ?? 0} loading={loading} />
-              <TypeRow label="IPv4 ranges (CIDR)" value={data?.stats.cidr ?? 0} loading={loading} />
-              <TypeRow label="IPv6 addresses" value={data?.stats.ipv6 ?? 0} loading={loading} />
-              <TypeRow label="Domains" value={data?.stats.domain ?? 0} loading={loading} />
+              <TypeRow label={t('intel.ipv4')} value={data?.stats.ipv4 ?? 0} loading={loading} />
+              <TypeRow label={t('intel.ipv4_cidr')} value={data?.stats.cidr ?? 0} loading={loading} />
+              <TypeRow label={t('intel.ipv6')} value={data?.stats.ipv6 ?? 0} loading={loading} />
+              <TypeRow label={t('intel.domains')} value={data?.stats.domain ?? 0} loading={loading} />
             </Stack>
 
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 2.5 }}>
-              A domain indicator also covers its subdomains. Private and reserved addresses are refused on
-              load, whatever a feed says — one wrongly listed would alert on every host at once.
+              {t('intel.subdomain_note')}
             </Typography>
           </SurfaceCard>
         </Grid>
@@ -279,15 +288,20 @@ const FeedNameCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ row, cell }) => 
 );
 
 const OriginCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => {
+  // A function component, not a bare arrow returning JSX inside the column def:
+  // MRT calls `Cell` as a component, so the hook is legitimate here and is the
+  // only way this chip's label and tooltip can reach the catalogue.
+  const t = useT();
   const origin = ORIGIN[cell.getValue<IntelFeedOrigin>()];
   return (
-    <Tooltip title={origin.hint}>
-      <Chip size="small" variant="outlined" color={origin.color} label={origin.label} />
+    <Tooltip title={t(origin.hintKey)}>
+      <Chip size="small" variant="outlined" color={origin.color} label={t(origin.labelKey)} />
     </Tooltip>
   );
 };
 
 const IndicatorCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => {
+  const fmt = useFormatters();
   const value = cell.getValue<number>();
   return (
     <Typography
@@ -301,18 +315,22 @@ const IndicatorCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) =>
         fontWeight: value === 0 ? 600 : 400,
       }}
     >
-      {value.toLocaleString()}
+      {fmt.number(value)}
     </Typography>
   );
 };
 
-const SkippedCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => (
-  <Tooltip title="Lines that were not usable indicators: comments, blanks, and anything malformed or non-routable.">
-    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-      {cell.getValue<number>().toLocaleString()}
-    </Typography>
-  </Tooltip>
-);
+const SkippedCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => {
+  const t = useT();
+  const fmt = useFormatters();
+  return (
+    <Tooltip title={t('intel.skipped_explain')}>
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        {fmt.number(cell.getValue<number>())}
+      </Typography>
+    </Tooltip>
+  );
+};
 
 /**
  * The feed list, as a Material React Table like every other table in the app.
@@ -324,17 +342,18 @@ const SkippedCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => (
  * surface, and no real feed list is long enough to need one.
  */
 function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; loading: boolean }>) {
+  const t = useT();
   const columns = useMemo<MRT_ColumnDef<IntelFeedStatus>[]>(
     () => [
       {
         accessorKey: 'name',
-        header: 'Feed',
+        header: t('intel.feed'),
         size: 220,
         Cell: FeedNameCell,
       },
       {
         accessorKey: 'from',
-        header: 'Source',
+        header: t('intel.source'),
         size: 140,
         filterVariant: 'select',
         // Without these MRT builds the dropdown from the faceted raw values —
@@ -343,7 +362,7 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
         // knowing the wire value, and "Live" would not be findable at all.
         filterSelectOptions: ORIGIN_ORDER.map((origin) => ({
           value: origin,
-          label: ORIGIN[origin].label,
+          label: t(ORIGIN[origin].labelKey),
         })),
         // Worst first, rather than alphabetically — which would straddle "file"
         // between "cache" and "failed" and bury the row worth acting on.
@@ -352,24 +371,24 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
       },
       numericColumn({
         accessorKey: 'indicators',
-        header: 'Indicators',
+        header: t('intel.indicators'),
         size: 130,
         Cell: IndicatorCountCell,
       }),
       numericColumn({
         accessorKey: 'skipped',
-        header: 'Skipped',
+        header: t('intel.skipped'),
         size: 120,
         Cell: SkippedCountCell,
       }),
     ],
-    [],
+    [t],
   );
 
   return (
     <SurfaceCard
-      title="Feeds"
-      subtitle="Where each source came from on the last load"
+      title={t('intel.feeds')}
+      subtitle={t('intel.feeds_subtitle')}
       bodyVariant="grid"
       sx={{ height: '100%' }}
     >
@@ -377,7 +396,7 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
         columns={columns}
         data={feeds}
         isLoading={loading}
-        emptyMessage="No feeds configured."
+        emptyMessage={t('intel.no_feeds')}
         tableOptions={{
           enablePagination: false,
           enableBottomToolbar: false,
@@ -385,7 +404,7 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
           enableFullScreenToggle: false,
           enableHiding: false,
           initialState: { density: 'comfortable', sorting: [{ id: 'from', desc: false }] },
-          muiSearchTextFieldProps: { placeholder: 'Search feeds', sx: { minWidth: 180 } },
+          muiSearchTextFieldProps: { placeholder: t('intel.search'), sx: { minWidth: 180 } },
           muiTableBodyRowProps: ({ row }) => ({
             sx: {
               // The left edge the alerts table uses for severity, in the colour
@@ -402,6 +421,7 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
 }
 
 function TypeRow({ label, value, loading }: Readonly<{ label: string; value: number; loading: boolean }>) {
+  const fmt = useFormatters();
   return (
     <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline' }}>
       <Typography variant="body2" sx={{ flexGrow: 1, color: 'text.secondary' }}>
@@ -411,7 +431,7 @@ function TypeRow({ label, value, loading }: Readonly<{ label: string; value: num
         <Skeleton width={48} />
       ) : (
         <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-          {value.toLocaleString()}
+          {fmt.number(value)}
         </Typography>
       )}
     </Stack>
@@ -420,22 +440,21 @@ function TypeRow({ label, value, loading }: Readonly<{ label: string; value: num
 
 /** Local copy of the stat tile, so the accent bar reads against this palette. */
 function DisabledNotice() {
+  const t = useT();
   return (
     <SurfaceCard>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
         <ErrorOutlineIcon sx={{ color: 'text.disabled', mt: 0.25 }} />
         <Box>
           <Typography variant="subtitle1" sx={{ fontWeight: 650 }}>
-            Threat intelligence is off
+            {t('intel.off')}
           </Typography>
           <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
-            Nothing is being matched against known-malicious addresses or domains. It is off by default
-            because no feeds are shipped — which intelligence to trust is your decision, and a security tool
-            should not start making outbound requests to a list nobody chose.
+            {t('intel.off_note')}
           </Typography>
 
           <Typography variant="body2" sx={{ mt: 2, fontWeight: 600 }}>
-            To enable it, add to <Box component="code">api/.env</Box>:
+            {t('intel.enable_hint')} <Box component="code">api/.env</Box>:
           </Typography>
           <Box
             component="pre"
@@ -454,31 +473,17 @@ function DisabledNotice() {
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1.5 }}>
             <FolderOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              A local file path works too, and is the right choice where this host has no outbound internet.
+              {t('intel.local_file_note')}
             </Typography>
           </Stack>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 0.5 }}>
             <DnsOutlinedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Check each feed's licence before relying on it commercially.
+              {t('intel.licence_note')}
             </Typography>
           </Stack>
         </Box>
       </Stack>
     </SurfaceCard>
   );
-}
-
-/** "3 minutes ago" — absolute timestamps make freshness hard to judge at a glance. */
-function relativeTime(iso: string): string {
-  const elapsed = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(elapsed) || elapsed < 0) return new Date(iso).toLocaleString();
-
-  const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }

@@ -182,7 +182,9 @@ export class AlertSink {
           notify(entry);
         } catch (error) {
           log.error(
-            { finding: entry.finding.title, kind: entry.finding.kind, err: error },
+            // The key rather than a rendering: a server log is read with `grep` by
+            // whoever is on the host, so it wants the stable identifier.
+            { finding: entry.finding.messageKey, kind: entry.finding.kind, err: error },
             'Could not save alert',
           );
         }
@@ -237,8 +239,8 @@ async function upsertAlert(dedupKey: string, entry: Pending): Promise<void> {
       sensorId: env.sensorId,
       kind: finding.kind,
       severity: finding.severity,
-      title: finding.title.slice(0, 200),
-      description: finding.description,
+      messageKey: finding.messageKey,
+      messageParams: finding.messageParams,
       sourceIp: finding.sourceIp ?? null,
       sourceMac: finding.sourceMac ?? null,
       targetIp: finding.targetIp ?? null,
@@ -271,8 +273,15 @@ async function upsertAlert(dedupKey: string, entry: Pending): Promise<void> {
         // Later evidence supersedes earlier: its counters reflect the full event.
         evidence: finding.evidence,
         severity: finding.severity,
-        title: finding.title.slice(0, 200),
-        description: finding.description,
+        messageKey: finding.messageKey,
+        messageParams: finding.messageParams,
+        // Cleared on update, so a row first written before V17 stops carrying a
+        // stale English sentence next to the key that supersedes it. Without this
+        // the two disagree the moment a detector's wording changes, and the
+        // display rule — prefer the key, fall back to the prose — would go on
+        // preferring the key while the row still looked like it had both.
+        title: null,
+        description: null,
         // Set on update too, so a row written before the column existed gains it
         // the next time the same finding recurs.
         port: finding.port ?? null,
@@ -720,7 +729,7 @@ export async function unacknowledgeAlert(id: number, actor: Actor): Promise<Aler
           was: before.acknowledgedBy,
           at: before.acknowledgedAt?.toISOString() ?? null,
           kind: before.kind,
-          title: before.title,
+          ...findingText(before),
         },
       });
     }
@@ -730,22 +739,50 @@ export async function unacknowledgeAlert(id: number, actor: Actor): Promise<Aler
 }
 
 /**
+ * How a finding's text is carried into an audit entry.
+ *
+ * One shape for both representations, so the two audit writers cannot disagree
+ * about which fields an entry holds. Post-V17 rows contribute the key and its
+ * params — translatable when the trail is read — and pre-V17 rows contribute the
+ * English sentence they were written with, which is all they have. Never both,
+ * and the CHECK constraint guarantees never neither.
+ */
+function findingText(row: {
+  title: string | null;
+  messageKey: string | null;
+  messageParams: unknown;
+}): Record<string, unknown> {
+  return row.messageKey !== null
+    ? { messageKey: row.messageKey, messageParams: row.messageParams }
+    : { title: row.title };
+}
+
+/**
  * Deletes one finding, recording who did it in the same transaction.
  *
  * `actor` is required rather than optional, and that is the point: a mutating
  * service function that can be called without saying who is calling it is how the
  * gap this closes came about. The compiler now asks the question at every call site.
  *
- * The audit detail carries the finding's kind, severity and title, not just its id.
+ * The audit detail carries the finding's kind, severity and text, not just its id.
  * Once the row is gone this entry is the only surviving description of what was
  * removed, and "alert 412 was deleted" answers almost nothing a year later.
+ *
+ * Since V17 the text is the message key and its params rather than a sentence, so
+ * the trail reads in the language of whoever opens it rather than in the one the
+ * sensor happened to be running. A row that predates V17 contributes its stored
+ * prose instead, which is all it has.
  */
 export async function deleteAlert(id: number, actor: Actor): Promise<boolean> {
   return db.transaction(async (tx) => {
-    const [deleted] = await tx
-      .delete(alerts)
-      .where(eq(alerts.id, id))
-      .returning({ id: alerts.id, kind: alerts.kind, severity: alerts.severity, title: alerts.title });
+    const [deleted] = await tx.delete(alerts).where(eq(alerts.id, id)).returning({
+      id: alerts.id,
+      kind: alerts.kind,
+      severity: alerts.severity,
+      title: alerts.title,
+      messageKey: alerts.messageKey,
+      messageParams: alerts.messageParams,
+    });
 
     if (!deleted) return false;
 
@@ -754,7 +791,7 @@ export async function deleteAlert(id: number, actor: Actor): Promise<boolean> {
       actorId: actor.id,
       action: 'alert.delete',
       subject: String(deleted.id),
-      detail: { kind: deleted.kind, severity: deleted.severity, title: deleted.title },
+      detail: { kind: deleted.kind, severity: deleted.severity, ...findingText(deleted) },
     });
 
     return true;

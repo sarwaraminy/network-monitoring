@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Language &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Language</h1>
+<p class="lede">English, German and Dari &mdash; switched from the account menu, and applied
+to findings as well as to the interface around them.</p>
+
+<h2>Switching language</h2>
+
+<p>Open the <span class="ui">account menu</span> in the top-right corner of the header. The
+<span class="ui">Language</span> row holds three buttons, each labelled in its own language:
+<span class="ui">English</span>, <span class="ui">Deutsch</span> and
+<span class="ui">&#1583;&#1585;&#1740;</span>.</p>
+
+<p>The page changes as you click, without reloading and without closing the menu &mdash; which
+is deliberate, because for Dari the change includes the whole layout flipping, and that is
+worth seeing happen rather than arriving at.</p>
+
+<figure>
+  <img src="../screenshots/language-menu.png" alt="The account menu, open. The Language row holds three buttons: English, Deutsch and Dari, with the current one filled in.">
+  <figcaption>The account menu. Each language names itself, and the current one is filled in.</figcaption>
+</figure>
+
+<p class="note">Each language is named in itself rather than translated. Somebody who has
+landed in a language they cannot read needs to find their own, and the one word they can be
+relied on to recognise is its own name.</p>
+
+<h2>What it changes</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Translated</th><th>Left as it is</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Every label, button, column heading and message in the interface</td>
+      <td>Addresses, ports, MAC addresses and protocol names &mdash; you need to be able to
+        paste these into a firewall rule or search for them</td>
+    </tr>
+    <tr>
+      <td><strong>The findings themselves</strong> &mdash; the title and the "What this means"
+        paragraph on every alert</td>
+      <td>Whatever the database or the capture driver said when something failed. Those
+        sentences come from software this application does not control</td>
+    </tr>
+    <tr>
+      <td>Dates, times and numbers, in the conventions of the language you chose</td>
+      <td>The name of the product, and environment variables such as
+        <code>INTEL_FEEDS</code> that an operator searches for</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>Dates are the part most likely to surprise you: choosing Dari switches them to the
+<strong>Solar Hijri calendar</strong> with Afghan month names, because that is the calendar
+the language is read in. It follows the language you picked here, not your browser's own
+setting, so the whole page agrees with itself.</p>
+
+<figure>
+  <img src="../screenshots/dashboard-de.png" alt="The dashboard in German: the navigation rail, the severity tiles and the chart legends all translated.">
+  <figcaption>The dashboard in German, with the menu still open behind the change. German runs
+  about a third longer than English, which is why the tiles and the navigation rail are laid out
+  to grow rather than to truncate.</figcaption>
+</figure>
+
+<h2 id="older">Findings written before this feature existed</h2>
+
+<p>An alert stores <em>which</em> finding it is rather than a finished English sentence, and
+the sentence is written out in your language when you open it. That only applies to findings
+raised since the upgrade that added languages.</p>
+
+<p>Older alerts kept the English sentence they were originally stored with, and there is
+nothing to translate them from &mdash; the words are all that was saved. So an installation
+that has been running for a while shows a mix for a time: older findings in English, newer
+ones in the language you chose. It resolves on its own as older findings age out.</p>
+
+<h2>Right-to-left</h2>
+
+<p>Dari is written right to left, so choosing it moves the navigation to the right, mirrors
+the layout, and reverses the reading order of every row.</p>
+
+<figure>
+  <img src="../screenshots/alerts-fa.png" alt="The alerts list in Dari: the navigation is on the right, the columns read right to left, and the dates are Solar Hijri. The IP addresses are still left to right.">
+  <figcaption>The alerts list in Dari. The navigation moves to the right, the columns reverse,
+  and the dates are Solar Hijri &mdash; while the addresses keep the order you would type them.
+  The finding titles are still English because every alert in this installation was raised before
+  the upgrade; see <a href="#older">above</a>.</figcaption>
+</figure>
+
+<p>Addresses stay in the order you would type them. <code>192.168.1.10</code> reads left to
+right inside a right-to-left sentence, which is what the surrounding text is arranged to
+allow &mdash; an address whose parts were reordered to match the paragraph would be a
+different address.</p>
+
+<h2>Where the choice is remembered</h2>
+
+<ul>
+  <li><strong>The switch in the account menu</strong> applies to this browser and is
+    remembered on this device.</li>
+  <li><strong>Your account</strong> also carries a language, chosen when the account was
+    created. It is what you get on a device where you have not used the switch.</li>
+  <li>Nothing is shared between people: changing your own language does not change anybody
+    else's.</li>
+</ul>
+
+<p class="note"><strong>Alert emails and chat messages are not affected.</strong> They go to
+a shared address or channel rather than to a person, so there is no one reader whose language
+they could follow. They are sent in English, which is a setting for whoever installed the
+server rather than a choice on this page.</p>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <ul>
+    <li>Any signed-in account can switch language at any time. It changes nothing for anyone
+      else, and needs no permission.</li>
+  </ul>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

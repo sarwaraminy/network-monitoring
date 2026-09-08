@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { before, describe, it } from 'node:test';
+import { type RenderedFinding, renderFinding } from '../../i18n/catalog/findings.js';
 import { decodePacket } from '../decode.js';
 import { buildArp, buildDns, buildTcp, buildUdp } from './test-frames.js';
 import type { Detector, Finding } from './types.js';
@@ -50,6 +51,20 @@ function run(
 }
 
 const kinds = (findings: Finding[]): string[] => [...new Set(findings.map((f) => f.kind))];
+
+/**
+ * A finding's text in English, for the assertions that are about what an operator
+ * reads rather than about which branch fired.
+ *
+ * Detectors emit a message key and parameters since V17, so the sentence only
+ * exists once something renders it. Rendering in the test keeps these assertions
+ * pointed at the same thing they were before — that the description of a sweep of
+ * port 445 actually says SMB — rather than at a key that could be right while the
+ * catalogue entry behind it says nothing of the kind.
+ */
+function englishText(finding: Finding): RenderedFinding {
+  return renderFinding(finding.messageKey, finding.messageParams, 'en');
+}
 
 describe('ARP spoofing', () => {
   const VICTIM = '10.0.0.1';
@@ -175,7 +190,7 @@ describe('host sweep', () => {
 
     assert.ok(findings.length >= 1);
     assert.equal(findings[0]!.evidence.port, 445);
-    assert.match(String(findings[0]!.description), /SMB/);
+    assert.match(englishText(findings[0]!).description, /SMB/);
   });
 
   it('does not flag a browser contacting many hosts on 443', () => {
@@ -302,7 +317,7 @@ describe('plaintext credentials', () => {
       }),
     ]);
     assert.equal(findings[0]?.severity, 'high');
-    assert.match(String(findings[0]?.title), /Telnet/);
+    assert.match(englishText(findings[0]!).title, /Telnet/);
   });
 
   it('detects a password in an HTTP form post', () => {
@@ -720,7 +735,10 @@ describe('quiet on normal traffic', () => {
     });
 
     assert.deepEqual(
-      findings.map((f) => `${f.kind}: ${f.title}`),
+      // The key, not a rendering: this assertion exists to name what leaked when
+      // it fails, and the key is the stable identifier that says which branch of
+      // which detector fired.
+      findings.map((f) => `${f.kind}: ${f.messageKey}`),
       [],
       'normal traffic must produce no findings',
     );

@@ -53,7 +53,8 @@ describe('changing a role', () => {
     renderApp(<UserRoles />, { authenticated: true });
 
     await user.click(await selectFor('plain@example.com'));
-    await user.click(screen.getByRole('option', { name: 'ADMIN' }));
+    // The label is translated; the value posted below is still the identifier.
+    await user.click(screen.getByRole('option', { name: 'Administrator' }));
 
     await waitFor(() => expect(sent).toEqual({ id: '3', role: 'ADMIN' }));
     // Confirmation naming the account, because the select snapping back to the
@@ -131,7 +132,7 @@ describe('changing a role', () => {
     renderApp(<UserRoles />, { authenticated: true });
 
     await user.click(await selectFor('second-admin@example.com'));
-    await user.click(screen.getByRole('option', { name: 'USER' }));
+    await user.click(screen.getByRole('option', { name: 'User' }));
 
     expect(await screen.findByText(/only administrator left/i)).toBeInTheDocument();
   });

@@ -18,6 +18,8 @@ import QueryConsoleStatus from '../components/admin/QueryConsoleStatus';
 import DataGrid from '../components/DataGrid';
 import { DisclosureCaret } from '../components/DisclosureCaret';
 import SurfaceCard from '../components/SurfaceCard';
+import { type Message, useMessageText } from '../i18n/message-state';
+import { useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 
 /**
@@ -65,9 +67,12 @@ function renderCell(value: unknown): string {
 }
 
 export default function AdhocPage() {
+  const t = useT();
   const [sql, setSql] = useState('');
   const [result, setResult] = useState<AdhocResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The failure itself, described at display time — see i18n/message-state.ts.
+  const [error, setError] = useState<Message | null>(null);
+  const errorText = useMessageText();
   const [running, setRunning] = useState(false);
   /*
    * The editor folds away once a query has run, so the result gets the room —
@@ -109,7 +114,7 @@ export default function AdhocPage() {
       // The result is cleared, not left in place: a stale grid beside a fresh
       // error reads as though the error were a warning about the rows shown.
       setResult(null);
-      setError(describeError(caught));
+      setError({ error: caught });
       // Stays open on failure: the query is what needs editing, and folding it
       // away would hide the thing the error is about.
       setShowEditor(true);
@@ -157,7 +162,7 @@ export default function AdhocPage() {
 
   if (availability.isLoading) {
     return (
-      <SurfaceCard title="Ad Hoc Query" titleComponent="h1" titleVariant="h5">
+      <SurfaceCard title={t('nav.adhoc')} titleComponent="h1" titleVariant="h5">
         <CircularProgress size={20} />
       </SurfaceCard>
     );
@@ -177,11 +182,11 @@ export default function AdhocPage() {
     const forbidden = (availability.error as { response?: { status?: number } })?.response?.status === 403;
 
     return (
-      <SurfaceCard title="Ad Hoc Query" titleComponent="h1" titleVariant="h5">
+      <SurfaceCard title={t('nav.adhoc')} titleComponent="h1" titleVariant="h5">
         <Alert severity={forbidden ? 'info' : 'error'}>
           {forbidden
-            ? 'The query console is available to administrators only.'
-            : `The server could not be asked whether the query console is available. ${describeError(availability.error)}`}
+            ? t('adhoc.admin_only')
+            : t('adhoc.availability_failed', { detail: describeError(availability.error) })}
         </Alert>
       </SurfaceCard>
     );
@@ -189,7 +194,7 @@ export default function AdhocPage() {
 
   if (!availability.data?.enabled) {
     return (
-      <SurfaceCard title="Ad Hoc Query" titleComponent="h1" titleVariant="h5">
+      <SurfaceCard title={t('nav.adhoc')} titleComponent="h1" titleVariant="h5">
         {/*
           "Off" is a normal state, not a fault, so it is explained rather than
           reported as an error. The explanation lives in the administration
@@ -206,15 +211,15 @@ export default function AdhocPage() {
   return (
     <>
       <SurfaceCard
-        title="Ad Hoc Query"
+        title={t('nav.adhoc')}
         titleComponent="h1"
         titleVariant="h5"
-        subtitle="Read-only SQL against this system's database. Every query is recorded in the audit trail."
+        subtitle={t('adhoc.subtitle')}
         headerActions={
           <IconButton
             size="small"
             onClick={() => setShowEditor((open) => !open)}
-            aria-label={showEditor ? 'Hide the query' : 'Show the query'}
+            aria-label={showEditor ? t('adhoc.hide_query') : t('adhoc.show_query')}
             aria-expanded={showEditor}
             // Points at what it opens, so the state it announces describes
             // something real — the rule the sidebar's rail button is held to.
@@ -234,7 +239,7 @@ export default function AdhocPage() {
             onExited={onLayoutSettled}
           >
             <TextField
-              label="SQL"
+              label={t('adhoc.sql')}
               value={sql}
               onChange={(event) => setSql(event.target.value)}
               multiline
@@ -275,11 +280,10 @@ export default function AdhocPage() {
               onClick={() => void run()}
               disabled={running || sql.trim() === ''}
             >
-              {running ? 'Running' : 'Run'}
+              {running ? t('adhoc.running') : t('adhoc.run')}
             </Button>
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Ctrl/Cmd + Enter also runs. Writes and the columns holding secrets are refused by the database,
-              not by this page.
+              {t('adhoc.shortcut_note')}
             </Typography>
           </Stack>
 
@@ -291,7 +295,7 @@ export default function AdhocPage() {
           */}
           {error !== null && (
             <Alert severity="error" sx={{ '& .MuiAlert-message': monoSx }}>
-              {error}
+              {errorText(error)}
             </Alert>
           )}
         </Stack>
@@ -306,35 +310,36 @@ export default function AdhocPage() {
       */}
       {result?.rowsAffected !== undefined && (
         <Alert severity="success" sx={{ '& .MuiAlert-message': monoSx }}>
-          {result.command} — {result.rowsAffected.toLocaleString()}{' '}
-          {result.rowsAffected === 1 ? 'row' : 'rows'} affected in {result.durationMs} ms
+          {t('adhoc.rows_affected', {
+            command: result.command,
+            count: result.rowsAffected,
+            ms: result.durationMs,
+          })}
         </Alert>
       )}
 
       {result !== null && result.columns.length > 0 && (
         <SurfaceCard
-          title="Result"
+          title={t('adhoc.result')}
           bodyVariant="grid"
           headerActions={
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                {result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'} in {result.durationMs} ms
+                {t('adhoc.rows_in', { count: result.rows.length, ms: result.durationMs })}
               </Typography>
               {/*
                 Said plainly rather than implied by a round number. Reading a
                 truncated result as a complete one is the specific harm a row cap
                 does if it stays quiet — the count looks like an answer.
               */}
-              {result.truncated && (
-                <Chip size="small" color="warning" label="Truncated — there are more rows" />
-              )}
+              {result.truncated && <Chip size="small" color="warning" label={t('adhoc.truncated')} />}
             </Stack>
           }
         >
           {result.rows.length === 0 ? (
             <Box sx={{ p: 2 }}>
               <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                The query ran and returned no rows.
+                {t('adhoc.no_rows')}
               </Typography>
             </Box>
           ) : (

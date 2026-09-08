@@ -23,9 +23,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Outlet, Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useStoredBoolean } from '../hooks/useStoredBoolean';
+import { useT } from '../i18n/ui';
 import { CARD_METRICS, HEADER, SIDEBAR_METRICS } from '../theme';
 import AdminSettingsMenu from './admin/AdminSettingsMenu';
 import ColorSchemeToggle from './ColorSchemeToggle';
+import LanguageToggle from './LanguageToggle';
 import { visibleNavGroups } from './navItems';
 import SideNav from './SideNav';
 
@@ -57,6 +59,7 @@ const COLLAPSED_KEY = 'nm.sidebar.collapsed';
  * for a screen reader and lets a keyboard tab through a panel nobody can see.
  */
 export default function AppLayout() {
+  const t = useT();
   const theme = useTheme();
   const isCompact = useMediaQuery(theme.breakpoints.down('md'));
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -135,7 +138,7 @@ export default function AppLayout() {
               edge="start"
               color="inherit"
               onClick={() => setDrawerOpen(true)}
-              aria-label="Open navigation"
+              aria-label={t('nav.open')}
               aria-expanded={drawerOpen}
             >
               <MenuIcon />
@@ -174,20 +177,20 @@ export default function AppLayout() {
           {/* Administration settings, for an ADMIN only — see AdminSettingsMenu. */}
           <AdminSettingsMenu />
 
-          <Tooltip title="User guide">
+          <Tooltip title={t('guide.title')}>
             <IconButton
               component="a"
               href="/user-guide/index.html"
               target="_blank"
               rel="noopener noreferrer"
               color="inherit"
-              aria-label="User guide (opens in a new tab)"
+              aria-label={t('guide.aria')}
             >
               <HelpOutlineIcon />
             </IconButton>
           </Tooltip>
 
-          <Tooltip title={user?.email ?? 'Account'}>
+          <Tooltip title={user?.email ?? t('common.account')}>
             <IconButton onClick={(event) => setMenuAnchor(event.currentTarget)} sx={{ p: 0.5 }}>
               <Avatar sx={{ width: 34, height: 34, bgcolor: 'primary.main', fontSize: '0.85rem' }}>
                 {initials || '?'}
@@ -204,7 +207,7 @@ export default function AppLayout() {
           >
             <Box sx={{ px: 2, py: 1 }}>
               <Typography variant="subtitle2" noWrap>
-                {[user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Signed in'}
+                {[user?.firstName, user?.lastName].filter(Boolean).join(' ') || t('account.signed_in')}
               </Typography>
               <Typography variant="caption" noWrap sx={{ color: 'text.secondary' }}>
                 {user?.email} · {user?.role}
@@ -228,18 +231,19 @@ export default function AppLayout() {
                   <ListItemIcon>
                     <PersonAddAlt1Icon fontSize="small" />
                   </ListItemIcon>
-                  Add user
+                  {t('account.add_user')}
                 </MenuItem>
               </>
             )}
             <Divider />
             <ColorSchemeToggle />
+            <LanguageToggle />
             <Divider />
             <MenuItem onClick={handleLogout}>
               <ListItemIcon>
                 <LogoutIcon fontSize="small" />
               </ListItemIcon>
-              Sign out
+              {t('account.sign_out')}
             </MenuItem>
           </Menu>
         </Toolbar>

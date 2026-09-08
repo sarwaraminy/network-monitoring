@@ -3,9 +3,18 @@ import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import SpaceDashboardOutlinedIcon from '@mui/icons-material/SpaceDashboardOutlined';
 import type { ReactElement } from 'react';
+import type { UiMessageKey } from '../i18n/ui';
 
 export interface NavItem {
-  label: string;
+  /**
+   * A catalogue key, not a label.
+   *
+   * The navigation is the first thing anybody reads, so it is also the first
+   * thing that has to be in their language. Holding the key rather than the text
+   * keeps this module free of any opinion about which language that is — it is
+   * data about the application's shape, and `SideNav` is where it becomes words.
+   */
+  labelKey: UiMessageKey;
   /**
    * Hidden from anyone who is not an ADMIN.
    *
@@ -21,13 +30,13 @@ export interface NavItem {
    * not distinguish it. Nothing needs one yet; the row variant exists so that
    * the day one does, it is a field rather than a component.
    */
-  subtitle?: string;
+  subtitleKey?: UiMessageKey;
 }
 
 export interface NavGroup {
   /** Stable key, independent of the label, so renaming a heading is not a re-key. */
   id: string;
-  label: string;
+  labelKey: UiMessageKey;
   /**
    * The group's rail icon.
    *
@@ -58,34 +67,34 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'overview',
-    label: 'Overview',
+    labelKey: 'nav.group.overview',
     icon: <SpaceDashboardOutlinedIcon />,
-    items: [{ label: 'Dashboard', to: '/dashboard' }],
+    items: [{ labelKey: 'nav.dashboard', to: '/dashboard' }],
   },
   {
     id: 'security',
-    label: 'Security',
+    labelKey: 'nav.group.security',
     icon: <GppMaybeOutlinedIcon />,
     items: [
-      { label: 'Security Alerts', to: '/alerts' },
+      { labelKey: 'nav.alerts', to: '/alerts' },
       // Next to the alerts, because it is read as part of triaging them: the
       // question "why am I seeing this every night" and the answer live together.
-      { label: 'Suppressions', to: '/suppressions' },
-      { label: 'Threat Intel', to: '/threat-intel' },
+      { labelKey: 'nav.suppressions', to: '/suppressions' },
+      { labelKey: 'nav.threat_intel', to: '/threat-intel' },
     ],
   },
   {
     id: 'capture',
-    label: 'Capture',
+    labelKey: 'nav.group.capture',
     icon: <SettingsEthernetIcon />,
     items: [
-      { label: 'Capture by Interface', to: '/capture-packets' },
-      { label: 'Capture by IP', to: '/capture-packets-ip' },
+      { labelKey: 'nav.capture_interface', to: '/capture-packets' },
+      { labelKey: 'nav.capture_ip', to: '/capture-packets-ip' },
     ],
   },
   {
     id: 'administration',
-    label: 'Administration',
+    labelKey: 'nav.group.administration',
     icon: <SettingsOutlinedIcon />,
     items: [
       // Both answer "what did this system do, and who told it to" rather than
@@ -101,14 +110,14 @@ export const NAV_GROUPS: NavGroup[] = [
        * home for the settings rather than two, and the status is an operator's
        * question rather than a reader's.
        */
-      { label: 'Delivery', to: '/delivery', adminOnly: true },
+      { labelKey: 'nav.delivery', to: '/delivery', adminOnly: true },
       // The route stays `/activity`: the label is what people read, and changing
       // the URL would break every bookmark and pasted link for a rename.
-      { label: 'Audit Trail', to: '/activity', adminOnly: true },
+      { labelKey: 'nav.audit', to: '/activity', adminOnly: true },
       // Admin-only because the server refuses it to anyone else: the console
       // reads the database directly, and every query it runs is recorded in the
       // audit trail above.
-      { label: 'Ad Hoc Query', to: '/adhoc', adminOnly: true },
+      { labelKey: 'nav.adhoc', to: '/adhoc', adminOnly: true },
     ],
   },
 ];

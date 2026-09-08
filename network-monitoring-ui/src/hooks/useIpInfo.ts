@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { describeError } from '../api/client';
 import { fetchIpInfo } from '../api/packets.api';
 import { queryKeys } from '../api/queryClient';
+import { useT } from '../i18n/ui';
 
 /**
  * Drives IpInfoDialog.
@@ -12,6 +13,7 @@ import { queryKeys } from '../api/queryClient';
  * third-party geolocation call.
  */
 export function useIpInfo() {
+  const t = useT();
   const [ipAddress, setIpAddress] = useState('');
   const [open, setOpen] = useState(false);
 
@@ -36,7 +38,7 @@ export function useIpInfo() {
     info: query.data ?? null,
     open,
     loading: query.isPending && open && ipAddress !== '',
-    error: query.error ? describeError(query.error, `Could not look up ${ipAddress}`) : '',
+    error: query.error ? describeError(query.error, t('ipinfo.lookup_of_failed', { ipAddress })) : '',
     show,
     close,
   };

@@ -31,6 +31,65 @@ async function renderAudit() {
 }
 
 describe('AuditPage', () => {
+  it('reads a post-V17 entry as prose, not as a key and a blob', async () => {
+    /*
+     * The trail records what was deleted, and since V17 an alert carries a
+     * message key and a params object rather than English prose. Printed as it
+     * arrives, the row reads `messageKey: port_scan.packet` followed by JSON —
+     * not readable in any language, which is worse than the English it replaced.
+     *
+     * This table is append-only, so an entry written while that was unrendered
+     * keeps its shape for good. That is why the assertion is here rather than on
+     * a list of things to tidy later.
+     *
+     * The pair collapses into `title`, the same key pre-V17 entries use, so both
+     * eras of the trail read identically.
+     */
+    server.use(
+      http.get('/api/audit', () =>
+        HttpResponse.json({
+          events: [
+            {
+              id: 4,
+              at: '2026-09-04T08:00:00.000Z',
+              actor: 'admin@example.com',
+              actorId: 1,
+              action: 'alert.delete',
+              subject: '512',
+              detail: {
+                messageKey: 'port_scan.packet',
+                messageParams: { source: '10.0.0.66', target: '10.0.0.89', count: 22, seconds: 60 },
+                kind: 'port_scan',
+              },
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderApp(<AuditPage />, { authenticated: true });
+
+    // The renderer wraps interpolated identifiers in bidi isolates (U+2068/U+2069)
+    // so an address keeps its octet order inside a right-to-left sentence, which
+    // means the rendered text does not match a naive regex. Stripped here rather
+    // than asserted around, because those characters are exactly what a Dari
+    // reader needs and a matcher should not encourage removing them.
+    const withoutIsolates = (_content: string, element: Element | null) =>
+      (element?.textContent ?? '')
+        .replace(/[⁨⁩]/g, '')
+        .includes('Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89');
+
+    await waitFor(() => expect(screen.getByText(/deleted a finding/i)).toBeInTheDocument(), {
+      timeout: 10_000,
+    });
+    expect((await screen.findAllByText(withoutIsolates, {}, { timeout: 10_000 })).length).toBeGreaterThan(0);
+    // The raw pair is gone: neither the key nor the params object is shown.
+    expect(screen.queryByText(/messageKey/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/messageParams/)).not.toBeInTheDocument();
+    // Everything else the entry carried survives beside it.
+    expect(screen.getByText(/port_scan/)).toBeInTheDocument();
+  });
+
   it('says who did what, and to which thing', async () => {
     await renderAudit();
 

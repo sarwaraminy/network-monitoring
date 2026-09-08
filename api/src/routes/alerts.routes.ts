@@ -32,7 +32,9 @@ alertsRouter.get(
   asyncHandler(async (req, res) => {
     const parsed = alertListQuerySchema.safeParse(req.query);
     if (!parsed.success) {
-      throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+      throw HttpError.of(400, 'error.validation', {
+        detail: parsed.error.issues.map((issue) => issue.message).join('; '),
+      });
     }
     const { severity, kind, sensor, since, acknowledged, limit, offset } = parsed.data;
 
@@ -59,7 +61,9 @@ alertsRouter.get(
   asyncHandler(async (req, res) => {
     const sensor = sensorIdSchema.optional().safeParse(req.query.sensor);
     if (!sensor.success) {
-      throw new HttpError(400, sensor.error.issues.map((issue) => issue.message).join('; '));
+      throw HttpError.of(400, 'error.validation', {
+        detail: sensor.error.issues.map((issue) => issue.message).join('; '),
+      });
     }
     res.json(await summarizeAlerts(sensor.data));
   }),
@@ -86,7 +90,9 @@ alertsRouter.get(
   asyncHandler(async (req, res) => {
     const parsed = alertDashboardQuerySchema.safeParse(req.query);
     if (!parsed.success) {
-      throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+      throw HttpError.of(400, 'error.validation', {
+        detail: parsed.error.issues.map((issue) => issue.message).join('; '),
+      });
     }
     const { days, sensor } = parsed.data;
     // Hourly buckets are only readable over a short window.
@@ -101,7 +107,9 @@ alertsRouter.get(
   asyncHandler(async (req, res) => {
     const sensor = sensorIdSchema.optional().safeParse(req.query.sensor);
     if (!sensor.success) {
-      throw new HttpError(400, sensor.error.issues.map((issue) => issue.message).join('; '));
+      throw HttpError.of(400, 'error.validation', {
+        detail: sensor.error.issues.map((issue) => issue.message).join('; '),
+      });
     }
     res.json(await listKnownDevices(sensor.data));
   }),
@@ -124,16 +132,18 @@ alertsRouter.delete(
   asyncHandler(async (req, res) => {
     const mac = req.params.mac ?? '';
     if (!/^[0-9a-fA-F:]{11,32}$/.test(mac)) {
-      throw new HttpError(400, 'mac must be a MAC address');
+      throw HttpError.of(400, 'error.invalid_mac');
     }
     const sensor = sensorIdSchema.optional().safeParse(req.query.sensor);
     if (!sensor.success) {
-      throw new HttpError(400, sensor.error.issues.map((issue) => issue.message).join('; '));
+      throw HttpError.of(400, 'error.validation', {
+        detail: sensor.error.issues.map((issue) => issue.message).join('; '),
+      });
     }
 
     const result = await forgetDevice(mac, actorOf(req.user), sensor.data);
 
-    if (result.outcome === 'not-found') throw new HttpError(404, `No known device ${mac}`);
+    if (result.outcome === 'not-found') throw HttpError.of(404, 'error.device_not_found', { mac });
     if (result.outcome === 'wrong-sensor') {
       /*
        * Still a 404 — that row genuinely does not exist — but the message says
@@ -142,19 +152,23 @@ alertsRouter.delete(
        * points at nothing the caller could change; the sensor is the one thing
        * they could.
        */
-      throw new HttpError(
-        404,
-        `No known device ${mac} on sensor ${sensor.data}. It is known to: ${result.sensors.join(', ')}.`,
-      );
+      throw HttpError.of(404, 'error.device_not_on_sensor', {
+        mac,
+        // `wrong-sensor` is only ever produced when a sensor was named, so this is
+        // always present; the schema types it optional because the query parameter
+        // is. The old template interpolated it directly and would have printed the
+        // word "undefined" if that invariant ever broke.
+        sensor: sensor.data ?? '',
+        sensors: result.sensors.join(', '),
+      });
     }
     if (result.outcome === 'ambiguous') {
       // 400 rather than a guess: naming one of them is the caller's decision, and
       // the message says which names are available so the retry is one edit away.
-      throw new HttpError(
-        400,
-        `${mac} is known to more than one sensor (${result.sensors.join(', ')}). ` +
-          'Add ?sensor= to say which one should forget it.',
-      );
+      throw HttpError.of(400, 'error.device_ambiguous', {
+        mac,
+        sensors: result.sensors.join(', '),
+      });
     }
 
     res.status(204).send();
@@ -166,10 +180,10 @@ alertsRouter.post(
   '/:id/acknowledge',
   asyncHandler(async (req, res) => {
     const id = idSchema.safeParse(req.params.id);
-    if (!id.success) throw new HttpError(400, 'id must be a positive integer');
+    if (!id.success) throw HttpError.of(400, 'error.invalid_id');
 
     const updated = await acknowledgeAlert(id.data, actorOf(req.user));
-    if (!updated) throw new HttpError(404, `No alert with id ${id.data}`);
+    if (!updated) throw HttpError.of(404, 'error.alert_not_found', { id: String(id.data) });
     res.json(updated);
   }),
 );
@@ -179,10 +193,10 @@ alertsRouter.post(
   '/:id/unacknowledge',
   asyncHandler(async (req, res) => {
     const id = idSchema.safeParse(req.params.id);
-    if (!id.success) throw new HttpError(400, 'id must be a positive integer');
+    if (!id.success) throw HttpError.of(400, 'error.invalid_id');
 
     const updated = await unacknowledgeAlert(id.data, actorOf(req.user));
-    if (!updated) throw new HttpError(404, `No alert with id ${id.data}`);
+    if (!updated) throw HttpError.of(404, 'error.alert_not_found', { id: String(id.data) });
     res.json(updated);
   }),
 );
@@ -202,10 +216,10 @@ alertsRouter.delete(
   requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const id = idSchema.safeParse(req.params.id);
-    if (!id.success) throw new HttpError(400, 'id must be a positive integer');
+    if (!id.success) throw HttpError.of(400, 'error.invalid_id');
 
     if (!(await deleteAlert(id.data, actorOf(req.user)))) {
-      throw new HttpError(404, `No alert with id ${id.data}`);
+      throw HttpError.of(404, 'error.alert_not_found', { id: String(id.data) });
     }
     res.status(204).send();
   }),

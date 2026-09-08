@@ -15,6 +15,8 @@ import { useState } from 'react';
 import { describeError } from '../../api/client';
 import { type AccountSummary, fetchAccounts, type Role, setAccountRole } from '../../api/users.api';
 import { useAuth } from '../../contexts/AuthContext';
+import { type Message, useMessageText } from '../../i18n/message-state';
+import { useT } from '../../i18n/ui';
 
 /**
  * Accounts and their roles.
@@ -42,30 +44,48 @@ const nameOf = (account: AccountSummary) =>
   [account.firstname, account.lastname].filter(Boolean).join(' ') || '—';
 
 export default function UserRoles() {
+  const t = useT();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts });
-  const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  // The message, not its words — see i18n/message-state.ts. Storing the
+  // rendered sentence froze this banner in whatever language raised it.
+  const [message, setMessage] = useState<{ severity: 'success' | 'error'; body: Message } | null>(null);
+  const messageText = useMessageText();
   /** Which row is in flight, so only its control is disabled. */
   const [pending, setPending] = useState<number | null>(null);
 
   const change = useMutation({
     mutationFn: ({ id, role }: { id: number; role: Role }) => setAccountRole(id, role),
     onSuccess: (updated) => {
-      setMessage({ severity: 'success', text: `${updated.email ?? 'That account'} is now ${updated.role}.` });
+      setMessage({
+        severity: 'success',
+        body: {
+          key: 'users.role_changed',
+          // The two parameters are messages in their own right, so they go in as
+          // references rather than as words. Rendering them here would defeat the
+          // point of holding the sentence around them.
+          params: {
+            account: updated.email ?? { key: 'users.that_account' },
+            role: {
+              key: updated.role.toUpperCase() === 'ADMIN' ? 'role.administrator' : 'role.user',
+            },
+          },
+        },
+      });
       void queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
     onError: (error) => {
       // The server's own message, verbatim: it names which refusal this was, and
       // each one has a different remedy.
-      setMessage({ severity: 'error', text: describeError(error, 'Could not change the role') });
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'users.change_failed' } });
     },
     onSettled: () => setPending(null),
   });
 
-  if (accounts.isPending) return <Typography variant="body2">Asking the server…</Typography>;
+  if (accounts.isPending) return <Typography variant="body2">{t('users.loading')}</Typography>;
   if (accounts.isError) {
-    return <Alert severity="error">{describeError(accounts.error, 'Could not read the accounts')}</Alert>;
+    return <Alert severity="error">{describeError(accounts.error, t('users.load_failed'))}</Alert>;
   }
 
   const rows = accounts.data;
@@ -80,32 +100,27 @@ export default function UserRoles() {
    */
   const blocked = (account: AccountSummary): string | null => {
     if (account.id === user?.id) {
-      return 'You cannot change your own role. Ask another administrator.';
+      return t('users.blocked_self');
     }
     if (account.role.toUpperCase() === 'ADMIN' && admins.length <= 1) {
-      return 'The only administrator. Promote another account before changing this one.';
+      return t('users.blocked_last_admin');
     }
     return null;
   };
 
   return (
     <Stack spacing={2}>
-      {message && <Alert severity={message.severity}>{message.text}</Alert>}
+      {message && <Alert severity={message.severity}>{messageText(message.body)}</Alert>}
 
-      {admins.length <= 1 && (
-        <Alert severity="info">
-          One administrator. Promoting a second is what makes this account recoverable — with only one, a
-          forgotten password means editing the database by hand.
-        </Alert>
-      )}
+      {admins.length <= 1 && <Alert severity="info">{t('users.single_admin')}</Alert>}
 
       <Box sx={{ overflowX: 'auto' }}>
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Account</TableCell>
-              <TableCell>Name</TableCell>
-              <TableCell sx={{ width: 200 }}>Role</TableCell>
+              <TableCell>{t('users.col_account')}</TableCell>
+              <TableCell>{t('users.col_name')}</TableCell>
+              <TableCell sx={{ width: 200 }}>{t('users.col_role')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -117,8 +132,8 @@ export default function UserRoles() {
                 <TableRow key={account.id}>
                   <TableCell>
                     <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                      <span>{account.email ?? `account ${account.id}`}</span>
-                      {isSelf && <Chip size="small" variant="outlined" label="you" />}
+                      <span>{account.email ?? t('users.account_n', { id: account.id })}</span>
+                      {isSelf && <Chip size="small" variant="outlined" label={t('users.you')} />}
                     </Stack>
                   </TableCell>
                   <TableCell>{nameOf(account)}</TableCell>
@@ -130,7 +145,9 @@ export default function UserRoles() {
                       // Named per row. Every select sharing the accessible name
                       // "Role" would make each of these unaddressable — by a
                       // screen reader and by a test alike.
-                      label={`Role for ${account.email ?? `account ${account.id}`}`}
+                      label={t('users.role_for', {
+                        account: account.email ?? t('users.account_n', { id: account.id }),
+                      })}
                       value={account.role.toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER'}
                       disabled={reason !== null || pending === account.id}
                       helperText={reason ?? undefined}
@@ -142,7 +159,9 @@ export default function UserRoles() {
                     >
                       {ROLES.map((role) => (
                         <MenuItem key={role} value={role}>
-                          {role}
+                          {/* The value stays the identifier the server reads; only
+                              what a person sees is translated. */}
+                          {role === 'ADMIN' ? t('role.administrator') : t('role.user')}
                         </MenuItem>
                       ))}
                     </TextField>
@@ -155,7 +174,7 @@ export default function UserRoles() {
       </Box>
 
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-        Every change is recorded in the audit trail, with who made it and which way the role moved.
+        {t('users.audit_note')}
       </Typography>
     </Stack>
   );

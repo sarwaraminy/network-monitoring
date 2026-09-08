@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
-import { describeError } from '../api/client';
 import {
   type CaptureScope,
   clearPackets,
@@ -11,6 +10,7 @@ import {
   stopCapture,
 } from '../api/packets.api';
 import { ALERTS_ROOT_KEY, queryKeys } from '../api/queryClient';
+import type { Message } from '../i18n/message-state';
 
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const POLL_INTERVAL_MS =
@@ -35,7 +35,9 @@ export function usePacketCapture(scope: CaptureScope) {
   const [snapshotLength, setSnapshotLength] = useState(DEFAULT_SNAPSHOT_LENGTH);
   const [timeout, setTimeoutMs] = useState(DEFAULT_TIMEOUT_MS);
   const [filterIp, setFilterIp] = useState('');
-  const [actionError, setActionError] = useState('');
+  // The message rather than its words, so the toolbar re-reads it when the
+  // language changes — see i18n/message-state.ts.
+  const [actionError, setActionError] = useState<Message | null>(null);
 
   const interfacesQuery = useQuery({
     queryKey: queryKeys.interfaces(scope),
@@ -86,7 +88,7 @@ export function usePacketCapture(scope: CaptureScope) {
       client.setQueryData(queryKeys.captureStatus(scope), status);
       void refreshAll();
     },
-    onError: (error) => setActionError(describeError(error, 'Could not start the capture')),
+    onError: (error) => setActionError({ error, fallbackKey: 'capture.start_failed' }),
   });
 
   const stopMutation = useMutation({
@@ -97,7 +99,7 @@ export function usePacketCapture(scope: CaptureScope) {
       void client.invalidateQueries({ queryKey: ALERTS_ROOT_KEY });
       void refreshAll();
     },
-    onError: (error) => setActionError(describeError(error, 'Could not stop the capture')),
+    onError: (error) => setActionError({ error, fallbackKey: 'capture.stop_failed' }),
   });
 
   const clearMutation = useMutation({
@@ -106,18 +108,18 @@ export function usePacketCapture(scope: CaptureScope) {
       client.setQueryData(queryKeys.packets(scope), []);
       void refreshAll();
     },
-    onError: (error) => setActionError(describeError(error, 'Could not clear the captured packets')),
+    onError: (error) => setActionError({ error, fallbackKey: 'capture.clear_failed' }),
   });
 
   const busy = startMutation.isPending || stopMutation.isPending || clearMutation.isPending;
 
   // The first load error that matters, whichever query hit it, plus any failed action.
-  const error =
-    actionError ||
+  const error: Message | null =
+    actionError ??
     (interfacesQuery.error
-      ? describeError(interfacesQuery.error, 'Could not load network interfaces')
-      : '') ||
-    (packetsQuery.error ? describeError(packetsQuery.error, 'Could not fetch captured packets') : '');
+      ? { error: interfacesQuery.error, fallbackKey: 'capture.interfaces_failed' }
+      : null) ??
+    (packetsQuery.error ? { error: packetsQuery.error, fallbackKey: 'capture.packets_failed' } : null);
 
   const canStart =
     !capturing && !busy && selectedInterface !== '' && (scope !== 'filtered-ip' || filterIp.trim() !== '');
@@ -142,15 +144,15 @@ export function usePacketCapture(scope: CaptureScope) {
     setError: setActionError,
     canStart,
     start: () => {
-      setActionError('');
+      setActionError(null);
       startMutation.mutate();
     },
     stop: () => {
-      setActionError('');
+      setActionError(null);
       stopMutation.mutate();
     },
     clear: () => {
-      setActionError('');
+      setActionError(null);
       clearMutation.mutate();
     },
     refreshPackets: refreshAll,

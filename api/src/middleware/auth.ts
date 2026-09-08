@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import type { UserRow } from '../db/schema.js';
 import { extractBearerToken, verifyAccessToken } from '../services/jwt.service.js';
 import { getUserByEmail } from '../services/user.service.js';
+import { HttpError, sendError } from './error-handler.js';
 
 declare global {
   // Express's own types are declared as a namespace, so augmenting Request has to
@@ -21,7 +22,7 @@ declare global {
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const token = extractBearerToken(req.header('authorization'));
   if (!token) {
-    res.status(401).json({ message: 'Missing Authorization header' });
+    sendError(res, HttpError.of(401, 'error.missing_authorization'));
     return;
   }
 
@@ -29,14 +30,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   try {
     email = verifyAccessToken(token).sub;
   } catch {
-    res.status(401).json({ message: 'Invalid or expired token' });
+    sendError(res, HttpError.of(401, 'error.token_invalid'));
     return;
   }
 
   try {
     const user = await getUserByEmail(email);
     if (!user) {
-      res.status(401).json({ message: 'Account no longer exists' });
+      sendError(res, HttpError.of(401, 'error.account_gone'));
       return;
     }
     req.user = user;
@@ -58,11 +59,11 @@ export function requireRole(...allowed: string[]): RoleGuard {
 
   const guard = (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
-      res.status(401).json({ message: 'Not authenticated' });
+      sendError(res, HttpError.of(401, 'error.not_authenticated'));
       return;
     }
     if (!permitted.has(req.user.role.toLowerCase())) {
-      res.status(403).json({ message: 'Insufficient permissions' });
+      sendError(res, HttpError.of(403, 'error.insufficient_permissions'));
       return;
     }
     next();

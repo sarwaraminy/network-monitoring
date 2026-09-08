@@ -62,7 +62,12 @@ export class ThreatIntelDetector implements Detector {
       const direction = directionOf(sourceIp, targetIp);
       // The local side is whichever end is not the listed address.
       const localIp = observed === targetIp ? sourceIp : targetIp;
-      const graded = assess(match, { localIp, remoteIp: observed, direction, via: 'packet capture' });
+      const graded = assess(match, {
+        localIp,
+        remoteIp: observed,
+        direction,
+        via: { key: 'threat_intel.via.packet_capture' },
+      });
       if (!this.shouldReport(graded.dedupKey, now)) continue;
 
       this.matches += 1;
@@ -104,7 +109,7 @@ export class ThreatIntelDetector implements Detector {
       localIp: sourceIp,
       remoteIp: targetIp,
       direction: 'outbound',
-      via: 'DNS query',
+      via: { key: 'threat_intel.via.dns_query' },
     });
     if (!this.shouldReport(graded.dedupKey, now)) return null;
 
@@ -147,8 +152,8 @@ function buildFinding(
   return {
     kind: 'threat_intel',
     severity: graded.severity,
-    title: graded.title,
-    description: graded.description,
+    messageKey: graded.messageKey,
+    messageParams: graded.messageParams,
     dedupKey: graded.dedupKey,
     sourceIp: packet.ipv4?.srcAddr ?? packet.ipv6?.srcAddr ?? null,
     sourceMac: packet.ethernet?.sourceAddress ?? null,

@@ -41,6 +41,19 @@ form that could create administrators is exactly the hole this replaced.</p>
 <code>ALLOW_OPEN_SIGNUP=true</code> in <code>api/.env</code> on the server, followed by a
 restart. Even then it can only ever produce USER accounts.</p>
 
+<h2>The language on the form</h2>
+
+<p>The sign-up form asks for a language alongside the name and password. It sets the one the
+account starts in on a device where the person has not chosen otherwise &mdash; the switch in
+the account menu overrides it per browser, and neither affects anybody else. See
+<a href="language.html">Language</a>.</p>
+
+<p>The choices are <span class="ui">English</span>, <span class="ui">Deutsch</span> and
+<span class="ui">&#1583;&#1585;&#1740;</span> &mdash; the three the interface is actually
+translated into. The form previously offered Pashto, which the application has no
+translation for, and omitted German, which it does: an account created as Pashto would simply
+have read English with no indication why.</p>
+
 <h2>Changing a role afterwards</h2>
 
 <p>An account's role can be changed at any time in

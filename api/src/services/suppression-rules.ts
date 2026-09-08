@@ -1,3 +1,5 @@
+import { renderError } from '../i18n/catalog/errors.js';
+import { DEFAULT_LOCALE } from '../i18n/locales.js';
 import { type Prefix, parsePrefix, prefixContains } from '../net/prefix.js';
 import { ALERT_KINDS } from '../packet/detect/types.js';
 
@@ -235,6 +237,16 @@ export function hasSuppressionCriterion(values: {
   );
 }
 
-export const NO_CRITERIA =
-  'A suppression rule needs at least one of kind, source, target or port. ' +
-  'A rule with none would drop every finding on the network.';
+/**
+ * The refusal, rendered from the catalogue rather than written twice.
+ *
+ * This string was byte-identical to `error.no_suppression_criterion`, and both
+ * were live: the service raised the keyed one and zod's `.refine` used this
+ * copy — so the same sentence reached the reader translated or untranslated
+ * depending on which endpoint they hit. It reads from the catalogue now, which
+ * makes the duplication impossible rather than merely fixed.
+ *
+ * Still a plain string because it is a zod message, and zod has no notion of a
+ * key; the browser translates from the `code` the error handler attaches.
+ */
+export const NO_CRITERIA = renderError('error.no_suppression_criterion', {}, DEFAULT_LOCALE);

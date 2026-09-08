@@ -1,3 +1,5 @@
+import { type ErrorMessageKey, renderError } from '../i18n/catalog/errors.js';
+import { DEFAULT_LOCALE } from '../i18n/locales.js';
 /**
  * Who may create an account, and what role they get.
  *
@@ -29,13 +31,23 @@ export interface SignupActor {
 
 export type SignupDecision =
   | { allowed: true; role: Role; reason: 'admin' | 'bootstrap' | 'open-signup' }
-  | { allowed: false; status: 401 | 403; message: string };
+  /**
+   * Refused, and *which* refusal — a catalogue key rather than a sentence, so the
+   * interface can say it in the reader's language. The English text still reaches
+   * the client, rendered from this key by `HttpError.of`.
+   */
+  | { allowed: false; status: 401 | 403; code: ErrorMessageKey };
 
-export const ADMIN_TOKEN_REQUIRED =
-  'Account creation requires an administrator token. Use `npm run user -- create` on the server, ' +
-  'or sign in as an administrator.';
+/*
+ * The two refusals, as English sentences.
+ *
+ * Kept as exports because they are what the tests and the CLI's own help text
+ * assert against, but rendered from the catalogue rather than written twice — the
+ * decision above names the key, and these are that key in English.
+ */
+export const ADMIN_TOKEN_REQUIRED = renderError('error.signup_token_required', {}, DEFAULT_LOCALE);
 
-export const ADMIN_ONLY = 'Only an administrator can create accounts.';
+export const ADMIN_ONLY = renderError('error.signup_admin_only', {}, DEFAULT_LOCALE);
 
 /**
  * Decides whether a signup may proceed and with what role.
@@ -58,7 +70,7 @@ export function decideSignup(
   }
 
   if (authenticatedButNotAdmin) {
-    return { allowed: false, status: 403, message: ADMIN_ONLY };
+    return { allowed: false, status: 403, code: 'error.signup_admin_only' };
   }
 
   if (actor.bootstrap) {
@@ -71,7 +83,7 @@ export function decideSignup(
     return { allowed: true, role: 'USER', reason: 'open-signup' };
   }
 
-  return { allowed: false, status: 401, message: ADMIN_TOKEN_REQUIRED };
+  return { allowed: false, status: 401, code: 'error.signup_token_required' };
 }
 
 /** What `/auth/signup-allowed` reports, so the UI can draw the right screen. */

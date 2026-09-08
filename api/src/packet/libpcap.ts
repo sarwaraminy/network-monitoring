@@ -132,8 +132,20 @@ export class PcapError extends Error {
   }
 }
 
-/** Thrown when the pcap library itself could not be loaded. */
+/**
+ * Thrown when the pcap library itself could not be loaded.
+ *
+ * `message` is the assembled English sentence and stays that way: it goes to the
+ * server log, which is read by whoever runs the host. `detail` is the loader's
+ * own words — a `dlopen` failure — held separately because that is the only part
+ * of this the API can hand to a catalogue. The install instruction is a sentence
+ * this repository writes, so it belongs in `errors.*.ts` where it can be
+ * translated, and interpolating it as `{detail}` made a translated key render
+ * English in all three languages.
+ */
 export class PcapUnavailableError extends Error {
+  readonly detail: string;
+
   constructor(detail: string) {
     super(
       `Could not load the packet capture library. ${
@@ -142,6 +154,7 @@ export class PcapUnavailableError extends Error {
           : 'Install libpcap (e.g. `sudo apt install libpcap0.8`).'
       } (${detail})`,
     );
+    this.detail = detail;
     this.name = 'PcapUnavailableError';
   }
 }

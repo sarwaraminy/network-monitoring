@@ -33,7 +33,10 @@ describe('signup policy', () => {
       const decision = decideSignup(ANON, 'ADMIN', false);
       assert.equal(decision.allowed, false);
       assert.equal(decision.allowed === false && decision.status, 401);
-      assert.equal(decision.allowed === false && decision.message, ADMIN_TOKEN_REQUIRED);
+      // The decision names a catalogue key now, not a sentence. Asserted against the
+      // key *and* the English it renders to, so neither can drift from the other.
+      assert.equal(decision.allowed === false && decision.code, 'error.signup_token_required');
+      assert.match(ADMIN_TOKEN_REQUIRED, /administrator token/);
     });
 
     it('refuses an anonymous request even asking only for USER', () => {
@@ -47,7 +50,8 @@ describe('signup policy', () => {
       const decision = decideSignup(ANON, 'ADMIN', false, true);
       assert.equal(decision.allowed, false);
       assert.equal(decision.allowed === false && decision.status, 403);
-      assert.equal(decision.allowed === false && decision.message, ADMIN_ONLY);
+      assert.equal(decision.allowed === false && decision.code, 'error.signup_admin_only');
+      assert.match(ADMIN_ONLY, /Only an administrator/);
     });
 
     it('refuses a signed-in non-admin asking for USER', () => {

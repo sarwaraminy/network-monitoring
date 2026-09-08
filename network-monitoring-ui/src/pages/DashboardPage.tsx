@@ -20,10 +20,11 @@ import { ALL_SENSORS, queryKeys } from '../api/queryClient';
 import MagnitudeBarChart from '../charts/MagnitudeBarChart';
 import SeverityTrendChart from '../charts/SeverityTrendChart';
 import { useChartPalette } from '../charts/useChartPalette';
-import { KIND_LABEL } from '../components/SeverityChip';
+import { KIND_LABEL, SEVERITY_STYLE } from '../components/SeverityChip';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { distinctMacCount, useKnownDevices, useSensors } from '../hooks/useAlerts';
+import { type UiMessageKey, useT } from '../i18n/ui';
 import type { AlertKind } from '../types';
 
 /**
@@ -44,13 +45,13 @@ import type { AlertKind } from '../types';
  * reaches, which is worth doing if that case shows up in practice.
  */
 const PERIODS = [
-  { value: 1, label: 'Last 24 hours' },
-  { value: 7, label: 'Last 7 days' },
-  { value: 30, label: 'Last 30 days' },
-  { value: 90, label: 'Last 90 days' },
-  { value: 365, label: 'Last 12 months' },
-  { value: 1825, label: 'Last 5 years' },
-] as const;
+  { value: 1, labelKey: 'period.24h' },
+  { value: 7, labelKey: 'period.7d' },
+  { value: 30, labelKey: 'period.30d' },
+  { value: 90, labelKey: 'period.90d' },
+  { value: 365, labelKey: 'period.12m' },
+  { value: 1825, labelKey: 'period.5y' },
+] as const satisfies readonly { value: number; labelKey: UiMessageKey }[];
 
 /**
  * The landing page: what is happening, at a glance.
@@ -64,6 +65,7 @@ const PERIODS = [
  * horizontal bars. See charts/palette.ts for the colour reasoning.
  */
 export default function DashboardPage() {
+  const t = useT();
   const [days, setDays] = useState<number>(7);
   const [sensor, setSensor] = useState<string>('');
   const navigate = useNavigate();
@@ -116,23 +118,23 @@ export default function DashboardPage() {
   return (
     <>
       <SurfaceCard
-        title="Dashboard"
+        title={t('dashboard.title')}
         titleComponent="h1"
         titleVariant="h5"
-        subtitle="What the detectors have found, and which hosts keep appearing"
+        subtitle={t('dashboard.subtitle')}
         headerActions={
           <>
             {multiSensor && (
               <TextField
                 select
                 size="small"
-                label="Sensor"
+                label={t('dashboard.sensor')}
                 // What is in force, not what was picked — see AlertsPage.
                 value={appliedSensor ?? ''}
                 onChange={(event) => setSensor(event.target.value)}
                 sx={{ minWidth: 170 }}
               >
-                <MenuItem value="">All sensors</MenuItem>
+                <MenuItem value="">{t('common.all_sensors')}</MenuItem>
                 {sensors.map((entry) => (
                   <MenuItem key={entry.sensorId} value={entry.sensorId}>
                     {entry.sensorId}
@@ -144,14 +146,14 @@ export default function DashboardPage() {
             <TextField
               select
               size="small"
-              label="Period"
+              label={t('dashboard.period')}
               value={days}
               onChange={(event) => setDays(Number(event.target.value))}
               sx={{ minWidth: 160 }}
             >
               {PERIODS.map((period) => (
                 <MenuItem key={period.value} value={period.value}>
-                  {period.label}
+                  {t(period.labelKey)}
                 </MenuItem>
               ))}
             </TextField>
@@ -164,22 +166,22 @@ export default function DashboardPage() {
               onClick={() => void dashboard.refetch()}
               disabled={dashboard.isFetching}
             >
-              Refresh
+              {t('common.refresh')}
             </Button>
           </>
         }
       />
 
       {dashboard.error && (
-        <Alert severity="error">{describeError(dashboard.error, 'Could not load the dashboard')}</Alert>
+        <Alert severity="error">{describeError(dashboard.error, t('dashboard.load_failed'))}</Alert>
       )}
 
       <Grid container spacing={1.5}>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Open findings"
+            label={t('dashboard.open_findings')}
             value={data?.unacknowledged ?? 0}
-            caption={`${(data?.total ?? 0).toLocaleString()} total, all time`}
+            caption={t('dashboard.total_all_time', { count: data?.total ?? 0 })}
             icon={<WarningAmberOutlinedIcon />}
             accent={palette.bar}
             loading={loading}
@@ -188,9 +190,9 @@ export default function DashboardPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Critical and high"
+            label={t('dashboard.critical_high')}
             value={criticalAndHigh}
-            caption="Needs attention first"
+            caption={t('dashboard.needs_attention')}
             icon={<ErrorOutlineIcon />}
             accent={palette.severity.critical}
             loading={loading}
@@ -199,12 +201,14 @@ export default function DashboardPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Capture"
-            value={capturing ? 'Running' : 'Idle'}
+            label={t('dashboard.capture')}
+            value={capturing ? t('dashboard.capture_running') : t('dashboard.capture_idle')}
             caption={
               interfaceStatus.data?.captureAvailable === false
-                ? 'pcap library unavailable'
-                : (interfaceStatus.data?.linkType ?? 'No capture started')
+                ? t('dashboard.pcap_unavailable')
+                : // The link type is a libpcap identifier (EN10MB), not prose — left
+                  // as it is for the reason the catalogue gives about identifiers.
+                  (interfaceStatus.data?.linkType ?? t('dashboard.no_capture'))
             }
             icon={<RadarIcon />}
             accent={capturing ? palette.bar : undefined}
@@ -214,9 +218,9 @@ export default function DashboardPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Known devices"
+            label={t('dashboard.known_devices')}
             value={knownMacCount}
-            caption="MAC addresses seen"
+            caption={t('dashboard.macs_seen')}
             icon={<DevicesOtherIcon />}
             loading={devices.isPending}
           />
@@ -226,12 +230,20 @@ export default function DashboardPage() {
       <Grid container spacing={1.5}>
         <Grid size={{ xs: 12, lg: 7 }}>
           <ChartCard
-            title="Findings over time"
-            subtitle={`By severity, per ${bucket}`}
+            title={t('dashboard.over_time')}
+            subtitle={bucket === 'hour' ? t('dashboard.per_hour') : t('dashboard.per_day')}
             loading={loading}
             action={
               data && data.trend.length > 0 ? (
-                <Chip size="small" variant="outlined" label={`${data.trend.length} ${bucket}s`} />
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={
+                    bucket === 'hour'
+                      ? t('dashboard.hours_count', { count: data.trend.length })
+                      : t('dashboard.days_count', { count: data.trend.length })
+                  }
+                />
               ) : null
             }
           >
@@ -240,45 +252,59 @@ export default function DashboardPage() {
         </Grid>
 
         <Grid size={{ xs: 12, lg: 5 }}>
-          <ChartCard title="Findings by detector" subtitle="Which checks are firing" loading={loading}>
+          <ChartCard
+            title={t('dashboard.by_detector')}
+            subtitle={t('dashboard.which_firing')}
+            loading={loading}
+          >
             <MagnitudeBarChart
-              valueLabel="Findings"
+              valueLabel={t('dashboard.findings')}
               data={(data?.byKind ?? []).map((row) => ({
-                label: KIND_LABEL[row.kind as AlertKind] ?? row.kind,
+                label: KIND_LABEL[row.kind as AlertKind] ? t(KIND_LABEL[row.kind as AlertKind]) : row.kind,
                 value: row.count,
-                detail: `${row.occurrences.toLocaleString()} occurrences`,
+                detail: t('dashboard.occurrences', { count: row.occurrences }),
               }))}
-              emptyMessage="No findings yet."
+              emptyMessage={t('dashboard.no_findings')}
             />
           </ChartCard>
         </Grid>
 
         <Grid size={{ xs: 12, lg: 7 }}>
           <ChartCard
-            title="Most implicated sources"
-            subtitle="Addresses appearing in the most findings"
+            title={t('dashboard.top_sources')}
+            subtitle={t('dashboard.top_sources_subtitle')}
             loading={loading}
           >
             <MagnitudeBarChart
-              valueLabel="Findings"
+              valueLabel={t('dashboard.findings')}
               data={(data?.topSources ?? []).map((row) => ({
                 label: row.sourceIp,
                 value: row.count,
-                detail: `${row.occurrences.toLocaleString()} occurrences`,
+                detail: t('dashboard.occurrences', { count: row.occurrences }),
               }))}
-              emptyMessage="No findings with a source address yet."
+              emptyMessage={t('dashboard.no_source_findings')}
+              labelsAreIdentifiers
             />
           </ChartCard>
         </Grid>
 
         <Grid size={{ xs: 12, lg: 5 }}>
-          <ChartCard title="Severity breakdown" subtitle="All findings, all time" loading={loading}>
+          <ChartCard
+            title={t('dashboard.severity_breakdown')}
+            subtitle={t('dashboard.all_time')}
+            loading={loading}
+          >
             <MagnitudeBarChart
-              valueLabel="Findings"
+              valueLabel={t('dashboard.findings')}
               data={(['critical', 'high', 'medium', 'low', 'info'] as const)
-                .map((severity) => ({ label: capitalise(severity), value: data?.bySeverity[severity] ?? 0 }))
+                .map((severity) => ({
+                  // The keys SeverityChip renders, so a severity does not appear
+                  // in English on this chart and translated on the row beside it.
+                  label: t(SEVERITY_STYLE[severity].labelKey),
+                  value: data?.bySeverity[severity] ?? 0,
+                }))
                 .filter((row) => row.value > 0)}
-              emptyMessage="No findings yet."
+              emptyMessage={t('dashboard.no_findings')}
             />
           </ChartCard>
         </Grid>
@@ -312,10 +338,6 @@ function ChartCard({
       {loading ? <Skeleton variant="rounded" height={260} /> : children}
     </SurfaceCard>
   );
-}
-
-function capitalise(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 // Re-exported so tests can assert against the same palette the charts use.

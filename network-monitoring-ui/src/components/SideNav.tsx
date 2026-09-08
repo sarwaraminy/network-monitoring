@@ -10,6 +10,7 @@ import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { type Translate, useT } from '../i18n/ui';
 import { NAV, RADIUS, SIDEBAR_METRICS, SURFACE } from '../theme';
 import { DisclosureCaret } from './DisclosureCaret';
 import { groupContaining, type NavGroup } from './navItems';
@@ -230,6 +231,8 @@ function SidebarSearchField({
   value,
   onChange,
 }: Readonly<{ placeholder: string; value: string; onChange: (next: string) => void }>) {
+  const t = useT();
+  const clearLabel = t('nav.clear_search');
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   /*
@@ -273,7 +276,7 @@ function SidebarSearchField({
           // affordance that does nothing is noise in a 32px field.
           endAdornment: value ? (
             <InputAdornment position="end">
-              <IconButton size="small" onClick={clear} aria-label="Clear search" sx={{ padding: '4px' }}>
+              <IconButton size="small" onClick={clear} aria-label={clearLabel} sx={{ padding: '4px' }}>
                 <CloseOutlinedIcon sx={{ fontSize: 14 }} />
               </IconButton>
             </InputAdornment>
@@ -501,12 +504,6 @@ export interface SideNavProps {
   onNavigate?: () => void;
 }
 
-/** The panel title. Uppercased by the style, not by the string. */
-const PANEL_TITLE = 'Navigation';
-
-/** Placeholder, and the search field's accessible name. */
-const SEARCH_PLACEHOLDER = 'Search navigation…';
-
 /**
  * Groups reduced to what matches `term`, with any group left empty dropped.
  *
@@ -520,19 +517,27 @@ const SEARCH_PLACEHOLDER = 'Search navigation…';
  * distinguishing it from its neighbour is exactly the row someone would look for
  * by that line.
  */
-function filterGroups(groups: NavGroup[], term: string): NavGroup[] {
+function filterGroups(groups: NavGroup[], term: string, t: Translate): NavGroup[] {
   const needle = term.trim().toLowerCase();
   if (needle === '') return groups;
 
+  /*
+   * Matched against the *rendered* labels, not the catalogue keys.
+   *
+   * Someone reading the navigation in German types German. Searching the keys
+   * would silently match nothing for every language but English — and worse,
+   * would half-work, since the keys are English-derived: "alerts" would find the
+   * alerts row in a German sidebar while "Funde" found nothing.
+   */
   return groups
     .map((group) => {
-      if (group.label.toLowerCase().includes(needle)) return group;
+      if (t(group.labelKey).toLowerCase().includes(needle)) return group;
       return {
         ...group,
         items: group.items.filter(
           (item) =>
-            item.label.toLowerCase().includes(needle) ||
-            (item.subtitle?.toLowerCase().includes(needle) ?? false),
+            t(item.labelKey).toLowerCase().includes(needle) ||
+            (item.subtitleKey ? t(item.subtitleKey).toLowerCase().includes(needle) : false),
         ),
       };
     })
@@ -555,6 +560,7 @@ export default function SideNav({
   onToggleCollapsed,
   onNavigate,
 }: Readonly<SideNavProps>) {
+  const t = useT();
   const { pathname } = useLocation();
   /** The section list, so the collapse toggle has something to point `aria-controls` at. */
   const listRegionId = `sidebar-list-${useId()}`;
@@ -621,7 +627,7 @@ export default function SideNav({
    */
   const effectiveTerm = collapsed ? '' : searchTerm;
   const searching = effectiveTerm.trim() !== '';
-  const shownGroups = useMemo(() => filterGroups(groups, effectiveTerm), [groups, effectiveTerm]);
+  const shownGroups = useMemo(() => filterGroups(groups, effectiveTerm, t), [groups, effectiveTerm, t]);
 
   const changeSearch = (next: string) => {
     setSearchTerm(next);
@@ -759,7 +765,7 @@ export default function SideNav({
   return (
     <Box
       component="nav"
-      aria-label="Main"
+      aria-label={t('nav.main')}
       sx={(theme) => ({
         // Rule 1 — the one border in the sidebar.
         width: collapsed ? SIDEBAR_METRICS.railWidth : SIDEBAR_METRICS.panelWidth,
@@ -826,7 +832,7 @@ export default function SideNav({
           }),
         })}
       >
-        {!collapsed && PANEL_TITLE}
+        {!collapsed && t('nav.panel_title')}
         {onToggleCollapsed && (
           // The caret is a glyph, not a control — it needs a real button around
           // it. Collapsed, this is the only thing in the rail that is not a
@@ -834,7 +840,7 @@ export default function SideNav({
           <IconButton
             size="small"
             onClick={onToggleCollapsed}
-            aria-label={collapsed ? `Expand ${PANEL_TITLE}` : `Collapse ${PANEL_TITLE}`}
+            aria-label={collapsed ? t('nav.expand_panel') : t('nav.collapse_panel')}
             aria-expanded={!collapsed}
             /*
              * `aria-controls`, because `aria-expanded` without one is the exact
@@ -882,7 +888,11 @@ export default function SideNav({
             ...theme.applyStyles('dark', { borderColor: SURFACE.dark.cardBorder }),
           })}
         >
-          <SidebarSearchField placeholder={SEARCH_PLACEHOLDER} value={searchTerm} onChange={changeSearch} />
+          <SidebarSearchField
+            placeholder={t('nav.search_placeholder')}
+            value={searchTerm}
+            onChange={changeSearch}
+          />
         </Box>
       )}
 
@@ -917,7 +927,7 @@ export default function SideNav({
         {shownGroups.map((group) => (
           <SidebarSection
             key={group.id}
-            label={group.label}
+            label={t(group.labelKey)}
             icon={group.icon}
             /*
              * A search starts every surviving section open — a result the user
@@ -941,9 +951,9 @@ export default function SideNav({
             {group.items.map((item) => (
               <SidebarItem
                 key={item.to}
-                label={item.label}
+                label={t(item.labelKey)}
                 to={item.to}
-                subtitle={item.subtitle}
+                subtitle={item.subtitleKey ? t(item.subtitleKey) : undefined}
                 onNavigate={onNavigate}
               />
             ))}

@@ -91,13 +91,12 @@ export class PlaintextCredentialDetector implements Detector {
         this.finding(context, {
           severity: 'critical',
           service: 'HTTP Basic authentication',
-          title: `Cleartext HTTP credentials for "${sanitize(username)}" to ${context.target}`,
-          description:
-            `An HTTP Basic "Authorization" header was captured in the clear on port ${context.port}. ` +
-            `The username is "${sanitize(username)}" and the password was recovered from the same header ` +
-            '(it is deliberately not recorded here). Anyone positioned on this network path — including ' +
-            'the operator of any intermediate switch, router or Wi-Fi access point — can read this ' +
-            'password directly. Move the service to HTTPS and rotate the credential.',
+          messageKey: 'plaintext_credentials.http_basic',
+          messageParams: {
+            username: sanitize(username),
+            target: context.target,
+            port: String(context.port),
+          },
           evidence: {
             username: sanitize(username),
             passwordLength: secretLength,
@@ -117,11 +116,12 @@ export class PlaintextCredentialDetector implements Detector {
         this.finding(context, {
           severity: 'critical',
           service: 'HTTP form submission',
-          title: `Password submitted over unencrypted HTTP to ${context.target}`,
-          description:
-            `A form field named "${formField[1]}" was sent over plain HTTP on port ${context.port}. ` +
-            'The value is readable by anyone on the network path and is not recorded here. Any login ' +
-            'form must be served and submitted over HTTPS.',
+          messageKey: 'plaintext_credentials.http_form',
+          messageParams: {
+            target: context.target,
+            port: String(context.port),
+            fieldName: formField[1] ?? 'password',
+          },
           evidence: {
             fieldName: formField[1]?.toLowerCase() ?? 'password',
             valueLength: formField[2].length,
@@ -141,11 +141,8 @@ export class PlaintextCredentialDetector implements Detector {
         this.finding(context, {
           severity: 'high',
           service: 'HTTP session cookie',
-          title: `Session cookie sent over unencrypted HTTP to ${context.target}`,
-          description:
-            'A cookie that looks like a session identifier was sent over plain HTTP. Capturing it allows ' +
-            'an attacker to hijack the session without ever knowing the password. The cookie value is not ' +
-            'recorded here. Serve the site over HTTPS and set the Secure and HttpOnly flags.',
+          messageKey: 'plaintext_credentials.http_cookie',
+          messageParams: { target: context.target },
           evidence: {
             host: firstHeader(text, 'host'),
             requestLine: firstLine(text),
@@ -168,13 +165,13 @@ export class PlaintextCredentialDetector implements Detector {
       this.finding(context, {
         severity: 'critical',
         service: 'FTP',
-        title: user?.[1]
-          ? `Cleartext FTP login for "${sanitize(user[1])}" to ${context.target}`
-          : `Cleartext FTP password sent to ${context.target}`,
-        description:
-          'FTP transmits its credentials as plain text by design. ' +
-          (pass ? 'A PASS command was captured; the value is not recorded here. ' : '') +
-          'Replace this service with SFTP or FTPS, and treat the credential as compromised.',
+        messageKey: 'plaintext_credentials.ftp',
+        messageParams: {
+          target: context.target,
+          username: user?.[1] ? sanitize(user[1]) : null,
+          hasUsername: Boolean(user?.[1]),
+          hasPassword: Boolean(pass),
+        },
         evidence: {
           username: user?.[1] ? sanitize(user[1]) : null,
           passwordObserved: Boolean(pass),
@@ -191,11 +188,8 @@ export class PlaintextCredentialDetector implements Detector {
       this.finding(context, {
         severity: 'high',
         service: 'Telnet',
-        title: `Unencrypted Telnet session to ${context.target}`,
-        description:
-          'Telnet sends everything — credentials, commands and output — as plain text. Any device on the ' +
-          'path can read and modify the session. Replace it with SSH; there is no configuration that ' +
-          'makes Telnet safe.',
+        messageKey: 'plaintext_credentials.telnet',
+        messageParams: { target: context.target },
         evidence: { port: context.port, protocol: 'Telnet', contentRecorded: false },
         dedupSuffix: 'telnet',
       }),
@@ -216,13 +210,15 @@ export class PlaintextCredentialDetector implements Detector {
       this.finding(context, {
         severity: 'critical',
         service: protocol,
-        title: username
-          ? `Cleartext ${protocol} login for "${sanitize(username)}" to ${context.target}`
-          : `Cleartext ${protocol} password sent to ${context.target}`,
-        description:
-          `A ${protocol} login was sent without encryption on port ${context.port}. Mail passwords are ` +
-          'high value because mailbox access enables password resets on other services. The password is ' +
-          `not recorded here. Use ${protocol} over TLS (port ${context.port === 110 ? '995' : '993'}) instead.`,
+        messageKey: 'plaintext_credentials.mailbox',
+        messageParams: {
+          target: context.target,
+          protocol,
+          port: String(context.port),
+          securePort: context.port === 110 ? '995' : '993',
+          username: username ? sanitize(username) : null,
+          hasUsername: Boolean(username),
+        },
         evidence: {
           username: username ? sanitize(username) : null,
           protocol,
@@ -249,13 +245,12 @@ export class PlaintextCredentialDetector implements Detector {
       this.finding(context, {
         severity: 'critical',
         service: 'SMTP AUTH',
-        title: username
-          ? `Cleartext SMTP login for "${sanitize(username)}" to ${context.target}`
-          : `Cleartext SMTP authentication to ${context.target}`,
-        description:
-          'SMTP authentication was sent without STARTTLS, so the credential crossed the network in a ' +
-          'trivially decodable form (base64 is encoding, not encryption). A stolen SMTP credential is ' +
-          'typically used to send phishing mail from your domain. The password is not recorded here.',
+        messageKey: 'plaintext_credentials.smtp',
+        messageParams: {
+          target: context.target,
+          username: username ? sanitize(username) : null,
+          hasUsername: Boolean(username),
+        },
         evidence: {
           username: username ? sanitize(username) : null,
           mechanism: authPlain ? 'PLAIN' : 'LOGIN',
@@ -271,8 +266,8 @@ export class PlaintextCredentialDetector implements Detector {
     detail: {
       severity: Finding['severity'];
       service: string;
-      title: string;
-      description: string;
+      messageKey: Finding['messageKey'];
+      messageParams: Finding['messageParams'];
       evidence: Record<string, unknown>;
       dedupSuffix: string;
     },
@@ -280,8 +275,8 @@ export class PlaintextCredentialDetector implements Detector {
     return {
       kind: this.name,
       severity: detail.severity,
-      title: detail.title,
-      description: detail.description,
+      messageKey: detail.messageKey,
+      messageParams: detail.messageParams,
       dedupKey: `plaintext_credentials|${detail.dedupSuffix}|${context.target}:${context.port}`,
       sourceIp: context.source,
       sourceMac: context.packet.ethernet?.sourceAddress ?? null,

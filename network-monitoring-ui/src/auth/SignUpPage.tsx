@@ -15,22 +15,27 @@ import { useQuery } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchSignupMode, signup } from '../api/auth.api';
-import { describeError } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
+import { LOCALES } from '../i18n/generated/locales';
+import { type Message, useMessageText } from '../i18n/message-state';
+import { ENDONYMS, useT } from '../i18n/ui';
 import type { SignupPayload } from '../types';
 
 const MIN_PASSWORD_LENGTH = 8;
 
-const ROLES = [
-  { value: 'USER', label: 'User' },
-  { value: 'ADMIN', label: 'Administrator' },
-] as const;
+const ROLE_VALUES = ['USER', 'ADMIN'] as const;
 
-const LANGUAGES = [
-  { value: 'en', label: 'English' },
-  { value: 'fa', label: 'دری' },
-  { value: 'ps', label: 'پشتو' },
-] as const;
+/*
+ * The languages this installation actually has, named in themselves.
+ *
+ * Was a hand-written list offering English, Dari and Pashto — and not German.
+ * Pashto has no catalogue here, so choosing it wrote a `lang_code` the interface
+ * cannot honour and silently fell back to English; German was missing although it
+ * ships. Harmless while nothing read the column, and a bug from the moment it
+ * started choosing the interface language. Derived now, so the two can no longer
+ * disagree.
+ */
+const LANGUAGES = LOCALES.map((value) => ({ value, label: ENDONYMS[value] }));
 
 /**
  * Account creation.
@@ -53,6 +58,7 @@ const LANGUAGES = [
  * appears only for a signed-in administrator, whose choice the server honours.
  */
 export default function SignUpPage() {
+  const t = useT();
   const { user, loading: authLoading } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
 
@@ -73,7 +79,10 @@ export default function SignUpPage() {
     langCode: 'en',
   });
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
+  // See i18n/message-state.ts — this page carries its own language switch, so a
+  // rendered message would sit here in the language the reader just left.
+  const [errorMessage, setErrorMessage] = useState<Message | null>(null);
+  const errorText = useMessageText();
   const [submitting, setSubmitting] = useState(false);
 
   const navigate = useNavigate();
@@ -93,7 +102,7 @@ export default function SignUpPage() {
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    setErrorMessage('');
+    setErrorMessage(null);
     setSubmitting(true);
 
     try {
@@ -103,7 +112,7 @@ export default function SignUpPage() {
       // account has nowhere to go but /login.
       navigate(isAdmin ? '/dashboard' : '/login', { replace: true });
     } catch (error) {
-      setErrorMessage(describeError(error, 'Could not create the account'));
+      setErrorMessage({ error, fallbackKey: 'signup.create_failed' });
     } finally {
       setSubmitting(false);
     }
@@ -140,17 +149,18 @@ export default function SignUpPage() {
     return shell(
       <>
         <CardHeader
-          title="Account creation is restricted"
-          subheader="Only an administrator can add accounts to this installation"
+          title={t('signup.restricted')}
+          subheader={t('signup.restricted_subtitle')}
           titleTypographyProps={{ variant: 'h6' }}
         />
         <CardContent>
           <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
-            Ask an administrator to create your account. If you are setting this server up yourself, run{' '}
-            <code>npm run user -- create --email you@example.com --generate --role ADMIN</code> on the server.
+            {t('signup.ask_admin')}{' '}
+            <code>npm run user -- create --email you@example.com --generate --role ADMIN</code>{' '}
+            {t('signup.on_the_server')}
           </Typography>
           <Button variant="contained" onClick={() => navigate('/login')}>
-            Back to sign in
+            {t('signup.back_to_sign_in')}
           </Button>
         </CardContent>
       </>,
@@ -161,18 +171,14 @@ export default function SignUpPage() {
     <Box sx={{ display: 'grid', placeItems: 'center', minHeight: '100vh', px: 2, py: 6 }}>
       <Card variant="outlined" sx={{ width: '100%', maxWidth: 640 }}>
         <CardHeader
-          title={bootstrap ? 'Create the first administrator' : 'Create an account'}
-          subheader={
-            bootstrap
-              ? 'This installation has no accounts yet, so this one becomes an administrator'
-              : 'Register a user for the Network Monitoring Tool'
-          }
+          title={bootstrap ? t('login.create_first_admin') : t('signup.title')}
+          subheader={bootstrap ? t('signup.bootstrap_subtitle') : t('signup.subtitle')}
           titleTypographyProps={{ variant: 'h6' }}
         />
         <CardContent>
           {errorMessage && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErrorMessage('')}>
-              {errorMessage}
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErrorMessage(null)}>
+              {errorText(errorMessage)}
             </Alert>
           )}
 
@@ -180,7 +186,7 @@ export default function SignUpPage() {
             <Grid container spacing={2}>
               <Grid size={12}>
                 <TextField
-                  label="Email address"
+                  label={t('login.email')}
                   type="email"
                   value={form.email}
                   onChange={(event) => update('email', event.target.value)}
@@ -192,33 +198,33 @@ export default function SignUpPage() {
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
-                  label="Password"
+                  label={t('login.password')}
                   type="password"
                   value={form.password}
                   onChange={(event) => update('password', event.target.value)}
                   autoComplete="new-password"
                   error={passwordTooShort}
-                  helperText={passwordTooShort ? `At least ${MIN_PASSWORD_LENGTH} characters` : ' '}
+                  helperText={passwordTooShort ? t('signup.min_length', { count: MIN_PASSWORD_LENGTH }) : ' '}
                   fullWidth
                   required
                 />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
-                  label="Confirm password"
+                  label={t('signup.confirm_password')}
                   type="password"
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.target.value)}
                   autoComplete="new-password"
                   error={passwordsDiffer}
-                  helperText={passwordsDiffer ? 'Passwords do not match' : ' '}
+                  helperText={passwordsDiffer ? t('signup.mismatch') : ' '}
                   fullWidth
                   required
                 />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
-                  label="First name"
+                  label={t('signup.first_name')}
                   value={form.firstname}
                   onChange={(event) => update('firstname', event.target.value)}
                   fullWidth
@@ -227,7 +233,7 @@ export default function SignUpPage() {
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
-                  label="Last name"
+                  label={t('signup.last_name')}
                   value={form.lastname}
                   onChange={(event) => update('lastname', event.target.value)}
                   fullWidth
@@ -237,15 +243,15 @@ export default function SignUpPage() {
                 <Grid size={{ xs: 12, sm: 6 }}>
                   <TextField
                     select
-                    label="Role"
+                    label={t('signup.role')}
                     value={form.role}
                     onChange={(event) => update('role', event.target.value as SignupPayload['role'])}
-                    helperText="You are an administrator, so this choice is honoured"
+                    helperText={t('signup.role_helper')}
                     fullWidth
                   >
-                    {ROLES.map((role) => (
-                      <MenuItem key={role.value} value={role.value}>
-                        {role.label}
+                    {ROLE_VALUES.map((role) => (
+                      <MenuItem key={role} value={role}>
+                        {t(role === 'ADMIN' ? 'role.administrator' : 'role.user')}
                       </MenuItem>
                     ))}
                   </TextField>
@@ -254,7 +260,7 @@ export default function SignUpPage() {
               <Grid size={{ xs: 12, sm: canChooseRole ? 6 : 12 }}>
                 <TextField
                   select
-                  label="Language"
+                  label={t('account.language')}
                   value={form.langCode}
                   onChange={(event) => update('langCode', event.target.value)}
                   fullWidth
@@ -276,10 +282,14 @@ export default function SignUpPage() {
                 startIcon={<PersonAddAlt1Icon />}
                 disabled={!canSubmit}
               >
-                {submitting ? 'Creating account…' : bootstrap ? 'Create administrator' : 'Sign up'}
+                {submitting
+                  ? t('signup.creating')
+                  : bootstrap
+                    ? t('signup.create_administrator')
+                    : t('signup.submit')}
               </Button>
               <Button variant="text" onClick={() => navigate('/login')}>
-                {isAdmin ? 'Back to the app' : 'Already have an account? Sign in'}
+                {isAdmin ? t('signup.back_to_app') : t('signup.have_account')}
               </Button>
             </Stack>
           </Box>

@@ -113,12 +113,15 @@ export class NewDeviceDetector implements Detector {
       {
         kind: this.name,
         severity: 'medium',
-        title: `New device on the network: ${mac}${ip ? ` (${ip})` : ''}`,
-        description:
-          `${mac} has not been seen on this network before` +
-          `${ip ? `, and is currently using ${ip}` : ''}. ` +
-          'An unrecognised device may be a visitor, a newly provisioned machine, or an unauthorised ' +
-          `connection. The vendor prefix is ${mac.slice(0, 8)}, which can help identify the hardware.`,
+        messageKey: 'new_device.discovered',
+        messageParams: {
+          mac,
+          ip,
+          // ICU cannot branch on a value being absent, so whether the address is
+          // known travels as its own flag. See i18n/catalog/findings.en.ts.
+          hasIp: ip !== null,
+          vendorPrefix: mac.slice(0, 8),
+        },
         dedupKey: `new_device|${mac}`,
         sourceIp: ip,
         sourceMac: mac,

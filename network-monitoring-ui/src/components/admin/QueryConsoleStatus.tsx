@@ -8,6 +8,8 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type AdhocStatus, fetchAdhocStatus, recheckAdhoc } from '../../api/adhoc.api';
 import { describeError } from '../../api/client';
+import type { UiMessageKey } from '../../i18n/ui';
+import { type Translate, useT } from '../../i18n/ui';
 import { monoSx } from '../../theme';
 
 /**
@@ -47,45 +49,37 @@ import { monoSx } from '../../theme';
  * the environment it pins the field, and the settings panel says so with the
  * variable's name on the disabled control.
  */
-const REMEDY: Record<string, { title: string; lines: string[]; note: string }> = {
+const REMEDY: Record<string, { titleKey: UiMessageKey; lines: string[]; noteKey: UiMessageKey }> = {
   disabled: {
-    title: 'The console has not been switched on',
+    titleKey: 'console.remedy.disabled.title',
     lines: [],
-    note:
-      'Switch it on in Query console settings, the next row in this menu, and set a console ' +
-      'password there. No restart needed. This is the default state, not a fault.',
+    noteKey: 'console.remedy.disabled.note',
   },
   'no-password': {
-    title: 'Switched on, but there is no password to install',
+    titleKey: 'console.remedy.no_password.title',
     lines: [],
-    note:
-      'The console was asked for, but the role it authenticates as has no credential and the ' +
-      'server will not invent one. Set one in Query console settings, the next row in this menu.',
+    noteKey: 'console.remedy.no_password.note',
   },
   'sandbox-failed': {
-    title: 'The database would not confirm the console is sandboxed',
+    titleKey: 'console.remedy.sandbox_failed.title',
     lines: [],
-    note:
-      'The console is configured, and the server refused to start it because it could not prove ' +
-      'the role is neither a superuser nor able to write. Check that the migrations have run, and ' +
-      'that nobody has recreated the role by hand. Fix it and check again — no restart needed.',
+    noteKey: 'console.remedy.sandbox_failed.note',
   },
 };
 
-function Running({ status }: { status: AdhocStatus }) {
+function Running({ status, t }: { status: AdhocStatus; t: Translate }) {
   return (
     <Stack spacing={1.5}>
       <Alert severity="success">
-        <AlertTitle>The console is running</AlertTitle>
-        Queries are executed as a Postgres role whose grants decide what is possible — not as this
-        application's own database user.
+        <AlertTitle>{t('console.running')}</AlertTitle>
+        {t('console.running_note')}
       </Alert>
 
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
         <Chip
           size="small"
           color={status.mode === 'write' ? 'warning' : 'success'}
-          label={status.mode === 'write' ? 'Read and write' : 'Read only'}
+          label={status.mode === 'write' ? t('console.mode_write') : t('console.mode_read')}
         />
         {status.role && (
           <Typography variant="caption" sx={{ ...monoSx, color: 'text.secondary' }}>
@@ -101,9 +95,7 @@ function Running({ status }: { status: AdhocStatus }) {
             come from the stored settings instead, so naming ADHOC_WRITE_ENABLED
             pointed an operator at a line that may not exist.
           */}
-          Write mode is on, so the console authenticates as the read-write role and can UPDATE, INSERT and
-          DELETE the operational tables. It still cannot touch the audit trail, the secret columns, accounts
-          or delivery settings.
+          {t('console.write_warning')}
         </Alert>
       )}
 
@@ -116,18 +108,15 @@ function Running({ status }: { status: AdhocStatus }) {
          * nobody re-reads, this would never be seen.
          */
         <Alert severity="warning">
-          <AlertTitle>The console password may be in the Postgres log</AlertTitle>
-          The database owner is not a superuser, so statement logging could not be suppressed while the
-          password was set. Under{' '}
-          <Box component="code" sx={monoSx}>
-            log_statement = 'ddl'
-          </Box>{' '}
-          or{' '}
-          <Box component="code" sx={monoSx}>
-            'all'
-          </Box>{' '}
-          it will have been written in cleartext. Treat the console password as a value the database server
-          may have recorded — wherever it was set from, since it reaches the role the same way either way.
+          <AlertTitle>{t('console.password_logged')}</AlertTitle>
+          {/*
+            The two settings arrive as parameters rather than as <code> spans
+            around them. Splitting a sentence to keep a font would fix the word
+            order in English and break it everywhere else, and the renderer
+            already bidi-isolates an interpolated value — which is what actually
+            matters for these in a right-to-left paragraph.
+          */}
+          {t('console.password_logged_note', { ddl: "log_statement = 'ddl'", all: "'all'" })}
         </Alert>
       )}
     </Stack>
@@ -135,6 +124,7 @@ function Running({ status }: { status: AdhocStatus }) {
 }
 
 export default function QueryConsoleStatus() {
+  const t = useT();
   const queryClient = useQueryClient();
   const status = useQuery({ queryKey: ['adhoc', 'status'], queryFn: fetchAdhocStatus });
 
@@ -147,32 +137,32 @@ export default function QueryConsoleStatus() {
   });
 
   if (status.isPending) {
-    return <Typography variant="body2">Asking the server…</Typography>;
+    return <Typography variant="body2">{t('console.loading')}</Typography>;
   }
 
   if (status.isError) {
     // Not the same as "off", and conflating them would give the wrong
     // instruction: the remedies below tell somebody to set variables that may
     // already be set.
-    return <Alert severity="error">{describeError(status.error, 'Could not read the console status')}</Alert>;
+    return <Alert severity="error">{describeError(status.error, t('console.status_failed'))}</Alert>;
   }
 
   const current = status.data;
-  if (current.enabled) return <Running status={current} />;
+  if (current.enabled) return <Running status={current} t={t} />;
 
   const remedy = current.reason ? REMEDY[current.reason] : undefined;
 
   return (
     <Stack spacing={1.5}>
       <Alert severity="info">
-        <AlertTitle>{remedy?.title ?? 'The console is not available'}</AlertTitle>
-        {remedy?.note}
+        <AlertTitle>{remedy ? t(remedy.titleKey) : t('console.unavailable')}</AlertTitle>
+        {remedy && t(remedy.noteKey)}
       </Alert>
 
       {remedy && remedy.lines.length > 0 && (
         <Box>
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            In the API environment:
+            {t('console.env_lines')}
           </Typography>
           <Box
             component="pre"
@@ -193,7 +183,7 @@ export default function QueryConsoleStatus() {
 
       {current.detail && (
         <Alert severity="warning">
-          <AlertTitle>What the database said</AlertTitle>
+          <AlertTitle>{t('console.db_said')}</AlertTitle>
           <Box component="code" sx={{ ...monoSx, wordBreak: 'break-word' }}>
             {current.detail}
           </Box>
@@ -201,15 +191,15 @@ export default function QueryConsoleStatus() {
       )}
 
       {recheck.isError && (
-        <Alert severity="error">{describeError(recheck.error, 'The re-check could not be run')}</Alert>
+        <Alert severity="error">{describeError(recheck.error, t('console.recheck_failed'))}</Alert>
       )}
 
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
         <Button size="small" variant="outlined" onClick={() => recheck.mutate()} disabled={recheck.isPending}>
-          {recheck.isPending ? 'Checking…' : 'Check again'}
+          {recheck.isPending ? t('console.checking') : t('console.check_again')}
         </Button>
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          Re-runs the startup check against the current environment. It cannot switch the console on.
+          {t('console.recheck_note')}
         </Typography>
       </Stack>
     </Stack>

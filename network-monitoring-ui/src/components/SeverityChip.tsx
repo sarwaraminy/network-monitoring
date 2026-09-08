@@ -1,41 +1,54 @@
 import Chip, { type ChipProps } from '@mui/material/Chip';
+import type { UiMessageKey } from '../i18n/ui';
+import { useT } from '../i18n/ui';
 import type { AlertKind, Severity } from '../types';
 
-/** Colour and label for each severity, used by the chip and the summary tiles. */
-export const SEVERITY_STYLE: Record<Severity, { label: string; color: ChipProps['color']; hex: string }> = {
-  critical: { label: 'Critical', color: 'error', hex: '#b91c1c' },
-  high: { label: 'High', color: 'warning', hex: '#c2410c' },
-  medium: { label: 'Medium', color: 'info', hex: '#a16207' },
-  low: { label: 'Low', color: 'default', hex: '#0f766e' },
-  info: { label: 'Info', color: 'default', hex: '#475569' },
+/**
+ * Colour and label for each severity, used by the chip and the summary tiles.
+ *
+ * `labelKey` rather than `label`: a severity name is read, so it is translated,
+ * while the `kind` it sits beside is an identifier and is not. The hex is here
+ * because the charts need a colour outside the MUI palette; see charts/palette.ts.
+ */
+export const SEVERITY_STYLE: Record<
+  Severity,
+  { labelKey: UiMessageKey; color: ChipProps['color']; hex: string }
+> = {
+  critical: { labelKey: 'severity.critical', color: 'error', hex: '#b91c1c' },
+  high: { labelKey: 'severity.high', color: 'warning', hex: '#c2410c' },
+  medium: { labelKey: 'severity.medium', color: 'info', hex: '#a16207' },
+  low: { labelKey: 'severity.low', color: 'default', hex: '#0f766e' },
+  info: { labelKey: 'severity.info', color: 'default', hex: '#475569' },
 };
 
-/** Human-readable names for detector kinds. */
-export const KIND_LABEL: Record<AlertKind, string> = {
-  arp_spoofing: 'ARP spoofing',
-  port_scan: 'Port scan',
-  host_sweep: 'Host sweep',
-  syn_flood: 'SYN flood',
-  plaintext_credentials: 'Cleartext credentials',
-  dns_tunneling: 'DNS tunnelling',
-  new_device: 'New device',
-  threat_intel: 'Threat intelligence',
+/**
+ * Readable names for detector kinds.
+ *
+ * The `kind` itself stays English wherever it is stored, exported or matched — it
+ * is an identifier that happens to be readable, and a SIEM rule keys on it. This
+ * map is the *label*, which is the half a person reads.
+ */
+export const KIND_LABEL: Record<AlertKind, UiMessageKey> = {
+  arp_spoofing: 'kind.arp_spoofing',
+  port_scan: 'kind.port_scan',
+  host_sweep: 'kind.host_sweep',
+  syn_flood: 'kind.syn_flood',
+  plaintext_credentials: 'kind.plaintext_credentials',
+  dns_tunneling: 'kind.dns_tunneling',
+  new_device: 'kind.new_device',
+  threat_intel: 'kind.threat_intel',
 };
 
 /** One-line explanation of what each detector looks for. */
-export const KIND_DESCRIPTION: Record<AlertKind, string> = {
-  arp_spoofing:
-    'A host claiming an IP address that belongs to another device — the basis of most LAN man-in-the-middle attacks.',
-  port_scan: 'One source probing many ports on a single host, mapping which services it exposes.',
-  host_sweep: 'One source probing the same port across many hosts, hunting for a service to exploit.',
-  syn_flood:
-    'An implausible rate of connection attempts, indicating denial of service or an aggressive scanner.',
-  plaintext_credentials: 'Credentials or session cookies crossing the network without encryption.',
-  dns_tunneling:
-    'DNS queries shaped like encoded data rather than name lookups, suggesting exfiltration or C2.',
-  new_device: 'A MAC address not seen on this network before.',
-  threat_intel:
-    'An address or domain matching a known-malicious indicator feed — the one detector here that is not a threshold.',
+export const KIND_DESCRIPTION: Record<AlertKind, UiMessageKey> = {
+  arp_spoofing: 'kind.arp_spoofing.description',
+  port_scan: 'kind.port_scan.description',
+  host_sweep: 'kind.host_sweep.description',
+  syn_flood: 'kind.syn_flood.description',
+  plaintext_credentials: 'kind.plaintext_credentials.description',
+  dns_tunneling: 'kind.dns_tunneling.description',
+  new_device: 'kind.new_device.description',
+  threat_intel: 'kind.threat_intel.description',
 };
 
 export function SeverityChip({
@@ -45,10 +58,11 @@ export function SeverityChip({
   severity: Severity;
   size?: 'small' | 'medium';
 }>) {
+  const t = useT();
   const style = SEVERITY_STYLE[severity];
   return (
     <Chip
-      label={style.label}
+      label={t(style.labelKey)}
       size={size}
       color={style.color}
       variant={severity === 'critical' || severity === 'high' ? 'filled' : 'outlined'}

@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
+import { translate } from '../../i18n/ui';
 import { ADHOC_OFF, ADHOC_RUNNING, ADMIN_USER } from '../../test/fixtures';
 import { renderApp } from '../../test/render';
 import { server } from '../../test/server';
@@ -117,12 +118,14 @@ describe('AdminSettingsMenu', () => {
     await user.click(await screen.findByRole('button', { name: /administration settings/i }));
 
     for (const group of ADMIN_GROUPS) {
-      expect(screen.getByText(group.heading)).toBeInTheDocument();
+      // Rendered through the catalogue, so the assertion goes through it too —
+      // asserting the key would pass against a menu showing raw keys.
+      expect(screen.getByText(translate('en', group.headingKey))).toBeInTheDocument();
       expect(group.items.length).toBeGreaterThan(0);
       // Each item's label is on screen, so a group cannot pass by its heading
       // alone.
       for (const item of group.items) {
-        expect(screen.getByText(item.label)).toBeInTheDocument();
+        expect(screen.getByText(translate('en', item.labelKey))).toBeInTheDocument();
       }
     }
   });

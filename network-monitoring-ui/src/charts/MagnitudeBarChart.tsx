@@ -1,6 +1,7 @@
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { BarChart } from '@mui/x-charts/BarChart';
+import { useFormatters } from '../i18n/format';
 import { useChartPalette } from './useChartPalette';
 
 export interface MagnitudeDatum {
@@ -15,7 +16,19 @@ interface Props {
   height?: number;
   /** Names the quantity, since a single-series chart carries no legend. */
   valueLabel: string;
-  emptyMessage?: string;
+  emptyMessage: string;
+  /**
+   * True when the category labels are technical identifiers — IP addresses,
+   * detector kinds — rather than prose.
+   *
+   * They then keep their own direction inside a right-to-left layout. SVG text is
+   * subject to the bidirectional algorithm exactly as HTML is, and this axis is
+   * the one place identifiers are rendered where `Identifier` cannot reach: a tick
+   * label is a string handed to the chart, not an element this application
+   * renders. `192.168.1.10` reordered on an axis is the same bug as `192.168.1.10`
+   * reordered in a sentence.
+   */
+  labelsAreIdentifiers?: boolean;
 }
 
 /** Room reserved for category labels, so none of them is clipped. */
@@ -38,9 +51,11 @@ export default function MagnitudeBarChart({
   data,
   height = 260,
   valueLabel,
-  emptyMessage = 'Nothing to show yet.',
+  emptyMessage,
+  labelsAreIdentifiers = false,
 }: Props) {
   const palette = useChartPalette();
+  const fmt = useFormatters();
 
   if (data.length === 0) {
     return (
@@ -73,7 +88,10 @@ export default function MagnitudeBarChart({
         {
           scaleType: 'band',
           data: sorted.map((d) => d.label),
-          tickLabelStyle: { fontSize: 11 },
+          tickLabelStyle: {
+            fontSize: 11,
+            ...(labelsAreIdentifiers ? { direction: 'ltr', unicodeBidi: 'isolate' } : {}),
+          },
           width: categoryAxisWidth,
         },
       ]}
@@ -86,7 +104,7 @@ export default function MagnitudeBarChart({
           // Direct label at the bar tip, so the value is readable without
           // tracing back to the axis. Zero is left unlabelled rather than
           // printing a "0" that adds nothing.
-          barLabel: (item) => (item.value ? item.value.toLocaleString() : null),
+          barLabel: (item) => (item.value ? fmt.number(item.value) : null),
           barLabelPlacement: 'outside',
           valueFormatter: (value, context) => {
             const datum = sorted[context.dataIndex];

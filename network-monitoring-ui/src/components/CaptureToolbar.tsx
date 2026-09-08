@@ -15,6 +15,8 @@ import Typography from '@mui/material/Typography';
 import { type ReactNode, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import type { UsePacketCapture } from '../hooks/usePacketCapture';
+import { useMessageText } from '../i18n/message-state';
+import { type Translate, useT } from '../i18n/ui';
 import { DisclosureCaret } from './DisclosureCaret';
 import SurfaceCard from './SurfaceCard';
 
@@ -50,9 +52,9 @@ interface CaptureToolbarProps {
 const CONTROLS_REGION = 'capture-controls';
 
 /** What the interface dropdown says under itself, in each of its three states. */
-function interfaceHelperText(loading: boolean, count: number): string {
-  if (loading) return 'Loading interfaces…';
-  if (count === 0) return 'No interfaces reported by the server';
+function interfaceHelperText(loading: boolean, count: number, t: Translate): string {
+  if (loading) return t('capture.loading_interfaces');
+  if (count === 0) return t('capture.no_interfaces');
   // A space, not an empty string: it reserves the line so the row does not jump
   // by the height of the helper text once the interfaces land.
   return ' ';
@@ -67,6 +69,7 @@ export default function CaptureToolbar({
   headerActions,
   onLayoutSettled,
 }: Readonly<CaptureToolbarProps>) {
+  const t = useT();
   /*
    * Open to begin with, because the first thing anyone does on this page is
    * choose an interface and press Start. It folds away afterwards by hand, which
@@ -96,6 +99,8 @@ export default function CaptureToolbar({
     clear,
   } = capture;
 
+  const errorText = useMessageText();
+
   const captureUnavailable = status?.captureAvailable === false;
 
   /*
@@ -123,7 +128,7 @@ export default function CaptureToolbar({
           <IconButton
             size="small"
             onClick={() => setShowControls((open) => !open)}
-            aria-label={showControls ? 'Hide capture settings' : 'Show capture settings'}
+            aria-label={showControls ? t('capture.hide_settings') : t('capture.show_settings')}
             aria-expanded={showControls}
             // Points at what it opens, so the state it announces describes
             // something real rather than being an assertion about nothing.
@@ -137,14 +142,12 @@ export default function CaptureToolbar({
     >
       {captureUnavailable && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          Live capture is unavailable on the server: the packet capture library could not be loaded. Install
-          Npcap (Windows) or libpcap (Linux/macOS) and restart the API. Everything else on this page still
-          works.
+          {t('capture.unavailable_note')}
         </Alert>
       )}
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {errorText(error)}
         </Alert>
       )}
       {/*
@@ -170,11 +173,11 @@ export default function CaptureToolbar({
           <Grid size={{ xs: 12, md: showIpFilter ? 4 : 5 }}>
             <TextField
               select
-              label="Network interface"
+              label={t('capture.network_interface')}
               value={selectedInterface}
               onChange={(event) => setSelectedInterface(event.target.value)}
               disabled={capturing || loadingInterfaces}
-              helperText={interfaceHelperText(loadingInterfaces, interfaces.length)}
+              helperText={interfaceHelperText(loadingInterfaces, interfaces.length, t)}
               fullWidth
             >
               {interfaces.map((device) => (
@@ -189,12 +192,12 @@ export default function CaptureToolbar({
           {showIpFilter && (
             <Grid size={{ xs: 12, sm: 6, md: 2.5 }}>
               <TextField
-                label="Filter by IP address"
+                label={t('capture.filter_ip')}
                 value={filterIp}
                 onChange={(event) => setFilterIp(event.target.value)}
                 placeholder={exampleHost}
                 disabled={capturing}
-                helperText="Applied as the BPF filter host <ip>"
+                helperText={t('capture.bpf_helper')}
                 fullWidth
               />
             </Grid>
@@ -202,26 +205,26 @@ export default function CaptureToolbar({
 
           <Grid size={{ xs: 6, sm: 3, md: showIpFilter ? 1.75 : 2 }}>
             <TextField
-              label="Snapshot length"
+              label={t('capture.snapshot_length')}
               type="number"
               value={snapshotLength}
               onChange={(event) => setSnapshotLength(Number(event.target.value))}
               disabled={capturing}
               slotProps={{ htmlInput: { min: 64, max: 262144, step: 1024 } }}
-              helperText="Bytes per frame"
+              helperText={t('capture.snaplen_helper')}
               fullWidth
             />
           </Grid>
 
           <Grid size={{ xs: 6, sm: 3, md: showIpFilter ? 1.75 : 2 }}>
             <TextField
-              label="Timeout (ms)"
+              label={t('capture.timeout')}
               type="number"
               value={timeout}
               onChange={(event) => setTimeoutMs(Number(event.target.value))}
               disabled={capturing}
               slotProps={{ htmlInput: { min: 0, step: 10 } }}
-              helperText="pcap read timeout"
+              helperText={t('capture.timeout_helper')}
               fullWidth
             />
           </Grid>
@@ -271,10 +274,18 @@ export default function CaptureToolbar({
             icon={<FiberManualRecordIcon sx={{ fontSize: 12 }} />}
             color={capturing ? 'success' : 'default'}
             variant={capturing ? 'filled' : 'outlined'}
-            label={capturing ? 'Capturing' : 'Idle'}
+            label={capturing ? t('capture.capturing') : t('capture.idle')}
           />
-          {status?.linkType && <Chip size="small" variant="outlined" label={`Link: ${status.linkType}`} />}
-          {status?.filter && <Chip size="small" variant="outlined" label={`Filter: ${status.filter}`} />}
+          {status?.linkType && (
+            <Chip size="small" variant="outlined" label={t('capture.link_type', { type: status.linkType })} />
+          )}
+          {status?.filter && (
+            <Chip
+              size="small"
+              variant="outlined"
+              label={t('capture.filter_chip', { filter: status.filter })}
+            />
+          )}
           {status && status.findingCount > 0 && (
             <Chip
               size="small"
@@ -283,7 +294,7 @@ export default function CaptureToolbar({
               component={RouterLink}
               to="/alerts"
               clickable
-              label={`${status.findingCount} finding${status.findingCount === 1 ? '' : 's'} — view alerts`}
+              label={t('capture.findings_chip', { count: status.findingCount })}
             />
           )}
           {status && status.droppedPackets > 0 && (
@@ -293,7 +304,7 @@ export default function CaptureToolbar({
                 color: 'text.secondary',
               }}
             >
-              {status.droppedPackets.toLocaleString()} older packet(s) dropped from the buffer
+              {t('capture.dropped', { count: status.droppedPackets })}
             </Typography>
           )}
         </Stack>
@@ -311,7 +322,7 @@ export default function CaptureToolbar({
             onClick={start}
             disabled={!canStart || captureUnavailable}
           >
-            Start capture
+            {t('capture.start')}
           </Button>
           <Button
             variant="outlined"
@@ -320,7 +331,7 @@ export default function CaptureToolbar({
             onClick={stop}
             disabled={!capturing || busy}
           >
-            Stop
+            {t('capture.stop')}
           </Button>
           <Button
             variant="outlined"
@@ -329,7 +340,7 @@ export default function CaptureToolbar({
             onClick={clear}
             disabled={busy}
           >
-            Clear
+            {t('common.clear')}
           </Button>
         </Stack>
       </Stack>
