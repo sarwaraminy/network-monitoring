@@ -449,7 +449,7 @@ export const UI_EN = {
   'intel.health_failing': '{count} failing',
   'intel.health_stale': '{count} on a cached copy',
   'intel.health_ok': 'all loaded',
-  'intel.reloaded_toast': 'Reloaded {count} indicators from {feeds} feed(s).',
+  'intel.reloaded_toast': 'Reloaded {count, number} indicators from {feeds} feed(s).',
   'intel.reload_failed': 'Reload failed',
   'intel.status_failed': 'Could not read threat-intelligence status',
   'intel.no_feeds_body':

@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { type AdhocSettingsPatch, fetchAdhocSettings, saveAdhocSettings } from '../../api/adhoc.api';
 import { describeError } from '../../api/client';
+import { type Message, useMessageText } from '../../i18n/message-state';
 import { type UiMessageKey, useT } from '../../i18n/ui';
 import { monoSx } from '../../theme';
 
@@ -126,13 +127,15 @@ export default function QueryConsoleSettings() {
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ['adhoc', 'settings'], queryFn: fetchAdhocSettings });
   const [draft, setDraft] = useState<AdhocSettingsPatch>({});
-  const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  // Held as a key, rendered on display — see i18n/message-state.ts.
+  const [message, setMessage] = useState<{ severity: 'success' | 'error'; body: Message } | null>(null);
+  const messageText = useMessageText();
 
   const save = useMutation({
     mutationFn: (patch: AdhocSettingsPatch) => saveAdhocSettings(patch),
     onSuccess: () => {
       setDraft({});
-      setMessage({ severity: 'success', text: t('console_settings.saved') });
+      setMessage({ severity: 'success', body: { key: 'console_settings.saved' } });
       void queryClient.invalidateQueries({ queryKey: ['adhoc', 'settings'] });
       // The console's own status changes with these: enabling it starts the pool,
       // and the diagnostics panel and the console page both read that.
@@ -141,7 +144,7 @@ export default function QueryConsoleSettings() {
     onError: (error) => {
       // The server's message is the useful one — it names the environment
       // variable that pinned the field, which is what somebody can go and remove.
-      setMessage({ severity: 'error', text: describeError(error, t('console_settings.save_failed')) });
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'console_settings.save_failed' } });
     },
   });
 
@@ -212,7 +215,7 @@ export default function QueryConsoleSettings() {
       if (!isPinned(key)) patch[key] = toPatchValue(key, draft[key]);
     }
     if (Object.keys(patch).length === 0) {
-      setMessage({ severity: 'error', text: t('console_settings.all_pinned') });
+      setMessage({ severity: 'error', body: { key: 'console_settings.all_pinned' } });
       return;
     }
     setMessage(null);
@@ -245,7 +248,7 @@ export default function QueryConsoleSettings() {
         </Alert>
       )}
 
-      {message && <Alert severity={message.severity}>{message.text}</Alert>}
+      {message && <Alert severity={message.severity}>{messageText(message.body)}</Alert>}
 
       {FIELDS.map((field) => {
         const pinned = isPinned(field.key);

@@ -41,6 +41,7 @@ import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
 import { useFormatters } from '../i18n/format';
+import { type Message, useMessageText } from '../i18n/message-state';
 import { type Translate, type UiMessageKey, useT } from '../i18n/ui';
 import { ALERT_KINDS, type AlertKind, type SuppressionDraft, type SuppressionRule } from '../types';
 
@@ -161,7 +162,9 @@ export default function SuppressionsPage() {
   const queryClient = useQueryClient();
 
   const [editing, setEditing] = useState<{ rule: SuppressionRule | null } | null>(null);
-  const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  // What to say, not the words for it — see i18n/message-state.ts.
+  const [message, setMessage] = useState<{ severity: 'success' | 'error'; body: Message } | null>(null);
+  const messageText = useMessageText();
 
   const listing = useQuery({ queryKey: ['suppressions'], queryFn: fetchSuppressions });
 
@@ -180,24 +183,25 @@ export default function SuppressionsPage() {
     onSuccess: (updated) => {
       setMessage({
         severity: 'success',
-        text: updated.enabled
-          ? t('suppressions.enabled_toast', { id: updated.id })
-          : t('suppressions.disabled_toast', { id: updated.id }),
+        body: {
+          key: updated.enabled ? 'suppressions.enabled_toast' : 'suppressions.disabled_toast',
+          params: { id: updated.id },
+        },
       });
       refresh();
     },
     onError: (error) =>
-      setMessage({ severity: 'error', text: describeError(error, t('suppressions.update_failed')) }),
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'suppressions.update_failed' } }),
   });
 
   const remove = useMutation({
     mutationFn: (rule: SuppressionRule) => deleteSuppression(rule.id),
     onSuccess: () => {
-      setMessage({ severity: 'success', text: t('suppressions.deleted_toast') });
+      setMessage({ severity: 'success', body: { key: 'suppressions.deleted_toast' } });
       refresh();
     },
     onError: (error) =>
-      setMessage({ severity: 'error', text: describeError(error, t('suppressions.delete_failed')) }),
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'suppressions.delete_failed' } }),
   });
 
   const handleEdit = useCallback((rule: SuppressionRule) => setEditing({ rule }), []);
@@ -262,7 +266,7 @@ export default function SuppressionsPage() {
 
       {message && (
         <Alert severity={message.severity} onClose={() => setMessage(null)}>
-          {message.text}
+          {messageText(message.body)}
         </Alert>
       )}
 
@@ -343,9 +347,10 @@ export default function SuppressionsPage() {
             setEditing(null);
             setMessage({
               severity: 'success',
-              text: created
-                ? t('suppressions.created_toast', { id: saved.id })
-                : t('suppressions.updated_toast', { id: saved.id }),
+              body: {
+                key: created ? 'suppressions.created_toast' : 'suppressions.updated_toast',
+                params: { id: saved.id },
+              },
             });
             refresh();
           }}
@@ -600,7 +605,8 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
         }
       : EMPTY_DRAFT,
   );
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Message | null>(null);
+  const errorText = useMessageText();
 
   const set = <K extends keyof SuppressionDraft>(key: K, value: SuppressionDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -618,7 +624,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
         targetCidr: draft.targetCidr,
         port: draft.port,
       }),
-    onError: (mutationError) => setError(describeError(mutationError, t('suppressions.check_failed'))),
+    onError: (mutationError) => setError({ error: mutationError, fallbackKey: 'suppressions.check_failed' }),
   });
 
   const save = useMutation({
@@ -626,7 +632,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
     onSuccess: (saved) => onSaved(saved, rule === null),
     // Server-side messages are the useful ones here — they name the field and say
     // how to write a range — so they are shown verbatim rather than replaced.
-    onError: (mutationError) => setError(describeError(mutationError, t('suppressions.save_failed'))),
+    onError: (mutationError) => setError({ error: mutationError, fallbackKey: 'suppressions.save_failed' }),
   });
 
   return (
@@ -644,7 +650,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
 
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
+            {errorText(error)}
           </Alert>
         )}
 
@@ -771,8 +777,7 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
                     {preview.data.samples.slice(0, 5).map((sample) => (
                       <Typography key={sample.id} variant="caption" sx={{ display: 'block' }}>
                         {kindLabel(sample.kind, t)} · {sample.sourceIp ?? t('suppressions.unknown_source')}
-                        {sample.targetIp ? ` → ${sample.targetIp}` : ''} · {fmt.number(sample.occurrences)}
-                        \u00d7
+                        {sample.targetIp ? ` → ${sample.targetIp}` : ''} · {fmt.number(sample.occurrences)}×
                       </Typography>
                     ))}
                   </Box>

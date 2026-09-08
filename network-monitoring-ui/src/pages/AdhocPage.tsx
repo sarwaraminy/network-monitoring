@@ -18,6 +18,7 @@ import QueryConsoleStatus from '../components/admin/QueryConsoleStatus';
 import DataGrid from '../components/DataGrid';
 import { DisclosureCaret } from '../components/DisclosureCaret';
 import SurfaceCard from '../components/SurfaceCard';
+import { type Message, useMessageText } from '../i18n/message-state';
 import { useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 
@@ -69,7 +70,9 @@ export default function AdhocPage() {
   const t = useT();
   const [sql, setSql] = useState('');
   const [result, setResult] = useState<AdhocResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The failure itself, described at display time — see i18n/message-state.ts.
+  const [error, setError] = useState<Message | null>(null);
+  const errorText = useMessageText();
   const [running, setRunning] = useState(false);
   /*
    * The editor folds away once a query has run, so the result gets the room —
@@ -111,7 +114,7 @@ export default function AdhocPage() {
       // The result is cleared, not left in place: a stale grid beside a fresh
       // error reads as though the error were a warning about the rows shown.
       setResult(null);
-      setError(describeError(caught));
+      setError({ error: caught });
       // Stays open on failure: the query is what needs editing, and folding it
       // away would hide the thing the error is about.
       setShowEditor(true);
@@ -292,7 +295,7 @@ export default function AdhocPage() {
           */}
           {error !== null && (
             <Alert severity="error" sx={{ '& .MuiAlert-message': monoSx }}>
-              {error}
+              {errorText(error)}
             </Alert>
           )}
         </Stack>

@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { describeError } from '../../api/client';
 import { type AccountSummary, fetchAccounts, type Role, setAccountRole } from '../../api/users.api';
 import { useAuth } from '../../contexts/AuthContext';
+import { type Message, useMessageText } from '../../i18n/message-state';
 import { useT } from '../../i18n/ui';
 
 /**
@@ -47,7 +48,10 @@ export default function UserRoles() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: fetchAccounts });
-  const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  // The message, not its words — see i18n/message-state.ts. Storing the
+  // rendered sentence froze this banner in whatever language raised it.
+  const [message, setMessage] = useState<{ severity: 'success' | 'error'; body: Message } | null>(null);
+  const messageText = useMessageText();
   /** Which row is in flight, so only its control is disabled. */
   const [pending, setPending] = useState<number | null>(null);
 
@@ -56,17 +60,25 @@ export default function UserRoles() {
     onSuccess: (updated) => {
       setMessage({
         severity: 'success',
-        text: t('users.role_changed', {
-          account: updated.email ?? t('users.that_account'),
-          role: updated.role.toUpperCase() === 'ADMIN' ? t('role.administrator') : t('role.user'),
-        }),
+        body: {
+          key: 'users.role_changed',
+          // The two parameters are messages in their own right, so they go in as
+          // references rather than as words. Rendering them here would defeat the
+          // point of holding the sentence around them.
+          params: {
+            account: updated.email ?? { key: 'users.that_account' },
+            role: {
+              key: updated.role.toUpperCase() === 'ADMIN' ? 'role.administrator' : 'role.user',
+            },
+          },
+        },
       });
       void queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
     onError: (error) => {
       // The server's own message, verbatim: it names which refusal this was, and
       // each one has a different remedy.
-      setMessage({ severity: 'error', text: describeError(error, t('users.change_failed')) });
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'users.change_failed' } });
     },
     onSettled: () => setPending(null),
   });
@@ -98,7 +110,7 @@ export default function UserRoles() {
 
   return (
     <Stack spacing={2}>
-      {message && <Alert severity={message.severity}>{message.text}</Alert>}
+      {message && <Alert severity={message.severity}>{messageText(message.body)}</Alert>}
 
       {admins.length <= 1 && <Alert severity="info">{t('users.single_admin')}</Alert>}
 

@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { describeError } from '../api/client';
 import { fetchDeliverySettings, saveDeliverySettings } from '../api/notify.api';
+import { type Message, useMessageText } from '../i18n/message-state';
 import { type UiMessageKey, useT } from '../i18n/ui';
 import type { DeliverySettingsPatch, DeliverySettingsResponse } from '../types';
 import SurfaceCard from './SurfaceCard';
@@ -347,7 +348,9 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
   const t = useT();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<Draft>({});
-  const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  // Held as a key, rendered on display — see i18n/message-state.ts.
+  const [message, setMessage] = useState<{ severity: 'success' | 'error'; body: Message } | null>(null);
+  const messageText = useMessageText();
 
   const settings = useQuery({ queryKey: ['notify', 'settings'], queryFn: fetchDeliverySettings });
 
@@ -381,12 +384,12 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
         for (const key of Object.keys(patch)) delete next[key];
         return next;
       });
-      setMessage({ severity: 'success', text: t('delivery.saved') });
+      setMessage({ severity: 'success', body: { key: 'delivery.saved' } });
     },
     onError: (error) => {
       // The server's own message is the useful one: it names a pinned field, or the
       // bound a number missed.
-      setMessage({ severity: 'error', text: describeError(error, t('delivery.save_failed')) });
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'delivery.save_failed' } });
     },
   });
 
@@ -467,10 +470,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
     // into it and clicking Save. Silently doing nothing here would look
     // identical to the request having hung — the button is enabled, "N unsaved"
     // is still showing, and nothing else on screen changes.
-    setMessage({
-      severity: 'error',
-      text: t('delivery.all_pinned_note'),
-    });
+    setMessage({ severity: 'error', body: { key: 'delivery.all_pinned_note' } });
   };
 
   const clearSecret = (key: string) => {
@@ -543,7 +543,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
     >
       {message && (
         <Alert severity={message.severity} onClose={() => setMessage(null)} sx={{ mb: 2 }}>
-          {message.text}
+          {messageText(message.body)}
         </Alert>
       )}
 

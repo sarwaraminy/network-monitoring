@@ -15,9 +15,9 @@ import { useQuery } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchSignupMode, signup } from '../api/auth.api';
-import { describeError } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { LOCALES } from '../i18n/generated/locales';
+import { type Message, useMessageText } from '../i18n/message-state';
 import { ENDONYMS, useT } from '../i18n/ui';
 import type { SignupPayload } from '../types';
 
@@ -79,7 +79,10 @@ export default function SignUpPage() {
     langCode: 'en',
   });
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
+  // See i18n/message-state.ts — this page carries its own language switch, so a
+  // rendered message would sit here in the language the reader just left.
+  const [errorMessage, setErrorMessage] = useState<Message | null>(null);
+  const errorText = useMessageText();
   const [submitting, setSubmitting] = useState(false);
 
   const navigate = useNavigate();
@@ -99,7 +102,7 @@ export default function SignUpPage() {
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    setErrorMessage('');
+    setErrorMessage(null);
     setSubmitting(true);
 
     try {
@@ -109,7 +112,7 @@ export default function SignUpPage() {
       // account has nowhere to go but /login.
       navigate(isAdmin ? '/dashboard' : '/login', { replace: true });
     } catch (error) {
-      setErrorMessage(describeError(error, t('signup.create_failed')));
+      setErrorMessage({ error, fallbackKey: 'signup.create_failed' });
     } finally {
       setSubmitting(false);
     }
@@ -174,8 +177,8 @@ export default function SignUpPage() {
         />
         <CardContent>
           {errorMessage && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErrorMessage('')}>
-              {errorMessage}
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErrorMessage(null)}>
+              {errorText(errorMessage)}
             </Alert>
           )}
 

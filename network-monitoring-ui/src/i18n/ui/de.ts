@@ -458,7 +458,7 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'intel.health_failing': '{count} fehlgeschlagen',
   'intel.health_stale': '{count} auf einer zwischengespeicherten Kopie',
   'intel.health_ok': 'alle geladen',
-  'intel.reloaded_toast': '{count} Indikatoren aus {feeds} Quelle(n) neu geladen.',
+  'intel.reloaded_toast': '{count, number} Indikatoren aus {feeds} Quelle(n) neu geladen.',
   'intel.reload_failed': 'Neuladen fehlgeschlagen',
   'intel.status_failed': 'Der Status der Bedrohungsdaten konnte nicht gelesen werden',
   'intel.no_feeds_body':

@@ -18,6 +18,7 @@ import { fetchNotifyStatus, sendNotifyTest } from '../api/notify.api';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
 import { useFormatters } from '../i18n/format';
+import { type Message, useMessageText } from '../i18n/message-state';
 import { type UiMessageKey, useT } from '../i18n/ui';
 
 /**
@@ -57,7 +58,9 @@ export default function DeliveryPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const queryClient = useQueryClient();
-  const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  // Held as a key, rendered on display — see i18n/message-state.ts.
+  const [message, setMessage] = useState<{ severity: 'success' | 'error'; body: Message } | null>(null);
+  const messageText = useMessageText();
 
   const status = useQuery({
     queryKey: ['notify', 'status'],
@@ -73,18 +76,22 @@ export default function DeliveryPage() {
         severity: failed.length > 0 ? 'error' : 'success',
         // Names the channel that failed rather than reporting a count. "1 of 2
         // delivered" sends you to the logs; "email failed: invalid login" does not.
-        text:
+        // The failure detail is the server's own words and stays as it came.
+        body:
           failed.length > 0
-            ? t('delivery.test_partial', {
-                delivered: result.delivered,
-                failures: failed.map((entry) => `${entry.channel} — ${entry.detail}`).join('; '),
-              })
-            : t('delivery.test_ok', { delivered: result.delivered }),
+            ? {
+                key: 'delivery.test_partial',
+                params: {
+                  delivered: result.delivered,
+                  failures: failed.map((entry) => `${entry.channel} — ${entry.detail}`).join('; '),
+                },
+              }
+            : { key: 'delivery.test_ok', params: { delivered: result.delivered } },
       });
       void queryClient.invalidateQueries({ queryKey: ['notify', 'status'] });
     },
     onError: (error) => {
-      setMessage({ severity: 'error', text: describeError(error, t('delivery.test_failed')) });
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'delivery.test_failed' } });
     },
   });
 
@@ -139,7 +146,7 @@ export default function DeliveryPage() {
 
       {message && (
         <Alert severity={message.severity} onClose={() => setMessage(null)}>
-          {message.text}
+          {messageText(message.body)}
         </Alert>
       )}
 
@@ -338,7 +345,17 @@ function GateRow({
   value,
   note,
   loading,
-}: Readonly<{ label: string; value: string; note?: string; loading: boolean }>) {
+}: Readonly<{ label: string; value: string; note?: UiMessageKey; loading: boolean }>) {
+  // A key, not a sentence, and rendered here rather than by the caller.
+  //
+  // `GATE_NOTES` was converted to hold keys and both call sites passed them
+  // straight through, so `/delivery` rendered `delivery.gate.throttle_note` on
+  // screen in every language. Every guard reported green: `tsc` because
+  // `UiMessageKey` is a string subtype and this prop was `string`, the orphan
+  // check because the literals do appear in `GATE_NOTES`, and parity because the
+  // keys exist everywhere with no placeholders. Narrowing the prop is what makes
+  // passing an unrendered key a compile error instead of a silent one.
+  const t = useT();
   if (loading) return <Skeleton height={20} />;
 
   return (
@@ -347,7 +364,7 @@ function GateRow({
         {label}
         {note && (
           <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block' }}>
-            {note}
+            {t(note)}
           </Typography>
         )}
       </Typography>

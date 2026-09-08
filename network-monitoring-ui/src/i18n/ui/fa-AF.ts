@@ -431,7 +431,7 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'intel.health_failing': '{count} ناکام',
   'intel.health_stale': '{count} روی نسخهٔ ذخیره‌شده',
   'intel.health_ok': 'همه بارگذاری شد',
-  'intel.reloaded_toast': '{count} نشانگر از {feeds} خوراک دوباره بارگیری شد.',
+  'intel.reloaded_toast': '{count, number} نشانگر از {feeds} خوراک دوباره بارگیری شد.',
   'intel.reload_failed': 'بارگیری دوباره ناکام ماند',
   'intel.status_failed': 'وضعیت اطلاعات تهدید خوانده نشد',
   'intel.no_feeds_body':

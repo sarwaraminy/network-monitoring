@@ -26,6 +26,7 @@ import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
 import { useFormatters } from '../i18n/format';
+import { type Message, useMessageText } from '../i18n/message-state';
 import { type Translate, type UiMessageKey, useT } from '../i18n/ui';
 import type { IntelFeedOrigin, IntelFeedStatus } from '../types';
 
@@ -95,7 +96,9 @@ export default function ThreatIntelPage() {
   const isAdmin = user?.role === 'ADMIN';
   const palette = useChartPalette();
   const queryClient = useQueryClient();
-  const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  // Held as a key, rendered on display — see i18n/message-state.ts.
+  const [message, setMessage] = useState<{ severity: 'success' | 'error'; body: Message } | null>(null);
+  const messageText = useMessageText();
 
   const status = useQuery({
     queryKey: ['intel', 'status'],
@@ -113,7 +116,10 @@ export default function ThreatIntelPage() {
       const loaded = result.sources.filter((feed) => feed.from !== 'failed').length;
       setMessage({
         severity: 'success',
-        text: t('intel.reloaded_toast', { count: fmt.number(result.indicators), feeds: loaded }),
+        // The count goes in as a number, not as text formatted here: ICU groups it
+        // for whichever language is reading, and doing it early would freeze the
+        // digits and separators along with the words.
+        body: { key: 'intel.reloaded_toast', params: { count: result.indicators, feeds: loaded } },
       });
       void queryClient.invalidateQueries({ queryKey: ['intel', 'status'] });
     },
@@ -121,7 +127,7 @@ export default function ThreatIntelPage() {
       // The server distinguishes "already running" from "every source failed",
       // and both leave the previous indicators in place. Saying so matters —
       // otherwise a failed reload reads as "no indicators".
-      setMessage({ severity: 'error', text: describeError(error, t('intel.reload_failed')) });
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'intel.reload_failed' } });
     },
   });
 
@@ -158,7 +164,7 @@ export default function ThreatIntelPage() {
 
       {message && (
         <Alert severity={message.severity} onClose={() => setMessage(null)}>
-          {message.text}
+          {messageText(message.body)}
         </Alert>
       )}
 

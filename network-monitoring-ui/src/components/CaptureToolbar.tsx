@@ -16,6 +16,7 @@ import { type ReactNode, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import type { UsePacketCapture } from '../hooks/usePacketCapture';
 import { useFormatters } from '../i18n/format';
+import { useMessageText } from '../i18n/message-state';
 import { type Translate, useT } from '../i18n/ui';
 import { DisclosureCaret } from './DisclosureCaret';
 import SurfaceCard from './SurfaceCard';
@@ -100,6 +101,8 @@ export default function CaptureToolbar({
     clear,
   } = capture;
 
+  const errorText = useMessageText();
+
   const captureUnavailable = status?.captureAvailable === false;
 
   /*
@@ -145,8 +148,8 @@ export default function CaptureToolbar({
         </Alert>
       )}
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {errorText(error)}
         </Alert>
       )}
       {/*

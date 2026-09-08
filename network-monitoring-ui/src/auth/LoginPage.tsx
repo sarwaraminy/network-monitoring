@@ -16,15 +16,19 @@ import { useQuery } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { Navigate, Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { fetchSignupMode } from '../api/auth.api';
-import { describeError } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
+import { type Message, useMessageText } from '../i18n/message-state';
 import { useT } from '../i18n/ui';
 
 export default function LoginPage() {
   const t = useT();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
+  // The failure, described when it is shown — see i18n/message-state.ts. Sign-in
+  // is where the language switch is most likely to be used, so a message frozen
+  // here would be the first thing a reader saw in a language they did not pick.
+  const [errorMessage, setErrorMessage] = useState<Message | null>(null);
+  const errorText = useMessageText();
   const [submitting, setSubmitting] = useState(false);
 
   const { login, isAuthenticated, loading } = useAuth();
@@ -63,14 +67,14 @@ export default function LoginPage() {
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    setErrorMessage('');
+    setErrorMessage(null);
     setSubmitting(true);
 
     try {
       await login(email, password);
       navigate(redirectTo, { replace: true });
     } catch (error) {
-      setErrorMessage(describeError(error, t('login.failed')));
+      setErrorMessage({ error, fallbackKey: 'login.failed' });
     } finally {
       setSubmitting(false);
     }
@@ -117,8 +121,8 @@ export default function LoginPage() {
           </Stack>
 
           {errorMessage && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErrorMessage('')}>
-              {errorMessage}
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErrorMessage(null)}>
+              {errorText(errorMessage)}
             </Alert>
           )}
 

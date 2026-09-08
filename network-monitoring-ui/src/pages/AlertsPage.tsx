@@ -20,7 +20,6 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import type { MRT_ColumnDef, MRT_TableOptions } from 'material-react-table';
 import { useCallback, useMemo, useState } from 'react';
-import { describeError } from '../api/client';
 import AlertSummaryTiles from '../components/AlertSummaryTiles';
 import DataGrid from '../components/DataGrid';
 import Identifier from '../components/Identifier';
@@ -39,6 +38,7 @@ import {
 import { useIpInfo } from '../hooks/useIpInfo';
 import { findingText, useFindingText } from '../i18n/findings';
 import { useFormatters } from '../i18n/format';
+import { type Message, useMessageText } from '../i18n/message-state';
 import { type Translate, type UiMessageKey, useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 import { ALERT_KINDS, type AlertKind, type Alert as AlertRecord, type Severity } from '../types';
@@ -64,7 +64,9 @@ export default function AlertsPage() {
   const [sensor, setSensor] = useState<string>('');
   const [since, setSince] = useState<string>('');
   const [hideAcknowledged, setHideAcknowledged] = useState(true);
-  const [actionError, setActionError] = useState('');
+  // A message rather than its words, so it re-reads when the language does —
+  // see i18n/message-state.ts.
+  const [actionError, setActionError] = useState<Message | null>(null);
   const ipInfo = useIpInfo();
   const { user } = useAuth();
   /*
@@ -149,36 +151,36 @@ export default function AlertsPage() {
   const loading = alertsQuery.isPending;
 
   // Whichever failed most recently; mutations report through actionError.
-  const error =
-    actionError ||
-    (alertsQuery.error ? describeError(alertsQuery.error, t('alerts.load_failed')) : '') ||
-    (summaryQuery.error ? describeError(summaryQuery.error, t('alerts.summary_failed')) : '');
+  const messageText = useMessageText();
+  const failure: Message | null =
+    actionError ??
+    (alertsQuery.error ? { error: alertsQuery.error, fallbackKey: 'alerts.load_failed' } : null) ??
+    (summaryQuery.error ? { error: summaryQuery.error, fallbackKey: 'alerts.summary_failed' } : null);
 
-  const setError = setActionError;
   const load = useCallback(() => {
-    setActionError('');
+    setActionError(null);
     void alertsQuery.refetch();
     void summaryQuery.refetch();
   }, [alertsQuery, summaryQuery]);
 
   const handleAcknowledge = useCallback(
     (alert: AlertRecord) => {
-      setActionError('');
+      setActionError(null);
       acknowledge.mutate(alert, {
-        onError: (caught) => setActionError(describeError(caught, t('alerts.update_failed'))),
+        onError: (caught) => setActionError({ error: caught, fallbackKey: 'alerts.update_failed' }),
       });
     },
-    [acknowledge, t],
+    [acknowledge],
   );
 
   const handleDelete = useCallback(
     (id: number) => {
-      setActionError('');
+      setActionError(null);
       remove.mutate(id, {
-        onError: (caught) => setActionError(describeError(caught, t('alerts.delete_failed'))),
+        onError: (caught) => setActionError({ error: caught, fallbackKey: 'alerts.delete_failed' }),
       });
     },
-    [remove, t],
+    [remove],
   );
 
   const showIp = ipInfo.show;
@@ -378,9 +380,9 @@ export default function AlertsPage() {
           ) : null
         }
       />
-      {error && (
-        <Alert severity="error" onClose={() => setError('')}>
-          {error}
+      {failure && (
+        <Alert severity="error" onClose={() => setActionError(null)}>
+          {messageText(failure)}
         </Alert>
       )}
       <AlertSummaryTiles summary={summary} selected={severity} onSelect={setSeverity} />
