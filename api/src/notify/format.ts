@@ -1,5 +1,20 @@
+import { type NotifyMessageKey, renderNotify } from '../i18n/catalog/notify.js';
+import type { MessageParams } from '../i18n/message.js';
 import type { Severity } from '../packet/detect/types.js';
-import { type Notification, SEVERITY_COLOR, sensorLabel } from './types.js';
+import { type Notification, OUTBOUND_LOCALE, SEVERITY_COLOR, sensorLabel } from './types.js';
+
+/**
+ * One notification string, in the language the installation sends in.
+ *
+ * Named `n` because it appears on nearly every line below and a longer name
+ * would wrap each of them. The locale is `OUTBOUND_LOCALE` rather than a
+ * parameter for the reason that constant gives: an alert email goes to a team
+ * address and a webhook has no account, so there is no reader whose language
+ * could be consulted.
+ */
+function n(key: NotifyMessageKey, params: MessageParams): string {
+  return renderNotify(key, params, OUTBOUND_LOCALE);
+}
 
 /**
  * Message rendering.
@@ -19,17 +34,23 @@ export const MAX_LISTED_FINDINGS = 8;
 export function subjectFor(notification: Notification): string {
   const prefix = notification.isTest ? '[TEST] ' : '';
   const total = notification.findings.length + notification.omittedCount;
+  const severity = notification.severity.toUpperCase();
 
   if (total === 1) {
     const only = notification.findings[0];
-    return `${prefix}[${notification.severity.toUpperCase()}] ${only?.title ?? 'Network finding'}`;
+    return n('notify.subject_one', {
+      prefix,
+      severity,
+      title: only?.title ?? n('notify.subject_fallback', {}),
+    });
   }
 
-  const parts = Object.entries(notification.countsBySeverity)
+  const breakdown = Object.entries(notification.countsBySeverity)
     .filter(([, count]) => (count ?? 0) > 0)
-    .map(([severity, count]) => `${count} ${severity}`);
+    .map(([name, count]) => n('notify.severity_count', { count: count ?? 0, severity: name }))
+    .join(', ');
 
-  return `${prefix}[${notification.severity.toUpperCase()}] ${total} network findings — ${parts.join(', ')}`;
+  return n('notify.subject_many', { prefix: `${prefix}[${severity}] `, count: total, breakdown });
 }
 
 /** Plain text, used for email bodies and as the fallback for chat services. */
@@ -37,7 +58,7 @@ export function renderText(notification: Notification): string {
   const lines: string[] = [];
 
   if (notification.isTest) {
-    lines.push('This is a test notification from Network Monitoring. No findings are involved.', '');
+    lines.push(n('notify.test_banner_text', {}), '');
   }
 
   lines.push(summaryLine(notification), '');
@@ -46,25 +67,28 @@ export function renderText(notification: Notification): string {
     lines.push(`[${finding.severity.toUpperCase()}] ${finding.title}`);
     lines.push(`  ${finding.description}`);
 
+    const sensor = sensorLabel(notification, finding);
     const where = [
-      sensorLabel(notification, finding) ? `sensor ${sensorLabel(notification, finding)}` : null,
-      finding.sourceIp ? `source ${finding.sourceIp}` : null,
-      finding.targetIp ? `target ${finding.targetIp}` : null,
-      finding.occurrences > 1 ? `${finding.occurrences} occurrences` : null,
-      `last seen ${finding.lastSeen.toISOString().replace('T', ' ').slice(0, 19)} UTC`,
+      sensor ? n('notify.meta_sensor', { sensor }) : null,
+      finding.sourceIp ? n('notify.meta_source', { source: finding.sourceIp }) : null,
+      finding.targetIp ? n('notify.meta_target', { target: finding.targetIp }) : null,
+      finding.occurrences > 1 ? n('notify.meta_occurrences', { count: finding.occurrences }) : null,
+      n('notify.meta_last_seen', {
+        at: finding.lastSeen.toISOString().replace('T', ' ').slice(0, 19),
+      }),
     ]
       .filter(Boolean)
       .join(' · ');
     lines.push(`  ${where}`);
 
     if (finding.evidence) {
-      lines.push(`  evidence: ${compactEvidence(finding.evidence)}`);
+      lines.push(`  ${n('notify.evidence_prefix', { evidence: compactEvidence(finding.evidence) })}`);
     }
     lines.push('');
   }
 
   if (notification.omittedCount > 0) {
-    lines.push(`…and ${notification.omittedCount} more. Open the dashboard for the full list.`, '');
+    lines.push(n('notify.and_more_text', { count: notification.omittedCount }), '');
   }
 
   if (notification.dashboardUrl) lines.push(notification.dashboardUrl);
@@ -78,11 +102,11 @@ export function renderHtml(notification: Notification): string {
     .map((finding) => {
       const meta = [
         sensorLabel(notification, finding)
-          ? `sensor ${escapeHtml(sensorLabel(notification, finding) as string)}`
+          ? n('notify.meta_sensor', { sensor: escapeHtml(sensorLabel(notification, finding) as string) })
           : null,
-        finding.sourceIp ? `source ${escapeHtml(finding.sourceIp)}` : null,
-        finding.targetIp ? `target ${escapeHtml(finding.targetIp)}` : null,
-        finding.occurrences > 1 ? `${finding.occurrences} occurrences` : null,
+        finding.sourceIp ? n('notify.meta_source', { source: escapeHtml(finding.sourceIp) }) : null,
+        finding.targetIp ? n('notify.meta_target', { target: escapeHtml(finding.targetIp) }) : null,
+        finding.occurrences > 1 ? n('notify.meta_occurrences', { count: finding.occurrences }) : null,
       ]
         .filter(Boolean)
         .join(' &middot; ');
@@ -110,7 +134,7 @@ export function renderHtml(notification: Notification): string {
 
   const testBanner = notification.isTest
     ? '<p style="padding:10px 12px;background:#fef3c7;border-radius:8px;color:#92400e">' +
-      'This is a test notification. No findings are involved.</p>'
+      `${n('notify.test_banner_html', {})}</p>`
     : '';
 
   return `<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#111827;max-width:720px">
@@ -121,13 +145,13 @@ ${rows}
 </table>
 ${
   notification.omittedCount > 0
-    ? `<p style="color:#4b5563;font-size:13px">…and ${notification.omittedCount} more.</p>`
+    ? `<p style="color:#4b5563;font-size:13px">${n('notify.and_more', { count: notification.omittedCount })}</p>`
     : ''
 }
 ${
   notification.dashboardUrl
     ? `<p><a href="${escapeHtml(notification.dashboardUrl)}"
-        style="color:#1d4ed8">Open the dashboard</a></p>`
+        style="color:#1d4ed8">${n('notify.open_dashboard', {})}</a></p>`
     : ''
 }
 </div>`;
@@ -150,10 +174,12 @@ export function renderSlack(notification: Notification): unknown {
 
   for (const finding of notification.findings) {
     const meta = [
-      sensorLabel(notification, finding) ? `sensor \`${sensorLabel(notification, finding)}\`` : null,
-      finding.sourceIp ? `source \`${finding.sourceIp}\`` : null,
-      finding.targetIp ? `target \`${finding.targetIp}\`` : null,
-      finding.occurrences > 1 ? `${finding.occurrences} occurrences` : null,
+      sensorLabel(notification, finding)
+        ? n('notify.meta_sensor', { sensor: `\`${sensorLabel(notification, finding)}\`` })
+        : null,
+      finding.sourceIp ? n('notify.meta_source', { source: `\`${finding.sourceIp}\`` }) : null,
+      finding.targetIp ? n('notify.meta_target', { target: `\`${finding.targetIp}\`` }) : null,
+      finding.occurrences > 1 ? n('notify.meta_occurrences', { count: finding.occurrences }) : null,
     ]
       .filter(Boolean)
       .join(' · ');
@@ -172,7 +198,7 @@ export function renderSlack(notification: Notification): unknown {
   if (notification.omittedCount > 0) {
     blocks.push({
       type: 'context',
-      elements: [{ type: 'mrkdwn', text: `…and ${notification.omittedCount} more.` }],
+      elements: [{ type: 'mrkdwn', text: n('notify.and_more', { count: notification.omittedCount }) }],
     });
   }
 
@@ -182,7 +208,7 @@ export function renderSlack(notification: Notification): unknown {
       elements: [
         {
           type: 'button',
-          text: { type: 'plain_text', text: 'Open dashboard' },
+          text: { type: 'plain_text', text: n('notify.open_dashboard_short', {}) },
           url: notification.dashboardUrl,
         },
       ],
@@ -238,7 +264,7 @@ export function renderTeams(notification: Notification): unknown {
   if (notification.isTest) {
     body.push({
       type: 'TextBlock',
-      text: 'This is a test notification from Network Monitoring. No findings are involved.',
+      text: n('notify.test_banner_text', {}),
       wrap: true,
       isSubtle: true,
     });
@@ -299,7 +325,7 @@ export function renderTeams(notification: Notification): unknown {
   if (notification.omittedCount > 0) {
     body.push({
       type: 'TextBlock',
-      text: `…and ${notification.omittedCount} more. Open the dashboard for the full list.`,
+      text: n('notify.and_more_text', { count: notification.omittedCount }),
       wrap: true,
       isSubtle: true,
     });
@@ -324,7 +350,7 @@ export function renderTeams(notification: Notification): unknown {
                 actions: [
                   {
                     type: 'Action.OpenUrl',
-                    title: 'Open dashboard',
+                    title: n('notify.open_dashboard_short', {}),
                     url: notification.dashboardUrl,
                   },
                 ],
@@ -385,7 +411,7 @@ export function renderTeamsConnector(notification: Notification): unknown {
           potentialAction: [
             {
               '@type': 'OpenUri',
-              name: 'Open dashboard',
+              name: n('notify.open_dashboard_short', {}),
               targets: [{ os: 'default', uri: notification.dashboardUrl }],
             },
           ],

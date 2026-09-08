@@ -65,6 +65,23 @@ export const ERRORS_FA_AF: PartialErrorCatalog = {
   'error.too_many_capture': 'درخواست‌های کنترل ضبط بیش از حد. آهسته‌تر.',
   'error.too_many_lookups': 'درخواست‌های جست‌وجوی بیش از حد. آهسته‌تر.',
   'error.too_many_requests': 'درخواست‌های بیش از حد. آهسته‌تر.',
+  'error.adhoc_disabled': 'کنسول پرس‌وجو روی این سرور فعال نیست.',
+  'error.adhoc_sql_type': 'پرس‌وجو را به‌صورت رشتهٔ `sql` بفرستید.',
+  'error.adhoc_sql_empty': 'یک پرس‌وجو برای اجرا وارد کنید.',
+  'error.adhoc_sql_too_long': 'پرس‌وجوها به {max} نویسه محدودند.',
+  'error.adhoc_one_statement': 'هر بار یک دستور اجرا کنید — این پرس‌وجو بیش از یکی دارد.',
+  'error.adhoc_timeout':
+    'پرس‌وجو بیش از {ms} میلی‌ثانیه طول کشید و متوقف شد. آن را محدودتر کنید، یا LIMIT بیفزایید.',
+  'error.adhoc_busy':
+    'کنسول پرس‌وجو مشغول است — هر بار شمار اندکی پرس‌وجو اجرا می‌کند. لحظه‌ای دیگر دوباره تلاش ' + 'کنید.',
+  'error.adhoc_denied_write':
+    '{detail} — کنسول پرس‌وجو تنها روی جدول‌های عملیاتی می‌نویسد و نمی‌تواند به رد حسابرسی، ' +
+    'حساب‌ها یا ستون‌های دارای رازها دست بزند.',
+  'error.adhoc_denied_read':
+    '{detail} — کنسول پرس‌وجو فقط‌خواندنی است و نمی‌تواند ستون‌های دارای رازها را بخواند.',
+  'error.adhoc_passthrough': '{detail}',
+  'error.adhoc_failed': 'پرس‌وجو اجرا نشد.',
+  'error.permission_denied': 'دسترسی رد شد.',
   'error.token_invalid': 'توکن نامعتبر یا منقضی شده است.',
   'error.account_gone': 'این حساب دیگر وجود ندارد.',
   'error.signup_admin_only': 'تنها یک مدیر می‌تواند حساب بسازد.',

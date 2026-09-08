@@ -87,6 +87,22 @@ export const ERRORS_EN = {
   'error.too_many_capture': 'Too many capture control requests. Slow down.',
   'error.too_many_lookups': 'Too many lookup requests. Slow down.',
   'error.too_many_requests': 'Too many requests. Slow down.',
+  'error.adhoc_disabled': 'The query console is not enabled on this server.',
+  'error.adhoc_sql_type': 'Send the query as a `sql` string.',
+  'error.adhoc_sql_empty': 'Enter a query to run.',
+  'error.adhoc_sql_too_long': 'Queries are limited to {max} characters.',
+  'error.adhoc_one_statement': 'Run one statement at a time — the query contains more than one.',
+  'error.adhoc_timeout': 'The query ran longer than {ms} ms and was stopped. Narrow it, or add a LIMIT.',
+  'error.adhoc_busy':
+    'The query console is busy — it runs a small number of queries at a time. Try again in a moment.',
+  'error.adhoc_denied_write':
+    '{detail} — the query console writes only the operational tables, and cannot touch the audit ' +
+    'trail, the accounts or the columns holding secrets.',
+  'error.adhoc_denied_read':
+    '{detail} — the query console is read-only and cannot read columns holding secrets.',
+  'error.adhoc_passthrough': '{detail}',
+  'error.adhoc_failed': 'The query could not be run.',
+  'error.permission_denied': 'Permission denied.',
   'error.token_invalid': 'Invalid or expired token.',
   'error.account_gone': 'Account no longer exists.',
   'error.signup_admin_only': 'Only an administrator can create accounts.',

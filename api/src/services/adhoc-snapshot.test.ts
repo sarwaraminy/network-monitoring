@@ -108,6 +108,11 @@ describe('the query settings snapshot', () => {
     // The other half: a parameter that is accepted and then ignored would satisfy
     // the check above while leaving the original bug in place.
     assert.match(bodyOf('declareAndFetchStrict'), /FETCH \$\{maxRows \+ 1\}/, 'the FETCH ignores maxRows');
-    assert.match(bodyOf('translate'), /\$\{timeoutMs\}/, 'the timeout message ignores timeoutMs');
+    // `timeoutMs` reaches the message as a catalogue parameter now rather than a
+    // template interpolation, so this matches the identifier rather than the
+    // syntax around it. What it pins is unchanged: the number reported is the one
+    // the statement actually ran under, not whatever the settings say by the time
+    // the error is built.
+    assert.match(bodyOf('translate'), /timeoutMs/, 'the timeout message ignores timeoutMs');
   });
 });

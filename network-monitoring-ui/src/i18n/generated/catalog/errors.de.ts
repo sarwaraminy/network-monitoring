@@ -71,6 +71,26 @@ export const ERRORS_DE: PartialErrorCatalog = {
   'error.too_many_capture': 'Zu viele Steuerungsanfragen für die Aufzeichnung. Langsamer.',
   'error.too_many_lookups': 'Zu viele Abfrageanfragen. Langsamer.',
   'error.too_many_requests': 'Zu viele Anfragen. Langsamer.',
+  'error.adhoc_disabled': 'Die Abfragekonsole ist auf diesem Server nicht aktiviert.',
+  'error.adhoc_sql_type': 'Senden Sie die Abfrage als `sql`-Zeichenkette.',
+  'error.adhoc_sql_empty': 'Geben Sie eine Abfrage ein.',
+  'error.adhoc_sql_too_long': 'Abfragen sind auf {max} Zeichen begrenzt.',
+  'error.adhoc_one_statement':
+    'Führen Sie eine Anweisung nach der anderen aus — die Abfrage enthält mehr als eine.',
+  'error.adhoc_timeout':
+    'Die Abfrage lief länger als {ms} ms und wurde gestoppt. Grenzen Sie sie ein oder fügen Sie ein ' +
+    'LIMIT hinzu.',
+  'error.adhoc_busy':
+    'Die Abfragekonsole ist ausgelastet — sie führt nur wenige Abfragen gleichzeitig aus. Versuchen ' +
+    'Sie es gleich noch einmal.',
+  'error.adhoc_denied_write':
+    '{detail} — die Abfragekonsole schreibt nur die Betriebstabellen und kann weder das ' +
+    'Prüfprotokoll noch die Konten noch die Spalten mit Geheimnissen berühren.',
+  'error.adhoc_denied_read':
+    '{detail} — die Abfragekonsole ist schreibgeschützt und kann keine Spalten mit Geheimnissen ' + 'lesen.',
+  'error.adhoc_passthrough': '{detail}',
+  'error.adhoc_failed': 'Die Abfrage konnte nicht ausgeführt werden.',
+  'error.permission_denied': 'Zugriff verweigert.',
   'error.token_invalid': 'Token ungültig oder abgelaufen.',
   'error.account_gone': 'Das Konto existiert nicht mehr.',
   'error.signup_admin_only': 'Nur eine administrierende Person kann Konten anlegen.',
