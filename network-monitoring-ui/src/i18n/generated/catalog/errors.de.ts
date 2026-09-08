@@ -91,6 +91,14 @@ export const ERRORS_DE: PartialErrorCatalog = {
   'error.adhoc_passthrough': '{detail}',
   'error.adhoc_failed': 'Die Abfrage konnte nicht ausgeführt werden.',
   'error.permission_denied': 'Zugriff verweigert.',
+  'error.capture_enumerate': 'Die Netzwerkschnittstellen konnten nicht aufgelistet werden: {detail}',
+  'error.capture_open': '{name} konnte nicht geöffnet werden: {detail}',
+  'error.capture_filter': 'Der Aufzeichnungsfilter konnte nicht angewendet werden: {detail}',
+  'error.intel_reload_running':
+    'Ein Neuladen läuft bereits; die Indikatoren unten stammen aus dem vorherigen Ladevorgang.',
+  'error.intel_reload_kept':
+    'Das Neuladen ergab keinen brauchbaren Satz. Die zuvor geladenen Indikatoren bleiben in ' + 'Verwendung.',
+  'error.guide_sign_in': 'Melden Sie sich an, um das Benutzerhandbuch zu lesen.',
   'error.token_invalid': 'Token ungültig oder abgelaufen.',
   'error.account_gone': 'Das Konto existiert nicht mehr.',
   'error.signup_admin_only': 'Nur eine administrierende Person kann Konten anlegen.',

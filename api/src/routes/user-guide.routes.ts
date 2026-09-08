@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import jwt from 'jsonwebtoken';
 import { componentLogger } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
-import { asyncHandler } from '../middleware/error-handler.js';
+import { asyncHandler, HttpError, sendError } from '../middleware/error-handler.js';
 import {
   GUIDE_COOKIE,
   GUIDE_COOKIE_PATH,
@@ -251,7 +251,7 @@ userGuideRouter.use((req, res, next) => {
     return;
   }
 
-  res.status(401).json({ message: 'Sign in to read the user guide.' });
+  sendError(res, HttpError.of(401, 'error.guide_sign_in'));
 });
 
 if (guideDirectory !== null) {

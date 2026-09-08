@@ -1,5 +1,7 @@
 import type { Logger } from 'pino';
 import { env } from '../config/env.js';
+import type { ErrorMessageKey } from '../i18n/catalog/errors.js';
+import type { MessageParams } from '../i18n/message.js';
 import { componentLogger } from '../logger.js';
 import { HttpError } from '../middleware/error-handler.js';
 import { type DecodedPacket, decodePacket, isSupportedLinkType, type LinkType } from '../packet/decode.js';
@@ -94,7 +96,7 @@ export class PacketCaptureService {
         addresses: device.addresses,
       }));
     } catch (error) {
-      throw this.toHttpError(error, 'Could not enumerate network interfaces');
+      throw this.toHttpError(error, 'error.capture_enumerate');
     }
   }
 
@@ -138,14 +140,14 @@ export class PacketCaptureService {
         promiscuous: true,
       });
     } catch (error) {
-      throw this.toHttpError(error, `Could not open ${interfaceName}`);
+      throw this.toHttpError(error, 'error.capture_open', { name: interfaceName });
     }
 
     try {
       if (filter !== '') handle.setFilter(filter);
     } catch (error) {
       handle.close();
-      throw this.toHttpError(error, 'Could not apply the capture filter');
+      throw this.toHttpError(error, 'error.capture_filter');
     }
 
     // Devices already on record, so a restart does not re-alert on the whole
@@ -321,13 +323,23 @@ export class PacketCaptureService {
   }
 
   /** 503 when the library is missing, 500 for anything else pcap reports. */
-  private toHttpError(error: unknown, context: string): HttpError {
+  /**
+   * The failure, as a whole sentence the browser can translate.
+   *
+   * `context` used to be an English phrase interpolated into
+   * `error.capture_failed: '{context}: {detail}'` — a pattern with no words of
+   * its own, so the code looked converted while the entire rendered sentence was
+   * whatever English was passed in. Each caller now names its own key and the
+   * driver's message is the only parameter, which is the half that genuinely
+   * cannot be translated: libpcap wrote it.
+   */
+  private toHttpError(error: unknown, contextKey: ErrorMessageKey, params: MessageParams = {}): HttpError {
     if (error instanceof HttpError) return error;
     if (error instanceof PcapUnavailableError)
       return HttpError.of(503, 'error.capture_unavailable', { detail: error.message });
-    if (error instanceof PcapError)
-      return HttpError.of(500, 'error.capture_failed', { context, detail: error.message });
-    return HttpError.of(500, 'error.capture_failed', { context, detail: (error as Error).message });
+
+    const detail = error instanceof PcapError ? error.message : (error as Error).message;
+    return HttpError.of(500, contextKey, { ...params, detail });
   }
 }
 

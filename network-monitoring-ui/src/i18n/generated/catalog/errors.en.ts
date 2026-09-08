@@ -103,6 +103,14 @@ export const ERRORS_EN = {
   'error.adhoc_passthrough': '{detail}',
   'error.adhoc_failed': 'The query could not be run.',
   'error.permission_denied': 'Permission denied.',
+  'error.capture_enumerate': 'Could not enumerate network interfaces: {detail}',
+  'error.capture_open': 'Could not open {name}: {detail}',
+  'error.capture_filter': 'Could not apply the capture filter: {detail}',
+  'error.intel_reload_running':
+    'A reload is already in progress; the indicators below are from the previous load.',
+  'error.intel_reload_kept':
+    'Reload did not produce a usable set. The previously loaded indicators are still in use.',
+  'error.guide_sign_in': 'Sign in to read the user guide.',
   'error.token_invalid': 'Invalid or expired token.',
   'error.account_gone': 'Account no longer exists.',
   'error.signup_admin_only': 'Only an administrator can create accounts.',
