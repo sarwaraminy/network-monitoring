@@ -278,6 +278,117 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'از {examined} هشدار اخیر، {matched} مورد را پنهان می‌کرد — در مجموع {occurrences} مشاهده.',
   'suppressions.preview_window': 'بررسی‌شده از {from} تا {to}',
 
+  // --- حساب‌ها و نقش‌ها ---
+
+  'users.loading': 'در حال پرسش از سرور…',
+  'users.load_failed': 'حساب‌ها خوانده نشد',
+  'users.change_failed': 'نقش تغییر نکرد',
+  'users.role_changed': '{account} اکنون {role} است.',
+  'users.that_account': 'آن حساب',
+  'users.blocked_self': 'شما نمی‌توانید نقش خود را تغییر دهید. از مدیر دیگری بخواهید.',
+  'users.blocked_last_admin': 'تنها مدیر. پیش از تغییر این حساب، حساب دیگری را به مدیر ارتقا دهید.',
+  'users.single_admin':
+    'یک مدیر. ارتقای یک مدیر دوم همان چیزی است که این حساب را قابل بازیابی می‌سازد — با تنها یک ' +
+    'مدیر، فراموشی رمز یعنی ویرایش دستی پایگاه داده.',
+  'users.col_account': 'حساب',
+  'users.col_name': 'نام',
+  'users.col_role': 'نقش',
+  'users.you': 'شما',
+  'users.account_n': 'حساب {id}',
+  'users.role_for': 'نقش برای {account}',
+  'users.audit_note':
+    'هر تغییر در رد حسابرسی ثبت می‌شود، همراه با اینکه چه کسی آن را انجام داده و نقش به کدام سو ' +
+    'تغییر کرده است.',
+
+  // --- کنسول پرس‌وجو: تشخیص ---
+
+  'console.loading': 'در حال پرسش از سرور…',
+  'console.status_failed': 'وضعیت کنسول خوانده نشد',
+  'console.running': 'کنسول در حال اجرا است',
+  'console.running_note':
+    'پرس‌وجوها با نقشی از Postgres اجرا می‌شوند که دسترسی‌های آن تعیین می‌کند چه چیزی ممکن است — ' +
+    'نه با کاربر پایگاه دادهٔ خود این برنامه.',
+  'console.mode_write': 'خواندن و نوشتن',
+  'console.mode_read': 'فقط خواندن',
+  'console.write_warning':
+    'حالت نوشتن روشن است، بنابراین کنسول با نقش خواندن‌ونوشتن وارد می‌شود و می‌تواند روی جدول‌های ' +
+    'عملیاتی UPDATE، INSERT و DELETE اجرا کند. با این حال هنوز به رد حسابرسی، ستون‌های رازها، ' +
+    'حساب‌ها و تنظیمات تحویل دسترسی ندارد.',
+  'console.password_logged': 'رمز کنسول ممکن است در گزارش Postgres باشد',
+  'console.password_logged_note':
+    'مالک پایگاه داده superuser نیست، بنابراین هنگام تنظیم رمز نمی‌شد ثبت دستورها را خاموش کرد. ' +
+    'زیر {ddl} یا {all} رمز به‌صورت متن ساده نوشته شده است. رمز کنسول را مقداری در نظر بگیرید که ' +
+    'سرور پایگاه داده ممکن است ثبت کرده باشد — از هر جایی که تنظیم شده باشد.',
+  'console.unavailable': 'کنسول در دسترس نیست',
+  'console.env_lines': 'در محیط API:',
+  'console.db_said': 'آنچه پایگاه داده گفت',
+  'console.recheck_failed': 'بازبینی اجرا نشد',
+  'console.checking': 'در حال بررسی…',
+  'console.check_again': 'دوباره بررسی کن',
+  'console.recheck_note':
+    'بررسی زمان راه‌اندازی را دوباره روی محیط کنونی اجرا می‌کند. با این کار کنسول روشن نمی‌شود.',
+  'console.remedy.disabled.title': 'کنسول روشن نشده است',
+  'console.remedy.disabled.note':
+    'آن را در «تنظیمات کنسول پرس‌وجو»، ردیف بعدی همین منو، روشن کنید و همان‌جا رمز کنسول را ' +
+    'بگذارید. نیازی به راه‌اندازی دوباره نیست. این حالت پیش‌فرض است، نه خرابی.',
+  'console.remedy.no_password.title': 'روشن است، اما رمزی برای نصب وجود ندارد',
+  'console.remedy.no_password.note':
+    'کنسول خواسته شده است، اما نقشی که با آن وارد می‌شود هیچ اعتبارنامه‌ای ندارد و سرور خودش یکی ' +
+    'نمی‌سازد. در «تنظیمات کنسول پرس‌وجو»، ردیف بعدی همین منو، یکی بگذارید.',
+  'console.remedy.sandbox_failed.title': 'پایگاه داده تأیید نکرد که کنسول محدود شده است',
+  'console.remedy.sandbox_failed.note':
+    'کنسول پیکربندی شده است و سرور از راه‌اندازی آن خودداری کرد، چون نتوانست ثابت کند که آن نقش نه ' +
+    'superuser است و نه می‌تواند بنویسد. بررسی کنید که مهاجرت‌ها اجرا شده باشند و کسی نقش را دستی ' +
+    'دوباره نساخته باشد. آن را درست کنید و دوباره بررسی کنید — نیازی به راه‌اندازی دوباره نیست.',
+
+  // --- کنسول پرس‌وجو: تنظیمات ---
+
+  'console_settings.saved': 'ذخیره شد. تغییر هم‌اکنون در اثر است — نیازی به راه‌اندازی دوباره نیست.',
+  'console_settings.save_failed': 'تنظیمات ذخیره نشد',
+  'console_settings.read_failed': 'تنظیمات خوانده نشد',
+  'console_settings.all_pinned': 'هر فیلد تغییریافته اکنون در محیط تنظیم شده است.',
+  'console_settings.no_password': 'هیچ رمزی برای کنسول تنظیم نشده است',
+  'console_settings.no_password_pinned_before':
+    'کنسول تا زمانی که رمزی تنظیم نشود آغاز نمی‌شود، و این مقدار ثابت شده است با',
+  'console_settings.no_password_pinned_after':
+    'در محیط API — که هم‌اکنون خالی است. آنجا مقداری بگذارید و API را دوباره راه‌اندازی کنید، یا آن ' +
+    'خط را بردارید تا به‌جایش اینجا تنظیم شود.',
+  'console_settings.no_password_here':
+    'کنسول تا زمانی که رمزی تنظیم نشود آغاز نمی‌شود، هرچه این کلیدها بگویند — این اعتبارنامه‌ای ' +
+    'است که روی نقش Postgres آن نصب می‌شود. یکی را در «رمز نقش کنسول» در پایین بگذارید.',
+  'console_settings.pinned_note':
+    'توسط {variable} در محیط تنظیم شده است. آن خط را بردارید و API را دوباره راه‌اندازی کنید تا ' +
+    'اینجا مدیریتش کنید.',
+  'console_settings.password_set': 'تنظیم شده — برای نگه‌داشتن آن، خالی بگذارید',
+  'console_settings.password_unset': 'تنظیم نشده',
+  'console_settings.clear_password': 'پاک کردن رمز',
+  'console_settings.will_clear':
+    'هنگام ذخیره پاک خواهد شد. کنسول بلافاصله متوقف می‌شود — بدون رمز نمی‌تواند وارد شود.',
+  'console_settings.saving': 'در حال ذخیره…',
+  'console_settings.save': 'ذخیرهٔ تغییرات',
+  'console_settings.unsaved': '{count} ذخیره‌نشده',
+  'console_settings.field.enabled': 'کنسول پرس‌وجو',
+  'console_settings.field.enabled_help':
+    'کنسول را اجرا می‌کند. هنوز به رمز کنسول نیاز دارد — یکی را در پایین بگذارید — و هنوز تا زمانی ' +
+    'که پایگاه داده محدودبودن نقش آن را تأیید نکند آغاز نمی‌شود.',
+  'console_settings.field.writeEnabled': 'اجازهٔ نوشتن',
+  'console_settings.field.writeEnabled_help':
+    'با نقش دیگری از Postgres وارد می‌شود — نقشی که V12 به آن روی جدول‌های عملیاتی UPDATE، INSERT ' +
+    'و DELETE می‌دهد. این یک بررسی در سطح برنامه نیست: خاموش‌کردن آن با نقشی وصل می‌شود که اصلاً ' +
+    'نمی‌تواند بنویسد.',
+  'console_settings.field.timeoutMs': 'مهلت اجرای دستور (میلی‌ثانیه)',
+  'console_settings.field.maxRows': 'سقف ردیف‌ها',
+  'console_settings.field.maxQueryLength': 'بیشینهٔ طول پرس‌وجو',
+  'console_settings.field.audit': 'حسابرسی',
+  'console_settings.field.audit_help':
+    'آنچه به رد حسابرسی می‌رسد. تا زمانی که نوشتن مجاز است روی «all» ثابت می‌ماند — کنسولی که ' +
+    'می‌تواند DELETE کند و ردی که هیچ‌یک را ثبت نمی‌کند، همان ترکیبی است که نباید وجود داشته باشد.',
+  'console_settings.field.dbPassword': 'رمز نقش کنسول',
+  'console_settings.field.dbPassword_help':
+    'هنگام آغاز روی نقش Postgres کنسول نصب می‌شود. هرگز بازگردانده نمی‌شود — سرور تنها گزارش ' +
+    'می‌دهد که آیا رمزی تنظیم شده است. ذخیرهٔ یک تغییر، کنسول را دوباره وصل می‌کند، چون ' +
+    'اعتبارنامه هنگام راه‌اندازی نصب می‌شود و در غیر این صورت تا راه‌اندازی بعدی اثر نمی‌کند.',
+
   'severity.critical': 'بحرانی',
   'severity.high': 'زیاد',
   'severity.medium': 'متوسط',

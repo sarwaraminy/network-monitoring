@@ -293,6 +293,117 @@ export const UI_EN = {
     'Would have hidden {matched} of the last {examined} alerts — {occurrences} observations in total.',
   'suppressions.preview_window': 'Examined {from} to {to}',
 
+  // --- Accounts and roles ---
+
+  'users.loading': 'Asking the server…',
+  'users.load_failed': 'Could not read the accounts',
+  'users.change_failed': 'Could not change the role',
+  'users.role_changed': '{account} is now {role}.',
+  'users.that_account': 'That account',
+  'users.blocked_self': 'You cannot change your own role. Ask another administrator.',
+  'users.blocked_last_admin': 'The only administrator. Promote another account before changing this one.',
+  'users.single_admin':
+    'One administrator. Promoting a second is what makes this account recoverable — with only one, ' +
+    'a forgotten password means editing the database by hand.',
+  'users.col_account': 'Account',
+  'users.col_name': 'Name',
+  'users.col_role': 'Role',
+  'users.you': 'you',
+  'users.account_n': 'account {id}',
+  'users.role_for': 'Role for {account}',
+  'users.audit_note':
+    'Every change is recorded in the audit trail, with who made it and which way the role moved.',
+
+  // --- Query console: diagnosis ---
+
+  'console.loading': 'Asking the server…',
+  'console.status_failed': 'Could not read the console status',
+  'console.running': 'The console is running',
+  'console.running_note':
+    'Queries are executed as a Postgres role whose grants decide what is possible — not as this ' +
+    "application's own database user.",
+  'console.mode_write': 'Read and write',
+  'console.mode_read': 'Read only',
+  'console.write_warning':
+    'Write mode is on, so the console authenticates as the read-write role and can UPDATE, INSERT ' +
+    'and DELETE the operational tables. It still cannot touch the audit trail, the secret columns, ' +
+    'accounts or delivery settings.',
+  'console.password_logged': 'The console password may be in the Postgres log',
+  'console.password_logged_note':
+    'The database owner is not a superuser, so statement logging could not be suppressed while the ' +
+    'password was set. Under {ddl} or {all} it will have been written in cleartext. Treat the ' +
+    'console password as a value the database server may have recorded — wherever it was set from, ' +
+    'since it reaches the role the same way either way.',
+  'console.unavailable': 'The console is not available',
+  'console.env_lines': 'In the API environment:',
+  'console.db_said': 'What the database said',
+  'console.recheck_failed': 'The re-check could not be run',
+  'console.checking': 'Checking…',
+  'console.check_again': 'Check again',
+  'console.recheck_note':
+    'Re-runs the startup check against the current environment. It cannot switch the console on.',
+  'console.remedy.disabled.title': 'The console has not been switched on',
+  'console.remedy.disabled.note':
+    'Switch it on in Query console settings, the next row in this menu, and set a console password ' +
+    'there. No restart needed. This is the default state, not a fault.',
+  'console.remedy.no_password.title': 'Switched on, but there is no password to install',
+  'console.remedy.no_password.note':
+    'The console was asked for, but the role it authenticates as has no credential and the server ' +
+    'will not invent one. Set one in Query console settings, the next row in this menu.',
+  'console.remedy.sandbox_failed.title': 'The database would not confirm the console is sandboxed',
+  'console.remedy.sandbox_failed.note':
+    'The console is configured, and the server refused to start it because it could not prove the ' +
+    'role is neither a superuser nor able to write. Check that the migrations have run, and that ' +
+    'nobody has recreated the role by hand. Fix it and check again — no restart needed.',
+
+  // --- Query console: settings ---
+
+  'console_settings.saved': 'Saved. The change is already in force — no restart needed.',
+  'console_settings.save_failed': 'Could not save the settings',
+  'console_settings.read_failed': 'Could not read the settings',
+  'console_settings.all_pinned': 'Every changed field is now set in the environment.',
+  'console_settings.no_password': 'No console password is set',
+  'console_settings.no_password_pinned_before':
+    'The console cannot start until one is set, and it is pinned to',
+  'console_settings.no_password_pinned_after':
+    'in the API environment — which is currently empty. Set a value there and restart the API, or ' +
+    'remove the line to set one here instead.',
+  'console_settings.no_password_here':
+    'The console cannot start until one is set, whatever the switches here say — it is the ' +
+    'credential installed on its Postgres role. Set one in Console role password below.',
+  'console_settings.pinned_note':
+    'Set by {variable} in the environment. Remove that line and restart the API to manage it here.',
+  'console_settings.password_set': 'Set — leave blank to keep it',
+  'console_settings.password_unset': 'Not set',
+  'console_settings.clear_password': 'Clear password',
+  'console_settings.will_clear':
+    'Will be cleared on save. The console stops as soon as it is — it cannot authenticate without a ' +
+    'password.',
+  'console_settings.saving': 'Saving…',
+  'console_settings.save': 'Save changes',
+  'console_settings.unsaved': '{count} unsaved',
+  'console_settings.field.enabled': 'Query console',
+  'console_settings.field.enabled_help':
+    'Runs the console. It still needs a console password — set one below — and still refuses to ' +
+    'start unless the database confirms its role is sandboxed.',
+  'console_settings.field.writeEnabled': 'Allow writes',
+  'console_settings.field.writeEnabled_help':
+    'Authenticates as a different Postgres role — one V12 grants UPDATE, INSERT and DELETE on the ' +
+    'operational tables. Not an application check: turning this off connects as a role that cannot ' +
+    'write at all.',
+  'console_settings.field.timeoutMs': 'Statement timeout (ms)',
+  'console_settings.field.maxRows': 'Row cap',
+  'console_settings.field.maxQueryLength': 'Maximum query length',
+  'console_settings.field.audit': 'Audit',
+  'console_settings.field.audit_help':
+    'What reaches the audit trail. Forced to "all" while writes are allowed — a console that can ' +
+    'DELETE and a trail that records none of it is the one combination this must not offer.',
+  'console_settings.field.dbPassword': 'Console role password',
+  'console_settings.field.dbPassword_help':
+    'Installed on the console’s Postgres role when it starts. Never shown back — the server reports ' +
+    'only whether one is set. Saving a change reconnects the console, because the credential is ' +
+    'installed at startup and would otherwise not take effect until the next restart.',
+
   'severity.critical': 'Critical',
   'severity.high': 'High',
   'severity.medium': 'Medium',

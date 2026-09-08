@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { type AdhocSettingsPatch, fetchAdhocSettings, saveAdhocSettings } from '../../api/adhoc.api';
 import { describeError } from '../../api/client';
+import { type UiMessageKey, useT } from '../../i18n/ui';
 import { monoSx } from '../../theme';
 
 /**
@@ -38,9 +39,17 @@ import { monoSx } from '../../theme';
 
 interface FieldDef {
   key: string;
-  label: string;
+  /**
+   * Catalogue keys rather than sentences.
+   *
+   * This table is module-level, so it is built once at import time — before any
+   * locale is known and outside every component that could react to one
+   * changing. Holding English here would have made the labels untranslatable
+   * without also making the table a hook.
+   */
+  labelKey: UiMessageKey;
   kind: 'switch' | 'number' | 'select' | 'password';
-  help?: string;
+  helpKey?: UiMessageKey;
   options?: readonly string[];
   min?: number;
   max?: number;
@@ -49,31 +58,37 @@ interface FieldDef {
 const FIELDS: readonly FieldDef[] = [
   {
     key: 'enabled',
-    label: 'Query console',
+    labelKey: 'console_settings.field.enabled',
     kind: 'switch',
-    help: 'Runs the console. It still needs a console password — set one below — and still refuses to start unless the database confirms its role is sandboxed.',
+    helpKey: 'console_settings.field.enabled_help',
   },
   {
     key: 'writeEnabled',
-    label: 'Allow writes',
+    labelKey: 'console_settings.field.writeEnabled',
     kind: 'switch',
-    help: 'Authenticates as a different Postgres role — one V12 grants UPDATE, INSERT and DELETE on the operational tables. Not an application check: turning this off connects as a role that cannot write at all.',
+    helpKey: 'console_settings.field.writeEnabled_help',
   },
-  { key: 'timeoutMs', label: 'Statement timeout (ms)', kind: 'number', min: 100, max: 600_000 },
-  { key: 'maxRows', label: 'Row cap', kind: 'number', min: 1, max: 100_000 },
-  { key: 'maxQueryLength', label: 'Maximum query length', kind: 'number', min: 1, max: 1_000_000 },
+  { key: 'timeoutMs', labelKey: 'console_settings.field.timeoutMs', kind: 'number', min: 100, max: 600_000 },
+  { key: 'maxRows', labelKey: 'console_settings.field.maxRows', kind: 'number', min: 1, max: 100_000 },
+  {
+    key: 'maxQueryLength',
+    labelKey: 'console_settings.field.maxQueryLength',
+    kind: 'number',
+    min: 1,
+    max: 1_000_000,
+  },
   {
     key: 'audit',
-    label: 'Audit',
+    labelKey: 'console_settings.field.audit',
     kind: 'select',
     options: ['all', 'refused', 'off'],
-    help: 'What reaches the audit trail. Forced to "all" while writes are allowed — a console that can DELETE and a trail that records none of it is the one combination this must not offer.',
+    helpKey: 'console_settings.field.audit_help',
   },
   {
     key: 'dbPassword',
-    label: 'Console role password',
+    labelKey: 'console_settings.field.dbPassword',
     kind: 'password',
-    help: 'Installed on the console’s Postgres role when it starts. Never shown back — the server reports only whether one is set. Saving a change reconnects the console, because the credential is installed at startup and would otherwise not take effect until the next restart.',
+    helpKey: 'console_settings.field.dbPassword_help',
   },
 ];
 
@@ -107,6 +122,7 @@ function toPatchValue(key: string, raw: boolean | number | string | null | undef
 }
 
 export default function QueryConsoleSettings() {
+  const t = useT();
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ['adhoc', 'settings'], queryFn: fetchAdhocSettings });
   const [draft, setDraft] = useState<AdhocSettingsPatch>({});
@@ -116,7 +132,7 @@ export default function QueryConsoleSettings() {
     mutationFn: (patch: AdhocSettingsPatch) => saveAdhocSettings(patch),
     onSuccess: () => {
       setDraft({});
-      setMessage({ severity: 'success', text: 'Saved. The change is already in force — no restart needed.' });
+      setMessage({ severity: 'success', text: t('console_settings.saved') });
       void queryClient.invalidateQueries({ queryKey: ['adhoc', 'settings'] });
       // The console's own status changes with these: enabling it starts the pool,
       // and the diagnostics panel and the console page both read that.
@@ -125,13 +141,13 @@ export default function QueryConsoleSettings() {
     onError: (error) => {
       // The server's message is the useful one — it names the environment
       // variable that pinned the field, which is what somebody can go and remove.
-      setMessage({ severity: 'error', text: describeError(error, 'Could not save the settings') });
+      setMessage({ severity: 'error', text: describeError(error, t('console_settings.save_failed')) });
     },
   });
 
-  if (settings.isPending) return <Typography variant="body2">Asking the server…</Typography>;
+  if (settings.isPending) return <Typography variant="body2">{t('console.loading')}</Typography>;
   if (settings.isError) {
-    return <Alert severity="error">{describeError(settings.error, 'Could not read the settings')}</Alert>;
+    return <Alert severity="error">{describeError(settings.error, t('console_settings.read_failed'))}</Alert>;
   }
 
   const current = settings.data;
@@ -196,7 +212,7 @@ export default function QueryConsoleSettings() {
       if (!isPinned(key)) patch[key] = toPatchValue(key, draft[key]);
     }
     if (Object.keys(patch).length === 0) {
-      setMessage({ severity: 'error', text: 'Every changed field is now set in the environment.' });
+      setMessage({ severity: 'error', text: t('console_settings.all_pinned') });
       return;
     }
     setMessage(null);
@@ -207,7 +223,7 @@ export default function QueryConsoleSettings() {
     <Stack spacing={2}>
       {!current.passwordConfigured && (
         <Alert severity="warning">
-          <AlertTitle>No console password is set</AlertTitle>
+          <AlertTitle>{t('console_settings.no_password')}</AlertTitle>
           {/*
            * The warning has to name the remedy, and since V15 the remedy is on
            * this page. It used to end with "set it in the environment and
@@ -217,18 +233,14 @@ export default function QueryConsoleSettings() {
            */}
           {isPinned('dbPassword') ? (
             <>
-              The console cannot start until one is set, and it is pinned to{' '}
+              {t('console_settings.no_password_pinned_before')}{' '}
               <Box component="code" sx={monoSx}>
                 {current.settings.dbPassword?.env}
               </Box>{' '}
-              in the API environment — which is currently empty. Set a value there and restart the API, or
-              remove the line to set one here instead.
+              {t('console_settings.no_password_pinned_after')}
             </>
           ) : (
-            <>
-              The console cannot start until one is set, whatever the switches here say — it is the credential
-              installed on its Postgres role. Set one in <strong>Console role password</strong> below.
-            </>
+            t('console_settings.no_password_here')
           )}
         </Alert>
       )}
@@ -238,9 +250,9 @@ export default function QueryConsoleSettings() {
       {FIELDS.map((field) => {
         const pinned = isPinned(field.key);
         const pinnedNote = pinned
-          ? `Set by ${current.settings[field.key]?.env} in the environment. Remove that line and restart the API to manage it here.`
+          ? t('console_settings.pinned_note', { variable: current.settings[field.key]?.env ?? '' })
           : undefined;
-        const helper = pinnedNote ?? field.help;
+        const helper = pinnedNote ?? (field.helpKey ? t(field.helpKey) : undefined);
 
         if (field.kind === 'switch') {
           return (
@@ -252,10 +264,10 @@ export default function QueryConsoleSettings() {
                       checked={valueFor(field.key) === true}
                       disabled={pinned || save.isPending}
                       onChange={(event) => setDraft((now) => ({ ...now, [field.key]: event.target.checked }))}
-                      slotProps={{ input: { 'aria-label': field.label } }}
+                      slotProps={{ input: { 'aria-label': t(field.labelKey) } }}
                     />
                   }
-                  label={field.label}
+                  label={t(field.labelKey)}
                 />
                 {pinned && <Chip size="small" variant="outlined" label={current.settings[field.key]?.env} />}
               </Stack>
@@ -279,7 +291,7 @@ export default function QueryConsoleSettings() {
                   fullWidth
                   size="small"
                   type="password"
-                  label={field.label}
+                  label={t(field.labelKey)}
                   value={typed}
                   disabled={pinned || save.isPending}
                   /*
@@ -289,8 +301,10 @@ export default function QueryConsoleSettings() {
                    * reading ("leave it alone") and the destructive one ("clear
                    * it") are indistinguishable to the reader.
                    */
-                  placeholder={configured ? 'Set — leave blank to keep it' : 'Not set'}
-                  helperText={pinnedNote ?? field.help}
+                  placeholder={
+                    configured ? t('console_settings.password_set') : t('console_settings.password_unset')
+                  }
+                  helperText={helper}
                   autoComplete="new-password"
                   onChange={(event) => setDraft((now) => ({ ...now, [field.key]: event.target.value }))}
                 />
@@ -305,14 +319,13 @@ export default function QueryConsoleSettings() {
                     // "Clear" and that is already one ambiguity too many.
                     onClick={() => setDraft((now) => ({ ...now, [field.key]: null }))}
                   >
-                    Clear password
+                    {t('console_settings.clear_password')}
                   </Button>
                 )}
               </Stack>
               {draft[field.key] === null && (
                 <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>
-                  Will be cleared on save. The console stops as soon as it is — it cannot authenticate without
-                  a password.
+                  {t('console_settings.will_clear')}
                 </Typography>
               )}
             </Box>
@@ -325,7 +338,7 @@ export default function QueryConsoleSettings() {
               key={field.key}
               select
               size="small"
-              label={field.label}
+              label={t(field.labelKey)}
               value={String(valueFor(field.key) ?? '')}
               disabled={pinned || save.isPending}
               helperText={helper}
@@ -345,7 +358,7 @@ export default function QueryConsoleSettings() {
             key={field.key}
             size="small"
             type="number"
-            label={field.label}
+            label={t(field.labelKey)}
             value={String(valueFor(field.key) ?? '')}
             disabled={pinned || save.isPending}
             helperText={helper}
@@ -372,11 +385,11 @@ export default function QueryConsoleSettings() {
           onClick={submit}
           disabled={changed.length === 0 || save.isPending}
         >
-          {save.isPending ? 'Saving…' : 'Save changes'}
+          {save.isPending ? t('console_settings.saving') : t('console_settings.save')}
         </Button>
         {changed.length > 0 && (
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            {changed.length} unsaved
+            {t('console_settings.unsaved', { count: changed.length })}
           </Typography>
         )}
       </Stack>

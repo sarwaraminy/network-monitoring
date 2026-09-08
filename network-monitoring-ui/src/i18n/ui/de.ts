@@ -285,6 +285,127 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'Hätte {matched} der letzten {examined} Meldungen ausgeblendet — {occurrences} Beobachtungen insgesamt.',
   'suppressions.preview_window': 'Untersucht von {from} bis {to}',
 
+  // --- Konten und Rollen ---
+
+  'users.loading': 'Server wird abgefragt…',
+  'users.load_failed': 'Die Konten konnten nicht gelesen werden',
+  'users.change_failed': 'Die Rolle konnte nicht geändert werden',
+  'users.role_changed': '{account} ist jetzt {role}.',
+  'users.that_account': 'Dieses Konto',
+  'users.blocked_self':
+    'Sie können Ihre eigene Rolle nicht ändern. Fragen Sie eine andere Administratorin oder einen anderen Administrator.',
+  'users.blocked_last_admin': 'Das einzige Administratorkonto. Befördern Sie zuerst ein weiteres Konto.',
+  'users.single_admin':
+    'Nur ein Administratorkonto. Ein zweites zu befördern ist das, was dieses Konto ' +
+    'wiederherstellbar macht — mit nur einem bedeutet ein vergessenes Passwort, die Datenbank von ' +
+    'Hand zu bearbeiten.',
+  'users.col_account': 'Konto',
+  'users.col_name': 'Name',
+  'users.col_role': 'Rolle',
+  'users.you': 'Sie',
+  'users.account_n': 'Konto {id}',
+  'users.role_for': 'Rolle für {account}',
+  'users.audit_note':
+    'Jede Änderung wird im Prüfprotokoll festgehalten — wer sie vorgenommen hat und in welche ' +
+    'Richtung die Rolle geändert wurde.',
+
+  // --- Abfragekonsole: Diagnose ---
+
+  'console.loading': 'Server wird abgefragt…',
+  'console.status_failed': 'Der Status der Konsole konnte nicht gelesen werden',
+  'console.running': 'Die Konsole läuft',
+  'console.running_note':
+    'Abfragen werden als Postgres-Rolle ausgeführt, deren Rechte entscheiden, was möglich ist — ' +
+    'nicht als der Datenbankbenutzer dieser Anwendung.',
+  'console.mode_write': 'Lesen und schreiben',
+  'console.mode_read': 'Nur lesen',
+  'console.write_warning':
+    'Der Schreibmodus ist aktiv: Die Konsole meldet sich als Lese-/Schreibrolle an und kann die ' +
+    'Betriebstabellen mit UPDATE, INSERT und DELETE verändern. Das Prüfprotokoll, die Spalten mit ' +
+    'Geheimnissen, Konten und Zustellungseinstellungen bleiben unerreichbar.',
+  'console.password_logged': 'Das Konsolenpasswort steht möglicherweise im Postgres-Protokoll',
+  'console.password_logged_note':
+    'Der Datenbankeigentümer ist kein Superuser, daher konnte die Anweisungsprotokollierung beim ' +
+    'Setzen des Passworts nicht unterdrückt werden. Unter {ddl} oder {all} wurde es im Klartext ' +
+    'geschrieben. Behandeln Sie das Konsolenpasswort als einen Wert, den der Datenbankserver ' +
+    'aufgezeichnet haben könnte — unabhängig davon, wo es gesetzt wurde.',
+  'console.unavailable': 'Die Konsole ist nicht verfügbar',
+  'console.env_lines': 'In der API-Umgebung:',
+  'console.db_said': 'Was die Datenbank gemeldet hat',
+  'console.recheck_failed': 'Die erneute Prüfung konnte nicht ausgeführt werden',
+  'console.checking': 'Wird geprüft…',
+  'console.check_again': 'Erneut prüfen',
+  'console.recheck_note':
+    'Führt die Startprüfung gegen die aktuelle Umgebung erneut aus. Die Konsole kann damit nicht ' +
+    'eingeschaltet werden.',
+  'console.remedy.disabled.title': 'Die Konsole wurde nicht eingeschaltet',
+  'console.remedy.disabled.note':
+    'Schalten Sie sie unter „Einstellungen der Abfragekonsole“ ein — der nächsten Zeile in diesem ' +
+    'Menü — und setzen Sie dort ein Konsolenpasswort. Kein Neustart nötig. Das ist der ' +
+    'Standardzustand, kein Fehler.',
+  'console.remedy.no_password.title': 'Eingeschaltet, aber es gibt kein Passwort zum Installieren',
+  'console.remedy.no_password.note':
+    'Die Konsole wurde angefordert, aber die Rolle, als die sie sich anmeldet, hat keine ' +
+    'Anmeldedaten, und der Server erfindet keine. Setzen Sie eines unter „Einstellungen der ' +
+    'Abfragekonsole“, der nächsten Zeile in diesem Menü.',
+  'console.remedy.sandbox_failed.title': 'Die Datenbank hat die Isolierung der Konsole nicht bestätigt',
+  'console.remedy.sandbox_failed.note':
+    'Die Konsole ist konfiguriert, und der Server hat den Start verweigert, weil er nicht ' +
+    'nachweisen konnte, dass die Rolle weder Superuser ist noch schreiben kann. Prüfen Sie, ob die ' +
+    'Migrationen gelaufen sind und ob niemand die Rolle von Hand neu angelegt hat. Beheben Sie das ' +
+    'und prüfen Sie erneut — kein Neustart nötig.',
+
+  // --- Abfragekonsole: Einstellungen ---
+
+  'console_settings.saved': 'Gespeichert. Die Änderung ist bereits in Kraft — kein Neustart nötig.',
+  'console_settings.save_failed': 'Die Einstellungen konnten nicht gespeichert werden',
+  'console_settings.read_failed': 'Die Einstellungen konnten nicht gelesen werden',
+  'console_settings.all_pinned': 'Jedes geänderte Feld ist jetzt in der Umgebung gesetzt.',
+  'console_settings.no_password': 'Es ist kein Konsolenpasswort gesetzt',
+  'console_settings.no_password_pinned_before':
+    'Die Konsole kann erst starten, wenn eines gesetzt ist, und es ist festgelegt durch',
+  'console_settings.no_password_pinned_after':
+    'in der API-Umgebung — die derzeit leer ist. Setzen Sie dort einen Wert und starten Sie die API ' +
+    'neu, oder entfernen Sie die Zeile, um es stattdessen hier zu setzen.',
+  'console_settings.no_password_here':
+    'Die Konsole kann erst starten, wenn eines gesetzt ist — unabhängig von den Schaltern hier. Es ' +
+    'sind die Anmeldedaten, die auf ihrer Postgres-Rolle installiert werden. Setzen Sie eines unter ' +
+    '„Passwort der Konsolenrolle“ weiter unten.',
+  'console_settings.pinned_note':
+    'Durch {variable} in der Umgebung gesetzt. Entfernen Sie diese Zeile und starten Sie die API ' +
+    'neu, um den Wert hier zu verwalten.',
+  'console_settings.password_set': 'Gesetzt — leer lassen, um es beizubehalten',
+  'console_settings.password_unset': 'Nicht gesetzt',
+  'console_settings.clear_password': 'Passwort löschen',
+  'console_settings.will_clear':
+    'Wird beim Speichern gelöscht. Die Konsole stoppt daraufhin sofort — ohne Passwort kann sie ' +
+    'sich nicht anmelden.',
+  'console_settings.saving': 'Wird gespeichert…',
+  'console_settings.save': 'Änderungen speichern',
+  'console_settings.unsaved': '{count} nicht gespeichert',
+  'console_settings.field.enabled': 'Abfragekonsole',
+  'console_settings.field.enabled_help':
+    'Betreibt die Konsole. Sie braucht weiterhin ein Konsolenpasswort — unten zu setzen — und ' +
+    'startet weiterhin nur, wenn die Datenbank bestätigt, dass ihre Rolle isoliert ist.',
+  'console_settings.field.writeEnabled': 'Schreiben erlauben',
+  'console_settings.field.writeEnabled_help':
+    'Meldet sich als andere Postgres-Rolle an — eine, der V12 UPDATE, INSERT und DELETE auf den ' +
+    'Betriebstabellen gewährt. Keine Prüfung in der Anwendung: Ausschalten verbindet als Rolle, die ' +
+    'überhaupt nicht schreiben kann.',
+  'console_settings.field.timeoutMs': 'Anweisungs-Zeitlimit (ms)',
+  'console_settings.field.maxRows': 'Zeilenobergrenze',
+  'console_settings.field.maxQueryLength': 'Maximale Abfragelänge',
+  'console_settings.field.audit': 'Prüfprotokoll',
+  'console_settings.field.audit_help':
+    'Was ins Prüfprotokoll gelangt. Wird auf „all“ erzwungen, solange Schreiben erlaubt ist — eine ' +
+    'Konsole, die DELETE kann, und ein Protokoll, das nichts davon festhält, ist die eine ' +
+    'Kombination, die es nicht geben darf.',
+  'console_settings.field.dbPassword': 'Passwort der Konsolenrolle',
+  'console_settings.field.dbPassword_help':
+    'Wird beim Start auf der Postgres-Rolle der Konsole installiert. Wird nie zurückgegeben — der ' +
+    'Server meldet nur, ob eines gesetzt ist. Beim Speichern verbindet sich die Konsole neu, weil ' +
+    'die Anmeldedaten beim Start installiert werden und sonst erst beim nächsten Neustart wirken.',
+
   'severity.critical': 'Kritisch',
   'severity.high': 'Hoch',
   'severity.medium': 'Mittel',
