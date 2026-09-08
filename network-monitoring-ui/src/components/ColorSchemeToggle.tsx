@@ -5,6 +5,7 @@ import { useColorScheme } from '@mui/material/styles';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
+import { useT } from '../i18n/ui';
 
 /**
  * Light / dark / auto switch, laid out as one row for the account menu.
@@ -21,6 +22,7 @@ import Typography from '@mui/material/Typography';
  * point of switching theme in place is watching it change.
  */
 export default function ColorSchemeToggle() {
+  const t = useT();
   const { mode, setMode } = useColorScheme();
 
   return (
@@ -32,7 +34,7 @@ export default function ColorSchemeToggle() {
       </ListItemIcon>
 
       <Typography variant="body2" sx={{ flexGrow: 1, mr: 2 }}>
-        Theme
+        {t('account.theme')}
       </Typography>
 
       <ToggleButtonGroup
@@ -45,7 +47,7 @@ export default function ColorSchemeToggle() {
           // Without this guard that would clear the theme rather than keep it.
           if (value !== null) setMode(value);
         }}
-        aria-label="Theme"
+        aria-label={t('account.theme')}
         sx={{
           '& .MuiToggleButton-root': {
             px: 1.25,
@@ -63,9 +65,9 @@ export default function ColorSchemeToggle() {
           },
         }}
       >
-        <ToggleButton value="light">Light</ToggleButton>
-        <ToggleButton value="dark">Dark</ToggleButton>
-        <ToggleButton value="system">Auto</ToggleButton>
+        <ToggleButton value="light">{t('account.theme.light')}</ToggleButton>
+        <ToggleButton value="dark">{t('account.theme.dark')}</ToggleButton>
+        <ToggleButton value="system">{t('account.theme.auto')}</ToggleButton>
       </ToggleButtonGroup>
     </Box>
   );

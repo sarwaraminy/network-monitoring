@@ -184,6 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         firstName: response.firstName,
         lastName: response.lastName,
         role: response.role,
+        langCode: response.langCode,
       });
       openGuide();
     },

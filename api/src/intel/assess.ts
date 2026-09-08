@@ -1,4 +1,5 @@
-import type { Severity } from '../packet/detect/types.js';
+import type { FindingRef } from '../i18n/catalog/findings.js';
+import type { Finding, Severity } from '../packet/detect/types.js';
 import { canonicalIpv6, type IndicatorMatch, ipv4ToInt, isNonRoutableV4, isNonRoutableV6 } from './match.js';
 
 /**
@@ -62,8 +63,8 @@ export function directionOf(sourceIp: string | null, targetIp: string | null): D
 
 export interface Assessment {
   severity: Severity;
-  title: string;
-  description: string;
+  messageKey: Finding['messageKey'];
+  messageParams: Finding['messageParams'];
   /** Stable across repeats of the same pairing, so occurrences aggregate. */
   dedupKey: string;
 }
@@ -78,20 +79,40 @@ export interface Assessment {
  */
 export function assess(
   match: IndicatorMatch,
-  context: { localIp: string | null; remoteIp: string | null; direction: Direction; via: string },
+  context: {
+    localIp: string | null;
+    remoteIp: string | null;
+    direction: Direction;
+    /**
+     * How the match was observed, as a reference rather than a phrase.
+     *
+     * "packet capture", "DNS query" and "NetFlow v9 from 10.0.0.1" are prose, and
+     * the last one has a preposition in it — a German or Dari sentence does not
+     * put that where an English one does, so the fragment has to be translatable
+     * on its own rather than pre-joined here.
+     */
+    via: FindingRef;
+  },
 ): Assessment {
   const { localIp, remoteIp, direction, via } = context;
-  const attribution = match.note ? `${match.source}: ${match.note}` : match.source;
+  const attribution: FindingRef = {
+    key: 'threat_intel.attribution',
+    params: { source: match.source, note: match.note ?? null, hasNote: Boolean(match.note) },
+  };
+  const common = {
+    observed: match.observed,
+    indicator: match.indicator,
+    attribution,
+    localIp,
+    hasLocalIp: localIp !== null,
+    via,
+  };
 
   if (match.type === 'domain') {
     return {
       severity: 'critical',
-      title: `Known-malicious domain queried: ${match.observed}`,
-      description:
-        `${localIp ?? 'A host on the network'} looked up ${match.observed}, which matches the indicator ` +
-        `${match.indicator} from ${attribution}. A lookup is usually the first thing an implant does, and ` +
-        'it happens even when the connection that follows is blocked — so this is often the only trace ' +
-        'left. Treat the querying host as suspect until you can account for what asked.',
+      messageKey: 'threat_intel.domain',
+      messageParams: common,
       dedupKey: `threat_intel|domain|${match.indicator}|${localIp ?? 'unknown'}`,
     };
   }
@@ -99,12 +120,8 @@ export function assess(
   if (direction === 'outbound') {
     return {
       severity: 'critical',
-      title: `Outbound connection to known-malicious address ${match.observed}`,
-      description:
-        `${localIp ?? 'A host on the network'} connected out to ${match.observed}, which matches ` +
-        `${match.indicator} from ${attribution}, seen via ${via}. Something inside the network chose to ` +
-        'contact this address, which points at a compromised host or software nobody sanctioned. This is ' +
-        'materially more serious than being scanned from a listed address, and worth investigating now.',
+      messageKey: 'threat_intel.outbound',
+      messageParams: common,
       dedupKey: `threat_intel|outbound|${match.indicator}|${localIp ?? 'unknown'}`,
     };
   }
@@ -115,24 +132,16 @@ export function assess(
       // a large share of any blocklist is scanners; grading this critical would
       // bury the operator and teach them to ignore the detector.
       severity: 'medium',
-      title: `Inbound traffic from known-malicious address ${match.observed}`,
-      description:
-        `${match.observed} contacted ${localIp ?? 'a host on the network'} and matches ${match.indicator} ` +
-        `from ${attribution}, seen via ${via}. Unsolicited inbound traffic from listed addresses is constant ` +
-        'on any internet-facing network and is usually background scanning. It matters if the host answered ' +
-        'or if it repeats against one target, so check what was exposed rather than treating this alone as ' +
-        'a compromise.',
+      messageKey: 'threat_intel.inbound',
+      messageParams: common,
       dedupKey: `threat_intel|inbound|${match.indicator}|${localIp ?? 'unknown'}`,
     };
   }
 
   return {
     severity: 'high',
-    title: `Traffic involving known-malicious address ${match.observed}`,
-    description:
-      `Traffic between ${localIp ?? 'unknown'} and ${remoteIp ?? 'unknown'} involves ${match.observed}, ` +
-      `matching ${match.indicator} from ${attribution}, seen via ${via}. The direction could not be ` +
-      'determined from the addresses, so establish which side initiated before drawing a conclusion.',
+    messageKey: 'threat_intel.unknown',
+    messageParams: { ...common, remoteIp, hasRemoteIp: remoteIp !== null },
     dedupKey: `threat_intel|${match.indicator}|${localIp ?? 'unknown'}|${remoteIp ?? 'unknown'}`,
   };
 }

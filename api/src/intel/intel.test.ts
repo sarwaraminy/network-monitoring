@@ -35,6 +35,15 @@ function setWith(...entries: Array<[string, Parameters<IndicatorSet['add']>[0]['
   return set;
 }
 
+/**
+ * A stand-in for "how this was observed".
+ *
+ * `assess` takes a message reference rather than a phrase since the finding text
+ * became translatable, and none of the assertions below are about which one it
+ * was — they are about the grading, which does not read it.
+ */
+const VIA = { key: 'threat_intel.via.packet_capture' } as const;
+
 describe('address parsing', () => {
   it('converts dotted quads', () => {
     assert.equal(ipv4ToInt('0.0.0.0'), 0);
@@ -285,10 +294,10 @@ describe('direction grading', () => {
     // nobody sanctioned.
     const graded = assess(
       { observed: '203.0.113.1', indicator: '203.0.113.1', type: 'ipv4', source: 'feodo', note: 'C2' },
-      { localIp: '10.0.0.5', remoteIp: '203.0.113.1', direction: 'outbound', via: 'ipfix' },
+      { localIp: '10.0.0.5', remoteIp: '203.0.113.1', direction: 'outbound', via: VIA },
     );
     assert.equal(graded.severity, 'critical');
-    assert.match(graded.title, /Outbound/);
+    assert.equal(graded.messageKey, 'threat_intel.outbound');
   });
 
   it('grades an inbound match medium, not critical', () => {
@@ -296,7 +305,7 @@ describe('direction grading', () => {
     // scanners. Critical here would bury the operator and get the tool ignored.
     const graded = assess(
       { observed: '203.0.113.1', indicator: '203.0.113.1', type: 'ipv4', source: 'feodo', note: null },
-      { localIp: '10.0.0.5', remoteIp: '203.0.113.1', direction: 'inbound', via: 'ipfix' },
+      { localIp: '10.0.0.5', remoteIp: '203.0.113.1', direction: 'inbound', via: VIA },
     );
     assert.equal(graded.severity, 'medium');
   });
@@ -304,10 +313,10 @@ describe('direction grading', () => {
   it('grades a domain lookup critical whichever way the packet went', () => {
     const graded = assess(
       { observed: 'c2.bad.example', indicator: 'bad.example', type: 'domain', source: 'urlhaus', note: null },
-      { localIp: '10.0.0.5', remoteIp: '10.0.0.1', direction: 'internal', via: 'DNS query' },
+      { localIp: '10.0.0.5', remoteIp: '10.0.0.1', direction: 'internal', via: VIA },
     );
     assert.equal(graded.severity, 'critical');
-    assert.match(graded.title, /domain queried/);
+    assert.equal(graded.messageKey, 'threat_intel.domain');
   });
 
   it('gives the same pairing a stable dedup key, so repeats aggregate', () => {
@@ -322,7 +331,7 @@ describe('direction grading', () => {
       localIp: '10.0.0.5',
       remoteIp: '203.0.113.1',
       direction: 'outbound' as const,
-      via: 'ipfix',
+      via: VIA,
     };
     // A beacon calling home every thirty seconds must be one alert with a rising
     // occurrence count, not thousands of rows.
@@ -341,13 +350,13 @@ describe('direction grading', () => {
       localIp: '10.0.0.5',
       remoteIp: '203.0.113.1',
       direction: 'outbound',
-      via: 'x',
+      via: VIA,
     });
     const b = assess(match, {
       localIp: '10.0.0.9',
       remoteIp: '203.0.113.1',
       direction: 'outbound',
-      via: 'x',
+      via: VIA,
     });
     assert.notEqual(a.dedupKey, b.dedupKey, 'two compromised hosts are two findings');
   });

@@ -51,6 +51,15 @@ export interface LoginResponseBody {
   firstName: string;
   lastName: string | null;
   role: string;
+  /**
+   * The account's language.
+   *
+   * Carried here as well as on `GET /auth/me` so the interface switches language
+   * on the sign-in itself rather than on the next reload. `/me` is only reached
+   * when validating a stored token, so without this the first session after a
+   * sign-in is the one session that ignores the preference.
+   */
+  langCode: string;
   token: string;
 }
 

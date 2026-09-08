@@ -53,6 +53,8 @@ const NOTIFICATION: Notification = {
       severity: 'high',
       title: 'Port scan',
       description: 'A host swept 40 ports.',
+      englishTitle: 'Port scan',
+      englishDescription: 'A host swept 40 ports.',
       sourceIp: '10.0.0.9',
       targetIp: null,
       occurrences: 1,

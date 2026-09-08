@@ -176,11 +176,7 @@ notifyRouter.put(
       // admin can find in api/.env, `SYSLOG_APP_NAME` is — the same distinction
       // invalidEnvironmentVariables (settings.ts) makes for the boot-time warning.
       const variables = conflicts.map((field) => DELIVERY_FIELDS[field].env);
-      throw new HttpError(
-        409,
-        `Set in the environment and not editable here: ${variables.join(', ')}. ` +
-          'Remove the variable from api/.env (or your Compose file) to manage it from this page.',
-      );
+      throw HttpError.of(409, 'error.delivery_pinned', { variables: variables.join(', ') });
     }
 
     await saveDeliverySettings(patch, actorOf(req.user));

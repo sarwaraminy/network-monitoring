@@ -67,8 +67,30 @@ export const alerts = pgTable(
 
     kind: varchar('kind', { length: 64 }).notNull(),
     severity: varchar('severity', { length: 16 }).notNull(),
-    title: varchar('title', { length: 200 }).notNull(),
-    description: varchar('description').notNull(),
+    /**
+     * What this finding says, as a catalogue key plus what it interpolates — see
+     * V17__Finding_message_keys.sql. `message_key` names a *pair*,
+     * `arp_spoofing.sprawl`, from which `.title` and `.description` are derived at
+     * render time.
+     *
+     * Nullable only because rows written before V17 have prose instead; every
+     * insert since writes a key. A CHECK constraint holds the invariant that a row
+     * carries one representation or the other.
+     */
+    messageKey: varchar('message_key', { length: 120 }),
+    /**
+     * Interpolated values. Same rule as `evidence`: persisted and displayed, so
+     * never a payload or a password.
+     */
+    messageParams: jsonb('message_params').notNull().default({}),
+
+    /**
+     * The pre-V17 English rendering, kept for the rows that have it and never
+     * written again. Not backfilled from the key, and not parsed back out of the
+     * prose — see the migration for why that cannot be done reliably.
+     */
+    title: varchar('title', { length: 200 }),
+    description: varchar('description'),
 
     sourceIp: varchar('source_ip', { length: 64 }),
     sourceMac: varchar('source_mac', { length: 32 }),

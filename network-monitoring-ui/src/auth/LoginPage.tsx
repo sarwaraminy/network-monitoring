@@ -18,8 +18,10 @@ import { Navigate, Link as RouterLink, useLocation, useNavigate } from 'react-ro
 import { fetchSignupMode } from '../api/auth.api';
 import { describeError } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
+import { useT } from '../i18n/ui';
 
 export default function LoginPage() {
+  const t = useT();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -102,7 +104,7 @@ export default function LoginPage() {
               <ShieldMoonOutlinedIcon />
             </Avatar>
             <Typography variant="h5" component="h1">
-              Network Monitoring Tool
+              {t('app.name')}
             </Typography>
             <Typography
               variant="body2"
@@ -110,7 +112,7 @@ export default function LoginPage() {
                 color: 'text.secondary',
               }}
             >
-              Sign in to capture and analyse traffic
+              {t('login.subtitle')}
             </Typography>
           </Stack>
 
@@ -123,7 +125,7 @@ export default function LoginPage() {
           <Box component="form" onSubmit={handleSubmit} noValidate>
             <Stack spacing={2}>
               <TextField
-                label="Email address"
+                label={t('login.email')}
                 type="email"
                 id="email"
                 autoComplete="username"
@@ -135,7 +137,7 @@ export default function LoginPage() {
                 autoFocus
               />
               <TextField
-                label="Password"
+                label={t('login.password')}
                 type="password"
                 id="password"
                 autoComplete="current-password"
@@ -152,7 +154,7 @@ export default function LoginPage() {
                 disabled={!email || !password || submitting}
                 fullWidth
               >
-                {submitting ? 'Signing in…' : 'Sign in'}
+                {submitting ? t('login.signing_in') : t('login.sign_in')}
               </Button>
             </Stack>
           </Box>
@@ -181,16 +183,16 @@ export default function LoginPage() {
               >
                 {signupMode.data.mode === 'first-admin' ? (
                   <>
-                    No accounts exist yet.{' '}
+                    {t('login.no_accounts')}{' '}
                     <Link component={RouterLink} to="/sign-up" underline="hover" sx={{ fontWeight: 600 }}>
-                      Create the first administrator
+                      {t('login.create_first_admin')}
                     </Link>
                   </>
                 ) : (
                   <>
-                    Don&apos;t have an account?{' '}
+                    {t('login.no_account')}{' '}
                     <Link component={RouterLink} to="/sign-up" underline="hover" sx={{ fontWeight: 600 }}>
-                      Register here
+                      {t('login.register_here')}
                     </Link>
                   </>
                 )}

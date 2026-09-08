@@ -39,7 +39,7 @@ const declaredPaths = new Set(
 );
 
 describe('navigation targets', () => {
-  it.each(NAV_GROUPS.flatMap((group) => group.items.map((item) => [item.label, item.to] as const)))(
+  it.each(NAV_GROUPS.flatMap((group) => group.items.map((item) => [item.labelKey, item.to] as const)))(
     '%s routes somewhere real',
     (label, to) => {
       expect(

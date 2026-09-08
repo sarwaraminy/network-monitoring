@@ -13,6 +13,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { type ComponentType, type ReactElement, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useT } from '../../i18n/ui';
 import AppDialog from '../AppDialog';
 import DeliverySettingsForm from '../DeliverySettingsForm';
 import QueryConsoleSettings from './QueryConsoleSettings';
@@ -123,6 +124,7 @@ export const ADMIN_GROUPS: AdminGroup[] = [
 ];
 
 export default function AdminSettingsMenu() {
+  const t = useT();
   const { user } = useAuth();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [open, setOpen] = useState<AdminTool | null>(null);
@@ -132,10 +134,10 @@ export default function AdminSettingsMenu() {
 
   return (
     <>
-      <Tooltip title="Administration settings">
+      <Tooltip title={t('admin.settings')}>
         <IconButton
           color="inherit"
-          aria-label="Administration settings"
+          aria-label={t('admin.settings')}
           onClick={(event) => setAnchor(event.currentTarget)}
         >
           <SettingsOutlinedIcon />

@@ -1,3 +1,5 @@
+import { renderFinding } from '../i18n/catalog/findings.js';
+import { DEFAULT_LOCALE, type Locale } from '../i18n/locales.js';
 import type { Finding, Severity } from '../packet/detect/types.js';
 
 /**
@@ -34,8 +36,28 @@ export interface NotifiableFinding {
   sensorId: string;
   kind: string;
   severity: Severity;
+  /**
+   * Rendered in the installation's outbound language — see `OUTBOUND_LOCALE`.
+   *
+   * The human channels read these. The machine ones must not: see `messageKey`.
+   */
   title: string;
   description: string;
+  /**
+   * The same two sentences in English, whatever the human channels are set to.
+   *
+   * A SIEM parses the syslog and CEF feeds and correlates on them, and a localised
+   * event name breaks every rule written against it — the same argument that pins
+   * `signatureId` to the detector kind, one field over. So "outbound is one
+   * configured language" and "the machine feed is English" are two different
+   * questions, and these are the fields that let them have two different answers.
+   *
+   * Rendered here rather than in the channel so the channels stay pure formatters
+   * with nothing to look up: `cef.ts` is the format half of the export and its
+   * escaping is the part worth testing on its own.
+   */
+  englishTitle: string;
+  englishDescription: string;
   sourceIp: string | null;
   targetIp: string | null;
   occurrences: number;
@@ -100,6 +122,20 @@ export interface DeliveryResult {
   detail: string;
 }
 
+/**
+ * The language outbound notifications are written in.
+ *
+ * An installation setting rather than a per-user one, and there is nowhere else
+ * for it to come from: an alert email goes to a team address and a webhook has no
+ * account at all, so there is no `lang_code` to read. English for now, which is
+ * what every existing installation already receives — the seam is here so that
+ * making it configurable alongside the other delivery settings is a change to one
+ * value rather than to every channel.
+ *
+ * Does not reach syslog or CEF, which are English whatever this says.
+ */
+export const OUTBOUND_LOCALE: Locale = DEFAULT_LOCALE;
+
 /** Converts a stored finding plus its occurrence count into notifiable form. */
 export function toNotifiable(
   finding: Finding,
@@ -108,13 +144,22 @@ export function toNotifiable(
   lastSeen: Date,
   includeEvidence: boolean,
   sensorId: string,
+  locale: Locale = OUTBOUND_LOCALE,
 ): NotifiableFinding {
+  const text = renderFinding(finding.messageKey, finding.messageParams, locale);
+  // Rendered twice only when the two differ, which today they never do.
+  const english =
+    locale === DEFAULT_LOCALE
+      ? text
+      : renderFinding(finding.messageKey, finding.messageParams, DEFAULT_LOCALE);
   return {
     sensorId,
     kind: finding.kind,
     severity: finding.severity,
-    title: finding.title,
-    description: finding.description,
+    title: text.title,
+    description: text.description,
+    englishTitle: english.title,
+    englishDescription: english.description,
     sourceIp: finding.sourceIp ?? null,
     targetIp: finding.targetIp ?? null,
     occurrences,

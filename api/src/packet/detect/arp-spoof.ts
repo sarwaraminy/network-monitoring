@@ -68,11 +68,8 @@ export class ArpSpoofDetector implements Detector {
       findings.push({
         kind: this.name,
         severity: 'critical',
-        title: `ARP spoofing: ${ip} claimed by ${mac}`,
-        description:
-          `${mac} sent an ARP ${arp.operationName} claiming ${ip}, but that address is configured ` +
-          `to ${configured}. A host on the network is impersonating ${ip}, which lets it intercept ` +
-          'traffic intended for that address.',
+        messageKey: 'arp_spoofing.configured',
+        messageParams: { ip, mac, operation: arp.operationName, configuredMac: configured },
         dedupKey: `arp_spoofing|configured|${ip}`,
         sourceIp: ip,
         sourceMac: mac,
@@ -124,16 +121,14 @@ export class ArpSpoofDetector implements Detector {
         findings.push({
           kind: this.name,
           severity: flipping ? 'critical' : 'high',
-          title: `ARP spoofing: ${ip} moved from ${previousMac} to ${mac}`,
-          description:
-            `${ip} was consistently answered by ${previousMac} (${previousObservations} observations) ` +
-            `and is now claimed by ${mac}. ` +
-            (flipping
-              ? 'The two addresses are alternating, which is the signature of an active ARP poisoning ' +
-                "attack: the attacker repeatedly overwrites the victim's ARP cache to keep traffic " +
-                'flowing through itself.'
-              : 'This can be a replaced device or a DHCP change, but it is also how a ' +
-                'man-in-the-middle inserts itself. Confirm the new address belongs to expected hardware.'),
+          messageKey: 'arp_spoofing.conflict',
+          messageParams: {
+            ip,
+            previousMac,
+            mac,
+            observations: previousObservations,
+            flipping,
+          },
           dedupKey: `arp_spoofing|conflict|${ip}`,
           sourceIp: ip,
           sourceMac: mac,
@@ -165,11 +160,8 @@ export class ArpSpoofDetector implements Detector {
       findings.push({
         kind: this.name,
         severity: 'high',
-        title: `${mac} is claiming ${claimed.size} different IP addresses`,
-        description:
-          `${mac} has sent ARP messages claiming ${claimed.size} distinct addresses. A normal host ` +
-          'answers for its own address only. Answering for many is how an attacker poisons the ARP ' +
-          'caches of an entire subnet at once.',
+        messageKey: 'arp_spoofing.sprawl',
+        messageParams: { mac, count: claimed.size },
         dedupKey: `arp_spoofing|sprawl|${mac}`,
         sourceMac: mac,
         protocol: 'ARP',

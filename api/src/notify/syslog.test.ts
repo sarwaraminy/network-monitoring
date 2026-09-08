@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { renderFinding } from '../i18n/catalog/findings.js';
 import {
   CEF_SEVERITY,
   escapeExtension,
@@ -22,12 +23,25 @@ import type { NotifiableFinding, Notification } from './types.js';
  * is the whole reason it exists separately from the chat channels.
  */
 
+const PORT_SCAN_PARAMS = { source: '10.0.0.66', target: '10.0.0.89', count: 22, seconds: 60 };
+
+/*
+ * Rendered from the catalogue rather than typed out, because the CEF header's
+ * `name` is now the *English* rendering of the finding's key — the human channels
+ * follow the installation's outbound language and this feed deliberately does not.
+ * A hand-written title here would pass while asserting nothing: it would agree
+ * with itself and never notice the catalogue entry it is supposed to mirror.
+ */
+const TEXT = renderFinding('port_scan.packet', PORT_SCAN_PARAMS, 'en');
+
 const FINDING: NotifiableFinding = {
   sensorId: 'default',
   kind: 'port_scan',
   severity: 'high',
-  title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
-  description: 'A single source attempted connections to many ports.',
+  title: TEXT.title,
+  description: TEXT.description,
+  englishTitle: TEXT.title,
+  englishDescription: TEXT.description,
   sourceIp: '10.0.0.66',
   targetIp: '10.0.0.89',
   occurrences: 3,
@@ -123,7 +137,7 @@ describe('CEF rendering', () => {
     assert.equal(product, 'NMT');
     assert.equal(version, '1.0.0');
     assert.equal(signature, 'port_scan');
-    assert.equal(name, FINDING.title);
+    assert.equal(name, FINDING.englishTitle);
     assert.equal(severity, '8');
   });
 
@@ -226,7 +240,7 @@ describe('SyslogChannel', () => {
     // A fragmented syslog datagram is routinely dropped rather than reassembled,
     // so a visible truncation beats a silent disappearance.
     const sent: string[][] = [];
-    const huge = { ...FINDING, description: 'x'.repeat(4000) };
+    const huge = { ...FINDING, englishDescription: 'x'.repeat(4000) };
     await channel({ protocol: 'udp' }, sent).send(notification(huge));
 
     const line = sent[0]?.[0] ?? '';
@@ -237,7 +251,7 @@ describe('SyslogChannel', () => {
   it('does not truncate over TCP, where there is no datagram limit', async () => {
     // Cutting a TCP line would corrupt a stream the receiver frames by newline.
     const sent: string[][] = [];
-    const huge = { ...FINDING, description: 'x'.repeat(4000) };
+    const huge = { ...FINDING, englishDescription: 'x'.repeat(4000) };
     await channel({ protocol: 'tcp' }, sent).send(notification(huge));
 
     assert.ok(Buffer.byteLength(sent[0]?.[0] ?? '') > 1024);

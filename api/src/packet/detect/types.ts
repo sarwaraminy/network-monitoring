@@ -1,3 +1,5 @@
+import type { FindingMessageBase } from '../../i18n/catalog/findings.en.js';
+import type { MessageParams } from '../../i18n/message.js';
 import type { DecodedPacket } from '../decode.js';
 
 /**
@@ -37,10 +39,28 @@ export type AlertKind = (typeof ALERT_KINDS)[number];
 export interface Finding {
   kind: AlertKind;
   severity: Severity;
-  /** One line, shown in the alert list. */
-  title: string;
-  /** What was seen and why it matters. Shown when the row is expanded. */
-  description: string;
+  /**
+   * Which pair of catalogue entries says what this finding is — the one-line
+   * title shown in the list, and the "what was seen and why it matters" shown
+   * when the row is expanded.
+   *
+   * A key and params rather than the two sentences, because a detector runs on a
+   * sensor and the reader is somewhere else entirely. Prose written here could
+   * only ever be read back in the language this process happened to be running
+   * in, and the interpolation that produced it is not recoverable afterwards:
+   * "445" cannot be told from a byte count once it is inside a sentence. Stored
+   * as `message_key` and `message_params`; see V17__Finding_message_keys.sql.
+   */
+  messageKey: FindingMessageBase;
+  /**
+   * What the pair interpolates. Same rule as `evidence`: persisted and displayed,
+   * so never a payload, a password or anything else secret.
+   *
+   * Identifiers — addresses, ports, byte counts — belong here as *strings*, and
+   * genuine counts as numbers. See the note on `MessagePrimitive`; the difference
+   * is what stops a port being rendered as ۴۴۵ in Dari.
+   */
+  messageParams: MessageParams;
   /**
    * Identity of the finding, before any time bucketing. Repeats of the same
    * finding must produce the same key so they aggregate instead of flooding.

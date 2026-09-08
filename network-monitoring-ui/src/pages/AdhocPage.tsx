@@ -18,6 +18,7 @@ import QueryConsoleStatus from '../components/admin/QueryConsoleStatus';
 import DataGrid from '../components/DataGrid';
 import { DisclosureCaret } from '../components/DisclosureCaret';
 import SurfaceCard from '../components/SurfaceCard';
+import { useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 
 /**
@@ -65,6 +66,7 @@ function renderCell(value: unknown): string {
 }
 
 export default function AdhocPage() {
+  const t = useT();
   const [sql, setSql] = useState('');
   const [result, setResult] = useState<AdhocResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -157,7 +159,7 @@ export default function AdhocPage() {
 
   if (availability.isLoading) {
     return (
-      <SurfaceCard title="Ad Hoc Query" titleComponent="h1" titleVariant="h5">
+      <SurfaceCard title={t('nav.adhoc')} titleComponent="h1" titleVariant="h5">
         <CircularProgress size={20} />
       </SurfaceCard>
     );
@@ -177,7 +179,7 @@ export default function AdhocPage() {
     const forbidden = (availability.error as { response?: { status?: number } })?.response?.status === 403;
 
     return (
-      <SurfaceCard title="Ad Hoc Query" titleComponent="h1" titleVariant="h5">
+      <SurfaceCard title={t('nav.adhoc')} titleComponent="h1" titleVariant="h5">
         <Alert severity={forbidden ? 'info' : 'error'}>
           {forbidden
             ? 'The query console is available to administrators only.'
@@ -189,7 +191,7 @@ export default function AdhocPage() {
 
   if (!availability.data?.enabled) {
     return (
-      <SurfaceCard title="Ad Hoc Query" titleComponent="h1" titleVariant="h5">
+      <SurfaceCard title={t('nav.adhoc')} titleComponent="h1" titleVariant="h5">
         {/*
           "Off" is a normal state, not a fault, so it is explained rather than
           reported as an error. The explanation lives in the administration
@@ -206,10 +208,10 @@ export default function AdhocPage() {
   return (
     <>
       <SurfaceCard
-        title="Ad Hoc Query"
+        title={t('nav.adhoc')}
         titleComponent="h1"
         titleVariant="h5"
-        subtitle="Read-only SQL against this system's database. Every query is recorded in the audit trail."
+        subtitle={t('adhoc.subtitle')}
         headerActions={
           <IconButton
             size="small"
@@ -234,7 +236,7 @@ export default function AdhocPage() {
             onExited={onLayoutSettled}
           >
             <TextField
-              label="SQL"
+              label={t('adhoc.sql')}
               value={sql}
               onChange={(event) => setSql(event.target.value)}
               multiline
@@ -313,7 +315,7 @@ export default function AdhocPage() {
 
       {result !== null && result.columns.length > 0 && (
         <SurfaceCard
-          title="Result"
+          title={t('adhoc.result')}
           bodyVariant="grid"
           headerActions={
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
@@ -325,9 +327,7 @@ export default function AdhocPage() {
                 truncated result as a complete one is the specific harm a row cap
                 does if it stays quiet — the count looks like an answer.
               */}
-              {result.truncated && (
-                <Chip size="small" color="warning" label="Truncated — there are more rows" />
-              )}
+              {result.truncated && <Chip size="small" color="warning" label={t('adhoc.truncated')} />}
             </Stack>
           }
         >

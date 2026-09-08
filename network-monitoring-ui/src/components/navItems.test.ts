@@ -13,30 +13,30 @@ import { NAV_GROUPS, visibleGroupsFor, visibleNavGroups } from './navItems';
  */
 
 const labelsOf = (groups: ReturnType<typeof visibleNavGroups>) =>
-  groups.flatMap((group) => group.items.map((item) => item.label));
+  groups.flatMap((group) => group.items.map((item) => item.labelKey));
 
 /** Stand-in for a group's rail icon; nothing here renders. */
 const ICON = null as unknown as NavGroup['icon'];
 
 describe('visibleNavGroups', () => {
   it('offers an administrator every entry', () => {
-    expect(labelsOf(visibleNavGroups('ADMIN'))).toContain('Audit Trail');
-    expect(labelsOf(visibleNavGroups('ADMIN'))).toContain('Ad Hoc Query');
+    expect(labelsOf(visibleNavGroups('ADMIN'))).toContain('nav.audit');
+    expect(labelsOf(visibleNavGroups('ADMIN'))).toContain('nav.adhoc');
   });
 
   it('withholds an admin-only entry from a plain user', () => {
     // Asserted from both sides, so this cannot pass because the entry was
     // renamed or dropped for everybody.
-    expect(labelsOf(visibleNavGroups('USER'))).not.toContain('Audit Trail');
+    expect(labelsOf(visibleNavGroups('USER'))).not.toContain('nav.audit');
     // The console reads the database directly, so offering the link to someone
     // the server would refuse is worse here than for an ordinary admin page.
-    expect(labelsOf(visibleNavGroups('USER'))).not.toContain('Ad Hoc Query');
+    expect(labelsOf(visibleNavGroups('USER'))).not.toContain('nav.adhoc');
   });
 
   it('withholds admin-only entries before the role is known', () => {
     // The auth query is in flight on first paint. Showing the entry and taking
     // it away a moment later is worse than showing it late.
-    expect(labelsOf(visibleNavGroups(undefined))).not.toContain('Audit Trail');
+    expect(labelsOf(visibleNavGroups(undefined))).not.toContain('nav.audit');
   });
 
   it('keeps everything that is not admin-only', () => {
@@ -46,14 +46,17 @@ describe('visibleNavGroups', () => {
     // Delivery is deliberately not in this list any more: its settings moved
     // under the administration gear and the entry became admin-only. Anything
     // still here is a page a plain user is meant to reach.
-    for (const label of [
-      'Dashboard',
-      'Security Alerts',
-      'Suppressions',
-      'Threat Intel',
-      'Capture by Interface',
+    // Catalogue keys rather than words: what a plain user may reach is a fact
+    // about the navigation, not about the language it is read in. The words
+    // themselves are covered by the catalogue coverage test.
+    for (const key of [
+      'nav.dashboard',
+      'nav.alerts',
+      'nav.suppressions',
+      'nav.threat_intel',
+      'nav.capture_interface',
     ]) {
-      expect(labels).toContain(label);
+      expect(labels).toContain(key);
     }
   });
 
@@ -68,10 +71,10 @@ describe('visibleNavGroups', () => {
      */
     const groups = visibleNavGroups('USER');
 
-    expect(groups.map((group) => group.label)).not.toContain('Administration');
+    expect(groups.map((group) => group.labelKey)).not.toContain('nav.group.administration');
     // And an administrator still gets it, so this cannot pass by the group
     // having been deleted.
-    expect(visibleNavGroups('ADMIN').map((group) => group.label)).toContain('Administration');
+    expect(visibleNavGroups('ADMIN').map((group) => group.labelKey)).toContain('nav.group.administration');
   });
 
   it('drops a group left empty by the filtering, rather than leaving a bare heading', () => {
@@ -84,12 +87,22 @@ describe('visibleNavGroups', () => {
      * this test did, and it covered nothing at all.
      */
     const groups: NavGroup[] = [
-      { id: 'kept', label: 'Kept', icon: ICON, items: [{ label: 'Open', to: '/open' }] },
+      /*
+       * Any key will do — this group is constructed, and the rule under test is
+       * about emptiness, not about words. `nav.dashboard` is used rather than an
+       * invented key so the fixture stays inside the catalogue's type.
+       */
+      {
+        id: 'kept',
+        labelKey: 'nav.dashboard',
+        icon: ICON,
+        items: [{ labelKey: 'nav.dashboard', to: '/open' }],
+      },
       {
         id: 'emptied',
-        label: 'Emptied',
+        labelKey: 'nav.alerts',
         icon: ICON,
-        items: [{ label: 'Restricted', to: '/restricted', adminOnly: true }],
+        items: [{ labelKey: 'nav.alerts', to: '/restricted', adminOnly: true }],
       },
     ];
 
@@ -102,9 +115,9 @@ describe('visibleNavGroups', () => {
     // `visibleNavGroups` runs on every role change; a filter that edited
     // NAV_GROUPS in place would remove the admin entry permanently the first
     // time a non-admin signed in.
-    const before = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.label));
+    const before = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.labelKey));
     visibleNavGroups('USER');
-    expect(NAV_GROUPS.flatMap((group) => group.items.map((item) => item.label))).toEqual(before);
+    expect(NAV_GROUPS.flatMap((group) => group.items.map((item) => item.labelKey))).toEqual(before);
   });
 });
 

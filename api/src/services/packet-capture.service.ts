@@ -112,12 +112,12 @@ export class PacketCaptureService {
     if (this.capturing) return;
 
     if (!interfaceName || interfaceName.trim() === '') {
-      throw new HttpError(400, 'interfaceName is required');
+      throw HttpError.of(400, 'error.interface_required');
     }
 
     const available = this.getNetworkInterfaces();
     if (!available.some((device) => device.name === interfaceName)) {
-      throw new HttpError(400, `No such interface found: ${interfaceName}`);
+      throw HttpError.of(404, 'error.interface_not_found', { name: interfaceName });
     }
 
     const filter = buildFilter(filterIpAddress);
@@ -317,9 +317,11 @@ export class PacketCaptureService {
   /** 503 when the library is missing, 500 for anything else pcap reports. */
   private toHttpError(error: unknown, context: string): HttpError {
     if (error instanceof HttpError) return error;
-    if (error instanceof PcapUnavailableError) return new HttpError(503, error.message);
-    if (error instanceof PcapError) return new HttpError(500, error.message);
-    return new HttpError(500, `${context}: ${(error as Error).message}`);
+    if (error instanceof PcapUnavailableError)
+      return HttpError.of(503, 'error.capture_unavailable', { detail: error.message });
+    if (error instanceof PcapError)
+      return HttpError.of(500, 'error.capture_failed', { context, detail: error.message });
+    return HttpError.of(500, 'error.capture_failed', { context, detail: (error as Error).message });
   }
 }
 
@@ -339,7 +341,7 @@ function buildFilter(ipAddress: string | null | undefined): string {
   const candidate = ipAddress.trim();
   // The value goes into a BPF expression, so accept only IPv4/IPv6 literals.
   if (!isIpLiteral(candidate)) {
-    throw new HttpError(400, `Not a valid IP address: ${ipAddress}`);
+    throw HttpError.of(400, 'error.invalid_ip', { value: ipAddress });
   }
   return `host ${candidate}`;
 }

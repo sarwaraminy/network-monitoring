@@ -52,12 +52,14 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
     asyncHandler(async (req, res) => {
       const parsed = captureStartSchema.safeParse({ ...(req.body as object), ...req.query });
       if (!parsed.success) {
-        throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+        throw HttpError.of(400, 'error.validation', {
+          detail: parsed.error.issues.map((issue) => issue.message).join('; '),
+        });
       }
       const { interfaceName, snaplength, timeout, ipAddress } = parsed.data;
 
       if (options.requireIpFilter && !ipAddress) {
-        throw new HttpError(400, 'ipAddress is required');
+        throw HttpError.of(400, 'error.ip_required');
       }
 
       await capture.startCapture(
@@ -119,7 +121,9 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
     asyncHandler(async (req, res) => {
       const parsed = ipAddressSchema.safeParse(req.query);
       if (!parsed.success) {
-        throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+        throw HttpError.of(400, 'error.validation', {
+          detail: parsed.error.issues.map((issue) => issue.message).join('; '),
+        });
       }
       const { ipAddress } = parsed.data;
 

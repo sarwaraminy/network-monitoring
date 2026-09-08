@@ -56,7 +56,7 @@ export const idSchema = z
 /** Rejects with the same 400 every route uses. */
 export function parseId(raw: string | undefined): number {
   const parsed = idSchema.safeParse(raw);
-  if (!parsed.success) throw new HttpError(400, 'id must be a positive integer');
+  if (!parsed.success) throw HttpError.of(400, 'error.invalid_id');
   return parsed.data;
 }
 
@@ -64,7 +64,9 @@ export function parseId(raw: string | undefined): number {
 export function parseOrThrow<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer<T> {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
-    throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+    throw HttpError.of(400, 'error.validation', {
+      detail: parsed.error.issues.map((issue) => issue.message).join('; '),
+    });
   }
   return parsed.data;
 }
@@ -222,7 +224,7 @@ export function parseSince(value: string | undefined, now = Date.now()): Date | 
 
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    throw new HttpError(400, `Could not parse "since": use an ISO date or a window like 24h`);
+    throw HttpError.of(400, 'error.since_unparseable');
   }
   return parsed;
 }

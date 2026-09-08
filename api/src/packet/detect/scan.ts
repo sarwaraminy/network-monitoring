@@ -67,12 +67,13 @@ export class ScanDetector implements Detector {
       findings.push({
         kind: 'port_scan',
         severity: 'high',
-        title: `Port scan: ${source} probed ${distinctPorts} ports on ${target}`,
-        description:
-          `${source} attempted connections to ${distinctPorts} different ports on ${target} within ` +
-          `${Math.round(env.detection.scanWindowMs / 1000)} seconds. Legitimate clients connect to one ` +
-          'or two known ports; sweeping a range is how an attacker maps which services a host exposes, ' +
-          'and it usually precedes an exploitation attempt.',
+        messageKey: 'port_scan.packet',
+        messageParams: {
+          source,
+          target,
+          count: distinctPorts,
+          seconds: Math.round(env.detection.scanWindowMs / 1000),
+        },
         dedupKey: `port_scan|${source}|${target}`,
         sourceIp: source,
         sourceMac: packet.ethernet?.sourceAddress ?? null,
@@ -99,12 +100,18 @@ export class ScanDetector implements Detector {
         findings.push({
           kind: 'host_sweep',
           severity: 'high',
-          title: `Host sweep: ${source} probed port ${tcp.dstPort} on ${distinctHosts} hosts`,
-          description:
-            `${source} attempted connections to port ${tcp.dstPort} on ${distinctHosts} different hosts ` +
-            `within ${Math.round(env.detection.scanWindowMs / 1000)} seconds. Sweeping one service across ` +
-            'a subnet is how an attacker or worm finds every machine running it. Port ' +
-            `${tcp.dstPort}${describePort(tcp.dstPort)} is a common target for lateral movement.`,
+          messageKey: 'host_sweep.packet',
+          messageParams: {
+            source,
+            // A string, not a number: ICU would format a numeric argument through
+            // `Intl.NumberFormat`, and a port is an identifier rather than a
+            // quantity. See ../../i18n/message.ts.
+            port: String(tcp.dstPort),
+            count: distinctHosts,
+            seconds: Math.round(env.detection.scanWindowMs / 1000),
+            service: portServiceName(tcp.dstPort),
+            hasService: portServiceName(tcp.dstPort) !== null,
+          },
           dedupKey: `host_sweep|${source}|${tcp.dstPort}`,
           sourceIp: source,
           sourceMac: packet.ethernet?.sourceAddress ?? null,
@@ -133,11 +140,8 @@ export class ScanDetector implements Detector {
       findings.push({
         kind: 'syn_flood',
         severity: 'high',
-        title: `SYN flood: ${attempts} connection attempts from ${source} in ${seconds}s`,
-        description:
-          `${source} made ${attempts} TCP connection attempts in ${seconds} seconds without completing ` +
-          'handshakes. At this rate the traffic is either a denial-of-service attempt, which exhausts ' +
-          "the target's connection table, or an aggressive automated scanner.",
+        messageKey: 'syn_flood.packet',
+        messageParams: { source, count: attempts, seconds },
         dedupKey: `syn_flood|${source}`,
         sourceIp: source,
         sourceMac: packet.ethernet?.sourceAddress ?? null,
@@ -177,27 +181,46 @@ export class ScanDetector implements Detector {
   }
 }
 
-/** Short parenthetical naming a port's usual service, for the alert text. */
-function describePort(port: number): string {
+/**
+ * A port's usual service, or null when nothing is registered for it.
+ *
+ * Stays English in the alert text along with the other protocol names — an
+ * operator correlating a finding with a firewall rule or an `nmap` report needs
+ * the string those print. See the conventions in i18n/catalog/findings.en.ts.
+ */
+function portServiceName(port: number): string | null {
   const services: Record<number, string> = {
-    21: ' (FTP)',
-    22: ' (SSH)',
-    23: ' (Telnet)',
-    25: ' (SMTP)',
-    110: ' (POP3)',
-    135: ' (Windows RPC)',
-    139: ' (NetBIOS)',
-    143: ' (IMAP)',
-    445: ' (SMB file sharing)',
-    1433: ' (Microsoft SQL Server)',
-    1521: ' (Oracle)',
-    3306: ' (MySQL)',
-    3389: ' (Remote Desktop)',
-    5432: ' (PostgreSQL)',
-    5900: ' (VNC)',
-    6379: ' (Redis)',
-    9200: ' (Elasticsearch)',
-    27017: ' (MongoDB)',
+    21: 'FTP',
+    22: 'SSH',
+    23: 'Telnet',
+    25: 'SMTP',
+    110: 'POP3',
+    135: 'Windows RPC',
+    139: 'NetBIOS',
+    143: 'IMAP',
+    445: 'SMB file sharing',
+    1433: 'Microsoft SQL Server',
+    1521: 'Oracle',
+    3306: 'MySQL',
+    3389: 'Remote Desktop',
+    5432: 'PostgreSQL',
+    5900: 'VNC',
+    6379: 'Redis',
+    9200: 'Elasticsearch',
+    27017: 'MongoDB',
   };
-  return services[port] ?? '';
+  return services[port] ?? null;
+}
+
+/**
+ * Short parenthetical naming a port's usual service.
+ *
+ * Only `evidence.service` still reads this. The alert text takes the bare name as
+ * a message parameter instead, because the parentheses are punctuation and belong
+ * to the sentence rather than to the value — a right-to-left sentence puts them
+ * on the other side.
+ */
+function describePort(port: number): string {
+  const name = portServiceName(port);
+  return name === null ? '' : ` (${name})`;
 }

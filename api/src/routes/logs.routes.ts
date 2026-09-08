@@ -59,7 +59,7 @@ logsRouter.put(
     // The Java version passed the body straight to save(), so a mismatched body id
     // could overwrite a different row. The path id wins here.
     const updated = await updateLog(id, parseBody(req.body), actorOf(req.user));
-    if (!updated) throw new HttpError(404, `No log with id ${id}`);
+    if (!updated) throw HttpError.of(404, 'error.log_not_found', { id: String(id) });
     res.json(updated);
   }),
 );
@@ -71,7 +71,7 @@ logsRouter.delete(
   asyncHandler(async (req, res) => {
     const id = parseId(req.params.id);
     if (!(await deleteLog(id, actorOf(req.user)))) {
-      throw new HttpError(404, `No log with id ${id}`);
+      throw HttpError.of(404, 'error.log_not_found', { id: String(id) });
     }
     res.status(204).send();
   }),

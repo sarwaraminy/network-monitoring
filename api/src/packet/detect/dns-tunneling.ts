@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import type { FindingRef } from '../../i18n/catalog/findings.js';
 import type { DecodedPacket } from '../decode.js';
 import { BoundedMap, type Detector, type Finding, SlidingWindow } from './types.js';
 
@@ -63,17 +64,29 @@ export class DnsTunnelingDetector implements Detector {
 
     const distinctSubdomains = this.subdomainsPerDomain.add(`dns|${source}|${registrable}`, question, now);
 
-    const reasons: string[] = [];
-    if (question.length >= 100) reasons.push(`the full name is ${question.length} characters long`);
+    // Each reason is a reference to its own catalogue entry rather than a
+    // sentence: they are interpolated into the description as a list, and
+    // `Intl.ListFormat` joins them with the separator the reader's language uses.
+    const reasons: FindingRef[] = [];
+    if (question.length >= 100) {
+      reasons.push({ key: 'dns_tunneling.reason.length', params: { length: question.length } });
+    }
     if (encoded) {
-      reasons.push(
-        `a ${encoded.length}-character label looks encoded rather than named ` +
-          `(entropy ${encoded.entropy.toFixed(2)} bits/char, ` +
-          `${Math.round(encoded.digitRatio * 100)}% digits, ${Math.round(encoded.vowelRatio * 100)}% vowels)`,
-      );
+      reasons.push({
+        key: 'dns_tunneling.reason.encoded',
+        params: {
+          length: encoded.length,
+          entropy: encoded.entropy,
+          digitPercent: Math.round(encoded.digitRatio * 100),
+          vowelPercent: Math.round(encoded.vowelRatio * 100),
+        },
+      });
     }
     if (distinctSubdomains >= env.detection.dnsDistinctSubdomains) {
-      reasons.push(`${distinctSubdomains} distinct subdomains of ${registrable} were queried`);
+      reasons.push({
+        key: 'dns_tunneling.reason.subdomains',
+        params: { count: distinctSubdomains, domain: registrable },
+      });
     }
 
     // One weak signal alone is not worth an alert; two together is.
@@ -88,13 +101,13 @@ export class DnsTunnelingDetector implements Detector {
       {
         kind: this.name,
         severity: 'medium',
-        title: `Possible DNS tunnelling to ${registrable} from ${source ?? 'unknown host'}`,
-        description:
-          `DNS queries to ${registrable} do not look like ordinary name lookups: ${reasons.join(', ')}. ` +
-          'This pattern is characteristic of data being smuggled out through DNS, or of malware using DNS ' +
-          'for command-and-control, because DNS is usually allowed out even when other traffic is blocked. ' +
-          'Confirm whether this domain is expected — some security and CDN products legitimately use ' +
-          'encoded subdomains.',
+        messageKey: 'dns_tunneling.detected',
+        messageParams: {
+          domain: registrable,
+          source,
+          hasSource: source !== null,
+          reasons,
+        },
         dedupKey: key,
         sourceIp: source,
         sourceMac: packet.ethernet?.sourceAddress ?? null,
@@ -108,7 +121,11 @@ export class DnsTunnelingDetector implements Detector {
           longestLabelLength: longestLabel,
           encodedLabelEntropy: encoded ? Number(encoded.entropy.toFixed(2)) : null,
           distinctSubdomainsInWindow: distinctSubdomains,
-          reasons,
+          // The reason *codes*, not the sentences they render to. Evidence is
+          // structured detail, and every number these quote — the name length,
+          // the entropy, the subdomain count — is already a field of its own
+          // here.
+          reasons: reasons.map((reason) => reason.key),
         },
         timestamp: packet.timestamp,
       },

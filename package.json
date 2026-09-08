@@ -2,7 +2,7 @@
   "name": "network-monitoring",
   "version": "1.0.0",
   "private": true,
-  "description": "Network Monitoring Tool \u2014 React/TypeScript frontend with a Node/Express/TypeScript API",
+  "description": "Network Monitoring Tool — React/TypeScript frontend with a Node/Express/TypeScript API",
   "workspaces": [
     "api",
     "network-monitoring-ui"
@@ -28,7 +28,7 @@
     "lint": "biome check && tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit",
     "lint:fix": "biome check --write",
     "format": "biome format --write",
-    "ci": "biome ci && tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit && tsx --test \"api/src/**/*.test.ts\" && vitest run --root network-monitoring-ui",
+    "ci": "biome ci && node api/scripts/copy-catalogs.mjs --check && tsc -p api/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.json --noEmit && tsc -p network-monitoring-ui/tsconfig.node.json --noEmit && tsx --test \"api/src/**/*.test.ts\" && vitest run --root network-monitoring-ui",
     "prepare": "husky || true",
     "postinstall": "node scripts/setup-env.mjs",
     "start": "node api/dist/index.js",
@@ -36,7 +36,9 @@
     "preview": "vite preview network-monitoring-ui",
     "user": "tsx api/src/cli/manage-user.ts",
     "test:api": "tsx --test \"api/src/**/*.test.ts\"",
-    "test:ui": "vitest run --root network-monitoring-ui"
+    "test:ui": "vitest run --root network-monitoring-ui",
+    "i18n:sync": "node api/scripts/copy-catalogs.mjs",
+    "i18n:check": "node api/scripts/copy-catalogs.mjs --check"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",

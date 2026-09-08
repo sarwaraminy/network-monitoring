@@ -4,6 +4,7 @@ import CardActionArea from '@mui/material/CardActionArea';
 import Grid from '@mui/material/Grid';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
+import { useT } from '../i18n/ui';
 import { type AlertSummary, SEVERITIES, type Severity } from '../types';
 import { SEVERITY_STYLE } from './SeverityChip';
 
@@ -21,11 +22,12 @@ interface AlertSummaryTilesProps {
  * distinction the old flat log could not express.
  */
 export default function AlertSummaryTiles({ summary, selected, onSelect }: Readonly<AlertSummaryTilesProps>) {
+  const t = useT();
   const tiles: Array<{ key: Severity | 'all'; label: string; value: number; hex: string }> = [
-    { key: 'all', label: 'All alerts', value: summary?.total ?? 0, hex: '#1d4ed8' },
+    { key: 'all', label: t('alerts.tile.all'), value: summary?.total ?? 0, hex: '#1d4ed8' },
     ...SEVERITIES.map((severity) => ({
       key: severity,
-      label: SEVERITY_STYLE[severity].label,
+      label: t(SEVERITY_STYLE[severity].labelKey),
       value: summary?.bySeverity[severity] ?? 0,
       hex: SEVERITY_STYLE[severity].hex,
     })),

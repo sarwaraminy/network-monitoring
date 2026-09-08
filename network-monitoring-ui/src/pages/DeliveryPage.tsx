@@ -17,6 +17,7 @@ import { describeError } from '../api/client';
 import { fetchNotifyStatus, sendNotifyTest } from '../api/notify.api';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useT } from '../i18n/ui';
 
 /**
  * Alert delivery.
@@ -51,6 +52,7 @@ const GATE_NOTES: Record<string, string> = {
 };
 
 export default function DeliveryPage() {
+  const t = useT();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const queryClient = useQueryClient();
@@ -88,10 +90,10 @@ export default function DeliveryPage() {
   return (
     <>
       <SurfaceCard
-        title="Alert delivery"
+        title={t('delivery.title')}
         titleComponent="h1"
         titleVariant="h5"
-        subtitle="Where findings go, and whether they are getting there"
+        subtitle={t('delivery.subtitle')}
         headerActions={
           isAdmin ? (
             <Stack direction="row" spacing={1}>
@@ -162,8 +164,8 @@ export default function DeliveryPage() {
       <Grid container spacing={1.5}>
         <Grid size={{ xs: 12, lg: 7 }}>
           <SurfaceCard
-            title="For people"
-            subtitle="Gated, throttled and batched, so the channel does not get muted"
+            title={t('delivery.for_people')}
+            subtitle={t('delivery.for_people_subtitle')}
             sx={{ height: '100%' }}
           >
             <Stack spacing={1.5}>
@@ -201,20 +203,24 @@ export default function DeliveryPage() {
             </Typography>
 
             <Stack spacing={1} sx={{ mt: 1.5 }}>
-              <GateRow label="Minimum severity" value={data?.minSeverity ?? '—'} loading={loading} />
               <GateRow
-                label="Digest window"
+                label={t('delivery.min_severity')}
+                value={data?.minSeverity ?? '—'}
+                loading={loading}
+              />
+              <GateRow
+                label={t('delivery.digest_window')}
                 value={data ? `${data.digestSeconds}s` : '—'}
                 loading={loading}
               />
               <GateRow
-                label="Per-finding throttle"
+                label={t('delivery.throttle')}
                 value={data ? `${data.throttleSeconds}s` : '—'}
                 note={GATE_NOTES.throttle}
                 loading={loading}
               />
               <GateRow
-                label="Hourly ceiling"
+                label={t('delivery.hourly_ceiling')}
                 value={data ? `${data.maxPerHour}/h` : '—'}
                 note={GATE_NOTES.ceiling}
                 loading={loading}
@@ -224,7 +230,11 @@ export default function DeliveryPage() {
         </Grid>
 
         <Grid size={{ xs: 12, lg: 5 }}>
-          <SurfaceCard title="For a SIEM" subtitle="Every finding, ungated" sx={{ height: '100%' }}>
+          <SurfaceCard
+            title={t('delivery.for_siem')}
+            subtitle={t('delivery.for_siem_subtitle')}
+            sx={{ height: '100%' }}
+          >
             <ChannelRow
               icon={<DnsOutlinedIcon />}
               name="Syslog"
@@ -235,11 +245,19 @@ export default function DeliveryPage() {
 
             {data?.syslog.configured && (
               <Stack spacing={1} sx={{ mt: 2 }}>
-                <GateRow label="Protocol" value={data.syslog.protocol.toUpperCase()} loading={false} />
-                <GateRow label="Format" value={data.syslog.format.toUpperCase()} loading={false} />
-                <GateRow label="Framing" value={`RFC ${data.syslog.rfc}`} loading={false} />
                 <GateRow
-                  label="Evidence"
+                  label={t('delivery.protocol')}
+                  value={data.syslog.protocol.toUpperCase()}
+                  loading={false}
+                />
+                <GateRow
+                  label={t('delivery.format')}
+                  value={data.syslog.format.toUpperCase()}
+                  loading={false}
+                />
+                <GateRow label={t('delivery.framing')} value={`RFC ${data.syslog.rfc}`} loading={false} />
+                <GateRow
+                  label={t('delivery.evidence')}
                   value={data.syslog.includeEvidence ? 'included' : 'omitted'}
                   loading={false}
                 />
@@ -256,20 +274,20 @@ export default function DeliveryPage() {
         </Grid>
 
         <Grid size={{ xs: 12 }}>
-          <SurfaceCard title="Right now" subtitle="What the queue and the limits are doing">
+          <SurfaceCard title={t('delivery.right_now')} subtitle={t('delivery.right_now_subtitle')}>
             <Grid container spacing={1.5}>
               <Grid size={{ xs: 12, sm: 4 }}>
-                <StatRow label="Queued for the next digest" value={data?.queued ?? 0} loading={loading} />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 4 }}>
-                <StatRow label="Sent in the last hour" value={data?.sentLastHour ?? 0} loading={loading} />
+                <StatRow label={t('delivery.queued')} value={data?.queued ?? 0} loading={loading} />
               </Grid>
               <Grid size={{ xs: 12, sm: 4 }}>
                 <StatRow
-                  label="Findings currently throttled"
-                  value={data?.throttledKeys ?? 0}
+                  label={t('delivery.sent_last_hour')}
+                  value={data?.sentLastHour ?? 0}
                   loading={loading}
                 />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <StatRow label={t('delivery.throttled')} value={data?.throttledKeys ?? 0} loading={loading} />
               </Grid>
             </Grid>
           </SurfaceCard>

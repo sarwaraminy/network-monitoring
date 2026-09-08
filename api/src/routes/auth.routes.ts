@@ -6,13 +6,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { actorOf, recordAudit } from '../services/audit.service.js';
 import { extractBearerToken, signAccessToken, verifyAccessToken } from '../services/jwt.service.js';
-import {
-  ADMIN_TOKEN_REQUIRED,
-  decideSignup,
-  type Role,
-  type SignupDecision,
-  signupMode,
-} from '../services/signup-policy.js';
+import { decideSignup, type Role, type SignupDecision, signupMode } from '../services/signup-policy.js';
 import {
   authenticateUser,
   EmailAlreadyExistsError,
@@ -70,7 +64,7 @@ async function authorizeSignup(req: Request, requestedRole: Role): Promise<Signu
       // A presented-but-invalid token is its own answer: do not fall through to
       // the unauthenticated paths, or a garbage token would be treated as no token
       // and could reach the bootstrap or open-signup branch.
-      throw new HttpError(401, 'Invalid or expired token.');
+      throw HttpError.of(401, 'error.token_invalid');
     }
 
     // Resolved against the users table, not read off the claim. `requireAuth` and
@@ -81,7 +75,7 @@ async function authorizeSignup(req: Request, requestedRole: Role): Promise<Signu
     // documented way to revoke access (`npm run user -- delete`) would not revoke
     // this one route.
     const actor = await getUserByEmail(claims.sub);
-    if (!actor) throw new HttpError(401, 'Account no longer exists.');
+    if (!actor) throw HttpError.of(401, 'error.account_gone');
 
     // Case-insensitive, matching requireRole, so the two cannot disagree about
     // what counts as an administrator.
@@ -145,19 +139,18 @@ authRouter.patch(
   requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'That is not an account id.');
+    if (!Number.isInteger(id) || id <= 0) throw HttpError.of(400, 'error.invalid_account_id');
 
     const parsed = userRoleSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+      throw HttpError.of(400, 'error.validation', {
+        detail: parsed.error.issues.map((issue) => issue.message).join('; '),
+      });
     }
     const { role } = parsed.data;
 
     if (id === req.user?.id && role !== 'ADMIN') {
-      throw new HttpError(
-        409,
-        'You cannot remove your own administrator role. Ask another administrator to do it.',
-      );
+      throw HttpError.of(409, 'error.cannot_demote_self');
     }
 
     const actor = actorOf(req.user);
@@ -178,8 +171,8 @@ authRouter.patch(
 
       res.json(toPublicUser(updated));
     } catch (error) {
-      if (error instanceof LastAdministratorError) throw new HttpError(409, error.message);
-      if (error instanceof UserNotFoundError) throw new HttpError(404, 'No such account.');
+      if (error instanceof LastAdministratorError) throw HttpError.of(409, 'error.last_administrator');
+      if (error instanceof UserNotFoundError) throw HttpError.of(404, 'error.account_not_found');
       throw error;
     }
   }),
@@ -217,17 +210,19 @@ authRouter.post(
     // from "not permitted" — but authorise before touching the database.
     const parsed = signupSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+      throw HttpError.of(400, 'error.validation', {
+        detail: parsed.error.issues.map((issue) => issue.message).join('; '),
+      });
     }
     const input = parsed.data;
 
     const decision = await authorizeSignup(req, input.role);
     if (!decision.allowed) {
-      throw new HttpError(decision.status, decision.message);
+      throw HttpError.of(decision.status, decision.code);
     }
 
     if (await existsByEmail(input.email)) {
-      throw new HttpError(409, 'Email is already in use.');
+      throw HttpError.of(409, 'error.email_in_use');
     }
 
     const values = {
@@ -250,7 +245,7 @@ authRouter.post(
         // two callers pass the check and both become ADMIN.
         const created = await saveFirstUser(values);
         if (!created) {
-          throw new HttpError(401, ADMIN_TOKEN_REQUIRED);
+          throw HttpError.of(401, 'error.signup_token_required');
         }
         user = created;
         log.warn(
@@ -264,7 +259,7 @@ authRouter.post(
       res.status(201).json(toPublicUser(user));
     } catch (error) {
       if (error instanceof EmailAlreadyExistsError) {
-        throw new HttpError(409, 'Email is already in use.');
+        throw HttpError.of(409, 'error.email_in_use');
       }
       throw error;
     }
@@ -282,13 +277,15 @@ authRouter.post(
   asyncHandler(async (req, res) => {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new HttpError(400, parsed.error.issues.map((issue) => issue.message).join('; '));
+      throw HttpError.of(400, 'error.validation', {
+        detail: parsed.error.issues.map((issue) => issue.message).join('; '),
+      });
     }
     const { email, password } = parsed.data;
 
     const user = await authenticateUser(email, password);
     if (!user) {
-      throw new HttpError(401, 'Invalid email or password');
+      throw HttpError.of(401, 'error.invalid_credentials');
     }
 
     const token = signAccessToken({ sub: user.email ?? email, uid: user.id, role: user.role });
@@ -299,6 +296,7 @@ authRouter.post(
       firstName: user.firstname,
       lastName: user.lastname,
       role: user.role,
+      langCode: user.langCode,
       token,
     };
 

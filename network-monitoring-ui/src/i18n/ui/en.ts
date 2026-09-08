@@ -1,0 +1,359 @@
+/**
+ * The interface's own strings, in English.
+ *
+ * The source of truth for the keys, exactly as the finding catalogue is for its
+ * own: the union is derived from this object, so a key renamed here is a compile
+ * error at every call site, and a key added here is reported by the coverage test
+ * as untranslated rather than breaking the build.
+ *
+ * Ordered by where the reader meets it — the shell first, then the pages, then
+ * the words shared between them. Grouping by feature rather than alphabetically
+ * is deliberate: the question asked of this file is almost always "what else does
+ * this screen say", never "what does this key say".
+ *
+ * The conventions are the finding catalogue's, and for the same reasons:
+ * identifiers interpolate as strings, counts as numbers and drive `plural`,
+ * optional clauses use `select` on an explicit boolean. See
+ * api/src/i18n/catalog/findings.en.ts.
+ */
+export const UI_EN = {
+  // --- Navigation ---
+
+  'nav.main': 'Main',
+  'nav.panel_title': 'Navigation',
+  'nav.search_placeholder': 'Search navigation…',
+  'nav.clear_search': 'Clear search',
+  'nav.expand_panel': 'Expand Navigation',
+  'nav.collapse_panel': 'Collapse Navigation',
+
+  'nav.group.overview': 'Overview',
+  'nav.group.security': 'Security',
+  'nav.group.capture': 'Capture',
+  'nav.group.administration': 'Administration',
+
+  'nav.dashboard': 'Dashboard',
+  'nav.alerts': 'Security Alerts',
+  'nav.suppressions': 'Suppressions',
+  'nav.threat_intel': 'Threat Intel',
+  'nav.capture_interface': 'Capture by Interface',
+  'nav.capture_ip': 'Capture by IP',
+  'nav.delivery': 'Delivery',
+  'nav.audit': 'Audit Trail',
+  'nav.adhoc': 'Ad Hoc Query',
+
+  // --- The account menu ---
+
+  'account.signed_in': 'Signed in',
+  'account.add_user': 'Add user',
+  'account.sign_out': 'Sign out',
+  'account.theme': 'Theme',
+  'account.theme.light': 'Light',
+  'account.theme.dark': 'Dark',
+  'account.theme.auto': 'Auto',
+  'account.language': 'Language',
+
+  // --- Alerts ---
+
+  'alerts.title': 'Security alerts',
+  'alerts.subtitle': 'Every finding the detectors raised, newest first',
+  'alerts.search_placeholder': 'Search findings',
+  'alerts.column.severity': 'Severity',
+  'alerts.column.sensor': 'Sensor',
+  'alerts.column.detector': 'Detector',
+  'alerts.column.finding': 'Finding',
+  'alerts.column.source': 'Source',
+  'alerts.column.target': 'Target',
+  'alerts.column.last_seen': 'Last seen',
+  'alerts.column.status': 'Status',
+  'alerts.acknowledge': 'Acknowledge',
+  'alerts.reopen': 'Reopen',
+  'alerts.open': 'Open',
+  'alerts.acknowledged': 'Acknowledged',
+  'alerts.acknowledged_by': 'Acknowledged by {who}',
+  'alerts.delete': 'Delete — the finding and its evidence go with it',
+  'alerts.unacknowledged_count': '{count, plural, one {# unacknowledged} other {# unacknowledged}}',
+  'alerts.what_this_means': 'What this means',
+  'alerts.evidence': 'Evidence',
+  'alerts.no_evidence': 'No supporting detail was recorded for this finding.',
+  'alerts.first_seen': 'First seen',
+  'alerts.occurrences': 'Occurrences',
+  'alerts.protocol': 'Protocol',
+  'alerts.source_mac': 'Source MAC',
+  'alerts.target_mac': 'Target MAC',
+  'alerts.unknown_actor': 'unknown',
+
+  // --- Sign in ---
+
+  'app.name': 'Network Monitoring Tool',
+  'login.subtitle': 'Sign in to capture and analyse traffic',
+  'login.email': 'Email address',
+  'login.password': 'Password',
+  'login.sign_in': 'Sign in',
+  'login.signing_in': 'Signing in…',
+  'login.no_accounts': 'No accounts exist yet.',
+  'login.create_first_admin': 'Create the first administrator',
+  'login.no_account': 'Don’t have an account?',
+  'login.register_here': 'Register here',
+
+  // --- Sign up ---
+
+  'signup.title': 'Create an account',
+  'signup.subtitle': 'Register a user for the Network Monitoring Tool',
+  'signup.bootstrap_subtitle': 'This installation has no accounts yet, so this one becomes an administrator',
+  'signup.restricted': 'Account creation is restricted',
+  'signup.restricted_subtitle': 'Only an administrator can add accounts to this installation',
+  'signup.ask_admin':
+    'Ask an administrator to create your account. If you are setting this server up yourself, run',
+  'signup.back_to_sign_in': 'Back to sign in',
+  'signup.confirm_password': 'Confirm password',
+  'signup.first_name': 'First name',
+  'signup.last_name': 'Last name',
+  'signup.role': 'Role',
+  'signup.role_helper': 'You are an administrator, so this choice is honoured',
+  'signup.submit': 'Sign up',
+  'signup.creating': 'Creating account…',
+  'signup.create_administrator': 'Create administrator',
+  'signup.back_to_app': 'Back to the app',
+  'signup.have_account': 'Already have an account? Sign in',
+
+  'role.user': 'User',
+  'role.administrator': 'Administrator',
+
+  // --- Dashboard ---
+
+  'dashboard.title': 'Dashboard',
+  'dashboard.subtitle': 'What the detectors have found, and which hosts keep appearing',
+  'dashboard.sensor': 'Sensor',
+  'dashboard.period': 'Period',
+  'dashboard.open_findings': 'Open findings',
+  'dashboard.critical_high': 'Critical and high',
+  'dashboard.needs_attention': 'Needs attention first',
+  'dashboard.capture': 'Capture',
+  'dashboard.known_devices': 'Known devices',
+  'dashboard.macs_seen': 'MAC addresses seen',
+  'dashboard.over_time': 'Findings over time',
+  'dashboard.by_detector': 'Findings by detector',
+  'dashboard.which_firing': 'Which checks are firing',
+  'dashboard.top_sources': 'Most implicated sources',
+  'dashboard.top_sources_subtitle': 'Addresses appearing in the most findings',
+  'dashboard.severity_breakdown': 'Severity breakdown',
+  'dashboard.all_time': 'All findings, all time',
+  'dashboard.findings': 'Findings',
+  'dashboard.no_findings': 'No findings yet.',
+  'dashboard.no_source_findings': 'No findings with a source address yet.',
+
+  // --- Audit trail ---
+
+  'audit.title': 'Audit Trail',
+  'audit.subtitle': 'Who deleted, changed or redirected something — append-only, and never pruned',
+  'audit.when': 'When',
+  'audit.who': 'Who',
+  'audit.what': 'What',
+  'audit.which': 'Which',
+  'audit.action': 'Action',
+  'audit.subject': 'Subject',
+  'audit.detail': 'Detail',
+
+  // --- Suppression rules ---
+
+  'suppressions.title': 'Suppression rules',
+  'suppressions.subtitle':
+    'Findings you have declared expected. A matching finding is dropped before it is stored — not ' +
+    'hidden behind a filter',
+  'suppressions.rules': 'Rules',
+  'suppressions.rules_subtitle':
+    'Read top to bottom: the first rule that matches a finding is the one that drops it',
+  'suppressions.findings_hidden': 'Findings hidden',
+  'suppressions.never_matched': 'Never matched',
+  'suppressions.expired': 'Expired',
+  'suppressions.covers': 'Covers',
+  'suppressions.why': 'Why it is expected',
+  'suppressions.state': 'State',
+  'suppressions.hidden': 'Hidden',
+  'suppressions.expires': 'Expires',
+  'suppressions.no_expiry': 'This rule stays in force until somebody removes it.',
+  'suppressions.edit': 'Edit this rule',
+  'suppressions.delete': 'Delete — the record of what it hid goes too',
+  'suppressions.none': 'No suppression rules. Every finding the detectors raise is being stored.',
+  'suppressions.kind': 'Finding kind',
+  'suppressions.kind_helper': 'Any kind, unless you pick one',
+  'suppressions.source': 'Source address or range',
+  'suppressions.source_helper': 'Where the traffic came from',
+  'suppressions.target': 'Target address or range',
+  'suppressions.target_helper': 'Where it was going',
+  'suppressions.port': 'Destination port',
+  'suppressions.port_helper': 'Only matches findings about a single port — never a port scan',
+  'suppressions.expires_helper': 'Empty means it never expires',
+  'suppressions.reason': 'Why is this expected?',
+  'suppressions.reason_helper': 'Whoever reads this list in six months will only have this line to go on',
+  'suppressions.in_force': 'In force',
+
+  // --- Threat intelligence ---
+
+  'intel.title': 'Threat intelligence',
+  'intel.subtitle':
+    'Addresses and domains matched against indicator feeds — the one detector here that is not a ' +
+    'threshold',
+  'intel.indicators_loaded': 'Indicators loaded',
+  'intel.feeds': 'Feeds',
+  'intel.feeds_subtitle': 'Where each source came from on the last load',
+  'intel.no_feeds': 'No feeds configured.',
+  'intel.last_loaded': 'Last loaded',
+  'intel.refused': 'Refused on load',
+  'intel.what_loaded': 'What is loaded',
+  'intel.by_type': 'By indicator type',
+  'intel.ipv4': 'IPv4 addresses',
+  'intel.ipv4_cidr': 'IPv4 ranges (CIDR)',
+  'intel.ipv6': 'IPv6 addresses',
+  'intel.domains': 'Domains',
+  'intel.feed': 'Feed',
+  'intel.source': 'Source',
+  'intel.indicators': 'Indicators',
+  'intel.skipped': 'Skipped',
+  'intel.skipped_explain':
+    'Lines that were not usable indicators: comments, blanks, and anything malformed or ' + 'non-routable.',
+
+  // --- Delivery ---
+
+  'delivery.title': 'Alert delivery',
+  'delivery.subtitle': 'Where findings go, and whether they are getting there',
+  'delivery.for_people': 'For people',
+  'delivery.for_people_subtitle': 'Gated, throttled and batched, so the channel does not get muted',
+  'delivery.min_severity': 'Minimum severity',
+  'delivery.digest_window': 'Digest window',
+  'delivery.throttle': 'Per-finding throttle',
+  'delivery.hourly_ceiling': 'Hourly ceiling',
+  'delivery.for_siem': 'For a SIEM',
+  'delivery.for_siem_subtitle': 'Every finding, ungated',
+  'delivery.protocol': 'Protocol',
+  'delivery.format': 'Format',
+  'delivery.framing': 'Framing',
+  'delivery.evidence': 'Evidence',
+  'delivery.right_now': 'Right now',
+  'delivery.right_now_subtitle': 'What the queue and the limits are doing',
+  'delivery.queued': 'Queued for the next digest',
+  'delivery.sent_last_hour': 'Sent in the last hour',
+  'delivery.throttled': 'Findings currently throttled',
+
+  // --- Query console ---
+
+  'adhoc.subtitle':
+    'Read-only SQL against this system’s database. Every query is recorded in the audit trail.',
+  'adhoc.sql': 'SQL',
+
+  // --- Capture ---
+  //
+  // The packet table's headers name protocol fields — EtherType, LLC DSAP — which
+  // stay as they are for the reason every other protocol identifier does: they are
+  // what a specification and a packet analyser print.
+
+  'capture.interface.title': 'Capture from a local interface',
+  'capture.interface.subtitle': 'Live packets from one adapter, decoded frame by frame',
+  'capture.ip.title': 'Capture filtered by IP address',
+  'capture.ip.subtitle': 'The same capture, narrowed to traffic involving one host',
+  'capture.packets': 'Packets',
+  'capture.packets_subtitle': 'Newest first, decoded from the wire',
+  'capture.network_interface': 'Network interface',
+  'capture.filter_ip': 'Filter by IP address',
+  'capture.snapshot_length': 'Snapshot length',
+  'capture.timeout': 'Timeout (ms)',
+
+  'packets.source_ip': 'Source IP',
+  'packets.source_mac': 'Source MAC',
+  'packets.destination_ip': 'Destination IP',
+  'packets.destination_mac': 'Destination MAC',
+  'packets.ethertype': 'EtherType',
+  'packets.llc_dsap': 'LLC DSAP',
+  'packets.llc_ssap': 'LLC SSAP',
+  'packets.llc_control': 'LLC Control',
+  'packets.frame': 'Frame',
+  'packets.pad': 'Pad',
+
+  // --- Severity and detector names ---
+  //
+  // The `kind` and `severity` values themselves stay English wherever they are
+  // stored, exported or matched on — they are identifiers that happen to be
+  // readable, and a SIEM rule keys on them. These are the labels, which are the
+  // half a person reads.
+
+  'severity.critical': 'Critical',
+  'severity.high': 'High',
+  'severity.medium': 'Medium',
+  'severity.low': 'Low',
+  'severity.info': 'Info',
+
+  'kind.arp_spoofing': 'ARP spoofing',
+  'kind.port_scan': 'Port scan',
+  'kind.host_sweep': 'Host sweep',
+  'kind.syn_flood': 'SYN flood',
+  'kind.plaintext_credentials': 'Cleartext credentials',
+  'kind.dns_tunneling': 'DNS tunnelling',
+  'kind.new_device': 'New device',
+  'kind.threat_intel': 'Threat intelligence',
+
+  'kind.arp_spoofing.description':
+    'A host claiming an IP address that belongs to another device — the basis of most LAN ' +
+    'man-in-the-middle attacks.',
+  'kind.port_scan.description':
+    'One source probing many ports on a single host, mapping which services it exposes.',
+  'kind.host_sweep.description':
+    'One source probing the same port across many hosts, hunting for a service to exploit.',
+  'kind.syn_flood.description':
+    'An implausible rate of connection attempts, indicating denial of service or an aggressive ' + 'scanner.',
+  'kind.plaintext_credentials.description':
+    'Credentials or session cookies crossing the network without encryption.',
+  'kind.dns_tunneling.description':
+    'DNS queries shaped like encoded data rather than name lookups, suggesting exfiltration or C2.',
+  'kind.new_device.description': 'A MAC address not seen on this network before.',
+  'kind.threat_intel.description':
+    'An address or domain matching a known-malicious indicator feed — the one detector here that ' +
+    'is not a threshold.',
+
+  'alerts.tile.all': 'All alerts',
+
+  // --- Shell and dialogs ---
+
+  'nav.open': 'Open navigation',
+  'guide.title': 'User guide',
+  'guide.aria': 'User guide (opens in a new tab)',
+  'admin.settings': 'Administration settings',
+  'admin.settings_short': 'Settings',
+
+  'ipinfo.domain_name': 'Domain name',
+  'ipinfo.geolocation': 'Geolocation',
+  'ipinfo.whois': 'WHOIS',
+  'ipinfo.no_ptr': 'No PTR record',
+  'ipinfo.no_whois': 'No WHOIS response',
+
+  'suppressions.hidden_caption': 'dropped before storage, all time',
+  'suppressions.never_caption': 'in force but has hidden nothing',
+  'suppressions.expired_caption': 'no longer suppressing',
+  'suppressions.reason_placeholder': 'Authorised Nessus scanner, ticket OPS-1421',
+
+  'delivery.form_subtitle': 'Changed here, in force immediately — no file to edit and no restart',
+  'delivery.form_loading': 'Loading the current configuration',
+
+  'adhoc.result': 'Result',
+  'adhoc.truncated': 'Truncated — there are more rows',
+
+  // `'<'` is ICU's escape: an unescaped `<` starts a rich-text tag and the
+  // whole pattern fails to parse.
+  'capture.bpf_helper': "Applied as the BPF filter host '<'ip>",
+  'capture.snaplen_helper': 'Bytes per frame',
+  'capture.timeout_helper': 'pcap read timeout',
+
+  'intel.refused_caption': 'private ranges and malformed entries',
+
+  // --- Shared across pages ---
+
+  'common.refresh': 'Refresh',
+  'common.close': 'Close',
+  'common.cancel': 'Cancel',
+  'common.save': 'Save',
+  'common.delete': 'Delete',
+  'common.loading': 'Loading…',
+  'common.none': '—',
+  'common.error_generic': 'Something went wrong',
+} as const;
+
+export type UiMessageKey = keyof typeof UI_EN;

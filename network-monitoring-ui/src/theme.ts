@@ -298,7 +298,13 @@ export const GRID_METRICS = {
  * A dark scheme is close to mandatory for this kind of tool: it is read for long
  * stretches, often in a dim room, and every comparable product defaults to it.
  */
-export const theme = createTheme({
+/*
+ * Typed through `createTheme`'s own parameter rather than by naming a type.
+ * Pulling this out of the call lost the contextual typing that made `({ theme })`
+ * in the `styleOverrides` callbacks infer, and `ThemeOptions` alone does not carry
+ * `cssVariables` — which lives on the CSS-variables overload.
+ */
+const themeOptions: Parameters<typeof createTheme>[0] = {
   cssVariables: { colorSchemeSelector: 'data' },
   colorSchemes: {
     light: {
@@ -339,7 +345,26 @@ export const theme = createTheme({
   },
   shape: { borderRadius: RADIUS.sm },
   typography: {
-    fontFamily: '"Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    /*
+     * Latin faces first, then Perso-Arabic ones for Dari.
+     *
+     * Font fallback is per *character*, not per string, so the trailing faces are
+     * reached only by the characters the leading ones cannot draw — adding them
+     * changes nothing about how English or German renders. Without them Dari falls
+     * to whatever the browser substitutes, which on a Linux host with no Arabic
+     * font installed can be tofu.
+     *
+     * System faces rather than a bundled webfont, matching how the rest of this
+     * stack works: nothing here is downloaded at runtime, which is the right
+     * default for a tool that is expected to run on an isolated network. Windows
+     * is already covered by Segoe UI above; these add macOS, iOS and Linux.
+     * Bundling Vazirmatn through `@fontsource` remains the option if the
+     * substituted faces prove ugly enough to matter — see the roadmap.
+     */
+    fontFamily:
+      '"Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, ' +
+      '"Vazirmatn", "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", "Noto Sans Arabic", Tahoma, ' +
+      'sans-serif',
     h5: { fontWeight: 650, letterSpacing: '-0.01em' },
     h6: { fontWeight: 650, letterSpacing: '-0.01em' },
     subtitle2: { fontWeight: 600 },
@@ -515,7 +540,33 @@ export const theme = createTheme({
       },
     },
   },
-});
+};
+
+/**
+ * The theme, in one writing direction.
+ *
+ * MUI resolves `direction` into the logical properties its own components use —
+ * which side a `Drawer` opens from, which way a `Chip`'s delete icon sits, how
+ * `TextField` labels shift. It does *not* transform the CSS this application
+ * writes itself; that is what the emotion RTL plugin in DirectionProvider is for.
+ * Both are needed and neither substitutes for the other.
+ *
+ * Memoised by the caller rather than here: there are two possible values and
+ * rebuilding a theme on every render of the shell would discard MUI's own
+ * per-theme caches.
+ */
+export function createAppTheme(direction: 'ltr' | 'rtl') {
+  return createTheme({ ...themeOptions, direction });
+}
+
+/**
+ * The left-to-right theme.
+ *
+ * Kept as a plain export because most of the application — and every test that
+ * renders a component in isolation — has no opinion about direction and should
+ * not have to acquire one.
+ */
+export const theme = createAppTheme('ltr');
 
 /** Applied to hex dumps, MAC addresses and packet detail text. */
 export const monoSx = { fontFamily: MONO_STACK, fontSize: '0.78rem' } as const;

@@ -2,6 +2,8 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { useMemo } from 'react';
+import { createFormatters, type Formatters, useFormatters } from '../i18n/format';
+import { DEFAULT_LOCALE } from '../i18n/generated/locales';
 import type { AlertTrendPoint } from '../types';
 import { SEVERITY_LABEL, SEVERITY_ORDER } from './palette';
 import { useChartPalette } from './useChartPalette';
@@ -20,12 +22,16 @@ import { useChartPalette } from './useChartPalette';
  *    midnight in local time renames it: anywhere west of UTC, every bar would carry
  *    the previous day's date.
  */
-export function bucketLabel(bucket: 'hour' | 'day', iso: string): string {
-  const date = new Date(iso);
-
-  return bucket === 'hour'
-    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : date.toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'UTC' });
+export function bucketLabel(
+  bucket: 'hour' | 'day',
+  iso: string,
+  format: Formatters = createFormatters(DEFAULT_LOCALE),
+): string {
+  // The formatter is a parameter with a default rather than a hook call, because
+  // this is also the axis' `valueFormatter` — called by the chart outside React's
+  // render, where a hook cannot go. The default keeps the existing unit tests
+  // calling it with two arguments.
+  return bucket === 'hour' ? format.time(iso) : format.day(iso);
 }
 
 interface Props {
@@ -48,7 +54,11 @@ interface Props {
 export default function SeverityTrendChart({ trend, bucket, height = 260 }: Readonly<Props>) {
   const palette = useChartPalette();
 
-  const labels = useMemo(() => trend.map((point) => bucketLabel(bucket, point.bucket)), [trend, bucket]);
+  const format = useFormatters();
+  const labels = useMemo(
+    () => trend.map((point) => bucketLabel(bucket, point.bucket, format)),
+    [trend, bucket, format],
+  );
 
   // Least severe at the bottom, so the stack reads upward in order of seriousness.
   const stackOrder = useMemo(() => [...SEVERITY_ORDER].reverse(), []);

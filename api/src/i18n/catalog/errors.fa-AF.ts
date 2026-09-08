@@ -1,0 +1,78 @@
+import type { PartialErrorCatalog } from './errors.en.js';
+
+/**
+ * The error catalogue in Dari.
+ *
+ * Machine-drafted and pending review by a native speaker, more urgently than the
+ * German one for the reason the finding catalogue gives. Keys absent here fall
+ * back to the English pattern per key.
+ *
+ * The interpolated values — MAC addresses, variable names, interface names — are
+ * bidi-isolated at render time rather than here. `error.validation`'s `detail`
+ * stays English on purpose; see errors.en.ts.
+ */
+export const ERRORS_FA_AF: PartialErrorCatalog = {
+  // --- اعتبارسنجی ---
+
+  'error.validation': 'درخواست معتبر نیست: {detail}',
+  'error.invalid_id': 'id باید یک عدد صحیح مثبت باشد',
+  'error.invalid_account_id': 'این شناسهٔ حساب نیست.',
+  'error.invalid_mac': 'mac باید یک آدرس MAC باشد',
+  'error.invalid_ip': 'آدرس IP معتبر نیست: {value}',
+  'error.ip_required': 'ipAddress الزامی است',
+  'error.interface_required': 'interfaceName الزامی است',
+  'error.since_unparseable': '«since» خوانده نشد: یک تاریخ ISO یا بازه‌ای مانند 24h بدهید',
+  'error.body_not_json': 'بدنهٔ درخواست JSON معتبر نیست',
+  'error.no_route': 'مسیری برای {method} {path} وجود ندارد',
+
+  // --- یافت نشد ---
+
+  'error.alert_not_found': 'یافته‌ای با id {id} وجود ندارد',
+  'error.log_not_found': 'رکورد گزارشی با id {id} وجود ندارد',
+  'error.suppression_not_found': 'قاعدهٔ سرکوبی با id {id} وجود ندارد',
+  'error.account_not_found': 'چنین حسابی وجود ندارد.',
+  'error.device_not_found': 'دستگاه شناخته‌شده‌ای با {mac} وجود ندارد',
+  'error.device_not_on_sensor':
+    'دستگاه شناخته‌شده‌ای با {mac} روی سنسور {sensor} نیست. برای این سنسورها شناخته شده است: {sensors}.',
+  'error.interface_not_found': 'چنین رابطی یافت نشد: {name}',
+
+  // --- تعارض ---
+
+  'error.device_ambiguous':
+    '{mac} برای بیش از یک سنسور شناخته شده است ({sensors}). با ?sensor= مشخص کنید کدام‌یک آن را ' +
+    'فراموش کند.',
+  'error.last_administrator': 'این تنها مدیر باقی‌مانده است؛ نخست حساب دیگری را به مدیر ارتقا دهید.',
+  'error.email_in_use': 'این ایمیل قبلاً استفاده شده است.',
+  'error.cannot_demote_self':
+    'شما نمی‌توانید نقش مدیریتی خودتان را بردارید. از مدیر دیگری بخواهید این کار را انجام دهد.',
+  'error.adhoc_pinned':
+    'در محیط تنظیم شده و اینجا قابل تغییر نیست: {variables}. متغیر را بردارید و API را دوباره ' +
+    'راه‌اندازی کنید تا از این صفحه مدیریت شود.',
+  'error.delivery_pinned':
+    'در محیط تنظیم شده و اینجا قابل ویرایش نیست: {variables}. متغیر را از api/.env (یا فایل ' +
+    'Compose خود) بردارید تا از این صفحه مدیریت شود.',
+  'error.no_suppression_criterion':
+    'یک قاعدهٔ سرکوب دست‌کم به یکی از نوع، مبدأ، مقصد یا پورت نیاز دارد. قاعده‌ای بدون هیچ‌یک، هر ' +
+    'یافته‌ای را در شبکه دور می‌اندازد.',
+
+  // --- احراز هویت و دسترسی ---
+
+  'error.invalid_credentials': 'ایمیل یا گذرواژه نادرست است',
+  'error.token_invalid': 'توکن نامعتبر یا منقضی شده است.',
+  'error.account_gone': 'این حساب دیگر وجود ندارد.',
+  'error.signup_admin_only': 'تنها یک مدیر می‌تواند حساب بسازد.',
+  'error.signup_token_required':
+    'ساختن حساب به توکن مدیر نیاز دارد. روی سرور از `npm run user -- create` استفاده کنید، یا ' +
+    'به‌عنوان مدیر وارد شوید.',
+
+  // --- ضبط ---
+
+  'error.capture_unavailable': '{detail}',
+  'error.capture_failed': '{context}: {detail}',
+
+  // --- آخرین چاره ---
+
+  'error.network_unreachable': 'دسترسی به سرور API ممکن نیست. آیا در حال اجراست؟',
+  'error.internal': 'خطای داخلی سرور',
+  'error.unexpected': 'خطای غیرمنتظره',
+};

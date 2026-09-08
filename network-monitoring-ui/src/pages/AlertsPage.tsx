@@ -23,10 +23,12 @@ import { useCallback, useMemo, useState } from 'react';
 import { describeError } from '../api/client';
 import AlertSummaryTiles from '../components/AlertSummaryTiles';
 import DataGrid from '../components/DataGrid';
+import Identifier from '../components/Identifier';
 import IpInfoDialog from '../components/IpInfoDialog';
 import { KIND_DESCRIPTION, KIND_LABEL, SeverityChip } from '../components/SeverityChip';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useLocale } from '../contexts/LocaleContext';
 import {
   useAcknowledgeAlert,
   useAlertSummary,
@@ -35,6 +37,9 @@ import {
   useSensors,
 } from '../hooks/useAlerts';
 import { useIpInfo } from '../hooks/useIpInfo';
+import { findingText, useFindingText } from '../i18n/findings';
+import { useFormatters } from '../i18n/format';
+import { useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 import { ALERT_KINDS, type AlertKind, type Alert as AlertRecord, type Severity } from '../types';
 
@@ -87,6 +92,8 @@ export default function AlertsPage() {
    */
   const sensors = sensorsQuery.data ?? [];
   const multiSensor = sensors.length > 1;
+  const { locale } = useLocale();
+  const t = useT();
 
   /*
    * The filter that is actually applied: the selection, but only while it still
@@ -178,24 +185,44 @@ export default function AlertsPage() {
 
   const columns = useMemo<MRT_ColumnDef<AlertRecord>[]>(
     () => [
-      { accessorKey: 'severity', header: 'Severity', size: 115, Cell: SeverityCell },
+      { accessorKey: 'severity', header: t('alerts.column.severity'), size: 115, Cell: SeverityCell },
       ...(multiSensor
-        ? [{ accessorKey: 'sensorId', header: 'Sensor', size: 130 } as MRT_ColumnDef<AlertRecord>]
+        ? [
+            {
+              accessorKey: 'sensorId',
+              header: t('alerts.column.sensor'),
+              size: 130,
+            } as MRT_ColumnDef<AlertRecord>,
+          ]
         : []),
-      { accessorKey: 'kind', header: 'Detector', size: 165, Cell: DetectorCell },
-      { accessorKey: 'title', header: 'Finding', size: 420, Cell: FindingCell },
-      { accessorKey: 'sourceIp', header: 'Source', size: 155, Cell: sourceCell(showIp) },
-      { accessorKey: 'targetIp', header: 'Target', size: 155, Cell: targetCell(showIp) },
-      { accessorKey: 'lastSeen', header: 'Last seen', size: 175, Cell: LastSeenCell },
-      { accessorKey: 'acknowledgedAt', header: 'Status', size: 130, Cell: StatusCell },
+      { accessorKey: 'kind', header: t('alerts.column.detector'), size: 165, Cell: DetectorCell },
+      {
+        /*
+         * An accessor function rather than a column key, because since V17 the
+         * finding's text is not a column — it is rendered from `message_key` and
+         * `message_params` in the reader's language. Naming the row's own `title`
+         * here would show a blank Finding column for every alert written since,
+         * and would hand the table's search box a null to filter on. Computing it
+         * keeps "Search findings" matching what is actually on screen.
+         */
+        id: 'title',
+        accessorFn: (row: AlertRecord) => findingText(row, locale).title,
+        header: t('alerts.column.finding'),
+        size: 420,
+        Cell: FindingCell,
+      },
+      { accessorKey: 'sourceIp', header: t('alerts.column.source'), size: 155, Cell: sourceCell(showIp) },
+      { accessorKey: 'targetIp', header: t('alerts.column.target'), size: 155, Cell: targetCell(showIp) },
+      { accessorKey: 'lastSeen', header: t('alerts.column.last_seen'), size: 175, Cell: LastSeenCell },
+      { accessorKey: 'acknowledgedAt', header: t('alerts.column.status'), size: 130, Cell: StatusCell },
     ],
-    [showIp, multiSensor],
+    [showIp, multiSensor, locale, t],
   );
 
   const tableOptions = {
     enableRowActions: true,
     positionActionsColumn: 'last' as const,
-    muiSearchTextFieldProps: { placeholder: 'Search findings', sx: { minWidth: 240 } },
+    muiSearchTextFieldProps: { placeholder: t('alerts.search_placeholder'), sx: { minWidth: 240 } },
     muiTableBodyRowProps: ({ row }) => ({
       sx: {
         // A left edge in the severity colour, so urgency reads at a glance.
@@ -207,7 +234,7 @@ export default function AlertsPage() {
     renderDetailPanel: ({ row }) => <EvidencePanel alert={row.original} />,
     renderRowActions: ({ row }) => (
       <Stack direction="row" spacing={0.5}>
-        <Tooltip title={row.original.acknowledgedAt ? 'Reopen' : 'Acknowledge'}>
+        <Tooltip title={row.original.acknowledgedAt ? t('alerts.reopen') : t('alerts.acknowledge')}>
           <IconButton size="small" onClick={() => handleAcknowledge(row.original)}>
             {row.original.acknowledgedAt ? (
               <UndoIcon fontSize="small" />
@@ -217,7 +244,7 @@ export default function AlertsPage() {
           </IconButton>
         </Tooltip>
         {isAdmin && (
-          <Tooltip title="Delete — the finding and its evidence go with it">
+          <Tooltip title={t('alerts.delete')}>
             <IconButton
               size="small"
               color="error"
@@ -245,7 +272,7 @@ export default function AlertsPage() {
           <TextField
             select
             size="small"
-            label="Sensor"
+            label={t('dashboard.sensor')}
             // The applied filter, not the raw selection. They differ exactly when
             // the chosen sensor has gone quiet, and binding the selection would
             // render the box BLANK — reading as "All sensors" — over a table that
@@ -271,7 +298,7 @@ export default function AlertsPage() {
         <TextField
           select
           size="small"
-          label="Detector"
+          label={t('alerts.column.detector')}
           value={kind}
           onChange={(event) => setKind(event.target.value as AlertKind | '')}
           sx={{ minWidth: 190 }}
@@ -279,14 +306,14 @@ export default function AlertsPage() {
           <MenuItem value="">All detectors</MenuItem>
           {ALERT_KINDS.map((value) => (
             <MenuItem key={value} value={value}>
-              {KIND_LABEL[value]}
+              {t(KIND_LABEL[value])}
             </MenuItem>
           ))}
         </TextField>
         <TextField
           select
           size="small"
-          label="Period"
+          label={t('dashboard.period')}
           value={since}
           onChange={(event) => setSince(event.target.value)}
           sx={{ minWidth: 150 }}
@@ -337,17 +364,17 @@ export default function AlertsPage() {
   return (
     <>
       <SurfaceCard
-        title="Security alerts"
+        title={t('alerts.title')}
         titleComponent="h1"
         titleVariant="h5"
-        subtitle="Every finding the detectors raised, newest first"
+        subtitle={t('alerts.subtitle')}
         headerActions={
           summary && summary.unacknowledged > 0 ? (
             <Chip
               size="small"
               color="warning"
               variant="outlined"
-              label={`${summary.unacknowledged.toLocaleString()} unacknowledged`}
+              label={t('alerts.unacknowledged_count', { count: summary.unacknowledged })}
             />
           ) : null
         }
@@ -388,10 +415,11 @@ const SeverityCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ cell }) => (
 );
 
 const DetectorCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ cell }) => {
+  const t = useT();
   const value = cell.getValue<AlertKind>();
   return (
-    <Tooltip title={KIND_DESCRIPTION[value] ?? ''}>
-      <span>{KIND_LABEL[value] ?? value}</span>
+    <Tooltip title={KIND_DESCRIPTION[value] ? t(KIND_DESCRIPTION[value]) : ''}>
+      <span>{KIND_LABEL[value] ? t(KIND_LABEL[value]) : value}</span>
     </Tooltip>
   );
 };
@@ -413,7 +441,7 @@ const sourceCell =
     const ip = cell.getValue<string | null>();
     if (ip) return <IpLink value={ip} onClick={showIp} />;
     // ARP and device findings identify the actor by MAC, not IP.
-    return <Box sx={monoSx}>{row.original.sourceMac ?? '—'}</Box>;
+    return <Identifier>{row.original.sourceMac ?? '—'}</Identifier>;
   };
 
 const targetCell =
@@ -423,18 +451,28 @@ const targetCell =
     return ip ? <IpLink value={ip} onClick={showIp} /> : <Box sx={{ color: 'text.disabled' }}>—</Box>;
   };
 
-const LastSeenCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ cell }) => (
-  <Box sx={monoSx}>{new Date(cell.getValue<string>()).toLocaleString()}</Box>
-);
+/*
+ * A timestamp is not an identifier — it is read, not matched against a firewall
+ * rule — so it is formatted in the reader's locale rather than isolated. In Dari
+ * that means the Solar Hijri calendar, which `fa-AF` selects on its own.
+ */
+const LastSeenCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ cell }) => {
+  const format = useFormatters();
+  return <Box sx={monoSx}>{format.dateTime(cell.getValue<string>())}</Box>;
+};
 
-const StatusCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ row, cell }) =>
-  cell.getValue<string | null>() ? (
-    <Tooltip title={`Acknowledged by ${row.original.acknowledgedBy ?? 'unknown'}`}>
-      <Chip size="small" color="success" variant="outlined" label="Acknowledged" />
+const StatusCell: MRT_ColumnDef<AlertRecord>['Cell'] = ({ row, cell }) => {
+  const t = useT();
+  return cell.getValue<string | null>() ? (
+    <Tooltip
+      title={t('alerts.acknowledged_by', { who: row.original.acknowledgedBy ?? t('alerts.unknown_actor') })}
+    >
+      <Chip size="small" color="success" variant="outlined" label={t('alerts.acknowledged')} />
     </Tooltip>
   ) : (
-    <Chip size="small" color="warning" label="Open" />
+    <Chip size="small" color="warning" label={t('alerts.open')} />
   );
+};
 
 /** The row's left edge. Only the two severities worth interrupting for get one. */
 function severityEdge(severity: Severity): string {
@@ -446,6 +484,9 @@ function severityEdge(severity: Severity): string {
 /** Expanded row: what happened, why it matters, and the supporting detail. */
 function EvidencePanel({ alert }: Readonly<{ alert: AlertRecord }>) {
   const entries = Object.entries(alert.evidence ?? {});
+  const { description } = useFindingText(alert);
+  const format = useFormatters();
+  const t = useT();
 
   return (
     <Stack spacing={2} sx={{ px: 1, py: 1.5, maxWidth: 1000 }}>
@@ -457,9 +498,9 @@ function EvidencePanel({ alert }: Readonly<{ alert: AlertRecord }>) {
             color: 'text.secondary',
           }}
         >
-          What this means
+          {t('alerts.what_this_means')}
         </Typography>
-        <Typography variant="body2">{alert.description}</Typography>
+        <Typography variant="body2">{description}</Typography>
       </Box>
       <Divider />
       <Box>
@@ -470,7 +511,7 @@ function EvidencePanel({ alert }: Readonly<{ alert: AlertRecord }>) {
             color: 'text.secondary',
           }}
         >
-          Evidence
+          {t('alerts.evidence')}
         </Typography>
         {entries.length === 0 ? (
           <Typography
@@ -516,18 +557,28 @@ function EvidencePanel({ alert }: Readonly<{ alert: AlertRecord }>) {
           flexWrap: 'wrap',
         }}
       >
-        <Metric label="First seen" value={new Date(alert.firstSeen).toLocaleString()} />
-        <Metric label="Last seen" value={new Date(alert.lastSeen).toLocaleString()} />
-        <Metric label="Occurrences" value={alert.occurrences.toLocaleString()} />
-        {alert.protocol && <Metric label="Protocol" value={alert.protocol} />}
-        {alert.sourceMac && <Metric label="Source MAC" value={alert.sourceMac} />}
-        {alert.targetMac && <Metric label="Target MAC" value={alert.targetMac} />}
+        <Metric label={t('alerts.first_seen')} value={format.dateTime(alert.firstSeen)} />
+        <Metric label={t('alerts.column.last_seen')} value={format.dateTime(alert.lastSeen)} />
+        <Metric label={t('alerts.occurrences')} value={format.number(alert.occurrences)} />
+        {/*
+         * `identifier` on the three below and not on the timestamps or the count:
+         * a protocol name and a MAC are matched character by character against
+         * something outside this application, and must survive a right-to-left
+         * layout unchanged. A date and a count are read.
+         */}
+        {alert.protocol && <Metric label={t('alerts.protocol')} value={alert.protocol} identifier />}
+        {alert.sourceMac && <Metric label={t('alerts.source_mac')} value={alert.sourceMac} identifier />}
+        {alert.targetMac && <Metric label={t('alerts.target_mac')} value={alert.targetMac} identifier />}
       </Stack>
     </Stack>
   );
 }
 
-function Metric({ label, value }: Readonly<{ label: string; value: string }>) {
+function Metric({
+  label,
+  value,
+  identifier = false,
+}: Readonly<{ label: string; value: string; identifier?: boolean }>) {
   return (
     <Box>
       <Typography
@@ -540,7 +591,7 @@ function Metric({ label, value }: Readonly<{ label: string; value: string }>) {
         {label}
       </Typography>
       <Typography variant="body2" sx={monoSx}>
-        {value}
+        {identifier ? <Identifier mono={false}>{value}</Identifier> : value}
       </Typography>
     </Box>
   );
@@ -583,7 +634,7 @@ function IpLink({ value, onClick }: Readonly<{ value: string; onClick: (ipAddres
       onClick={() => onClick(value)}
       sx={{ ...monoSx, display: 'inline-flex', alignItems: 'center', gap: 0.5, textAlign: 'left' }}
     >
-      {value}
+      <Identifier mono={false}>{value}</Identifier>
       <TravelExploreIcon sx={{ fontSize: 14, opacity: 0.65 }} />
     </Link>
   );

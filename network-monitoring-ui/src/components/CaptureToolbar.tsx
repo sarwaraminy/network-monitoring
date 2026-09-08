@@ -15,6 +15,7 @@ import Typography from '@mui/material/Typography';
 import { type ReactNode, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import type { UsePacketCapture } from '../hooks/usePacketCapture';
+import { useT } from '../i18n/ui';
 import { DisclosureCaret } from './DisclosureCaret';
 import SurfaceCard from './SurfaceCard';
 
@@ -67,6 +68,7 @@ export default function CaptureToolbar({
   headerActions,
   onLayoutSettled,
 }: Readonly<CaptureToolbarProps>) {
+  const t = useT();
   /*
    * Open to begin with, because the first thing anyone does on this page is
    * choose an interface and press Start. It folds away afterwards by hand, which
@@ -170,7 +172,7 @@ export default function CaptureToolbar({
           <Grid size={{ xs: 12, md: showIpFilter ? 4 : 5 }}>
             <TextField
               select
-              label="Network interface"
+              label={t('capture.network_interface')}
               value={selectedInterface}
               onChange={(event) => setSelectedInterface(event.target.value)}
               disabled={capturing || loadingInterfaces}
@@ -189,12 +191,12 @@ export default function CaptureToolbar({
           {showIpFilter && (
             <Grid size={{ xs: 12, sm: 6, md: 2.5 }}>
               <TextField
-                label="Filter by IP address"
+                label={t('capture.filter_ip')}
                 value={filterIp}
                 onChange={(event) => setFilterIp(event.target.value)}
                 placeholder={exampleHost}
                 disabled={capturing}
-                helperText="Applied as the BPF filter host <ip>"
+                helperText={t('capture.bpf_helper')}
                 fullWidth
               />
             </Grid>
@@ -202,26 +204,26 @@ export default function CaptureToolbar({
 
           <Grid size={{ xs: 6, sm: 3, md: showIpFilter ? 1.75 : 2 }}>
             <TextField
-              label="Snapshot length"
+              label={t('capture.snapshot_length')}
               type="number"
               value={snapshotLength}
               onChange={(event) => setSnapshotLength(Number(event.target.value))}
               disabled={capturing}
               slotProps={{ htmlInput: { min: 64, max: 262144, step: 1024 } }}
-              helperText="Bytes per frame"
+              helperText={t('capture.snaplen_helper')}
               fullWidth
             />
           </Grid>
 
           <Grid size={{ xs: 6, sm: 3, md: showIpFilter ? 1.75 : 2 }}>
             <TextField
-              label="Timeout (ms)"
+              label={t('capture.timeout')}
               type="number"
               value={timeout}
               onChange={(event) => setTimeoutMs(Number(event.target.value))}
               disabled={capturing}
               slotProps={{ htmlInput: { min: 0, step: 10 } }}
-              helperText="pcap read timeout"
+              helperText={t('capture.timeout_helper')}
               fullWidth
             />
           </Grid>

@@ -41,6 +41,7 @@ export async function fetchCurrentUser(): Promise<AuthenticatedUser> {
     firstname: string;
     lastname: string | null;
     role: string;
+    langCode: string;
   }>('/auth/me');
 
   return {
@@ -49,5 +50,6 @@ export async function fetchCurrentUser(): Promise<AuthenticatedUser> {
     firstName: data.firstname,
     lastName: data.lastname,
     role: data.role,
+    langCode: data.langCode,
   };
 }

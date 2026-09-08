@@ -11,9 +11,11 @@ import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
+import { useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 import type { GeoData, IpInfo } from '../types';
 import AppDialog from './AppDialog';
+import Identifier from './Identifier';
 
 interface IpInfoDialogProps {
   open: boolean;
@@ -36,6 +38,7 @@ export default function IpInfoDialog({
   error,
   onClose,
 }: Readonly<IpInfoDialogProps>) {
+  const t = useT();
   const geo = info?.geoData ?? null;
 
   return (
@@ -51,7 +54,7 @@ export default function IpInfoDialog({
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <PublicIcon color="primary" />
           <span>IP information</span>
-          <Chip label={ipAddress} size="small" sx={monoSx} />
+          <Chip label={<Identifier mono={false}>{ipAddress}</Identifier>} size="small" sx={monoSx} />
         </Stack>
       }
       actions={<Button onClick={onClose}>Close</Button>}
@@ -82,13 +85,18 @@ export default function IpInfoDialog({
 
         {!loading && !error && info && (
           <Stack spacing={3}>
-            <Section title="Domain name">
+            <Section title={t('ipinfo.domain_name')}>
               <Typography variant="body2" sx={monoSx}>
-                {info.domainName ?? <NotAvailable label="No PTR record" />}
+                {/* A hostname is an identifier: it is looked up and compared, not read. */}
+                {info.domainName ? (
+                  <Identifier mono={false}>{info.domainName}</Identifier>
+                ) : (
+                  <NotAvailable label={t('ipinfo.no_ptr')} />
+                )}
               </Typography>
             </Section>
 
-            <Section title="Geolocation">
+            <Section title={t('ipinfo.geolocation')}>
               {geo && geo.status !== 'fail' ? (
                 <GeoTable geo={geo} />
               ) : (
@@ -98,7 +106,7 @@ export default function IpInfoDialog({
               )}
             </Section>
 
-            <Section title="WHOIS">
+            <Section title={t('ipinfo.whois')}>
               {info.whoisData ? (
                 <Box
                   component="pre"
@@ -119,7 +127,7 @@ export default function IpInfoDialog({
                   {info.whoisData}
                 </Box>
               ) : (
-                <NotAvailable label="No WHOIS response" />
+                <NotAvailable label={t('ipinfo.no_whois')} />
               )}
             </Section>
           </Stack>

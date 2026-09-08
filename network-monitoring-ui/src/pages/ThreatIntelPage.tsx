@@ -25,6 +25,7 @@ import DataGrid, { numericColumn } from '../components/DataGrid';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useT } from '../i18n/ui';
 import type { IntelFeedOrigin, IntelFeedStatus } from '../types';
 
 /**
@@ -90,6 +91,7 @@ function feedEdge(feed: IntelFeedStatus): string {
 const ORIGIN_ORDER: IntelFeedOrigin[] = ['failed', 'cache', 'file', 'network'];
 
 export default function ThreatIntelPage() {
+  const t = useT();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const palette = useChartPalette();
@@ -132,10 +134,10 @@ export default function ThreatIntelPage() {
   return (
     <>
       <SurfaceCard
-        title="Threat intelligence"
+        title={t('intel.title')}
         titleComponent="h1"
         titleVariant="h5"
-        subtitle="Addresses and domains matched against indicator feeds — the one detector here that is not a threshold"
+        subtitle={t('intel.subtitle')}
         headerActions={
           isAdmin ? (
             <Button
@@ -198,7 +200,7 @@ export default function ThreatIntelPage() {
       <Grid container spacing={1.5}>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Indicators loaded"
+            label={t('intel.indicators_loaded')}
             value={data?.stats.total ?? 0}
             caption={data?.enabled ? 'matched on every packet and flow' : 'threat intelligence is off'}
             icon={<InventoryOutlinedIcon />}
@@ -208,7 +210,7 @@ export default function ThreatIntelPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Feeds"
+            label={t('intel.feeds')}
             value={data?.sources.length ?? 0}
             caption={feedHealthCaption(failedFeeds.length, staleFeeds.length)}
             icon={<CloudDoneOutlinedIcon />}
@@ -218,7 +220,7 @@ export default function ThreatIntelPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Last loaded"
+            label={t('intel.last_loaded')}
             value={data?.loadedAt ? relativeTime(data.loadedAt) : 'never'}
             caption={
               data?.refreshSeconds ? `refreshes every ${Math.round(data.refreshSeconds / 3600)}h` : undefined
@@ -229,9 +231,9 @@ export default function ThreatIntelPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Refused on load"
+            label={t('intel.refused')}
             value={data?.stats.rejected ?? 0}
-            caption="private ranges and malformed entries"
+            caption={t('intel.refused_caption')}
             icon={<GppMaybeOutlinedIcon />}
             loading={loading}
           />
@@ -244,12 +246,12 @@ export default function ThreatIntelPage() {
         </Grid>
 
         <Grid size={{ xs: 12, lg: 4 }}>
-          <SurfaceCard title="What is loaded" subtitle="By indicator type" sx={{ height: '100%' }}>
+          <SurfaceCard title={t('intel.what_loaded')} subtitle={t('intel.by_type')} sx={{ height: '100%' }}>
             <Stack spacing={1}>
-              <TypeRow label="IPv4 addresses" value={data?.stats.ipv4 ?? 0} loading={loading} />
-              <TypeRow label="IPv4 ranges (CIDR)" value={data?.stats.cidr ?? 0} loading={loading} />
-              <TypeRow label="IPv6 addresses" value={data?.stats.ipv6 ?? 0} loading={loading} />
-              <TypeRow label="Domains" value={data?.stats.domain ?? 0} loading={loading} />
+              <TypeRow label={t('intel.ipv4')} value={data?.stats.ipv4 ?? 0} loading={loading} />
+              <TypeRow label={t('intel.ipv4_cidr')} value={data?.stats.cidr ?? 0} loading={loading} />
+              <TypeRow label={t('intel.ipv6')} value={data?.stats.ipv6 ?? 0} loading={loading} />
+              <TypeRow label={t('intel.domains')} value={data?.stats.domain ?? 0} loading={loading} />
             </Stack>
 
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 2.5 }}>
@@ -306,13 +308,16 @@ const IndicatorCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) =>
   );
 };
 
-const SkippedCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => (
-  <Tooltip title="Lines that were not usable indicators: comments, blanks, and anything malformed or non-routable.">
-    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-      {cell.getValue<number>().toLocaleString()}
-    </Typography>
-  </Tooltip>
-);
+const SkippedCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => {
+  const t = useT();
+  return (
+    <Tooltip title={t('intel.skipped_explain')}>
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        {cell.getValue<number>().toLocaleString()}
+      </Typography>
+    </Tooltip>
+  );
+};
 
 /**
  * The feed list, as a Material React Table like every other table in the app.
@@ -324,17 +329,18 @@ const SkippedCountCell: MRT_ColumnDef<IntelFeedStatus>['Cell'] = ({ cell }) => (
  * surface, and no real feed list is long enough to need one.
  */
 function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; loading: boolean }>) {
+  const t = useT();
   const columns = useMemo<MRT_ColumnDef<IntelFeedStatus>[]>(
     () => [
       {
         accessorKey: 'name',
-        header: 'Feed',
+        header: t('intel.feed'),
         size: 220,
         Cell: FeedNameCell,
       },
       {
         accessorKey: 'from',
-        header: 'Source',
+        header: t('intel.source'),
         size: 140,
         filterVariant: 'select',
         // Without these MRT builds the dropdown from the faceted raw values —
@@ -352,24 +358,24 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
       },
       numericColumn({
         accessorKey: 'indicators',
-        header: 'Indicators',
+        header: t('intel.indicators'),
         size: 130,
         Cell: IndicatorCountCell,
       }),
       numericColumn({
         accessorKey: 'skipped',
-        header: 'Skipped',
+        header: t('intel.skipped'),
         size: 120,
         Cell: SkippedCountCell,
       }),
     ],
-    [],
+    [t],
   );
 
   return (
     <SurfaceCard
-      title="Feeds"
-      subtitle="Where each source came from on the last load"
+      title={t('intel.feeds')}
+      subtitle={t('intel.feeds_subtitle')}
       bodyVariant="grid"
       sx={{ height: '100%' }}
     >
@@ -377,7 +383,7 @@ function FeedTable({ feeds, loading }: Readonly<{ feeds: IntelFeedStatus[]; load
         columns={columns}
         data={feeds}
         isLoading={loading}
-        emptyMessage="No feeds configured."
+        emptyMessage={t('intel.no_feeds')}
         tableOptions={{
           enablePagination: false,
           enableBottomToolbar: false,

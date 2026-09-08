@@ -62,12 +62,14 @@ class RecordingExporter implements NotificationChannel {
   }
 }
 
+const PORT_SCAN_PARAMS = { source: '10.0.0.66', target: '10.0.0.89', count: 22, seconds: 60 };
+
 function finding(overrides: Partial<Finding> = {}): Finding {
   return {
     kind: 'port_scan',
     severity: 'high',
-    title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
-    description: 'A single source attempted connections to many ports.',
+    messageKey: 'port_scan.packet',
+    messageParams: PORT_SCAN_PARAMS,
     dedupKey: 'port_scan|10.0.0.66|10.0.0.89',
     sourceIp: '10.0.0.66',
     targetIp: '10.0.0.89',
@@ -223,9 +225,23 @@ describe('digest batching', () => {
     const notifier = new notify.Notifier([channel]);
     const now = AT.getTime();
 
-    notifier.consider(finding({ dedupKey: 'h', severity: 'high', title: 'high one' }), 1, AT, AT, now);
     notifier.consider(
-      finding({ dedupKey: 'c', severity: 'critical', title: 'critical one' }),
+      finding({
+        dedupKey: 'h',
+        severity: 'high',
+        messageParams: { ...PORT_SCAN_PARAMS, source: 'high one' },
+      }),
+      1,
+      AT,
+      AT,
+      now,
+    );
+    notifier.consider(
+      finding({
+        dedupKey: 'c',
+        severity: 'critical',
+        messageParams: { ...PORT_SCAN_PARAMS, source: 'critical one' },
+      }),
       1,
       AT,
       AT,
@@ -235,7 +251,9 @@ describe('digest batching', () => {
 
     const sent = channel.sent[0];
     assert.equal(sent?.severity, 'critical');
-    assert.equal(sent?.findings[0]?.title, 'critical one');
+    // Each fixture is told apart by the scanner address its title renders, since
+    // the finding no longer carries a sentence of its own.
+    assert.match(String(sent?.findings[0]?.title), /critical one/);
   });
 
   it('counts what it truncated instead of dropping it silently', async () => {
@@ -313,6 +331,8 @@ describe('evidence policy', () => {
           severity: 'high',
           title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
           description: 'A single source attempted connections to many ports.',
+          englishTitle: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
+          englishDescription: 'A single source attempted connections to many ports.',
           sourceIp: '10.0.0.66',
           targetIp: '10.0.0.89',
           occurrences: 3,
@@ -363,6 +383,8 @@ describe('evidence policy', () => {
       severity: 'high',
       title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
       description: 'A single source attempted connections to many ports.',
+      englishTitle: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
+      englishDescription: 'A single source attempted connections to many ports.',
       sourceIp: '10.0.0.66',
       targetIp: '10.0.0.89',
       occurrences: 3,
@@ -414,6 +436,8 @@ describe('evidence policy', () => {
           severity: 'high',
           title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
           description: 'A single source attempted connections to many ports.',
+          englishTitle: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
+          englishDescription: 'A single source attempted connections to many ports.',
           sourceIp: '10.0.0.66',
           targetIp: '10.0.0.89',
           occurrences: 3,
@@ -469,6 +493,8 @@ describe('evidence policy', () => {
           severity: 'critical',
           title: 'Cleartext HTTP credentials for "alice" to 10.0.0.50',
           description: 'An HTTP Basic Authorization header was captured in the clear.',
+          englishTitle: 'Cleartext HTTP credentials for "alice" to 10.0.0.50',
+          englishDescription: 'An HTTP Basic Authorization header was captured in the clear.',
           sourceIp: '10.0.0.89',
           targetIp: '10.0.0.50',
           occurrences: 3,
@@ -513,6 +539,8 @@ describe('message formats', () => {
         severity: 'critical',
         title: 'ARP spoofing: 10.0.0.1 claimed by a new MAC',
         description: 'A settled address is now being claimed by a different device.',
+        englishTitle: 'ARP spoofing: 10.0.0.1 claimed by a new MAC',
+        englishDescription: 'A settled address is now being claimed by a different device.',
         sourceIp: '10.0.0.66',
         targetIp: '10.0.0.1',
         occurrences: 4,
@@ -776,6 +804,8 @@ describe('webhook transport', () => {
         severity: 'high',
         title: 'Port scan',
         description: 'many ports on one host',
+        englishTitle: 'Port scan',
+        englishDescription: 'many ports on one host',
         sourceIp: '10.0.0.66',
         targetIp: '10.0.0.89',
         occurrences: 1,
@@ -955,6 +985,8 @@ async function onlyNotification(): Promise<Notification> {
         severity: 'high',
         title: 'Port scan',
         description: 'Many ports probed.',
+        englishTitle: 'Port scan',
+        englishDescription: 'Many ports probed.',
         sourceIp: '10.0.0.66',
         targetIp: '10.0.0.89',
         occurrences: 1,

@@ -66,8 +66,8 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
   return {
     kind: 'port_scan',
     severity: 'high',
-    title: 'Test finding',
-    description: 'test',
+    messageKey: 'port_scan.packet',
+    messageParams: { source: '10.0.0.66', target: '10.0.0.89', count: 22, seconds: 60 },
     dedupKey: 'test-finding',
     evidence: {},
     timestamp: new Date(),

@@ -39,6 +39,7 @@ import DataGrid, { numericColumn } from '../components/DataGrid';
 import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
+import { useT } from '../i18n/ui';
 import { ALERT_KINDS, type AlertKind, type SuppressionDraft, type SuppressionRule } from '../types';
 
 /**
@@ -140,6 +141,7 @@ const EMPTY_DRAFT: SuppressionDraft = {
 };
 
 export default function SuppressionsPage() {
+  const t = useT();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const queryClient = useQueryClient();
@@ -219,10 +221,10 @@ export default function SuppressionsPage() {
   return (
     <>
       <SurfaceCard
-        title="Suppression rules"
+        title={t('suppressions.title')}
         titleComponent="h1"
         titleVariant="h5"
-        subtitle="Findings you have declared expected. A matching finding is dropped before it is stored — not hidden behind a filter"
+        subtitle={t('suppressions.subtitle')}
         headerActions={
           isAdmin ? (
             <Button
@@ -270,7 +272,7 @@ export default function SuppressionsPage() {
       <Grid container spacing={1.5}>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Rules"
+            label={t('suppressions.rules')}
             value={rules.length}
             caption={`${inForce} in force`}
             icon={<RuleFolderOutlinedIcon />}
@@ -279,27 +281,27 @@ export default function SuppressionsPage() {
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Findings hidden"
+            label={t('suppressions.findings_hidden')}
             value={hidden}
-            caption="dropped before storage, all time"
+            caption={t('suppressions.hidden_caption')}
             icon={<VisibilityOffOutlinedIcon />}
             loading={listing.isPending}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Never matched"
+            label={t('suppressions.never_matched')}
             value={neverMatched}
-            caption="in force but has hidden nothing"
+            caption={t('suppressions.never_caption')}
             icon={<NotificationsOffOutlinedIcon />}
             loading={listing.isPending}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatTile
-            label="Expired"
+            label={t('suppressions.expired')}
             value={expired}
-            caption="no longer suppressing"
+            caption={t('suppressions.expired_caption')}
             icon={<EventBusyOutlinedIcon />}
             loading={listing.isPending}
           />
@@ -356,11 +358,12 @@ function RuleTable({
   onToggle,
   onDelete,
 }: Readonly<RuleTableProps>) {
+  const t = useT();
   const columns = useMemo<MRT_ColumnDef<SuppressionRule>[]>(() => {
     const base: MRT_ColumnDef<SuppressionRule>[] = [
       {
         id: 'covers',
-        header: 'Covers',
+        header: t('suppressions.covers'),
         size: 300,
         accessorFn: describeRule,
         Cell: ({ row }) => (
@@ -376,7 +379,7 @@ function RuleTable({
       },
       {
         accessorKey: 'reason',
-        header: 'Why it is expected',
+        header: t('suppressions.why'),
         size: 280,
         Cell: ({ cell }) => (
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
@@ -386,7 +389,7 @@ function RuleTable({
       },
       {
         id: 'state',
-        header: 'State',
+        header: t('suppressions.state'),
         size: 130,
         accessorFn: (rule) => STATE[ruleState(rule, invalid, now)].label,
         filterVariant: 'select',
@@ -406,7 +409,7 @@ function RuleTable({
       },
       numericColumn({
         accessorKey: 'matchCount',
-        header: 'Hidden',
+        header: t('suppressions.hidden'),
         size: 130,
         Cell: ({ row, cell }) => {
           const count = cell.getValue<number>();
@@ -435,13 +438,13 @@ function RuleTable({
       }),
       {
         accessorKey: 'expiresAt',
-        header: 'Expires',
+        header: t('suppressions.expires'),
         size: 150,
         Cell: ({ cell }) => {
           const value = cell.getValue<string | null>();
           if (!value) {
             return (
-              <Tooltip title="This rule stays in force until somebody removes it.">
+              <Tooltip title={t('suppressions.no_expiry')}>
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                   never
                 </Typography>
@@ -468,7 +471,7 @@ function RuleTable({
           const rule = row.original;
           return (
             <Stack direction="row" spacing={0.5}>
-              <Tooltip title="Edit this rule">
+              <Tooltip title={t('suppressions.edit')}>
                 <IconButton size="small" aria-label={`Edit rule ${rule.id}`} onClick={() => onEdit(rule)}>
                   <EditOutlinedIcon fontSize="small" />
                 </IconButton>
@@ -486,7 +489,7 @@ function RuleTable({
                   )}
                 </IconButton>
               </Tooltip>
-              <Tooltip title="Delete — the record of what it hid goes too">
+              <Tooltip title={t('suppressions.delete')}>
                 <IconButton size="small" aria-label={`Delete rule ${rule.id}`} onClick={() => onDelete(rule)}>
                   <DeleteOutlineIcon fontSize="small" />
                 </IconButton>
@@ -496,12 +499,12 @@ function RuleTable({
         },
       },
     ];
-  }, [invalid, now, isAdmin, onEdit, onToggle, onDelete]);
+  }, [invalid, now, isAdmin, onEdit, onToggle, onDelete, t]);
 
   return (
     <SurfaceCard
-      title="Rules"
-      subtitle="Read top to bottom: the first rule that matches a finding is the one that drops it"
+      title={t('suppressions.rules')}
+      subtitle={t('suppressions.rules_subtitle')}
       bodyVariant="grid"
       sx={{ height: '100%' }}
     >
@@ -509,7 +512,7 @@ function RuleTable({
         columns={columns}
         data={rules}
         isLoading={loading}
-        emptyMessage="No suppression rules. Every finding the detectors raise is being stored."
+        emptyMessage={t('suppressions.none')}
         tableOptions={{
           enableDensityToggle: false,
           enableFullScreenToggle: false,
@@ -549,6 +552,7 @@ interface RuleDialogProps {
  * rather than a second copy of it living here.
  */
 function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
+  const t = useT();
   const [draft, setDraft] = useState<SuppressionDraft>(() =>
     rule
       ? {
@@ -610,11 +614,11 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
         <Stack spacing={2}>
           <TextField
             select
-            label="Finding kind"
+            label={t('suppressions.kind')}
             size="small"
             value={draft.kind ?? ''}
             onChange={(event) => set('kind', (event.target.value || null) as AlertKind | null)}
-            helperText="Any kind, unless you pick one"
+            helperText={t('suppressions.kind_helper')}
           >
             <MenuItem value="">Any kind</MenuItem>
             {ALERT_KINDS.map((kind) => (
@@ -626,28 +630,28 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
 
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField
-              label="Source address or range"
+              label={t('suppressions.source')}
               size="small"
               fullWidth
               value={draft.sourceCidr ?? ''}
               onChange={(event) => set('sourceCidr', event.target.value.trim() || null)}
               placeholder="10.20.30.40 or 10.20.30.0/24"
-              helperText="Where the traffic came from"
+              helperText={t('suppressions.source_helper')}
             />
             <TextField
-              label="Target address or range"
+              label={t('suppressions.target')}
               size="small"
               fullWidth
               value={draft.targetCidr ?? ''}
               onChange={(event) => set('targetCidr', event.target.value.trim() || null)}
               placeholder="192.168.1.0/24"
-              helperText="Where it was going"
+              helperText={t('suppressions.target_helper')}
             />
           </Stack>
 
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField
-              label="Destination port"
+              label={t('suppressions.port')}
               size="small"
               fullWidth
               type="number"
@@ -656,37 +660,37 @@ function RuleDialog({ rule, onClose, onSaved }: Readonly<RuleDialogProps>) {
               // The honest caveat, next to the field rather than in documentation
               // nobody reads: a port scan names no single port, so a rule with a
               // port will never match one.
-              helperText="Only matches findings about a single port — never a port scan"
+              helperText={t('suppressions.port_helper')}
             />
             <TextField
-              label="Expires"
+              label={t('suppressions.expires')}
               size="small"
               fullWidth
               type="datetime-local"
               value={toLocalInput(draft.expiresAt)}
               onChange={(event) => set('expiresAt', fromLocalInput(event.target.value))}
               slotProps={{ inputLabel: { shrink: true } }}
-              helperText="Empty means it never expires"
+              helperText={t('suppressions.expires_helper')}
             />
           </Stack>
 
           <TextField
-            label="Why is this expected?"
+            label={t('suppressions.reason')}
             size="small"
             required
             multiline
             minRows={2}
             value={draft.reason}
             onChange={(event) => set('reason', event.target.value)}
-            placeholder="Authorised Nessus scanner, ticket OPS-1421"
-            helperText="Whoever reads this list in six months will only have this line to go on"
+            placeholder={t('suppressions.reason_placeholder')}
+            helperText={t('suppressions.reason_helper')}
           />
 
           <FormControlLabel
             control={
               <Switch checked={draft.enabled} onChange={(event) => set('enabled', event.target.checked)} />
             }
-            label="In force"
+            label={t('suppressions.in_force')}
           />
 
           <Box>

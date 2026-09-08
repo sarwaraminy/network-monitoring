@@ -90,13 +90,14 @@ export class FlowScanDetector {
       findings.push({
         kind: 'port_scan',
         severity: 'high',
-        title: `Port scan: ${source} probed ${distinctPorts} ports on ${target}`,
-        description:
-          `${source} opened unanswered connections to ${distinctPorts} different ports on ${target} ` +
-          `within ${windowSeconds} seconds, as reported by the flow exporter at ${flow.exporter}. ` +
-          'None of those connections were acknowledged, so nothing was listening or a firewall dropped ' +
-          'them — the signature of mapping which services a host exposes, which usually precedes an ' +
-          'exploitation attempt.',
+        messageKey: 'port_scan.flow',
+        messageParams: {
+          source,
+          target,
+          count: distinctPorts,
+          seconds: windowSeconds,
+          exporter: flow.exporter,
+        },
         dedupKey: `port_scan|${source}|${target}`,
         sourceIp: source,
         sourceMac: flow.srcMac,
@@ -124,12 +125,17 @@ export class FlowScanDetector {
         findings.push({
           kind: 'host_sweep',
           severity: 'high',
-          title: `Host sweep: ${source} probed port ${flow.dstPort} on ${distinctHosts} hosts`,
-          description:
-            `${source} opened unanswered connections to port ${flow.dstPort}${describePort(flow.dstPort)} on ` +
-            `${distinctHosts} different hosts within ${windowSeconds} seconds. Sweeping one service across a ` +
-            'subnet is how an attacker or a worm finds every machine running it, and is a strong indicator ' +
-            'of lateral movement rather than ordinary client traffic.',
+          messageKey: 'host_sweep.flow',
+          messageParams: {
+            source,
+            // A string, not a number: a port is an identifier rather than a
+            // quantity, and ICU would otherwise format it. See ../i18n/message.ts.
+            port: String(flow.dstPort),
+            count: distinctHosts,
+            seconds: windowSeconds,
+            service: portServiceName(flow.dstPort),
+            hasService: portServiceName(flow.dstPort) !== null,
+          },
           dedupKey: `host_sweep|${source}|${flow.dstPort}`,
           sourceIp: source,
           sourceMac: flow.srcMac,
@@ -160,11 +166,8 @@ export class FlowScanDetector {
       findings.push({
         kind: 'syn_flood',
         severity: 'high',
-        title: `Connection flood: ${total} unanswered attempts from ${source} in ${seconds}s`,
-        description:
-          `${source} opened ${total} TCP connections in ${seconds} seconds that were never acknowledged. ` +
-          'At this rate the traffic is either a denial-of-service attempt, which exhausts the ' +
-          "target's connection table, or an aggressive automated scanner.",
+        messageKey: 'syn_flood.flow',
+        messageParams: { source, count: total, seconds },
         dedupKey: `syn_flood|${source}`,
         sourceIp: source,
         sourceMac: flow.srcMac,
@@ -294,7 +297,10 @@ export class FlowDetectionEngine {
         localIp: peer,
         remoteIp: observed,
         direction,
-        via: `${flow.protocolVersion} from ${flow.exporter}`,
+        via: {
+          key: 'threat_intel.via.flow_export',
+          params: { version: flow.protocolVersion, exporter: flow.exporter },
+        },
       });
 
       const now = flow.observedAt.getTime();
@@ -305,8 +311,8 @@ export class FlowDetectionEngine {
         {
           kind: 'threat_intel',
           severity: graded.severity,
-          title: graded.title,
-          description: graded.description,
+          messageKey: graded.messageKey,
+          messageParams: graded.messageParams,
           dedupKey: graded.dedupKey,
           sourceIp: flow.srcIp,
           sourceMac: flow.srcMac,
@@ -362,27 +368,46 @@ export class FlowDetectionEngine {
   }
 }
 
-/** Short parenthetical naming a port's usual service, for the alert text. */
-function describePort(port: number): string {
+/**
+ * A port's usual service, or null when nothing is registered for it.
+ *
+ * Stays English in the alert text along with the other protocol names — an
+ * operator correlating a finding with a firewall rule or an `nmap` report needs
+ * the string those print. See the conventions in i18n/catalog/findings.en.ts.
+ */
+function portServiceName(port: number): string | null {
   const services: Record<number, string> = {
-    21: ' (FTP)',
-    22: ' (SSH)',
-    23: ' (Telnet)',
-    25: ' (SMTP)',
-    110: ' (POP3)',
-    135: ' (Windows RPC)',
-    139: ' (NetBIOS)',
-    143: ' (IMAP)',
-    445: ' (SMB file sharing)',
-    1433: ' (Microsoft SQL Server)',
-    1521: ' (Oracle)',
-    3306: ' (MySQL)',
-    3389: ' (Remote Desktop)',
-    5432: ' (PostgreSQL)',
-    5900: ' (VNC)',
-    6379: ' (Redis)',
-    9200: ' (Elasticsearch)',
-    27017: ' (MongoDB)',
+    21: 'FTP',
+    22: 'SSH',
+    23: 'Telnet',
+    25: 'SMTP',
+    110: 'POP3',
+    135: 'Windows RPC',
+    139: 'NetBIOS',
+    143: 'IMAP',
+    445: 'SMB file sharing',
+    1433: 'Microsoft SQL Server',
+    1521: 'Oracle',
+    3306: 'MySQL',
+    3389: 'Remote Desktop',
+    5432: 'PostgreSQL',
+    5900: 'VNC',
+    6379: 'Redis',
+    9200: 'Elasticsearch',
+    27017: 'MongoDB',
   };
-  return services[port] ?? '';
+  return services[port] ?? null;
+}
+
+/**
+ * Short parenthetical naming a port's usual service.
+ *
+ * Only `evidence.service` still reads this. The alert text takes the bare name as
+ * a message parameter instead, because the parentheses are punctuation and belong
+ * to the sentence rather than to the value — a right-to-left sentence puts them
+ * on the other side.
+ */
+function describePort(port: number): string {
+  const name = portServiceName(port);
+  return name === null ? '' : ` (${name})`;
 }

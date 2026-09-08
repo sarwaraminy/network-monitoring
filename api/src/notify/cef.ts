@@ -164,7 +164,7 @@ export function renderCef(finding: NotifiableFinding, productVersion: string): s
     escapeHeader(CEF_PRODUCT),
     escapeHeader(productVersion),
     escapeHeader(finding.kind),
-    escapeHeader(finding.title),
+    escapeHeader(finding.englishTitle),
     String(CEF_SEVERITY[finding.severity]),
   ].join('|');
 
@@ -180,7 +180,7 @@ export function renderCef(finding: NotifiableFinding, productVersion: string): s
     // correlation rule counting events per segment needs the field on every
     // event, including the ones from an installation that never named itself.
     `dvchost=${escapeExtension(finding.sensorId)}`,
-    `msg=${escapeExtension(finding.description)}`,
+    `msg=${escapeExtension(finding.englishDescription)}`,
   ];
 
   // `src`/`dst` are the CEF-standard address fields every SIEM already maps.
@@ -201,8 +201,8 @@ export function renderJsonLine(finding: NotifiableFinding, productVersion: strin
     sensorId: finding.sensorId,
     kind: finding.kind,
     severity: finding.severity,
-    title: finding.title,
-    description: finding.description,
+    title: finding.englishTitle,
+    description: finding.englishDescription,
     sourceIp: finding.sourceIp,
     targetIp: finding.targetIp,
     occurrences: finding.occurrences,

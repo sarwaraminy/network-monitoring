@@ -5,9 +5,11 @@ import PacketTable from '../components/PacketTable';
 import SurfaceCard from '../components/SurfaceCard';
 import { useIpInfo } from '../hooks/useIpInfo';
 import { usePacketCapture } from '../hooks/usePacketCapture';
+import { useT } from '../i18n/ui';
 
 /** Was pages/PacketCapture.js — captures everything on the chosen interface. */
 export default function PacketCapture() {
+  const t = useT();
   const capture = usePacketCapture('interface');
   const ipInfo = useIpInfo();
   /*
@@ -24,13 +26,13 @@ export default function PacketCapture() {
   return (
     <>
       <CaptureToolbar
-        title="Capture from a local interface"
-        subtitle="Live packets from one adapter, decoded frame by frame"
+        title={t('capture.interface.title')}
+        subtitle={t('capture.interface.subtitle')}
         capture={capture}
         onLayoutSettled={() => setLayoutSettled((tick) => tick + 1)}
       />
 
-      <SurfaceCard title="Packets" subtitle="Newest first, decoded from the wire" bodyVariant="grid">
+      <SurfaceCard title={t('capture.packets')} subtitle={t('capture.packets_subtitle')} bodyVariant="grid">
         <PacketTable
           packets={capture.packets}
           capturing={capture.capturing}

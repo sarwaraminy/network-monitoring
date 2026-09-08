@@ -62,8 +62,12 @@ export const CRITICAL_ALERT: Alert = {
   sensorId: 'default',
   kind: 'plaintext_credentials',
   severity: 'critical',
-  title: 'Cleartext HTTP credentials for "alice" to 10.0.0.50',
-  description: 'An HTTP Basic Authorization header was captured in the clear.',
+  // A finding as V17 writes them: a key and its parameters, rendered in the
+  // reader's language when the row is displayed.
+  messageKey: 'plaintext_credentials.http_basic',
+  messageParams: { username: 'alice', target: '10.0.0.50', port: '80' },
+  title: null,
+  description: null,
   sourceIp: '10.0.0.89',
   sourceMac: '38:f7:cd:c4:a0:6f',
   targetIp: '10.0.0.50',
@@ -88,6 +92,16 @@ export const HIGH_ALERT: Alert = {
   sensorId: 'default',
   kind: 'port_scan',
   severity: 'high',
+  /*
+   * A finding from before V17, kept in this shape deliberately.
+   *
+   * Retention windows are measured in months, so an installation that upgrades
+   * has both shapes in one table for as long as the older rows survive, and the
+   * alert list has to render them side by side. Holding one fixture back is what
+   * makes the display fallback a tested path rather than a commented one.
+   */
+  messageKey: null,
+  messageParams: {},
   title: 'Port scan: 10.0.0.66 probed 22 ports on 10.0.0.89',
   description: 'A single source attempted connections to many ports.',
   sourceIp: '10.0.0.66',

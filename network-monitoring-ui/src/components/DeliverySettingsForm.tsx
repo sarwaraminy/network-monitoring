@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { describeError } from '../api/client';
 import { fetchDeliverySettings, saveDeliverySettings } from '../api/notify.api';
+import { useT } from '../i18n/ui';
 import type { DeliverySettingsPatch, DeliverySettingsResponse } from '../types';
 import SurfaceCard from './SurfaceCard';
 
@@ -321,6 +322,7 @@ interface DeliverySettingsFormProps {
 }
 
 export default function DeliverySettingsForm({ embedded = false }: Readonly<DeliverySettingsFormProps> = {}) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<Draft>({});
   const [message, setMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
@@ -475,7 +477,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
    */
   if (settings.isPending || !settings.data) {
     return (
-      <SurfaceCard title="Settings" subtitle="Loading the current configuration" embedded={embedded}>
+      <SurfaceCard title="Settings" subtitle={t('delivery.form_loading')} embedded={embedded}>
         <Stack spacing={2}>
           {[0, 1, 2, 3, 4, 5].map((row) => (
             <Skeleton key={row} height={44} />
@@ -488,7 +490,7 @@ export default function DeliverySettingsForm({ embedded = false }: Readonly<Deli
   return (
     <SurfaceCard
       title="Settings"
-      subtitle="Changed here, in force immediately — no file to edit and no restart"
+      subtitle={t('delivery.form_subtitle')}
       embedded={embedded}
       headerActions={
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>

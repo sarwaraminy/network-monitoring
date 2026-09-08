@@ -13,6 +13,8 @@ import DataGrid from '../components/DataGrid';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
 import { useAuditActions, useAuditEvents } from '../hooks/useAudit';
+import { useFormatters } from '../i18n/format';
+import { useT } from '../i18n/ui';
 import { monoSx } from '../theme';
 import type { AuditEvent } from '../types';
 
@@ -97,6 +99,7 @@ function emptyMessage(action: string, failed: boolean): string {
 }
 
 export default function AuditPage() {
+  const t = useT();
   const { user } = useAuth();
   const [action, setAction] = useState<string>('');
 
@@ -118,33 +121,34 @@ export default function AuditPage() {
 
   const events = useMemo(() => (trail.data?.pages ?? []).flatMap((page) => page.events), [trail.data]);
 
+  const format = useFormatters();
   const columns = useMemo<MRT_ColumnDef<AuditEvent>[]>(
     () => [
       {
         accessorKey: 'at',
-        header: 'When',
+        header: t('audit.when'),
         size: 185,
         Cell: ({ row }) => (
           <Typography variant="body2" sx={monoSx}>
-            {new Date(row.original.at).toLocaleString()}
+            {format.dateTime(row.original.at)}
           </Typography>
         ),
       },
       {
         accessorKey: 'actor',
-        header: 'Who',
+        header: t('audit.who'),
         size: 220,
         Cell: ({ row }) => <Typography variant="body2">{row.original.actor}</Typography>,
       },
       {
         accessorKey: 'action',
-        header: 'What',
+        header: t('audit.what'),
         size: 250,
         Cell: ({ row }) => <ActionCell row={row.original} labels={labels} />,
       },
       {
         accessorKey: 'subject',
-        header: 'Which',
+        header: t('audit.which'),
         size: 165,
         Cell: ({ row }) =>
           row.original.subject ? (
@@ -157,12 +161,12 @@ export default function AuditPage() {
       },
       {
         accessorKey: 'detail',
-        header: 'Detail',
+        header: t('audit.detail'),
         size: 420,
         Cell: ({ row }) => <DetailCell detail={row.original.detail} />,
       },
     ],
-    [labels],
+    [labels, t, format.dateTime],
   );
 
   // The route is ADMIN-only on the server and the nav entry is hidden for everyone
@@ -171,7 +175,7 @@ export default function AuditPage() {
   // fetch.
   if (!isAdmin) {
     return (
-      <SurfaceCard title="Audit Trail" titleComponent="h1" titleVariant="h5">
+      <SurfaceCard title={t('audit.title')} titleComponent="h1" titleVariant="h5">
         <Alert severity="info">
           The audit trail is visible to administrators. It records who deleted, changed or redirected things,
           and it names accounts.
@@ -182,15 +186,15 @@ export default function AuditPage() {
 
   return (
     <SurfaceCard
-      title="Audit Trail"
+      title={t('audit.title')}
       titleComponent="h1"
       titleVariant="h5"
-      subtitle="Who deleted, changed or redirected something — append-only, and never pruned"
+      subtitle={t('audit.subtitle')}
       headerActions={
         <TextField
           select
           size="small"
-          label="Action"
+          label={t('audit.action')}
           value={action}
           onChange={(event) => setAction(event.target.value)}
           sx={{ minWidth: 230 }}
