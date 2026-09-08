@@ -29,7 +29,16 @@ ARG VITE_POLL_INTERVAL_MS="1000"
 ENV VITE_API_SERVER=$VITE_API_SERVER
 ENV VITE_POLL_INTERVAL_MS=$VITE_POLL_INTERVAL_MS
 
-RUN npx tsc -b network-monitoring-ui && npx vite build network-monitoring-ui
+# `cd` first, because `vite` is not in the root `node_modules/.bin` any more.
+# Vite 8 declares an optional peer on esbuild that drizzle-kit's pin contradicts,
+# so npm nests vite under this workspace; `npx` from here finds it, `npx` from
+# /repo does not. `scripts/ui.mjs` solves the same problem for the root scripts
+# and is deliberately not used here — scripts/ is not COPY'd into this stage,
+# which is what makes --ignore-scripts above load-bearing.
+#
+# The output still lands in network-monitoring-ui/build: `outDir` is relative to
+# the Vite project root, which is what moved.
+RUN npx tsc -b network-monitoring-ui && cd network-monitoring-ui && npx vite build
 
 # ---------- runtime ----------
 FROM nginx:1.31-alpine AS runtime
