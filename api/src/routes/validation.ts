@@ -7,6 +7,7 @@ import { parsePrefix } from '../net/prefix.js';
 import { EMAIL_AUTH_METHODS } from '../notify/settings.js';
 import { WEBHOOK_FORMATS } from '../notify/types.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
+import { TREND_BUCKETS } from '../services/alert-buckets.js';
 import { AUDIT_ACTIONS, type AuditAction } from '../services/audit-types.js';
 import { hasSuppressionCriterion, NO_CRITERIA } from '../services/suppression-rules.js';
 
@@ -198,7 +199,7 @@ export const auditQuerySchema = z.object({
 export const alertDashboardQuerySchema = z
   .object({
     days: z.coerce.number().int().min(1).max(MAX_TREND_DAYS).default(7),
-    bucket: z.enum(['hour', 'day']).optional(),
+    bucket: z.enum(TREND_BUCKETS).optional(),
     sensor: sensorIdSchema.optional(),
   })
   .refine((data) => data.bucket !== 'hour' || data.days <= MAX_HOURLY_DAYS, {

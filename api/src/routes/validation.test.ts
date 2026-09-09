@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { env } from '../config/env.js';
 import { HttpError } from '../middleware/error-handler.js';
+import { TREND_BUCKETS } from '../services/alert-buckets.js';
 import {
   alertDashboardQuerySchema,
   alertListQuerySchema,
@@ -148,12 +149,20 @@ describe('dashboard query', () => {
     assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '0' })).success, false);
   });
 
-  it('accepts only hour or day as a bucket', () => {
+  it('accepts only the four date_trunc units, and nothing else', () => {
     // This value is inlined into date_trunc() via sql.raw, so the closed set is
-    // load-bearing rather than cosmetic.
-    assert.equal(alertDashboardQuerySchema.parse(q({ bucket: 'hour' })).bucket, 'hour');
-    assert.equal(alertDashboardQuerySchema.parse(q({ bucket: 'day' })).bucket, 'day');
-    assert.equal(alertDashboardQuerySchema.safeParse(q({ bucket: 'week' })).success, false);
+    // load-bearing rather than cosmetic. Read from TREND_BUCKETS rather than
+    // written out again, so widening the set cannot leave this asserting the old
+    // one — which is how this test earned its keep when `week` and `month` were
+    // added.
+    for (const bucket of TREND_BUCKETS) {
+      assert.equal(alertDashboardQuerySchema.parse(q({ bucket })).bucket, bucket);
+    }
+
+    // A real date_trunc unit that this chart has no use for is still refused: the
+    // set is what the renderer can label, not what Postgres will accept.
+    assert.equal(alertDashboardQuerySchema.safeParse(q({ bucket: 'century' })).success, false);
+    assert.equal(alertDashboardQuerySchema.safeParse(q({ bucket: 'minute' })).success, false);
 
     const injection = `day'); DROP TABLE alerts;--`;
     assert.equal(alertDashboardQuerySchema.safeParse(q({ bucket: injection })).success, false);

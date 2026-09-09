@@ -25,7 +25,7 @@ import StatTile from '../components/StatTile';
 import SurfaceCard from '../components/SurfaceCard';
 import { distinctMacCount, useKnownDevices, useSensors } from '../hooks/useAlerts';
 import { type UiMessageKey, useT } from '../i18n/ui';
-import type { AlertKind } from '../types';
+import type { AlertKind, TrendBucket } from '../types';
 
 /**
  * Trend windows.
@@ -44,6 +44,29 @@ import type { AlertKind } from '../types';
  * that fully means the API telling this page how far back retention actually
  * reaches, which is worth doing if that case shows up in practice.
  */
+/**
+ * What each bucket is called, and how its bars are counted.
+ *
+ * Tables rather than conditionals because there are four units now: a chain of
+ * ternaries that has to stay in step with `TREND_BUCKETS` is the shape that
+ * silently keeps working while quietly saying "per day" about a month.
+ * `satisfies Record<TrendBucket, …>` is what makes a fifth unit a compile error
+ * here rather than a wrong caption.
+ */
+const BUCKET_SUBTITLE = {
+  hour: 'dashboard.per_hour',
+  day: 'dashboard.per_day',
+  week: 'dashboard.per_week',
+  month: 'dashboard.per_month',
+} as const satisfies Record<TrendBucket, UiMessageKey>;
+
+const BUCKET_COUNT = {
+  hour: 'dashboard.hours_count',
+  day: 'dashboard.days_count',
+  week: 'dashboard.weeks_count',
+  month: 'dashboard.months_count',
+} as const satisfies Record<TrendBucket, UiMessageKey>;
+
 const PERIODS = [
   { value: 1, labelKey: 'period.24h' },
   { value: 7, labelKey: 'period.7d' },
@@ -110,7 +133,16 @@ export default function DashboardPage() {
 
   const data = dashboard.data;
   const loading = dashboard.isPending;
-  const bucket = days <= 2 ? 'hour' : 'day';
+  /*
+   * The API's answer, not a second copy of its rule.
+   *
+   * This used to be `days <= 2 ? 'hour' : 'day'` — the same expression the route
+   * evaluated to build the query — so the axis labelled itself from an
+   * independent guess about what the server had done. That held while there were
+   * two units and would not have survived four. `'day'` until the first response
+   * arrives, which only affects the empty-state caption.
+   */
+  const bucket: TrendBucket = data?.bucket ?? 'day';
 
   const criticalAndHigh = (data?.bySeverity.critical ?? 0) + (data?.bySeverity.high ?? 0);
   const capturing = interfaceStatus.data?.capturing ?? false;
@@ -231,23 +263,23 @@ export default function DashboardPage() {
         <Grid size={{ xs: 12, lg: 7 }}>
           <ChartCard
             title={t('dashboard.over_time')}
-            subtitle={bucket === 'hour' ? t('dashboard.per_hour') : t('dashboard.per_day')}
+            subtitle={t(BUCKET_SUBTITLE[bucket])}
             loading={loading}
             action={
               data && data.trend.length > 0 ? (
                 <Chip
                   size="small"
                   variant="outlined"
-                  label={
-                    bucket === 'hour'
-                      ? t('dashboard.hours_count', { count: data.trend.length })
-                      : t('dashboard.days_count', { count: data.trend.length })
-                  }
+                  label={t(BUCKET_COUNT[bucket], { count: data.trend.length })}
                 />
               ) : null
             }
           >
-            <SeverityTrendChart trend={data?.trend ?? []} bucket={bucket} />
+            <SeverityTrendChart
+              trend={data?.trend ?? []}
+              bucket={bucket}
+              rolledUpBefore={data?.rolledUpBefore ?? null}
+            />
           </ChartCard>
         </Grid>
 

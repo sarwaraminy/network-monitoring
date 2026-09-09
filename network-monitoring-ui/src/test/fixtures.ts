@@ -252,6 +252,9 @@ export const DASHBOARD: AlertDashboard = {
     { bucket: '2026-07-25T00:00:00.000Z', critical: 0, high: 1, medium: 0, low: 0, info: 0 },
     { bucket: '2026-07-26T00:00:00.000Z', critical: 1, high: 0, medium: 1, low: 0, info: 0 },
   ],
+  bucket: 'day',
+  // Two days of trend cannot reach a retention boundary, so there is none to mark.
+  rolledUpBefore: null,
   topSources: [
     { sourceIp: '10.0.0.66', count: 2, occurrences: 5 },
     { sourceIp: '10.0.0.89', count: 1, occurrences: 3 },

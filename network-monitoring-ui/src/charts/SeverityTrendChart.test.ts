@@ -92,3 +92,44 @@ describe('hour buckets', () => {
     );
   });
 });
+
+/**
+ * The two coarser buckets, which exist so a multi-year window is readable.
+ *
+ * Five years at a daily bucket is 1,825 bars in about 800px: a solid block with no
+ * legible axis, at exactly the window where a trend is most likely to be real.
+ */
+describe('week and month buckets', () => {
+  it('names a week by the UTC day it starts on', () => {
+    // Same hazard as a day bucket, and the same fix: the bucket is a UTC period,
+    // so formatting its midnight locally renames it west of the meridian.
+    process.env.TZ = 'Pacific/Honolulu';
+
+    // 7 September 2026 is a Monday, which is where date_trunc('week') puts it.
+    expect(bucketLabel('week', '2026-09-07T00:00:00.000Z')).toContain('7');
+    expect(bucketLabel('week', '2026-09-07T00:00:00.000Z')).not.toContain('6');
+  });
+
+  it('names a month without naming a day in it', () => {
+    process.env.TZ = 'UTC';
+    const label = bucketLabel('month', '2026-09-01T00:00:00.000Z');
+
+    // A month band spans no single day, so a day number in the label would be a
+    // claim the bucket does not make — and "1 Sep" beside "1 Oct" reads as daily.
+    expect(label).toMatch(/Sep/i);
+    expect(label).toContain('2026');
+    expect(label).not.toMatch(/\b1\b/);
+  });
+
+  it('keeps a month label stable across timezones', () => {
+    // The failure this guards is a month bucket rolling back into the previous
+    // month for every viewer west of UTC — "Aug" on a bar holding September.
+    process.env.TZ = 'Pacific/Honolulu';
+    const west = bucketLabel('month', '2026-09-01T00:00:00.000Z');
+    process.env.TZ = 'Asia/Kabul';
+    const east = bucketLabel('month', '2026-09-01T00:00:00.000Z');
+
+    expect(west).toBe(east);
+    expect(west).toMatch(/Sep/i);
+  });
+});
