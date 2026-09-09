@@ -8,7 +8,7 @@ import { createFormatters, type Formatters, useFormatters } from '../i18n/format
 import { DEFAULT_LOCALE } from '../i18n/generated/locales';
 import { useT } from '../i18n/ui';
 import type { AlertTrendPoint, TrendBucket } from '../types';
-import { chartChromeSx, tickLabelStyle, Y_AXIS_WIDTH } from './chrome';
+import { axisChrome, chartChromeSx, valueAxisWidth } from './chrome';
 import { SEVERITY_ORDER } from './palette';
 import { useChartPalette } from './useChartPalette';
 
@@ -192,6 +192,21 @@ export default function SeverityTrendChart({
   const chrome = useMemo(() => chartChromeSx(palette), [palette]);
 
   const format = useFormatters();
+
+  /*
+   * The axis is sized from the widest label it will actually carry.
+   *
+   * The stack's tallest column is what sets the scale, so its total is about the
+   * largest tick MUI will place — close enough to size from, and it is the only
+   * value available before the chart lays itself out.
+   */
+  const axisWidth = useMemo(() => {
+    const tallest = trend.reduce(
+      (most, point) => Math.max(most, point.critical + point.high + point.medium + point.low + point.info),
+      0,
+    );
+    return valueAxisWidth(format.compact(tallest));
+  }, [trend, format]);
   const labels = useMemo(
     () => trend.map((point) => bucketLabel(bucket, point.bucket, format)),
     [trend, bucket, format],
@@ -247,14 +262,14 @@ export default function SeverityTrendChart({
   return (
     <BarChart
       height={height}
-      xAxis={[{ scaleType: 'band', data: labels, tickLabelStyle }]}
+      xAxis={[{ scaleType: 'band', data: labels, ...axisChrome }]}
       yAxis={[
         {
           tickMinStep: 1,
-          tickLabelStyle,
-          width: Y_AXIS_WIDTH,
-          // Shortened per locale, so a six-figure count on a five-year window is
-          // a tick rather than an axis wide enough to crowd the plot.
+          ...axisChrome,
+          width: axisWidth,
+          // Shortened per locale, so a large count is a tick rather than an axis
+          // wide enough to crowd the plot.
           valueFormatter: (value: number | null) => (value === null ? '' : format.compact(value)),
         },
       ]}
@@ -274,17 +289,24 @@ export default function SeverityTrendChart({
       slotProps={{ legend: { position: { vertical: 'bottom', horizontal: 'center' } } }}
       grid={{ horizontal: true }}
       /*
-       * The crosshair, which is the interaction half of the port.
-       *
-       * `band` rather than `line`: the series is bucketed, so what the pointer is
-       * over is a period, and shading the whole band says that where a hairline
-       * would imply an instant the data does not have.
+       * No `axisHighlight` here on purpose. `useBarChartProps` already defaults a
+       * vertical bar series to `{ x: 'band' }` — and a horizontal one to
+       * `{ y: 'band' }`, which is how `MagnitudeBarChart` gets the same crosshair
+       * without a line of its own. Passing it explicitly changed nothing and read
+       * as load-bearing.
        */
-      axisHighlight={{ x: 'band' }}
       borderRadius={4}
       margin={{ left: 8, right: 8, top: 8, bottom: 8 }}
       sx={{
         ...chrome,
+        /*
+         * The Y axis loses its line, which is right *here* and not in the shared
+         * chrome: this chart is vertical, so Y is the value axis and the
+         * horizontal grid already carries the scale. `MagnitudeBarChart` is
+         * horizontal, where Y is the category axis and its line is the baseline
+         * every bar grows from.
+         */
+        '& .MuiChartsAxis-directionY .MuiChartsAxis-line': { display: 'none' },
         // The 2px surface gap between stacked segments, which is this chart's own
         // and not part of the shared chrome.
         '& .MuiBarChart-element': { stroke: palette.surface, strokeWidth: 2 },

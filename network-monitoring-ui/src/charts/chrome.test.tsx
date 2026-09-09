@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createFormatters } from '../i18n/format';
 import { renderApp } from '../test/render';
 import type { AlertTrendPoint } from '../types';
+import { valueAxisWidth } from './chrome';
 import SeverityTrendChart from './SeverityTrendChart';
 
 /**
@@ -63,6 +64,39 @@ describe('shortening a count for an axis', () => {
    */
   it('does not render NaN at anybody', () => {
     expect(createFormatters('en').compact(Number.NaN)).toBe('—');
+  });
+});
+
+describe('sizing the value axis', () => {
+  /*
+   * The three locales are nowhere near each other, which is the whole reason this
+   * is computed rather than fixed. A width sized from German truncated every Dari
+   * tick past a thousand: German does not abbreviate below a million at all
+   * (`120.000`), while Dari spells the unit out — `۱٫۲ میلیارد` against `1.2B`.
+   *
+   * MUI subtracts the tick size and label gap from the width and ellipsizes what
+   * is left over, so "too narrow" is silent: the number is still drawn, just not
+   * all of it.
+   */
+  it('gives a Dari label more room than an English one', () => {
+    const english = valueAxisWidth(createFormatters('en').compact(1_200_000_000));
+    const dari = valueAxisWidth(createFormatters('fa-AF').compact(1_200_000_000));
+
+    expect(dari).toBeGreaterThan(english);
+  });
+
+  it('fits the longest label the locale can produce', () => {
+    // Eleven characters at ~6.4px, plus what MUI reserves beside the label.
+    const longest = createFormatters('fa-AF').compact(1_200_000_000);
+    expect(valueAxisWidth(longest)).toBeGreaterThanOrEqual(longest.length * 6.4);
+  });
+
+  it('does not let a long label take the chart over', () => {
+    expect(valueAxisWidth('x'.repeat(200))).toBeLessThanOrEqual(88);
+  });
+
+  it('keeps a floor under a short one, so the axis does not collapse', () => {
+    expect(valueAxisWidth('0')).toBeGreaterThanOrEqual(34);
   });
 });
 

@@ -3,7 +3,7 @@ import Typography from '@mui/material/Typography';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { useMemo } from 'react';
 import { useFormatters } from '../i18n/format';
-import { chartChromeSx, TICK_FONT_SIZE, tickLabelStyle } from './chrome';
+import { axisChrome, chartChromeSx, TICK_FONT_SIZE, tickLabelStyle } from './chrome';
 import { useChartPalette } from './useChartPalette';
 
 export interface MagnitudeDatum {
@@ -94,6 +94,7 @@ export default function MagnitudeBarChart({
         {
           scaleType: 'band',
           data: sorted.map((d) => d.label),
+          ...axisChrome,
           tickLabelStyle: {
             ...tickLabelStyle,
             ...(labelsAreIdentifiers ? { direction: 'ltr', unicodeBidi: 'isolate' } : {}),
@@ -104,9 +105,11 @@ export default function MagnitudeBarChart({
       xAxis={[
         {
           tickMinStep: 1,
-          tickLabelStyle,
+          ...axisChrome,
           // Horizontal bars, so the *value* scale is the X axis here. Shortened
-          // per locale for the same reason the trend chart's is.
+          // per locale for the same reason the trend chart's is. No width to set:
+          // an X axis is bounded by its height, and these labels sit under the
+          // plot with the whole card to spread across.
           valueFormatter: (value: number | null) => (value === null ? '' : fmt.compact(value)),
         },
       ]}
