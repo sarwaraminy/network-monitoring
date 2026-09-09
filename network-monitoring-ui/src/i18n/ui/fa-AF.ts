@@ -282,6 +282,9 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'suppressions.preview_window': 'بررسی‌شده از {from} تا {to}',
 
   'capture.resume': 'از سرگیری',
+  'capture.interrupted_note_anon':
+    'ضبط روی {interface} با راه‌اندازی دوبارهٔ سرویس متوقف شد. در {at} آغاز شده بود و ' +
+    'اکنون در حال اجرا نیست.',
   'capture.interrupted_note':
     'ضبط روی {interface} با راه‌اندازی دوبارهٔ سرویس متوقف شد. {by} آن را در {at} آغاز کرده ' +
     'بود و اکنون در حال اجرا نیست.',

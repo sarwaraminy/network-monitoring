@@ -157,9 +157,17 @@ export default function CaptureToolbar({
         that nothing reports is the worst state it can be in, because it looks
         exactly like the good one.
         
-        Shown until this process starts a capture of its own, and only once: the
-        server stamps the session stopped as soon as it reports it, so a second
-        restart does not repeat a notice about an interruption already seen.
+        Shown until this process starts a capture of its own — on every visit
+        until then, which is deliberate: the notice is that monitoring stopped, and
+        that stays true until somebody acts on it.
+        
+        It does not survive the run that reported it. The server stamps the session
+        stopped as soon as it finds one, so a service restarted twice does not
+        report the same interruption twice.
+        
+        `startedBy` is absent for a non-admin — the API strips it, since it is an
+        administrator's email and this endpoint is not admin-gated. The rest of the
+        notice is shown to everyone, because "monitoring stopped" is not privileged.
       */}
       {status?.interrupted && !capturing && (
         <Alert
@@ -176,11 +184,19 @@ export default function CaptureToolbar({
             </Button>
           }
         >
-          {t('capture.interrupted_note', {
-            interface: status.interrupted.interfaceName,
-            at: fmt.dateTime(status.interrupted.startedAt),
-            by: status.interrupted.startedBy,
-          })}
+          {status.interrupted.startedBy
+            ? t('capture.interrupted_note', {
+                interface: status.interrupted.interfaceName,
+                at: fmt.dateTime(status.interrupted.startedAt),
+                by: status.interrupted.startedBy,
+              })
+            : // Without the name, for a reader the API did not tell. Its own
+              // sentence rather than an empty `{by}`: "started by  at 03:14"
+              // reads as a rendering fault.
+              t('capture.interrupted_note_anon', {
+                interface: status.interrupted.interfaceName,
+                at: fmt.dateTime(status.interrupted.startedAt),
+              })}
         </Alert>
       )}
       {error && (

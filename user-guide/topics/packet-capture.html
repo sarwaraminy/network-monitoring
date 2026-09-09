@@ -58,8 +58,12 @@ it.</p>
 
 <p>The screen tells you when that has happened. Instead of the bare <em>Idle</em> chip &mdash;
 which would look the same as a machine that has never captured anything &mdash; a banner names
-the interface, who started it and when, with a <span class="ui">Resume</span> button that runs
-it again on the same settings. It appears once, on the first visit after the restart.</p>
+the interface, when it started and &mdash; if you are an administrator &mdash; who started it,
+with a <span class="ui">Resume</span> button that runs it again on the same settings.</p>
+
+<p>The banner stays until you start a capture. It does not come back after that, and it does
+not come back on the next restart either: the notice belongs to the run that found it, so a
+service restarted twice does not report the same interruption twice.</p>
 
 <p>An installation that would rather not wait to be told can have the service resume by itself,
 by setting <code>CAPTURE_RESUME_ON_START=true</code> where the server is configured. It is off

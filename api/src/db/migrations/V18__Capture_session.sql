@@ -57,8 +57,17 @@ CREATE TABLE capture_session (
 
     started_at      TIMESTAMPTZ  NOT NULL,
 
-    -- Who started it. The audit trail already records the act; this is here so
-    -- the interruption notice can say whose capture was cut short without a join.
+    -- Who started it, and — for now — the ONLY record that anyone did.
+    --
+    -- An earlier draft of this comment said the audit trail already records the
+    -- act. It does not: `AUDIT_ACTIONS` has no capture action, and `POST /start`
+    -- never calls `recordAudit`, so starting a capture is one of the few
+    -- administrator actions on this server that leaves no audit row.
+    --
+    -- That is worth knowing here rather than elsewhere, because it changes what
+    -- this column is. It is not a convenience copy of something durable; it is the
+    -- answer. `GET /status` strips it for a non-admin for that reason, and the
+    -- roadmap carries the gap.
     started_by      VARCHAR(200) NOT NULL,
 
     -- NULL while running. Stamped by `stopCapture`, and stamped at boot for a

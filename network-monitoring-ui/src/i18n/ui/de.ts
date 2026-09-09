@@ -289,6 +289,9 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'suppressions.preview_window': 'Untersucht von {from} bis {to}',
 
   'capture.resume': 'Fortsetzen',
+  'capture.interrupted_note_anon':
+    'Der Mitschnitt auf {interface} endete beim Neustart des Dienstes. Er wurde um {at} ' +
+    'gestartet und läuft derzeit nicht.',
   'capture.interrupted_note':
     'Der Mitschnitt auf {interface} endete beim Neustart des Dienstes. Er wurde von {by} um ' +
     '{at} gestartet und läuft derzeit nicht.',

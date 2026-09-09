@@ -114,9 +114,30 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
     res.json(capture.getNetworkInterfaces());
   });
 
-  /** GET /status — capture state, which the Java API had no way to report. */
-  router.get('/status', (_req, res) => {
-    res.json(capture.getStatus());
+  /**
+   * GET /status — capture state, which the Java API had no way to report.
+   *
+   * `interrupted.startedBy` is an administrator's email address, and this route is
+   * behind `requireAuth` rather than `requireRole('ADMIN')` — that gate covers only
+   * `/start`, `/stop` and `/clear`. So a USER polling status learned which
+   * administrator had started the capture. The same decision two routes up strips
+   * packet payloads for a non-admin; this is the same class and the same shape.
+   *
+   * The rest of the notice is kept: a USER seeing that capture stopped when the
+   * service restarted is the point of the feature, and *who* started it is the only
+   * part that is not theirs to know. `startCapture` is what records it — see V18 —
+   * and until capture actions reach the audit trail this column is the only place
+   * that answer exists at all, which is a further reason not to hand it out.
+   */
+  router.get('/status', (req, res) => {
+    const status = capture.getStatus();
+    const isAdmin = req.user?.role.toLowerCase() === 'admin';
+    if (isAdmin || !status.interrupted) {
+      res.json(status);
+      return;
+    }
+    const { startedBy: _startedBy, ...interrupted } = status.interrupted;
+    res.json({ ...status, interrupted });
   });
 
   /** GET /ip-info?ipAddress= — reverse DNS + WHOIS + geolocation. */

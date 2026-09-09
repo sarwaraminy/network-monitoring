@@ -328,8 +328,14 @@ like the good one.
 `capture_session` (V18) records what each sensor was asked to run and whether it was still
 running when the process last had an opinion. At boot a session left running is reported on
 the Capture screen — the interface, who started it and when, with a Resume button — and
-stamped stopped, so the notice is shown once by the process that found it rather than at
-every restart until somebody captures again.
+stamped stopped, so the interruption is reported by the run that found it and not again by
+the next one. Within that run the banner stays until somebody starts a capture — the notice
+is that monitoring stopped, which remains true until it is acted on.
+
+`startedBy` is stripped for a non-admin. `GET /status` sits behind `requireAuth` rather than
+an admin gate, and it is an administrator's email address; the rest of the notice is not
+privileged. It is also, for now, the only record that anyone started a capture at all —
+`AUDIT_ACTIONS` has no capture action, which is a gap the roadmap carries.
 
 `CAPTURE_RESUME_ON_START=true` makes the service start it again instead. **Off by default,
 and env-only**: capture reads other people's traffic, and doing that with nobody present is
@@ -2272,6 +2278,12 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
      audited action. There is none today, so a sensor retired after a hardware swap leaves its
      rows behind for ever — retention cannot reclaim the newest of them, because each sensor's
      staleness cutoff is derived from its own last sighting and that stops advancing with it.
+   - An audit action for starting and stopping a capture. `AUDIT_ACTIONS` has none, and
+     `POST /start` never calls `recordAudit`, so beginning to read traffic off an interface
+     is one of the few administrator actions on this server that leaves no trail. Noticed
+     while adding `capture_session.started_by`, which is currently the only record that
+     anyone started a capture — a column whose purpose is a banner, standing in for an audit
+     row.
    - A duplicate-version guard in the migration runner. Two files sharing a `V14__` prefix
      are not detected as a collision: the second one's checksum is compared against the
      first one's recorded row, and the runner reports a *changed migration* and refuses to

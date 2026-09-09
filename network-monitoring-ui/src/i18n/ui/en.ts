@@ -297,6 +297,9 @@ export const UI_EN = {
   'suppressions.preview_window': 'Examined {from} to {to}',
 
   'capture.resume': 'Resume',
+  'capture.interrupted_note_anon':
+    'Capture on {interface} stopped when the service restarted. It was started at {at} and ' +
+    'is not running now.',
   'capture.interrupted_note':
     'Capture on {interface} stopped when the service restarted. It was started by {by} at ' +
     '{at} and is not running now.',

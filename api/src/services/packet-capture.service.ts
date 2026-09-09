@@ -74,6 +74,26 @@ export interface CaptureStatus {
   interrupted: InterruptedCapture | null;
 }
 
+/**
+ * Why a capture ended, which is what decides whether it counts as interrupted.
+ *
+ * The record's question is not "did `stopCapture` run" — it always does — but
+ * "did the operator ask for this". Only `operator` stamps the session finished.
+ *
+ * `shutdown` is the case the whole feature is for. `stopAllCaptures()` runs from
+ * the SIGINT/SIGTERM handler, so a `docker compose restart`, a `systemctl
+ * restart`, a machine reboot and Ctrl+C all reach `stopCapture` cleanly — and the
+ * first version stamped every one of them stopped. That left the banner firing
+ * only on SIGKILL, while V18, the README and the user guide all promised it for
+ * "a container restart, a machine reboot", which deliver SIGTERM first. The
+ * documented cases were exactly the ones it could not report.
+ *
+ * `read-error` is the pcap handle failing mid-run. An unattended capture dying on
+ * its own is as worth reporting as one a reboot ended, and it was recording itself
+ * as a clean stop too.
+ */
+export type CaptureStopReason = 'operator' | 'shutdown' | 'read-error';
+
 export class PacketCaptureService {
   private handle: PcapHandle | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
@@ -245,7 +265,7 @@ export class PacketCaptureService {
     );
   }
 
-  async stopCapture(): Promise<void> {
+  async stopCapture(reason: CaptureStopReason = 'operator'): Promise<void> {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
@@ -273,10 +293,17 @@ export class PacketCaptureService {
     this.capturing = false;
     this.startedAt = null;
 
-    // Only for a capture that was actually running. Stamping unconditionally
-    // would mark a session stopped that this process never started — including
-    // the interrupted one it is meant to be reporting.
-    if (wasCapturing) await recordCaptureStopped(this.label);
+    /*
+     * Only for a capture that was actually running, and only when the operator
+     * ended it. Stamping unconditionally would mark a session stopped that this
+     * process never started — including the interrupted one it is meant to be
+     * reporting — and stamping on shutdown would make every restart look like a
+     * clean stop, which is the one thing this record exists to distinguish.
+     */
+    if (wasCapturing && reason === 'operator') await recordCaptureStopped(this.label);
+    if (wasCapturing && reason !== 'operator') {
+      this.log.warn({ reason }, 'Capture ended without being stopped; it will be reported as interrupted');
+    }
 
     // Write out whatever the detectors found before the sink is discarded.
     const sink = this.sink;
@@ -331,19 +358,46 @@ export class PacketCaptureService {
    * Never throws. A capture host that cannot reach its database must still be
    * able to capture, and this is bookkeeping about capture rather than capture.
    */
-  async restoreInterruptedCapture(): Promise<void> {
+  /**
+   * Reads the last session and remembers it, so the interface can report it.
+   *
+   * Split from resuming, which happens later in boot: reading the record depends
+   * on nothing, while running a capture depends on the suppression rules and
+   * indicator feeds being loaded. See `packet-capture.registry.ts`.
+   *
+   * The row is stamped stopped here whether or not it will be resumed, so the
+   * notice belongs to the process that found it and a second restart does not
+   * repeat a report about an interruption already seen. A resume replaces the row
+   * anyway.
+   *
+   * Never throws. A capture host that cannot reach its database must still be
+   * able to capture, and this is bookkeeping about capture rather than capture.
+   */
+  async reportInterruptedCapture(): Promise<void> {
     const previous = await findInterruptedCapture(this.label);
     if (!previous) return;
 
-    if (!env.captureResumeOnStart) {
-      this.interrupted = previous;
-      this.log.warn(
-        { interface: previous.interfaceName, startedAt: previous.startedAt },
-        'A capture was interrupted by a restart; it is NOT running. Set CAPTURE_RESUME_ON_START=true to resume automatically',
-      );
-      await recordCaptureStopped(this.label);
-      return;
-    }
+    this.interrupted = previous;
+    this.log.warn(
+      { interface: previous.interfaceName, startedAt: previous.startedAt },
+      env.captureResumeOnStart
+        ? 'A capture was interrupted by a restart; it will be resumed once detection is ready'
+        : 'A capture was interrupted by a restart; it is NOT running. Set CAPTURE_RESUME_ON_START=true to resume automatically',
+    );
+    await recordCaptureStopped(this.label);
+  }
+
+  /**
+   * Runs the interrupted capture again, if the installation asked for that.
+   *
+   * A no-op unless `reportInterruptedCapture` found one and
+   * `CAPTURE_RESUME_ON_START` is set. Called after the suppression rules and
+   * indicator feeds are loaded, so the first packets it decodes are matched
+   * against what an operator actually configured.
+   */
+  async resumeInterruptedCapture(): Promise<void> {
+    const previous = this.interrupted;
+    if (!previous || !env.captureResumeOnStart || this.capturing) return;
 
     try {
       await this.startCapture(
@@ -360,15 +414,13 @@ export class PacketCaptureService {
     } catch (error) {
       /*
        * The interface may be gone — a renamed adapter, a container without the
-       * host's network — so this is an ordinary outcome rather than a bug. It
-       * falls back to reporting, which is what the operator needs either way.
+       * host's network — so this is an ordinary outcome rather than a bug. The
+       * notice stays on screen, which is what the operator needs either way.
        */
-      this.interrupted = previous;
       this.log.warn(
         { err: error, interface: previous.interfaceName },
         'Could not resume the interrupted capture; reporting it instead',
       );
-      await recordCaptureStopped(this.label);
     }
   }
 
@@ -381,7 +433,8 @@ export class PacketCaptureService {
     } catch (error) {
       // A read error means the handle is unusable; stop rather than log per tick.
       this.log.error({ err: error }, 'Read failed; stopping capture');
-      void this.stopCapture();
+      // Not an operator stop: a capture that died on its own is worth reporting.
+      void this.stopCapture('read-error');
     }
   }
 

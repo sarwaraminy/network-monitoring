@@ -139,6 +139,29 @@ describe('the record of what a sensor was capturing', { skip: database.skip }, (
     assert.equal(rows[0]!.n, '1', 'one row per scope, not one per capture');
   });
 
+  it('leaves a shutdown looking like the interruption it is', async () => {
+    /*
+     * The case the whole feature is for, and the one the first version could not
+     * report. `stopAllCaptures()` runs from the SIGINT/SIGTERM handler, so a
+     * `docker compose restart`, a `systemctl restart`, a machine reboot and Ctrl+C
+     * all reach `stopCapture` cleanly — and stamping there recorded every one of
+     * them as finished. What was left firing was SIGKILL alone, while V18, the
+     * README and the user guide all promised "a container restart, a machine
+     * reboot".
+     *
+     * Driven through the record rather than through a signal: what decides the
+     * outcome is whether `recordCaptureStopped` is called at all, and
+     * `PacketCaptureService` now calls it only for an operator stop.
+     */
+    await sessions.recordCaptureStarted('interface', started());
+
+    // A shutdown records nothing, which is what leaves the row open.
+    assert.ok(
+      await sessions.findInterruptedCapture('interface'),
+      'a capture ended by a restart must still read as interrupted',
+    );
+  });
+
   it('keeps enough to start the same capture again', async () => {
     // A resume has to reproduce what the operator asked for. The values are stored
     // unclamped so `startCapture` stays the only place that clamps them.
