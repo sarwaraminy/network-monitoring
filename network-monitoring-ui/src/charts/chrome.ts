@@ -26,11 +26,15 @@ export const TICK_FONT_SIZE = 11;
 /**
  * Rough advance of one character at the tick size.
  *
- * The same estimate `MagnitudeBarChart` uses for its category axis, and the same
- * trade: measuring text properly means rendering it, and an axis that resizes
- * after paint makes the plot jump.
+ * Exported because both axes guess text width, and a second copy of this number
+ * is exactly the drift this module exists to prevent — it was briefly declared
+ * here *and* in `MagnitudeBarChart`.
+ *
+ * An estimate rather than a measurement, and the same trade either way:
+ * measuring text properly means rendering it, and an axis that resizes after
+ * paint makes the plot jump.
  */
-const APPROX_CHAR_WIDTH = 6.4;
+export const APPROX_CHAR_WIDTH = 6.4;
 
 /**
  * What MUI reserves beside a Y tick label, and does not give back.
@@ -69,9 +73,30 @@ const MAX_VALUE_AXIS_WIDTH = 88;
  * series changes order of magnitude, which is both rare and the moment a wider
  * axis is genuinely needed.
  */
-export function valueAxisWidth(longest: string): number {
-  const text = Math.ceil(longest.length * APPROX_CHAR_WIDTH);
+export function valueAxisWidth(...candidates: string[]): number {
+  const longest = candidates.reduce((most, label) => Math.max(most, label.length), 0);
+  const text = Math.ceil(longest * APPROX_CHAR_WIDTH);
   return Math.min(MAX_VALUE_AXIS_WIDTH, Math.max(MIN_VALUE_AXIS_WIDTH, text + Y_TICK_OVERHEAD));
+}
+
+/**
+ * Labels to size an axis from, given the top of its domain.
+ *
+ * The top value is *not* the longest label, and compact notation is what breaks
+ * the assumption. In German a domain topping out near two million gives
+ * `compact(2_000_000)` = `"2 Mio."` — short — while the ticks MUI actually places
+ * below it are `"400.000"` and `"1,2 Mio."`, both longer, because German does not
+ * abbreviate below a million and so its *intermediate* ticks are the long ones.
+ * Sizing from the top alone ellipsized them. Dari is borderline for the same
+ * reason.
+ *
+ * Fractions of the domain rather than MUI's real tick values, which are not
+ * available before layout — and MUI "nice"-extends the domain anyway, so the
+ * largest tick is often a round number above anything in the data. These land in
+ * the band where the long form appears, which is what the sizing needs.
+ */
+export function axisLabelCandidates(top: number, format: (value: number) => string): string[] {
+  return [1, 0.75, 0.5, 0.25].map((fraction) => format(Math.round(top * fraction)));
 }
 
 export const tickLabelStyle = { fontSize: TICK_FONT_SIZE } as const;
@@ -104,6 +129,14 @@ export function chartChromeSx(palette: ChartPalette) {
       strokeDasharray: '3 3',
     },
     '& .MuiChartsAxis-line': { stroke: palette.axis, strokeWidth: 1 },
-    '& .MuiChartsAxis-tickLabel': { fontSize: TICK_FONT_SIZE },
+    /*
+     * No tick-label `font-size` here on purpose.
+     *
+     * MUI fits axis labels from the *inline* style it is given, not from what CSS
+     * ends up applying, so a size set here would paint at 11px while the layout
+     * reserved room for the 12px default — over-reserving on every axis, and on
+     * the computed width above silently changing the arithmetic. `axisChrome`
+     * carries `tickLabelStyle`, which is where MUI can see it.
+     */
   };
 }

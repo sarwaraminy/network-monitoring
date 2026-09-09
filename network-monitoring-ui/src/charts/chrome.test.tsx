@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createFormatters } from '../i18n/format';
 import { renderApp } from '../test/render';
 import type { AlertTrendPoint } from '../types';
-import { valueAxisWidth } from './chrome';
+import { axisLabelCandidates, valueAxisWidth } from './chrome';
 import SeverityTrendChart from './SeverityTrendChart';
 
 /**
@@ -83,6 +83,27 @@ describe('sizing the value axis', () => {
     const dari = valueAxisWidth(createFormatters('fa-AF').compact(1_200_000_000));
 
     expect(dari).toBeGreaterThan(english);
+  });
+
+  /*
+   * The top of the domain is not the longest label, and compact notation is what
+   * breaks the assumption. German does not abbreviate below a million, so a
+   * domain topping out at two million gives a short `2 Mio.` while the ticks
+   * beneath it — `400.000`, `1,2 Mio.` — are the long ones. Sizing from the top
+   * alone ellipsized exactly those.
+   */
+  it('sizes from the widest tick, not the largest value', () => {
+    const de = createFormatters('de');
+    const fromTopOnly = valueAxisWidth(de.compact(2_000_000));
+    const fromCandidates = valueAxisWidth(...axisLabelCandidates(2_000_000, de.compact));
+
+    expect(fromCandidates).toBeGreaterThan(fromTopOnly);
+  });
+
+  it('includes the mid-domain label German spells out in full', () => {
+    const de = createFormatters('de');
+    // `500.000` — seven characters where the top of the domain gives six.
+    expect(axisLabelCandidates(2_000_000, de.compact)).toContain('500.000');
   });
 
   it('fits the longest label the locale can produce', () => {

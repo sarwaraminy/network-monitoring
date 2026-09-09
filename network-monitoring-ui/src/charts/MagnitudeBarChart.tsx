@@ -3,7 +3,7 @@ import Typography from '@mui/material/Typography';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { useMemo } from 'react';
 import { useFormatters } from '../i18n/format';
-import { axisChrome, chartChromeSx, TICK_FONT_SIZE, tickLabelStyle } from './chrome';
+import { APPROX_CHAR_WIDTH, axisChrome, chartChromeSx, TICK_FONT_SIZE, tickLabelStyle } from './chrome';
 import { useChartPalette } from './useChartPalette';
 
 export interface MagnitudeDatum {
@@ -36,8 +36,6 @@ interface Props {
 /** Room reserved for category labels, so none of them is clipped. */
 const CATEGORY_AXIS_MIN_WIDTH = 84;
 const CATEGORY_AXIS_MAX_WIDTH = 190;
-/** Rough width of one character at the 11px tick size. */
-const APPROX_CHAR_WIDTH = 6.4;
 
 /**
  * Horizontal bars for "compare magnitude, low → high".
@@ -123,9 +121,20 @@ export default function MagnitudeBarChart({
           // printing a "0" that adds nothing.
           barLabel: (item) => (item.value ? fmt.number(item.value) : null),
           barLabelPlacement: 'outside',
+          /*
+           * The tooltip is localised like the axis and the bar label, which it was
+           * not: the axis said `۲٫۸ میلیون`, the bar tip `۲٬۸۴۰٬۰۰۰` and the
+           * tooltip `2840000` in ASCII, all for one bar. The tooltip is what
+           * somebody opens to check what they read off the axis, so it is the
+           * worst of the three to leave disagreeing.
+           *
+           * `number` rather than `compact`, matching the bar label: a tooltip is
+           * where the exact figure belongs, and it has room for it.
+           */
           valueFormatter: (value, context) => {
             const datum = sorted[context.dataIndex];
-            return datum?.detail ? `${value} (${datum.detail})` : String(value);
+            const shown = value === null ? '' : fmt.number(value);
+            return datum?.detail ? `${shown} (${datum.detail})` : shown;
           },
         },
       ]}

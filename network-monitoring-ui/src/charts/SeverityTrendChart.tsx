@@ -8,7 +8,7 @@ import { createFormatters, type Formatters, useFormatters } from '../i18n/format
 import { DEFAULT_LOCALE } from '../i18n/generated/locales';
 import { useT } from '../i18n/ui';
 import type { AlertTrendPoint, TrendBucket } from '../types';
-import { axisChrome, chartChromeSx, valueAxisWidth } from './chrome';
+import { axisChrome, axisLabelCandidates, chartChromeSx, valueAxisWidth } from './chrome';
 import { SEVERITY_ORDER } from './palette';
 import { useChartPalette } from './useChartPalette';
 
@@ -205,7 +205,7 @@ export default function SeverityTrendChart({
       (most, point) => Math.max(most, point.critical + point.high + point.medium + point.low + point.info),
       0,
     );
-    return valueAxisWidth(format.compact(tallest));
+    return valueAxisWidth(...axisLabelCandidates(tallest, format.compact));
   }, [trend, format]);
   const labels = useMemo(
     () => trend.map((point) => bucketLabel(bucket, point.bucket, format)),
@@ -267,6 +267,18 @@ export default function SeverityTrendChart({
         {
           tickMinStep: 1,
           ...axisChrome,
+          /*
+           * No axis line, which is right here and not in the shared chrome: this
+           * chart is vertical, so Y is the value axis and the horizontal grid
+           * already carries the scale. `MagnitudeBarChart` is horizontal, where Y
+           * is the category axis and its line is the baseline every bar grows
+           * from.
+           *
+           * The prop rather than a `display: none` rule, for the reason
+           * `disableTicks` replaced the equivalent CSS: MUI lays out from what it
+           * is passed, not from what CSS paints.
+           */
+          disableLine: true,
           width: axisWidth,
           // Shortened per locale, so a large count is a tick rather than an axis
           // wide enough to crowd the plot.
@@ -299,14 +311,6 @@ export default function SeverityTrendChart({
       margin={{ left: 8, right: 8, top: 8, bottom: 8 }}
       sx={{
         ...chrome,
-        /*
-         * The Y axis loses its line, which is right *here* and not in the shared
-         * chrome: this chart is vertical, so Y is the value axis and the
-         * horizontal grid already carries the scale. `MagnitudeBarChart` is
-         * horizontal, where Y is the category axis and its line is the baseline
-         * every bar grows from.
-         */
-        '& .MuiChartsAxis-directionY .MuiChartsAxis-line': { display: 'none' },
         // The 2px surface gap between stacked segments, which is this chart's own
         // and not part of the shared chrome.
         '& .MuiBarChart-element': { stroke: palette.surface, strokeWidth: 2 },
