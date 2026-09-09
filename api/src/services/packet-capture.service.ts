@@ -18,6 +18,7 @@ import {
 import { toPacketDTO } from '../packet/mapping.js';
 import type { NetworkInterfaceDTO, PacketDTO } from '../types/dto.js';
 import { AlertSink } from './alert.service.js';
+import { MAX_CAPTURE_TIMEOUT_MS, MAX_SNAPSHOT_LENGTH } from './capture-limits.js';
 import {
   type CaptureSessionRecord,
   findInterruptedCapture,
@@ -107,6 +108,13 @@ export class PacketCaptureService {
    * between the two. See `startCapture`.
    */
   private starting = false;
+  /**
+   * The in-flight write recording that this capture started.
+   *
+   * Held so `stopCapture` can wait for it: the capture becomes stoppable before
+   * the insert commits, and a stop that runs first would find no row to close.
+   */
+  private sessionWrite: Promise<void> | null = null;
   private interfaceName: string | null = null;
   private filter: string | null = null;
   private linkType: string | null = null;
@@ -186,6 +194,11 @@ export class PacketCaptureService {
    * The hole predates the second caller; it is the second caller that makes it
    * reachable.
    *
+   * Returns whether it claimed the instance. Declining is a real outcome now
+   * that two callers exist, and a caller that assumes "returned, therefore
+   * started" reports something that did not happen — see
+   * `resumeInterruptedCapture`.
+   *
    * @param snapshotLength Bytes captured per frame.
    * @param timeoutMs pcap read timeout, passed through to pcap_set_timeout.
    * @param filterIpAddress When set, applies the BPF filter `host <ip>`.
@@ -196,11 +209,12 @@ export class PacketCaptureService {
     timeoutMs: number,
     filterIpAddress?: string | null,
     startedBy = 'unknown',
-  ): Promise<void> {
-    if (this.capturing || this.starting) return;
+  ): Promise<boolean> {
+    if (this.capturing || this.starting) return false;
     this.starting = true;
     try {
       await this.openCapture(interfaceName, snapshotLength, timeoutMs, filterIpAddress, startedBy);
+      return true;
     } finally {
       // Cleared on the way out either way: a failed start must not leave the
       // instance refusing every later attempt.
@@ -316,7 +330,24 @@ export class PacketCaptureService {
       startedAt: this.startedAt,
       startedBy,
     };
-    await recordCaptureStarted(this.label, this.session);
+    /*
+     * Kept as a promise, because a stop has to wait for it and a start does not.
+     *
+     * The capture is live and stoppable several lines above this — the handle is
+     * open and the poll timer running — so a `POST /stop` can arrive before the
+     * insert has committed. Its update is scoped to `started_at`, which is the
+     * right fix for the previous round and is what makes the ordering matter now:
+     * it matches nothing, returns, and then this insert lands *unstamped*. A
+     * capture the operator stopped cleanly is then recorded as still running —
+     * reported as interrupted at the next boot and, with resuming on, started
+     * again by itself. The feature doing the wrong thing confidently.
+     *
+     * Making the start wait instead would let bookkeeping delay capture, which
+     * this record is explicitly not allowed to do. The stop is the operation whose
+     * correctness depends on the write, so the stop is what waits.
+     */
+    this.sessionWrite = recordCaptureStarted(this.label, this.session);
+    await this.sessionWrite;
 
     this.log.info(
       {
@@ -355,6 +386,18 @@ export class PacketCaptureService {
     const wasCapturing = this.capturing;
     const session = this.session;
     this.session = null;
+
+    /*
+     * Let the start's own record land before deciding anything about it.
+     *
+     * Cannot reject — `recordCaptureStarted` warns and returns on failure — so
+     * this only ever costs the wait, and only when a stop lands inside the window
+     * where a capture is running but its row is not yet written.
+     */
+    if (this.sessionWrite) {
+      await this.sessionWrite;
+      this.sessionWrite = null;
+    }
     if (wasCapturing) {
       this.log.info({ bufferedPackets: this.packets.length, findings: this.findingCount }, 'Capture stopped');
     }
@@ -552,13 +595,21 @@ export class PacketCaptureService {
      */
 
     try {
-      await this.startCapture(
+      const started = await this.startCapture(
         previous.interfaceName,
         previous.snapshotLength,
         previous.timeoutMs,
         previous.filterIp,
         previous.startedBy,
       );
+      /*
+       * Only when this call is what started it. `startCapture` declines if
+       * another caller holds the instance — an operator pressing Resume in the
+       * gap before this runs — and logging regardless said the interruption had
+       * been handled when it had not. On an unattended host the log is the only
+       * thing anybody reads, so a false claim there is the expensive kind.
+       */
+      if (!started) return;
       this.log.warn(
         { interface: previous.interfaceName },
         'Resumed the capture that did not stop cleanly (CAPTURE_RESUME_ON_START)',
@@ -659,16 +710,6 @@ export class PacketCaptureService {
     return HttpError.of(500, contextKey, { ...params, detail });
   }
 }
-
-/**
- * The largest values a capture will honour.
- *
- * Defined here, beside the clamps that enforce them, and imported by
- * `captureStartSchema` — a service must not depend on a route module, and these
- * are a fact about capture rather than about HTTP.
- */
-export const MAX_SNAPSHOT_LENGTH = 262_144;
-export const MAX_CAPTURE_TIMEOUT_MS = 10_000;
 
 /*
  * Still clamped, even though `captureStartSchema` now refuses anything past these

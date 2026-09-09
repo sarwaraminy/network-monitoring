@@ -161,9 +161,12 @@ export default function CaptureToolbar({
         until then, which is deliberate: the notice is that monitoring stopped, and
         that stays true until somebody acts on it.
         
-        It does not survive the run that reported it. The server stamps the session
-        stopped as soon as it finds one, so a service restarted twice does not
-        report the same interruption twice.
+        Whether it survives the run that reported it depends on whether anything
+        has acted on the interruption. With resuming off the server stamps the
+        session stopped as soon as it finds one, so a service restarted twice does
+        not report it twice. With `CAPTURE_RESUME_ON_START` on the row stays open
+        until a resume succeeds — so a failed resume is reported again at the next
+        restart, deliberately, because that row is what lets the next boot retry.
         
         `startedBy` is absent for a non-admin — the API strips it, since it is an
         administrator's email and this endpoint is not admin-gated. The rest of the
@@ -277,7 +280,7 @@ export default function CaptureToolbar({
               value={timeout}
               onChange={(event) => setTimeoutMs(Number(event.target.value))}
               disabled={capturing}
-              slotProps={{ htmlInput: { min: 0, step: 10 } }}
+              slotProps={{ htmlInput: { min: 0, max: 10_000, step: 10 } }}
               helperText={t('capture.timeout_helper')}
               fullWidth
             />

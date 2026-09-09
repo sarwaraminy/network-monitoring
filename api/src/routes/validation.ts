@@ -9,7 +9,7 @@ import { WEBHOOK_FORMATS } from '../notify/types.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
 import { TREND_BUCKETS } from '../services/alert-buckets.js';
 import { AUDIT_ACTIONS, type AuditAction } from '../services/audit-types.js';
-import { MAX_CAPTURE_TIMEOUT_MS, MAX_SNAPSHOT_LENGTH } from '../services/packet-capture.service.js';
+import { MAX_CAPTURE_TIMEOUT_MS, MAX_SNAPSHOT_LENGTH } from '../services/capture-limits.js';
 import { hasSuppressionCriterion, NO_CRITERIA } from '../services/suppression-rules.js';
 
 /**

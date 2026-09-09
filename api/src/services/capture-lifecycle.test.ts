@@ -245,6 +245,89 @@ describe('what a process does with the session row', { skip: database.skip }, ()
   });
 
   /*
+   * A stop can arrive before the start's own row has been written.
+   *
+   * The capture is live and stoppable as soon as the handle is open and the timer
+   * running, which is several lines before the insert. Scoping the stop's update
+   * to `started_at` — the right fix for the previous round — is what made this
+   * matter: the update matches nothing, returns, and then the insert lands
+   * unstamped. A capture the operator stopped cleanly is recorded as still
+   * running, so the next boot reports it as interrupted and, with resuming on,
+   * starts it again.
+   *
+   * Driven by holding the start mid-flight: `openCapture` is replaced with one
+   * that sets up the same state and leaves the write pending, which is the window.
+   */
+  it('closes the row even when the stop beats the start-record', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+      openCapture: () => Promise<void>;
+    };
+
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    innards.openCapture = async () => {
+      // Everything `openCapture` does before its insert: live, stoppable, and
+      // recorded only once the write it is holding completes.
+      innards.capturing = true;
+      innards.session = STARTED;
+      innards.startedAt = STARTED.startedAt;
+      innards.sessionWrite = held.then(() => sessions.recordCaptureStarted(SCOPE, STARTED));
+      await innards.sessionWrite;
+    };
+
+    const starting = service.startCapture('eth0', 65_535, 1000, null, 'alice');
+    const stopping = service.stopCapture('operator');
+
+    release();
+    await Promise.all([starting, stopping]);
+
+    assert.equal(await isOpen(), false, 'a capture the operator stopped was left recorded as running');
+  });
+
+  /*
+   * `startCapture` declines when another caller holds the instance, and the resume
+   * used to log success regardless — telling an unattended host's log that the
+   * interruption had been handled when it had not.
+   */
+  it('does not claim a resume it did not perform', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+    await service.reportInterruptedCapture();
+
+    // The operator's Resume, in the gap before the auto-resume fires.
+    const innards = service as unknown as { starting: boolean };
+    innards.starting = true;
+
+    const warnings: string[] = [];
+    const log = (service as unknown as { log: { warn: (...args: unknown[]) => void } }).log;
+    const realWarn = log.warn.bind(log);
+    log.warn = (...args: unknown[]) => {
+      warnings.push(JSON.stringify(args[1] ?? args[0]));
+    };
+
+    try {
+      await service.resumeInterruptedCapture();
+    } finally {
+      log.warn = realWarn;
+      innards.starting = false;
+    }
+
+    assert.equal(
+      warnings.some((line) => line.includes('Resumed the capture')),
+      false,
+      'a resume that never ran was logged as having succeeded',
+    );
+  });
+
+  /*
    * With resuming off nothing is going to bring it back, so the notice belongs to
    * the process that found it and the row is closed behind it — otherwise every
    * restart re-announces an interruption from a machine that has been fine since.
