@@ -2218,6 +2218,7 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **A restart no longer ends a capture silently** — capture lived entirely in the running process, so a service restart, reboot or redeploy left it off while the screen said *Idle*, which is the same word it uses for a host that has never captured anything. Flow collection comes back from `FLOW_ENABLED`; capture did not, and nothing reported the difference. `capture_session` (V18) records what each sensor was asked to run and whether it was still running when the process last had an opinion, keyed on `(sensor_id, scope)` because one process runs two captures and a row per sensor would have had them overwriting each other — the `known_devices` bug V16 fixed, one table along. The Capture screen now names the interface, who started it and when, with a Resume button that sends the recorded settings rather than the form's; `CAPTURE_RESUME_ON_START` does it automatically and is off by default, because starting a capture with nobody present is a decision about the installation rather than a click in a browser | *this branch* |
 | **Four settings-and-audit defects** — the query console could commit a write with no audit row: the "write mode forces auditing" rule was computed from the *settings* while whether a statement can write is the identity of the role the pool authenticated as, and saving settings loosens the first a round trip before it narrows the second. The force now reads the live pool, so the two cannot disagree. The delivery form rewrote `updated_at` and `updated_by` on a save that changed nothing, reattributing the last real change to whoever pressed Save. `ADHOC_*` variables that do not parse are logged at boot, as the delivery ones already were. And `POST /api/adhoc/recheck`'s docblock claimed only the environment could enable the console, which V15 stopped being true | *this branch* |
 | **Vite 8, rolldown and Vitest 4** — the build moves off esbuild/Rollup onto rolldown, which took production builds from ~9s to ~1.2s. Three things broke and none of them were the bundler: jest-dom's type augmentation targets `vitest`'s `Assertion`, which Vitest 4 moved to `@vitest/expect`, silently turning all 346 `toBeInTheDocument` calls into TS2339; vite 8's optional esbuild peer conflicts with the one drizzle-kit pins, so npm nests vite and vitest under the UI workspace and `@testing-library/jest-dom/vitest` — hoisted to the root — can no longer resolve `vitest` at all; and the root scripts named `vite` and `vitest` directly, which stopped resolving for the same reason. `manualChunks`' object form is gone from rolldown, so the framework chunk is now a `codeSplitting` group — not `advancedChunks`, which is the same option deprecated, and which rolldown drops with a warning and nothing else when both are set. Measured to confirm the entry still costs what it did rather than becoming the single blob the comment there warns about | *this branch* |
 | **The interface speaks German and Dari** — layers 2–4 of the internationalisation work: `DirectionProvider` supplies the theme direction, an emotion RTL cache and `dir`/`lang` on the document; `<Identifier>` isolates the addresses, MACs and ports that never pass through a message, including the chart axis where no component can wrap them; `HttpError.of(status, code, params)` renders its own English `message` from the code the response carries, so scripts keep a stable string while a person reads their own language; and `useT()` covers the navigation, the alerts page, the dashboard, the audit trail, sign-in, sign-up and the rest of the page chrome. Dates and numbers followed the application's locale rather than the browser's for the first time, and Afghanistan's Solar Hijri calendar turned out to cost nothing — `fa-AF` already selects it in CLDR, with the Afghan month names rather than the Iranian ones | #55 |
@@ -2278,6 +2279,49 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
      first one's recorded row, and the runner reports a *changed migration* and refuses to
      apply anything. The message sends you looking for an edit that never happened. Caught
      this while adding V14, and the fix is a check before the first file is read.
+3. **The flow collector has no interface at all**, and it is the last subsystem that is
+   still environment-only. Two halves, worth doing in this order because only the second
+   one carries any risk.
+
+   **A read-only status panel**, which is the half that is purely missing information.
+   `GET /api/flow/status` already returns everything an operator needs — per exporter: the
+   version word, whether it is a protocol we implement, datagrams, records,
+   `pendingTemplates`, malformed count and last-seen, sorted busiest-first, plus totals,
+   `templatesCached` and `ignored`. **Nothing in `network-monitoring-ui/src` calls it.** The
+   route's own docblock states the case: *"'Configured but receiving nothing' and 'receiving
+   but every record is awaiting a template' are the two failure modes during setup, and they
+   are indistinguishable from a single total"* — and the product currently shows neither.
+   `pendingTemplates` is the sharp one: a v9 or IPFIX exporter that sends data records
+   before its templates is counted in `datagrams`, decodes nothing, and looks identical to a
+   working device.
+
+   One detail the panel has to get right: `getStatus()` reports `enabled` (what
+   `FLOW_ENABLED` says) beside `listening` (whether the socket is open). They differ exactly
+   when the bind failed — the port is taken, or the address is not on this host — which is
+   the second most likely setup failure, and a single on/off would hide it.
+
+   **Three-layer settings, as delivery (#39) and the query console (#53) both got**, for the
+   reason both of those cited: a restart on a monitoring server drops a live capture.
+   `FLOW_ENABLED`, `FLOW_PORT`, `FLOW_BIND_ADDRESS` and `FLOW_EXPORTERS` are read once at
+   boot and cannot be changed without editing a file and restarting. The shape is established
+   — a settings table, a resolver with environment → stored row → default, a seed that copies
+   the environment in so an existing install does not see every field pinned, an admin panel,
+   and pinned fields disabled with the variable named.
+
+   Two things make flow harder than either precedent, and both should be settled before it
+   is started:
+
+   - **The port and bind address cannot change live.** They are bound by a `dgram` socket at
+     boot, so a save has to close and reopen it — the same `stopAdhoc()`/`startAdhoc()` dance
+     `PUT /api/adhoc/settings` does, with the same ordering hazards that took three review
+     rounds to get right there. `FLOW_ENABLED` and `FLOW_EXPORTERS` are easier: one is a
+     socket open or close, the other a filter test per datagram.
+   - **Under Compose the published UDP port is a separate file.** `docker-compose.flow.yml`
+     publishes it, and `docker-compose.yml:156` explains why it is not in the main file —
+     putting it there opened `2055/udp` on every deployment. So enabling flow from a browser
+     on a Compose install would report success while no traffic could reach the container.
+     The panel has to say that, or the setting is a trap built on top of a comment explaining
+     the trap.
 
 ### Internationalisation — English, German and Dari
 
