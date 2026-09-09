@@ -152,6 +152,99 @@ describe('what a process does with the session row', { skip: database.skip }, ()
   });
 
   /*
+   * The guards cover the decision; this covers the write.
+   *
+   * A start that is mid-flight has already written its own open row while its
+   * `capturing` flag is still false, so every in-memory check passes and the
+   * unconditional `UPDATE … WHERE (sensor_id, scope)` stamps *that* row. The
+   * capture then runs with nothing open and the next boot has nothing to report —
+   * the same silence, reached through the one statement a process-memory guard
+   * cannot fence.
+   *
+   * Driven by replacing the row between the read and the write, which is what a
+   * concurrent start does: `reportInterruptedCapture` is left mid-flight while a
+   * newer session is recorded over the old one.
+   */
+  /*
+   * The guards cover the decision; the `WHERE` covers the write.
+   *
+   * A start that is mid-flight has already written its own open row while its
+   * `capturing` flag is still false, so every in-memory check passes and an
+   * unconditional `UPDATE … WHERE (sensor_id, scope)` stamps *that* row. The
+   * capture then runs with nothing open and the next boot has nothing to report —
+   * the same silence, reached through the one statement a process-memory guard
+   * cannot fence.
+   *
+   * Asserted on `recordCaptureStopped` directly rather than by racing
+   * `reportInterruptedCapture` against a concurrent start. Nothing orders a test's
+   * write between that function's read and its stamp, so the racing version
+   * passed whichever way the interleaving fell — it closed the *old* row about as
+   * often as the new one, and the assertion held for the wrong reason. What the
+   * fix actually promises is "stamp only the session you were given", and that is
+   * a statement about one call.
+   */
+  it('stamps only the session it was given', async () => {
+    const OLD = new Date('2026-09-09T03:14:00.000Z');
+    const NEW = new Date('2026-09-09T04:00:00.000Z');
+
+    await sessions.recordCaptureStarted(SCOPE, { ...STARTED, startedAt: OLD });
+    // The row is replaced, as a concurrent `POST /start` replaces it: same scope,
+    // its own `started_at`, and open.
+    await sessions.recordCaptureStarted(SCOPE, { ...STARTED, startedAt: NEW });
+
+    // A stop that believes it is closing the session it read a moment ago.
+    await sessions.recordCaptureStopped(SCOPE, { startedAt: OLD });
+
+    const still = await sessions.findInterruptedCapture(SCOPE);
+    assert.ok(still, 'a live session was stamped stopped by a call that never read it');
+    assert.equal(still.startedAt, NEW.toISOString(), 'the wrong row survived');
+  });
+
+  /*
+   * The other half: a stop that does name the current session still closes it.
+   * Without this the case above would pass with the update never running at all.
+   */
+  it('still stamps the session it did read', async () => {
+    const AT = new Date('2026-09-09T03:14:00.000Z');
+    await sessions.recordCaptureStarted(SCOPE, { ...STARTED, startedAt: AT });
+
+    await sessions.recordCaptureStopped(SCOPE, { startedAt: AT });
+
+    assert.equal(await isOpen(), false, 'the session it was given was left open');
+  });
+
+  /*
+   * Two callers, one instance.
+   *
+   * With resuming on, the banner and its Resume button go live early in boot while
+   * the auto-resume waits for `startIntel()`. An operator pressing Resume in that
+   * gap used to get through `startCapture`'s guard alongside the auto-resume,
+   * because `capturing` is only set several awaits in — leaving two pcap handles
+   * and two poll timers, the first of each never released.
+   *
+   * Asserted on the claim rather than on handles, since neither start can open one
+   * here: the second call must return without entering the body at all.
+   */
+  it('lets only one start claim the instance', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as { starting: boolean; openCapture: () => Promise<void> };
+
+    let entered = 0;
+    innards.openCapture = async () => {
+      entered += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    };
+
+    await Promise.all([
+      service.startCapture('eth0', 65_535, 1000, null, 'alice'),
+      service.startCapture('eth0', 65_535, 1000, null, 'the-auto-resume'),
+    ]);
+
+    assert.equal(entered, 1, 'two starts ran on one instance');
+    assert.equal(innards.starting, false, 'the claim was not released');
+  });
+
+  /*
    * With resuming off nothing is going to bring it back, so the notice belongs to
    * the process that found it and the row is closed behind it — otherwise every
    * restart re-announces an interruption from a machine that has been fine since.

@@ -99,6 +99,14 @@ export class PacketCaptureService {
   private handle: PcapHandle | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
   private capturing = false;
+  /**
+   * A start that has claimed the instance but not yet finished.
+   *
+   * Distinct from `capturing`, which describes a capture that is actually
+   * running: this one exists to keep a second caller out during the awaits
+   * between the two. See `startCapture`.
+   */
+  private starting = false;
   private interfaceName: string | null = null;
   private filter: string | null = null;
   private linkType: string | null = null;
@@ -159,6 +167,25 @@ export class PacketCaptureService {
   }
 
   /**
+   * Starts a capture, and claims the right to do so before yielding.
+   *
+   * `capturing` is only true once the handle is open and the session recorded,
+   * which is several awaits in — so it cannot be the thing that keeps two callers
+   * out. `starting` is set synchronously, before the first `await`, which is what
+   * makes the claim atomic with respect to other callers on this instance.
+   *
+   * There are two callers now, and the gap between them is wide and inviting:
+   * with `CAPTURE_RESUME_ON_START=true` the banner and its Resume button go live
+   * early in boot, while the auto-resume waits for `startIntel()`, which can take
+   * seconds. An operator who sees the banner and presses Resume in that gap is
+   * doing the obvious thing at the obvious moment — and without this both starts
+   * would proceed, leaving two `openLive()` handles and two poll timers on one
+   * instance, the first of each never released. The process would then leak a pcap
+   * handle and double-count every packet until it restarted.
+   *
+   * The hole predates the second caller; it is the second caller that makes it
+   * reachable.
+   *
    * @param snapshotLength Bytes captured per frame.
    * @param timeoutMs pcap read timeout, passed through to pcap_set_timeout.
    * @param filterIpAddress When set, applies the BPF filter `host <ip>`.
@@ -170,8 +197,30 @@ export class PacketCaptureService {
     filterIpAddress?: string | null,
     startedBy = 'unknown',
   ): Promise<void> {
-    if (this.capturing) return;
+    if (this.capturing || this.starting) return;
+    this.starting = true;
+    try {
+      await this.openCapture(interfaceName, snapshotLength, timeoutMs, filterIpAddress, startedBy);
+    } finally {
+      // Cleared on the way out either way: a failed start must not leave the
+      // instance refusing every later attempt.
+      this.starting = false;
+    }
+  }
 
+  /**
+   * The body of a start, once the right to run it has been claimed.
+   *
+   * Separate only so `startCapture` can hold `starting` across the whole of it
+   * without this being indented inside a `try`.
+   */
+  private async openCapture(
+    interfaceName: string,
+    snapshotLength: number,
+    timeoutMs: number,
+    filterIpAddress?: string | null,
+    startedBy = 'unknown',
+  ): Promise<void> {
     if (!interfaceName || interfaceName.trim() === '') {
       throw HttpError.of(400, 'error.interface_required');
     }
@@ -319,7 +368,13 @@ export class PacketCaptureService {
      * reporting — and stamping on shutdown would make every restart look like a
      * clean stop, which is the one thing this record exists to distinguish.
      */
-    if (wasCapturing && reason === 'operator') await recordCaptureStopped(this.label);
+    /*
+     * Scoped to the session this process started, so a stop cannot close a row
+     * that belongs to somebody else's capture — see `recordCaptureStopped`.
+     */
+    if (wasCapturing && reason === 'operator') {
+      await recordCaptureStopped(this.label, session ? { startedAt: session.startedAt } : {});
+    }
     if (wasCapturing && reason !== 'operator') {
       this.log.warn({ reason }, 'Capture ended without being stopped; it will be reported as interrupted');
       /*
@@ -464,7 +519,17 @@ export class PacketCaptureService {
      * exists to prevent exactly that. The more failure-prone the host, the more
      * likely it was.
      */
-    if (!env.captureResumeOnStart) await recordCaptureStopped(this.label);
+    /*
+     * Scoped to the row that was actually read.
+     *
+     * The two `this.capturing` checks above cover the decision; this covers the
+     * write, which is the half they cannot reach. A start that is mid-flight has
+     * already written its own open row while its flag is still false, so without
+     * the scope this closes that row instead of the one `previous` came from.
+     */
+    if (!env.captureResumeOnStart) {
+      await recordCaptureStopped(this.label, { startedAt: new Date(previous.startedAt) });
+    }
   }
 
   /**
@@ -595,15 +660,31 @@ export class PacketCaptureService {
   }
 }
 
+/**
+ * The largest values a capture will honour.
+ *
+ * Defined here, beside the clamps that enforce them, and imported by
+ * `captureStartSchema` — a service must not depend on a route module, and these
+ * are a fact about capture rather than about HTTP.
+ */
+export const MAX_SNAPSHOT_LENGTH = 262_144;
+export const MAX_CAPTURE_TIMEOUT_MS = 10_000;
+
+/*
+ * Still clamped, even though `captureStartSchema` now refuses anything past these
+ * ceilings. The schema guards the HTTP route; these guard the function, which is
+ * also called by the auto-resume from a stored row — and a row written before the
+ * bound existed can hold a value the schema would now reject.
+ */
 function clampSnapshotLength(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 65_536;
-  // Below the Ethernet header nothing can be decoded; above 262144 wastes memory.
-  return Math.min(Math.max(Math.trunc(value), 64), 262_144);
+  // Below the Ethernet header nothing can be decoded; above the ceiling wastes memory.
+  return Math.min(Math.max(Math.trunc(value), 64), MAX_SNAPSHOT_LENGTH);
 }
 
 function clampTimeout(value: number): number {
   if (!Number.isFinite(value) || value < 0) return 10;
-  return Math.min(Math.trunc(value), 10_000);
+  return Math.min(Math.trunc(value), MAX_CAPTURE_TIMEOUT_MS);
 }
 
 function buildFilter(ipAddress: string | null | undefined): string {

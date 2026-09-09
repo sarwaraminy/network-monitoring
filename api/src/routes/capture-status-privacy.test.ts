@@ -16,7 +16,7 @@ import { openTestDatabase } from '../test/database.js';
  * Two routes above, `GET /` already strips packet payloads for a non-admin. Same
  * class, same shape, and the pattern was adjacent to the change that broke it.
  *
- * The rest of the notice stays visible to everyone on purpose. "Monitoring stopped
+ * The rest of the notice stays visible to everyone on purpose. "Monitoring
  * stopped unexpectedly" is the point of the feature and is not privileged;
  * only the name is.
  *

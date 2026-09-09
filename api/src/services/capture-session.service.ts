@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { env } from '../config/env.js';
 import { db } from '../db/index.js';
 import { type CaptureSessionRow, captureSession } from '../db/schema.js';
@@ -90,14 +90,38 @@ export async function recordCaptureStarted(scope: string, session: CaptureSessio
 /**
  * Stamps the session as finished.
  *
- * Called on a clean stop, and at boot for one found still running — so the
- * interruption is reported by the process that discovered it and not again by the
- * next one. An interruption that is announced at every restart until somebody
- * captures again is a banner about a machine that has since been fine for a week.
+ * Called on a clean operator stop, and at boot for one found still running with
+ * nothing going to resume it.
+ *
+ * **`startedAt` is what makes this safe, and callers should always pass it.**
+ * Without it the update is `WHERE (sensor_id, scope)` and names no particular
+ * session — so it closes whatever row is there now, which is not necessarily the
+ * row the caller read. The window is real: a `POST /start` sitting inside an
+ * awaited step has already written its own open row while its `capturing` flag is
+ * still false, so every in-memory guard passes and this statement stamps the live
+ * capture stopped. That capture then runs with no open row and the next boot has
+ * nothing to report — the silence the guards exist to prevent, reached through
+ * the one statement they cannot cover, because a check on process memory cannot
+ * fence a database row.
+ *
+ * `stopped_at IS NULL` goes with it, so a row already closed is not re-stamped
+ * with a later time.
  */
-export async function recordCaptureStopped(scope: string, at = new Date()): Promise<void> {
+export async function recordCaptureStopped(
+  scope: string,
+  options: { startedAt?: Date; at?: Date } = {},
+): Promise<void> {
+  const { startedAt, at = new Date() } = options;
+
   try {
-    await db.update(captureSession).set({ stoppedAt: at }).where(rowFor(scope));
+    await db
+      .update(captureSession)
+      .set({ stoppedAt: at })
+      .where(
+        startedAt
+          ? and(rowFor(scope), isNull(captureSession.stoppedAt), eq(captureSession.startedAt, startedAt))
+          : rowFor(scope),
+      );
   } catch (error) {
     log.warn({ err: error }, 'Could not record that capture stopped');
   }
