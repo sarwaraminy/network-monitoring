@@ -475,12 +475,17 @@ export interface AlertDashboard extends AlertSummary {
    */
   bucket: TrendBucket;
   /**
-   * The instant before which detail has expired, so the trend is served from the
-   * daily rollup rather than from `alerts`.
+   * The instant from which the trend is made of rows rather than of counts.
    *
-   * `null` when retention is switched off, or when the window does not reach that
-   * far back — in both cases there is no boundary inside the plotted range and a
-   * marker would be pointing at nothing.
+   * Derived from the aggregated days actually folded into this response, not from
+   * the retention setting: `alert_rollup_daily` is never pruned, so an install
+   * that turned retention off still plots the years it aggregated while it was on,
+   * and a boundary read from `RETENTION_ENABLED` would go silent over them.
+   *
+   * `null` when nothing in this window came from the rollup — an hourly bucket,
+   * which never folds it in; a window that does not reach past the cutoff; or an
+   * install that has never rolled anything up. In all three there is no crossover
+   * and a marker would be pointing at nothing.
    *
    * The chart needs this because the two sources are not equally detailed and
    * nothing else on screen says where they change over. A rolled-up bucket
@@ -662,33 +667,41 @@ export async function dashboardData(options: {
     .sort((a, b) => a.bucket.localeCompare(b.bucket));
 
   /*
-   * Reported only when it falls inside what was plotted.
+   * Read from the rows that were actually folded in, not from the retention
+   * setting.
    *
-   * Retention deletes detail older than `ALERT_RETENTION_DAYS` and the rollup
-   * keeps the shape, so this instant is where the trend stops being rows and
-   * starts being counts. Outside the window — or with retention switched off,
-   * where nothing is ever rolled up — there is no crossover to mark, and a marker
-   * at the edge of the axis would be read as one.
+   * The first version computed `now - ALERT_RETENTION_DAYS` and gated it on
+   * `RETENTION_ENABLED`, which is a claim about the sweep's schedule rather than
+   * about this response. The two come apart on an install that ran with retention
+   * ON for two years and then turned it OFF to stop losing detail:
+   * `alert_rollup_daily` is never pruned, the fold-in below is not gated on the
+   * setting, so the chart went on plotting a year of aggregated bars with no
+   * marker above them. That is worse than before this feature existed — the user
+   * guide now tells the reader the line is what separates aggregated bars from
+   * quiet ones, so its absence reads as "all of this is detailed".
    *
-   * Approximate by up to one sweep interval, deliberately: days between the cutoff
-   * and the last sweep are still live. Naming the configured boundary is the
-   * answer an operator can act on; naming the sweep's actual high-water mark would
-   * be more precise about a number nobody sets.
+   * `rolled` is exactly the aggregated days in this window, so the day after the
+   * newest of them is where detail begins. Three gates fall out of that rather
+   * than being written: an hourly response never folds the rollup in, so `rolled`
+   * is empty and there is nothing to mark; a window that does not reach past the
+   * cutoff selects no rolled-up day, likewise; and an install that never rolled
+   * anything up has an empty table. One derivation, and it cannot disagree with
+   * the bars beside it because it is made of them.
    */
-  const cutoff = new Date(now - env.retention.alertDays * 86_400_000);
-  /*
-   * Gated on the same condition the fold-in uses, `options.bucket !== 'hour'`
-   * included. An hourly response is served from live rows alone — the rollup is
-   * never folded down into hours — so advertising a crossover there would point
-   * at a boundary that had no effect on any bar beside it.
-   */
-  const marksACrossover = env.retention.enabled && options.bucket !== 'hour' && cutoff > since;
+  const lastAggregatedDay = rolled.reduce<string | null>(
+    (latest, row) => (latest === null || row.day > latest ? row.day : latest),
+    null,
+  );
+  const detailBegins =
+    lastAggregatedDay === null
+      ? null
+      : new Date(Date.parse(`${lastAggregatedDay}T00:00:00.000Z`) + 86_400_000);
 
   return {
     ...summary,
     trend,
     bucket: options.bucket,
-    rolledUpBefore: marksACrossover ? cutoff.toISOString() : null,
+    rolledUpBefore: detailBegins?.toISOString() ?? null,
     topSources: sourceRows
       .filter((row): row is typeof row & { sourceIp: string } => row.sourceIp !== null)
       .map((row) => ({

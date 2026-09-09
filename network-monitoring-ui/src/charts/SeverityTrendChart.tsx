@@ -49,9 +49,31 @@ export function bucketLabel(
    * omitting `day` leaves the base's `day: 'numeric'` in place — the first
    * version of this asked for a month and got "Sep 1, 2026". Overriding it is
    * what removes the field.
+   *
+   * `calendar: 'gregory'` is the one place this interface departs from the Solar
+   * Hijri calendar `fa-AF` selects, and it is not a retreat from that choice.
+   *
+   * The other three units name an INSTANT or a DAY, which is exact in any
+   * calendar: an hour is an hour, and the day a week starts on is that day
+   * whatever it is called. A month label is different — it is a claim about the
+   * extent of the band. The bucket is `date_trunc('month')`, so it holds 1–31
+   * January; labelled in Solar Hijri that band reads `جدی ۱۴۰۴`, which runs about
+   * 22 December to 20 January, and eleven of the bar's days fall outside the month
+   * it is named after. The next bar says `دلو ۱۴۰۴`, so the pair asserts a
+   * boundary no bucket in the series has.
+   *
+   * Naming the band by the calendar it was actually cut in is the truthful option.
+   * A Solar Hijri *bucket* would be the other one, and it is a real feature rather
+   * than a label change: `date_trunc` has no such unit, so the grouping, the
+   * rollup fold and `startOfUtcBucket` would all have to learn the calendar.
    */
   if (bucket === 'month') {
-    return format.day(iso, { year: 'numeric', month: 'short', day: undefined });
+    return format.day(iso, {
+      year: 'numeric',
+      month: 'short',
+      day: undefined,
+      calendar: 'gregory',
+    });
   }
   return format.day(iso);
 }

@@ -139,10 +139,21 @@ export default function DashboardPage() {
    * This used to be `days <= 2 ? 'hour' : 'day'` — the same expression the route
    * evaluated to build the query — so the axis labelled itself from an
    * independent guess about what the server had done. That held while there were
-   * two units and would not have survived four. `'day'` until the first response
-   * arrives, which only affects the empty-state caption.
+   * two units and would not have survived four.
+   *
+   * `null` while a request is in flight, and that is not only the first load: the
+   * period is part of the query key and nothing keeps the previous data, so
+   * `data` is undefined after every change of period. The first version defaulted
+   * to `'day'` here and claimed it "only affects the empty-state caption" — it did
+   * not. Switching from 7 days to 5 years showed "By severity, per day" beside the
+   * loading skeleton for the length of the request, then flipped to "per month".
+   *
+   * The caption is simply absent instead. Guessing would mean mirroring
+   * `trendBucketFor` here, which is the second copy this whole change removed, and
+   * a caption that is briefly wrong is worse than one that is briefly missing —
+   * the reader cannot tell which of those two they are looking at.
    */
-  const bucket: TrendBucket = data?.bucket ?? 'day';
+  const bucket: TrendBucket | null = data?.bucket ?? null;
 
   const criticalAndHigh = (data?.bySeverity.critical ?? 0) + (data?.bySeverity.high ?? 0);
   const capturing = interfaceStatus.data?.capturing ?? false;
@@ -263,21 +274,23 @@ export default function DashboardPage() {
         <Grid size={{ xs: 12, lg: 7 }}>
           <ChartCard
             title={t('dashboard.over_time')}
-            subtitle={t(BUCKET_SUBTITLE[bucket])}
+            subtitle={bucket ? t(BUCKET_SUBTITLE[bucket]) : undefined}
             loading={loading}
             action={
               data && data.trend.length > 0 ? (
                 <Chip
                   size="small"
                   variant="outlined"
-                  label={t(BUCKET_COUNT[bucket], { count: data.trend.length })}
+                  label={t(BUCKET_COUNT[data.bucket], { count: data.trend.length })}
                 />
               ) : null
             }
           >
             <SeverityTrendChart
+              // `'day'` only as a shape for the empty chart: with no trend there
+              // is nothing for the unit to label.
               trend={data?.trend ?? []}
-              bucket={bucket}
+              bucket={bucket ?? 'day'}
               rolledUpBefore={data?.rolledUpBefore ?? null}
             />
           </ChartCard>

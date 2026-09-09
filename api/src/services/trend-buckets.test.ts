@@ -256,14 +256,67 @@ describe('the trend at a bucket wider than a day', { skip: database.skip }, () =
    * closes the pool at the end of its own suite — a sibling would run against a
    * closed database and fail on that rather than on anything it asserts.
    */
-  it('marks the cutoff when the window reaches past it', async () => {
+  it('marks where the aggregated days end and the rows begin', async () => {
+    /*
+     * Read from the rollup rather than from `ALERT_RETENTION_DAYS`. The boundary
+     * is the day after the newest aggregated day, which is a fact about this
+     * response — the setting is a fact about the sweep's schedule, and the two
+     * come apart (see the next case).
+     */
+    const aggregated = new Date(Date.now() - (RETENTION_DAYS + 5) * DAY_MS);
+    await seedAlert('old-one', aggregated);
+    await retention.sweepRetention();
+    assert.ok(await rolledUpDayCount(), 'the fixture must actually have been rolled up');
+
     const dashboard = await alertService.dashboardData({ days: 365, bucket: 'week' });
 
-    assert.ok(dashboard.rolledUpBefore, 'a 365-day window reaches past a 30-day retention');
-    const at = new Date(dashboard.rolledUpBefore as string).getTime();
-    const expected = Date.now() - RETENTION_DAYS * DAY_MS;
-    // Within a minute: the boundary is computed from `Date.now()` on each call.
-    assert.ok(Math.abs(at - expected) < 60_000, `boundary was ${dashboard.rolledUpBefore}`);
+    assert.ok(dashboard.rolledUpBefore, 'a window holding aggregated days has a boundary');
+    const day = aggregated.toISOString().slice(0, 10);
+    const expected = new Date(`${day}T00:00:00.000Z`).getTime() + DAY_MS;
+    assert.equal(
+      new Date(dashboard.rolledUpBefore as string).getTime(),
+      expected,
+      'the boundary is the day after the newest aggregated day',
+    );
+  });
+
+  it('keeps marking it after retention is switched off', async () => {
+    /*
+     * The case a config-derived boundary got wrong. An install runs with
+     * retention on, accumulates aggregated days, then turns it off to stop losing
+     * detail. `alert_rollup_daily` is never pruned and the fold-in is not gated on
+     * the setting, so those bars keep being plotted — and a boundary read from
+     * `RETENTION_ENABLED` went silent above them.
+     *
+     * Worse than having no marker at all, because the user guide now tells the
+     * reader that the line is what separates aggregated bars from quiet ones, so
+     * its absence reads as "all of this is detailed".
+     */
+    await seedAlert('old-one', new Date(Date.now() - (RETENTION_DAYS + 5) * DAY_MS));
+    await retention.sweepRetention();
+    assert.ok(await rolledUpDayCount(), 'the fixture must actually have been rolled up');
+
+    /*
+     * Imported here rather than at the top of the file. `env.ts` reads
+     * `process.env` when it is first loaded, and a static import is hoisted above
+     * the assignments at the top of this file — so the retention days this suite
+     * depends on would not be in force yet. Every other module here is imported
+     * dynamically for the same reason.
+     */
+    const { env } = await import('../config/env.js');
+
+    const wasEnabled = env.retention.enabled;
+    try {
+      // The setting an operator would change, with the aggregated rows still there.
+      (env.retention as { enabled: boolean }).enabled = false;
+      const dashboard = await alertService.dashboardData({ days: 365, bucket: 'week' });
+      assert.ok(
+        dashboard.rolledUpBefore,
+        'the aggregated bars are still plotted, so they still need the line above them',
+      );
+    } finally {
+      (env.retention as { enabled: boolean }).enabled = wasEnabled;
+    }
   });
 
   it('says nothing when the window and the retention boundary coincide', async () => {

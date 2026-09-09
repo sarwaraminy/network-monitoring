@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createFormatters } from '../i18n/format';
 import { bucketLabel } from './SeverityTrendChart';
 
 /**
@@ -119,6 +120,38 @@ describe('week and month buckets', () => {
     expect(label).toMatch(/Sep/i);
     expect(label).toContain('2026');
     expect(label).not.toMatch(/\b1\b/);
+  });
+
+  it('names a Dari month band by the calendar it was cut in', () => {
+    /*
+     * `fa-AF` selects the Solar Hijri calendar, deliberately, and for an hour, a
+     * day or a week's starting day that is exact — those labels name an instant or
+     * a day, which every calendar agrees on.
+     *
+     * A month label is a claim about the band's extent, and the bucket is
+     * `date_trunc('month')`. Labelled Solar Hijri, the 1–31 January band reads
+     * `جدی ۱۴۰۴` — roughly 22 December to 20 January — so eleven of its days fall
+     * outside the month it is named after, and the next bar's `دلو` asserts a
+     * boundary the series does not have.
+     */
+    process.env.TZ = 'UTC';
+    const label = bucketLabel('month', '2026-01-01T00:00:00.000Z', createFormatters('fa-AF'));
+
+    // The Gregorian year the band belongs to, in Dari digits.
+    expect(label).toContain('۲۰۲۶');
+    // Not the Solar Hijri year, which would name a band that starts in December.
+    expect(label).not.toContain('۱۴۰۴');
+  });
+
+  it('leaves the other Dari units on the calendar the language reads', () => {
+    // Only the month label departs. A day is a day in any calendar, so there is
+    // nothing to correct and the reader keeps the calendar they expect: 1 January
+    // 2026 is 11 Jadi, and the label says so.
+    process.env.TZ = 'UTC';
+    const day = bucketLabel('day', '2026-01-01T00:00:00.000Z', createFormatters('fa-AF'));
+
+    expect(day).toContain('جدی');
+    expect(day).not.toMatch(/جنو|Jan/);
   });
 
   it('keeps a month label stable across timezones', () => {
