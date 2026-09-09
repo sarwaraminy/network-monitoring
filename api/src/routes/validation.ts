@@ -121,9 +121,11 @@ export const alertListQuerySchema = z.object({
  * whole point of aggregating expiring days instead of deleting them is unobservable.
  * Five years is arbitrary; being strictly greater than the retention default is not.
  *
- * That widening is scoped to day buckets. `bucket` is independent of `days`, and the
- * rollup fold-in in `dashboardData` only ever applies to a daily bucket — an hourly
- * one is served from live rows alone. So `?days=1825&bucket=hour` would otherwise be
+ * That widening is scoped to the buckets that can use it. `bucket` is independent of
+ * `days`, and the rollup fold-in in `dashboardData` applies to every bucket except the
+ * hourly one — a daily total cannot be split into 24 hours without inventing detail
+ * that was deliberately deleted, so an hourly window is served from live rows alone.
+ * So `?days=1825&bucket=hour` would otherwise be
  * a pure live-row scan and grouping over five years with nothing aggregated to
  * absorb the cost, five times what the old, single 365-day ceiling ever allowed.
  * `MAX_HOURLY_DAYS` keeps that case at the old ceiling.

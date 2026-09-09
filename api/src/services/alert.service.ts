@@ -506,7 +506,21 @@ export async function dashboardData(options: {
   /** One sensor, or every sensor when absent — the same rule as `listAlerts`. */
   sensor?: string;
 }): Promise<AlertDashboard> {
-  const since = new Date(Date.now() - options.days * 86_400_000);
+  /*
+   * One instant, used for both ends of the window and for the retention cutoff
+   * below.
+   *
+   * They were two `Date.now()` calls, either side of the awaits, and that is not
+   * a tidiness point: when `days` equals `ALERT_RETENTION_DAYS` the two offsets
+   * are nominally identical, so `cutoff > since` collapsed into "did any time
+   * pass while the queries ran" — which it always did. That is the *default*
+   * configuration and one click: retention defaults to 365 days and the period
+   * selector offers exactly 365. A stock install picking "12 months" therefore
+   * drew the boundary marker a few milliseconds inside the window, on the second
+   * bar, while no rolled-up day was in range at all.
+   */
+  const now = Date.now();
+  const since = new Date(now - options.days * 86_400_000);
 
   /*
    * Applied to the rollup as well as to the live rows, and both are needed.
@@ -637,14 +651,20 @@ export async function dashboardData(options: {
    * answer an operator can act on; naming the sweep's actual high-water mark would
    * be more precise about a number nobody sets.
    */
-  const cutoff = new Date(Date.now() - env.retention.alertDays * 86_400_000);
-  const withinWindow = env.retention.enabled && cutoff > since;
+  const cutoff = new Date(now - env.retention.alertDays * 86_400_000);
+  /*
+   * Gated on the same condition the fold-in uses, `options.bucket !== 'hour'`
+   * included. An hourly response is served from live rows alone — the rollup is
+   * never folded down into hours — so advertising a crossover there would point
+   * at a boundary that had no effect on any bar beside it.
+   */
+  const marksACrossover = env.retention.enabled && options.bucket !== 'hour' && cutoff > since;
 
   return {
     ...summary,
     trend,
     bucket: options.bucket,
-    rolledUpBefore: withinWindow ? cutoff.toISOString() : null,
+    rolledUpBefore: marksACrossover ? cutoff.toISOString() : null,
     topSources: sourceRows
       .filter((row): row is typeof row & { sourceIp: string } => row.sourceIp !== null)
       .map((row) => ({

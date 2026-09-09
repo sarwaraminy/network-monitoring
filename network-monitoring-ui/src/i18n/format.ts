@@ -94,10 +94,26 @@ export function createFormatters(locale: Locale): Formatters {
    *
    * Keyed on the serialised options so the signature is unchanged and the common
    * call — no options at all — hits the same entry every time.
+   *
+   * The key includes explicitly-undefined fields, which `JSON.stringify` drops.
+   * That matters because `undefined` is how a caller *removes* an option: the
+   * month bucket asks for `{ year, month, day: undefined }` to unset the base's
+   * `day: 'numeric'`, and stringified that is byte-identical to a plain
+   * `{ year, month }` — a different formatter sharing one cache entry, so
+   * whichever call arrived first would decide the format for both. There is only
+   * one such caller today; a cache whose key cannot distinguish its entries is
+   * not a thing to leave until there are two.
    */
   const days = new Map<string, Intl.DateTimeFormat>();
   const dayFormat = (options?: Intl.DateTimeFormatOptions): Intl.DateTimeFormat => {
-    const key = JSON.stringify(options ?? {});
+    const key = JSON.stringify(
+      Object.entries(options ?? {})
+        .sort(([a], [b]) => a.localeCompare(b))
+        // `String(value)` rather than the value, so `undefined` survives as a key
+        // component instead of being dropped by `JSON.stringify`. Sorted so two
+        // callers writing the same options in a different order share an entry.
+        .map(([name, value]) => [name, String(value)]),
+    );
     let format = days.get(key);
     if (!format) {
       format = new Intl.DateTimeFormat(locale, {

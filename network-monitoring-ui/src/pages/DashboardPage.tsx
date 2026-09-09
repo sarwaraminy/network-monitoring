@@ -44,6 +44,15 @@ import type { AlertKind, TrendBucket } from '../types';
  * that fully means the API telling this page how far back retention actually
  * reaches, which is worth doing if that case shows up in practice.
  */
+const PERIODS = [
+  { value: 1, labelKey: 'period.24h' },
+  { value: 7, labelKey: 'period.7d' },
+  { value: 30, labelKey: 'period.30d' },
+  { value: 90, labelKey: 'period.90d' },
+  { value: 365, labelKey: 'period.12m' },
+  { value: 1825, labelKey: 'period.5y' },
+] as const satisfies readonly { value: number; labelKey: UiMessageKey }[];
+
 /**
  * What each bucket is called, and how its bars are counted.
  *
@@ -66,15 +75,6 @@ const BUCKET_COUNT = {
   week: 'dashboard.weeks_count',
   month: 'dashboard.months_count',
 } as const satisfies Record<TrendBucket, UiMessageKey>;
-
-const PERIODS = [
-  { value: 1, labelKey: 'period.24h' },
-  { value: 7, labelKey: 'period.7d' },
-  { value: 30, labelKey: 'period.30d' },
-  { value: 90, labelKey: 'period.90d' },
-  { value: 365, labelKey: 'period.12m' },
-  { value: 1825, labelKey: 'period.5y' },
-] as const satisfies readonly { value: number; labelKey: UiMessageKey }[];
 
 /**
  * The landing page: what is happening, at a glance.

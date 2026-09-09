@@ -27,10 +27,28 @@ process.env.DEVICE_RETENTION_DAYS = '30';
 const RETENTION_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const database = await openTestDatabase({ id: 'trendbuckets' });
+/*
+ * A session timezone that is NOT UTC, and it is the reason this file exists.
+ *
+ * `date_trunc` on a `timestamptz` truncates in the SESSION's zone, so a missing
+ * `AT TIME ZONE 'UTC'` anywhere in the fold path gives identical answers under a
+ * UTC session and diverging ones everywhere else. Run on UTC — as this suite
+ * first was — it would have stayed green through exactly the regression it was
+ * written to catch. `retention-sql.test.ts` pins a zone for the same reason.
+ *
+ * `+04:30` specifically, so a half-hour offset is in play: a whole-hour zone
+ * hides an hourly-bucket bug that this one exposes.
+ */
+const database = await openTestDatabase({ id: 'trendbuckets', sessionTimeZone: 'Asia/Kabul' });
 
 let alertService: typeof import('./alert.service.js');
 let retention: typeof import('./retention.service.js');
+
+/** Rolled-up rows present, so a fold test cannot pass on live rows alone. */
+async function rolledUpDayCount(): Promise<number> {
+  const { rows } = await database.pool!.query<{ n: string }>('SELECT count(*) AS n FROM alert_rollup_daily');
+  return Number(rows[0]!.n);
+}
 
 async function seedAlert(dedupKey: string, lastSeen: Date, severity = 'medium') {
   await database.pool!.query(
@@ -57,9 +75,18 @@ async function seedAlert(dedupKey: string, lastSeen: Date, severity = 'medium') 
  * folding it was a no-op and the test passed with the fold deleted. It was
  * passing for the wrong reason, which is the failure mode a test exists to not
  * have.
+ *
+ * `EXPIRED_BY` is generous rather than snug, for the third version of the same
+ * mistake. At `cutoff + 3 days` a month whose 1st fell within three days of the
+ * cutoff put both seeds *inside* the retention window, so the sweep left them
+ * alone and the case passed on two live rows — on roughly a tenth of month
+ * starts, silently, testing the live path under the name of the fold. A month is
+ * up to 31 days wide, so the whole of it has to clear the cutoff.
  */
+const EXPIRED_BY = RETENTION_DAYS + 40;
+
 function expiredStartOf(unit: 'week' | 'month'): Date {
-  const at = new Date(Date.now() - (RETENTION_DAYS + 3) * DAY_MS);
+  const at = new Date(Date.now() - EXPIRED_BY * DAY_MS);
   if (unit === 'month') {
     return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
   }
@@ -113,10 +140,7 @@ describe('the trend at a bucket wider than a day', { skip: database.skip }, () =
     await seedAlert('old-one', new Date(monday.getTime() + 2 * DAY_MS));
     await retention.sweepRetention();
 
-    const { rows } = await database.pool!.query<{ n: string }>(
-      'SELECT count(*) AS n FROM alert_rollup_daily',
-    );
-    assert.ok(Number(rows[0]!.n) > 0, 'the fixture must actually have been rolled up');
+    assert.ok(await rolledUpDayCount(), 'the fixture must actually have been rolled up');
 
     /*
      * Inserted AFTER the sweep, which is what keeps it a live row despite being
@@ -141,6 +165,9 @@ describe('the trend at a bucket wider than a day', { skip: database.skip }, () =
     // The 6th and the 8th, so neither seed sits on the month's own key.
     await seedAlert('old-one', new Date(first.getTime() + 5 * DAY_MS));
     await retention.sweepRetention();
+    // The week case asserted this and this one did not, which is what let it pass
+    // on two live rows whenever the calendar put the 6th inside the window.
+    assert.ok(await rolledUpDayCount(), 'the fixture must actually have been rolled up');
     await seedAlert('live-one', new Date(first.getTime() + 7 * DAY_MS));
 
     const monthly = await alertService.dashboardData({ days: 1825, bucket: 'month' });
@@ -186,6 +213,38 @@ describe('the trend at a bucket wider than a day', { skip: database.skip }, () =
     const expected = Date.now() - RETENTION_DAYS * DAY_MS;
     // Within a minute: the boundary is computed from `Date.now()` on each call.
     assert.ok(Math.abs(at - expected) < 60_000, `boundary was ${dashboard.rolledUpBefore}`);
+  });
+
+  it('says nothing when the window and the retention boundary coincide', async () => {
+    /*
+     * The stock configuration, and one click. `ALERT_RETENTION_DAYS` defaults to
+     * 365 and the period selector offers exactly 365, so this is what most
+     * installations see when they pick "12 months".
+     *
+     * `since` and `cutoff` were taken from two different `Date.now()` calls, one
+     * before the queries and one after, so at equal offsets `cutoff > since`
+     * reduced to "did any time pass while the queries ran". It always did. The
+     * marker was drawn on the second bar with no rolled-up day in range — a
+     * boundary at the edge of the axis, which is the exact thing the code beside
+     * it warns must not be done.
+     */
+    const dashboard = await alertService.dashboardData({ days: RETENTION_DAYS, bucket: 'day' });
+    assert.equal(dashboard.rolledUpBefore, null);
+  });
+
+  it('says nothing for an hourly window, which is never folded', async () => {
+    /*
+     * A window that DOES reach past the 30-day cutoff, so only the bucket can
+     * suppress the marker. `days: 2` would have passed on the window alone and
+     * proved nothing.
+     *
+     * The rollup is not folded down into hours — a daily total cannot be split
+     * into 24 without inventing detail that was deleted — so a crossover
+     * advertised here points at a boundary that changed nothing about any bar
+     * beside it.
+     */
+    const dashboard = await alertService.dashboardData({ days: 90, bucket: 'hour' });
+    assert.equal(dashboard.rolledUpBefore, null);
   });
 
   it('says nothing when the whole window is still detailed', async () => {

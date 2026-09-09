@@ -121,3 +121,44 @@ describe('the language switch', () => {
     expect(document.documentElement).toHaveAttribute('lang', 'fa-AF');
   });
 });
+
+/**
+ * The `day` formatter cache, and the one thing its key has to be able to tell
+ * apart.
+ *
+ * `Formatters.day` caches an `Intl.DateTimeFormat` per option set, keyed on the
+ * serialised options. `undefined` is how a caller *removes* a field the base
+ * already sets — the trend chart's month bucket passes `day: undefined` to unset
+ * `day: 'numeric'` — and `JSON.stringify` drops those, so `{ year, month }` and
+ * `{ year, month, day: undefined }` serialised identically. Two different
+ * formatters, one entry, and whichever call arrived first decided the format for
+ * both.
+ */
+describe('the day formatter cache', () => {
+  const format = createFormatters('en');
+  const AT_DAY = '2026-09-01T00:00:00.000Z';
+
+  it('tells an explicitly-unset option from an absent one', () => {
+    const withDay = format.day(AT_DAY, { year: 'numeric', month: 'short' });
+    const withoutDay = format.day(AT_DAY, { year: 'numeric', month: 'short', day: undefined });
+
+    // The base supplies `day: 'numeric'`, so only the second removes it.
+    // Compared whole rather than by substring: "2026" contains digits of its
+    // own, so a regex looking for a day number would be answering a different
+    // question.
+    expect(withDay).toBe('Sep 1, 2026');
+    expect(withoutDay).toBe('Sep 2026');
+  });
+
+  it('does not care what order the options were written in', () => {
+    // Both spellings are the same request, so they should share one entry rather
+    // than build a second formatter that behaves identically.
+    expect(format.day(AT_DAY, { year: 'numeric', month: 'short' })).toBe(
+      format.day(AT_DAY, { month: 'short', year: 'numeric' }),
+    );
+  });
+
+  it('still hits one entry for the common no-options call', () => {
+    expect(format.day(AT_DAY)).toBe(format.day(AT_DAY));
+  });
+});
