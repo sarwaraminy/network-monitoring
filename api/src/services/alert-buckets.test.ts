@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { alerts } from '../db/schema.js';
-import { firstWholeUtcDay, utcTrunc } from './alert-buckets.js';
+import {
+  firstWholeUtcDay,
+  startOfUtcBucket,
+  TREND_BUCKETS,
+  type TrendBucket,
+  trendBucketFor,
+  utcTrunc,
+} from './alert-buckets.js';
 
 /**
  * The dashboard trend reads two tables and plots one series.
@@ -16,7 +23,7 @@ import { firstWholeUtcDay, utcTrunc } from './alert-buckets.js';
  */
 
 const dialect = new PgDialect();
-const compile = (unit: 'hour' | 'day'): string => dialect.sqlToQuery(utcTrunc(unit, alerts.lastSeen)).sql;
+const compile = (unit: TrendBucket): string => dialect.sqlToQuery(utcTrunc(unit, alerts.lastSeen)).sql;
 
 describe('the live bucket expression', () => {
   /*
@@ -131,5 +138,101 @@ describe('the first rollup day of a window', () => {
       if (original === undefined) delete process.env.TZ;
       else process.env.TZ = original;
     }
+  });
+});
+
+/**
+ * How wide a bucket a window gets.
+ *
+ * The thresholds themselves are a judgement about how many bars fit in about
+ * 800px; what is pinned here is that they are monotonic and that the extremes
+ * land where the chart can render them. Five years at a daily bucket is 1,825
+ * bars, which was the state this replaced.
+ */
+describe('choosing the bucket width', () => {
+  it('gives every offered window a readable number of bars', () => {
+    // The six options the dashboard actually offers, and the bar count each
+    // produces. Nothing here should approach four figures.
+    const bars: Record<number, number> = {
+      1: 24,
+      7: 7,
+      30: 30,
+      90: 90,
+      365: 53,
+      1825: 61,
+    };
+    const per: Record<TrendBucket, number> = { hour: 1 / 24, day: 1, week: 7, month: 30.4 };
+
+    for (const [days, expected] of Object.entries(bars)) {
+      const width = per[trendBucketFor(Number(days))];
+      assert.ok(
+        Math.abs(Number(days) / width - expected) < 3,
+        `${days} days gives about ${Math.round(Number(days) / width)} bars, expected about ${expected}`,
+      );
+    }
+  });
+
+  it('never gets finer as the window gets longer', () => {
+    // A window that widened into a *narrower* bucket would be the one arrangement
+    // that is strictly worse than not choosing at all.
+    let previous = 0;
+    for (let days = 1; days <= 2000; days += 1) {
+      const index = TREND_BUCKETS.indexOf(trendBucketFor(days));
+      assert.ok(index >= previous, `${days} days stepped back to ${trendBucketFor(days)}`);
+      previous = index;
+    }
+  });
+
+  it('keeps the hourly bucket to the window the API allows it for', () => {
+    // `alertDashboardQuerySchema` refuses `bucket=hour` beyond MAX_HOURLY_DAYS, so
+    // a default that reached past it would be rejected by the same request that
+    // produced it.
+    assert.equal(trendBucketFor(1), 'hour');
+    assert.equal(trendBucketFor(2), 'hour');
+    assert.equal(trendBucketFor(3), 'day');
+  });
+});
+
+/**
+ * The JavaScript half of the truncation, which has to agree with Postgres.
+ *
+ * Live rows are bucketed by `date_trunc`; rolled-up rows arrive one per DAY and
+ * are folded into the same bucket here. A week that starts on Sunday on one side
+ * and Monday on the other draws every week twice — no error, just a chart with
+ * two interleaved families of points.
+ */
+describe('folding a rolled-up day into its bucket', () => {
+  const at = (iso: string) => new Date(iso);
+
+  it('starts the week on Monday, as date_trunc does', () => {
+    // Sunday is the trap: `getUTCDay()` calls it 0, so a naive subtraction of the
+    // day index moves it FORWARD into the week that has not started yet.
+    assert.equal(startOfUtcBucket('week', at('2026-09-06T00:00:00.000Z')), '2026-08-31T00:00:00.000Z');
+    assert.equal(startOfUtcBucket('week', at('2026-09-07T00:00:00.000Z')), '2026-09-07T00:00:00.000Z');
+    assert.equal(startOfUtcBucket('week', at('2026-09-09T13:45:00.000Z')), '2026-09-07T00:00:00.000Z');
+  });
+
+  it('starts the month on the first', () => {
+    assert.equal(startOfUtcBucket('month', at('2026-09-30T23:59:59.999Z')), '2026-09-01T00:00:00.000Z');
+    assert.equal(startOfUtcBucket('month', at('2026-01-01T00:00:00.000Z')), '2026-01-01T00:00:00.000Z');
+  });
+
+  it('crosses a year boundary without leaving the year behind', () => {
+    // 1 January 2027 is a Friday, so its week began in December.
+    assert.equal(startOfUtcBucket('week', at('2027-01-01T00:00:00.000Z')), '2026-12-28T00:00:00.000Z');
+  });
+
+  it('is idempotent, so a folded key folds to itself', () => {
+    // The merge keys on this string. If folding a bucket start produced a
+    // different start, a bucket could not be added to twice.
+    for (const unit of TREND_BUCKETS) {
+      const once = startOfUtcBucket(unit, at('2026-09-09T13:45:30.500Z'));
+      assert.equal(startOfUtcBucket(unit, new Date(once)), once, unit);
+    }
+  });
+
+  it('discards everything finer than the unit', () => {
+    assert.equal(startOfUtcBucket('hour', at('2026-09-09T13:45:30.500Z')), '2026-09-09T13:00:00.000Z');
+    assert.equal(startOfUtcBucket('day', at('2026-09-09T13:45:30.500Z')), '2026-09-09T00:00:00.000Z');
   });
 });

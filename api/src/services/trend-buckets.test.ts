@@ -1,0 +1,397 @@
+import assert from 'node:assert/strict';
+import { after, before, beforeEach, describe, it } from 'node:test';
+import { openTestDatabase, truncateAll } from '../test/database.js';
+
+/**
+ * The trend at a bucket wider than a day, against real SQL.
+ *
+ * A database test rather than a unit test, because the thing that can go wrong
+ * lives between two sources. Live rows are bucketed by Postgres's `date_trunc`;
+ * rolled-up days arrive one per day out of `alert_rollup_daily` and are folded
+ * into the same bucket by `startOfUtcBucket`. If those two disagree about when a
+ * week begins, nothing throws — the chart just draws every week twice, as two
+ * interleaved families of points, which reads as a network that alternates.
+ *
+ * `alert-buckets.test.ts` pins the two halves separately and cheaply. This is the
+ * one that puts them together.
+ *
+ * Retention is set short so a sweep here actually rolls something up: the whole
+ * question is what happens either side of the cutoff.
+ */
+
+process.env.SENSOR_ID = 'trend-sensor';
+process.env.RETENTION_ENABLED = 'true';
+process.env.ALERT_RETENTION_DAYS = '30';
+process.env.DEVICE_RETENTION_DAYS = '30';
+
+const RETENTION_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/*
+ * A session timezone that is NOT UTC, and it is the reason this file exists.
+ *
+ * `date_trunc` on a `timestamptz` truncates in the SESSION's zone, so a missing
+ * `AT TIME ZONE 'UTC'` anywhere in the fold path gives identical answers under a
+ * UTC session and diverging ones everywhere else. Run on UTC — as this suite
+ * first was — it would have stayed green through exactly the regression it was
+ * written to catch. `retention-sql.test.ts` pins a zone for the same reason.
+ *
+ * `+04:30` specifically, so a half-hour offset is in play: a whole-hour zone
+ * hides an hourly-bucket bug that this one exposes.
+ */
+const database = await openTestDatabase({ id: 'trendbuckets', sessionTimeZone: 'Asia/Kabul' });
+
+let alertService: typeof import('./alert.service.js');
+let retention: typeof import('./retention.service.js');
+
+/** Rolled-up rows present, so a fold test cannot pass on live rows alone. */
+async function rolledUpDayCount(): Promise<number> {
+  const { rows } = await database.pool!.query<{ n: string }>('SELECT count(*) AS n FROM alert_rollup_daily');
+  return Number(rows[0]!.n);
+}
+
+async function seedAlert(dedupKey: string, lastSeen: Date, severity = 'medium') {
+  await database.pool!.query(
+    `INSERT INTO alerts
+       (sensor_id, kind, severity, title, description, dedup_key, source_ip,
+        first_seen, last_seen, occurrences, evidence)
+     VALUES ('trend-sensor', 'port_scan', $1, 'seeded', 'Seeded by trend-buckets.test.ts',
+             $2, '10.0.0.1', $3, $3, 1, '{}'::jsonb)`,
+    [severity, dedupKey, lastSeen],
+  );
+}
+
+/**
+ * The start of a week or month that is well past the cutoff.
+ *
+ * Snapped because the first version of this used `cutoff + 4 days` and let the
+ * fixture straddle a week boundary, so it failed on arithmetic rather than on
+ * behaviour. A fixture that only holds on some days of the week is worse than
+ * none: it fails intermittently and blames the code.
+ *
+ * The seeds below are then placed *inside* the period rather than on this
+ * boundary, and that matters. The second version of this test seeded the
+ * rolled-up day on the Monday itself — which is already the week's key, so
+ * folding it was a no-op and the test passed with the fold deleted. It was
+ * passing for the wrong reason, which is the failure mode a test exists to not
+ * have.
+ *
+ * `EXPIRED_BY` is generous rather than snug, for the third version of the same
+ * mistake. At `cutoff + 3 days` a month whose 1st fell within three days of the
+ * cutoff put both seeds *inside* the retention window, so the sweep left them
+ * alone and the case passed on two live rows — on roughly a tenth of month
+ * starts, silently, testing the live path under the name of the fold. A month is
+ * up to 31 days wide, so the whole of it has to clear the cutoff.
+ */
+const EXPIRED_BY = RETENTION_DAYS + 40;
+
+function expiredStartOf(unit: 'week' | 'month'): Date {
+  const at = new Date(Date.now() - EXPIRED_BY * DAY_MS);
+  if (unit === 'month') {
+    return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
+  }
+  const backToMonday = (at.getUTCDay() + 6) % 7;
+  return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate() - backToMonday));
+}
+
+type Trend = Awaited<ReturnType<typeof alertService.dashboardData>>['trend'];
+
+const findingsIn = (point: Trend[number]) =>
+  point.critical + point.high + point.medium + point.low + point.info;
+
+/** Total findings across every bucket, so a double-count shows as a wrong sum. */
+const totalOf = (trend: Trend) => trend.reduce((sum, point) => sum + findingsIn(point), 0);
+
+/**
+ * How many buckets hold anything.
+ *
+ * The count is what actually tests the fold. A total alone passes whether the two
+ * sources landed in one bucket or two — which is how the first version of the
+ * month case here went on passing with the fold deleted.
+ */
+const occupiedIn = (trend: Trend) => trend.filter((point) => findingsIn(point) > 0).length;
+
+describe('the trend at a bucket wider than a day', { skip: database.skip }, () => {
+  before(async () => {
+    alertService = await import('./alert.service.js');
+    retention = await import('./retention.service.js');
+  });
+
+  beforeEach(async () => {
+    await truncateAll(database.pool!);
+  });
+
+  after(async () => {
+    await database.pool?.end();
+    const { closeDb } = await import('../db/index.js');
+    await closeDb();
+  });
+
+  it('folds rolled-up days and live rows into the same week', async () => {
+    /*
+     * Two findings in one calendar week, on either side of the retention cutoff:
+     * one old enough to be rolled up, one recent enough to still be a row. They
+     * have to land in ONE bucket. Before the fold they could not — the rollup was
+     * only ever merged at a daily bucket.
+     */
+    const monday = expiredStartOf('week');
+    // Wednesday, not Monday: the rolled-up day has to need folding for this to
+    // test the folding.
+    await seedAlert('old-one', new Date(monday.getTime() + 2 * DAY_MS));
+    await retention.sweepRetention();
+
+    assert.ok(await rolledUpDayCount(), 'the fixture must actually have been rolled up');
+
+    /*
+     * Inserted AFTER the sweep, which is what keeps it a live row despite being
+     * older than the cutoff — nothing sweeps again. That is the point: this is one
+     * calendar week holding both a rolled-up day and an un-swept row, which is
+     * exactly the state a real installation is in between sweeps.
+     */
+    await seedAlert('live-one', new Date(monday.getTime() + 4 * DAY_MS));
+
+    const weekly = await alertService.dashboardData({ days: 365, bucket: 'week' });
+
+    assert.equal(totalOf(weekly.trend), 2, 'a finding was dropped or counted twice');
+    assert.equal(
+      occupiedIn(weekly.trend),
+      1,
+      'the rolled-up day and the live row landed in different weeks — the two truncations disagree',
+    );
+  });
+
+  it('folds a month the same way', async () => {
+    const first = expiredStartOf('month');
+    // The 6th and the 8th, so neither seed sits on the month's own key.
+    await seedAlert('old-one', new Date(first.getTime() + 5 * DAY_MS));
+    await retention.sweepRetention();
+    // The week case asserted this and this one did not, which is what let it pass
+    // on two live rows whenever the calendar put the 6th inside the window.
+    assert.ok(await rolledUpDayCount(), 'the fixture must actually have been rolled up');
+    await seedAlert('live-one', new Date(first.getTime() + 7 * DAY_MS));
+
+    const monthly = await alertService.dashboardData({ days: 1825, bucket: 'month' });
+    assert.equal(totalOf(monthly.trend), 2);
+    assert.equal(
+      occupiedIn(monthly.trend),
+      1,
+      'the rolled-up day and the live row landed in different months',
+    );
+  });
+
+  it('plots no bucket that begins before the window did', async () => {
+    /*
+     * `since` is an instant, so the bucket containing it starts earlier — on a
+     * weekly bucket, by up to six days. That bar was plotted: keyed before the
+     * window began, and missing the rolled-up days from the part of its own week
+     * that fell outside the filter, while rendering as a complete week.
+     *
+     * `firstWholeUtcDay` makes exactly this argument for the daily case and
+     * chooses a missing bar over a short one. This is the same rule at every unit.
+     *
+     * Seeded just INSIDE the window rather than spread across it, and that is the
+     * whole fixture: a finding an hour after `since` passes the live-row filter,
+     * but the bucket it lands in began before `since`. Data anywhere else in the
+     * window produces no leading bucket at all, so the case would pass against the
+     * defect — which is what the first version of it did.
+     */
+    /*
+     * Week and month only, and the exclusion of `day` is the point rather than an
+     * omission. The rule exists for a bar that looks whole while missing rolled-up
+     * days, which needs a bucket WIDER than `firstWholeUtcDay`'s day-granular
+     * rounding. At a daily bucket the rounding is exactly the bucket width, so the
+     * leading bar can never hold a rolled-up row — dropping it would only delete
+     * live findings inside the window, which is what the hourly case below shows.
+     */
+    for (const bucket of ['week', 'month'] as const) {
+      const days = bucket === 'month' ? 365 : 30;
+      const windowStart = Date.now() - days * DAY_MS;
+      await database.pool!.query('TRUNCATE alerts');
+      await seedAlert(`edge-${bucket}`, new Date(windowStart + 60 * 60 * 1000));
+
+      const dashboard = await alertService.dashboardData({ days, bucket });
+
+      /*
+       * Dropped with its bucket, and that is the trade rather than a side effect.
+       * The finding is real and inside the window; the bucket holding it is not
+       * wholly inside, and a bar that renders as a complete week while missing
+       * most of one is the worse of the two answers. `firstWholeUtcDay` makes the
+       * same choice for a day and says so.
+       */
+      assert.equal(totalOf(dashboard.trend), 0, `${bucket}: a partial leading bucket was plotted`);
+
+      for (const point of dashboard.trend) {
+        assert.ok(
+          new Date(point.bucket).getTime() >= windowStart,
+          `${bucket}: plotted ${point.bucket}, which starts before the window did`,
+        );
+      }
+    }
+  });
+
+  it('keeps the leading day, where the rounding is already exactly one bucket wide', async () => {
+    /*
+     * `firstWholeUtcDay` rounds the rollup filter up to a whole day, so the day
+     * bucket containing `since` is always earlier than the first rolled-up day and
+     * holds live rows alone. Dropping it deletes findings that are genuinely in
+     * the window: on the default 7-day view, up to a day of them.
+     */
+    await seedAlert('early-in-the-window', new Date(Date.now() - (7 * 24 - 2) * 60 * 60 * 1000));
+
+    const daily = await alertService.dashboardData({ days: 7, bucket: 'day' });
+    assert.equal(totalOf(daily.trend), 1, 'the leading day was dropped with nothing to justify it');
+  });
+
+  it('keeps a finding the hourly window can still show, since nothing is folded there', async () => {
+    /*
+     * The whole-bucket rule is about a bar that renders as complete while missing
+     * rolled-up days. An hourly response never folds the rollup in, so there is no
+     * such bar — and applying the filter there only deleted live findings that are
+     * genuinely inside the window.
+     *
+     * 23h50m old, inside a 24h window: the chart said "No findings in this period"
+     * while the alerts list for the same window showed it.
+     */
+    await seedAlert('nearly-a-day-old', new Date(Date.now() - (24 * 60 - 10) * 60 * 1000));
+
+    const hourly = await alertService.dashboardData({ days: 1, bucket: 'hour' });
+    assert.equal(totalOf(hourly.trend), 1, 'the leading hour was dropped with nothing to justify it');
+  });
+
+  it('keeps the trailing bucket, which is in progress rather than truncated', async () => {
+    // The current period is genuinely unfinished; that is a property of now, not
+    // an artefact of the window. Dropping it would hide today's findings.
+    await seedAlert('today', new Date());
+
+    const dashboard = await alertService.dashboardData({ days: 30, bucket: 'day' });
+    assert.equal(totalOf(dashboard.trend), 1, 'the current bucket was dropped with the leading one');
+  });
+
+  it('reports the bucket it used, so the client does not have to guess', async () => {
+    await seedAlert('one', new Date());
+
+    // The route picks this from the window; the response says which was picked.
+    assert.equal((await alertService.dashboardData({ days: 365, bucket: 'week' })).bucket, 'week');
+    assert.equal((await alertService.dashboardData({ days: 1, bucket: 'hour' })).bucket, 'hour');
+  });
+
+  it('leaves the hourly bucket served from live rows alone', async () => {
+    /*
+     * The one bucket the rollup must NOT be folded into. A daily total cannot be
+     * split into 24 hours without inventing detail that was deliberately deleted,
+     * so an hourly window answers from `alerts` and stops there.
+     */
+    const expired = new Date(Date.now() - (RETENTION_DAYS + 3) * DAY_MS);
+    await seedAlert('old-one', expired);
+    await retention.sweepRetention();
+
+    const hourly = await alertService.dashboardData({ days: 2, bucket: 'hour' });
+    assert.equal(totalOf(hourly.trend), 0, 'a rolled-up day was spread across hours');
+  });
+  /*
+   * Nested rather than a second top-level `describe`, because the teardown above
+   * closes the pool at the end of its own suite — a sibling would run against a
+   * closed database and fail on that rather than on anything it asserts.
+   */
+  it('marks where the aggregated days end and the rows begin', async () => {
+    /*
+     * Read from the rollup rather than from `ALERT_RETENTION_DAYS`. The boundary
+     * is the day after the newest aggregated day, which is a fact about this
+     * response — the setting is a fact about the sweep's schedule, and the two
+     * come apart (see the next case).
+     */
+    const aggregated = new Date(Date.now() - (RETENTION_DAYS + 5) * DAY_MS);
+    await seedAlert('old-one', aggregated);
+    await retention.sweepRetention();
+    assert.ok(await rolledUpDayCount(), 'the fixture must actually have been rolled up');
+
+    const dashboard = await alertService.dashboardData({ days: 365, bucket: 'week' });
+
+    assert.ok(dashboard.rolledUpBefore, 'a window holding aggregated days has a boundary');
+    const day = aggregated.toISOString().slice(0, 10);
+    const expected = new Date(`${day}T00:00:00.000Z`).getTime() + DAY_MS;
+    assert.equal(
+      new Date(dashboard.rolledUpBefore as string).getTime(),
+      expected,
+      'the boundary is the day after the newest aggregated day',
+    );
+  });
+
+  it('keeps marking it after retention is switched off', async () => {
+    /*
+     * The case a config-derived boundary got wrong. An install runs with
+     * retention on, accumulates aggregated days, then turns it off to stop losing
+     * detail. `alert_rollup_daily` is never pruned and the fold-in is not gated on
+     * the setting, so those bars keep being plotted — and a boundary read from
+     * `RETENTION_ENABLED` went silent above them.
+     *
+     * Worse than having no marker at all, because the user guide now tells the
+     * reader that the line is what separates aggregated bars from quiet ones, so
+     * its absence reads as "all of this is detailed".
+     */
+    await seedAlert('old-one', new Date(Date.now() - (RETENTION_DAYS + 5) * DAY_MS));
+    await retention.sweepRetention();
+    assert.ok(await rolledUpDayCount(), 'the fixture must actually have been rolled up');
+
+    /*
+     * Imported here rather than at the top of the file. `env.ts` reads
+     * `process.env` when it is first loaded, and a static import is hoisted above
+     * the assignments at the top of this file — so the retention days this suite
+     * depends on would not be in force yet. Every other module here is imported
+     * dynamically for the same reason.
+     */
+    const { env } = await import('../config/env.js');
+
+    const wasEnabled = env.retention.enabled;
+    try {
+      // The setting an operator would change, with the aggregated rows still there.
+      (env.retention as { enabled: boolean }).enabled = false;
+      const dashboard = await alertService.dashboardData({ days: 365, bucket: 'week' });
+      assert.ok(
+        dashboard.rolledUpBefore,
+        'the aggregated bars are still plotted, so they still need the line above them',
+      );
+    } finally {
+      (env.retention as { enabled: boolean }).enabled = wasEnabled;
+    }
+  });
+
+  it('says nothing when the window and the retention boundary coincide', async () => {
+    /*
+     * The stock configuration, and one click. `ALERT_RETENTION_DAYS` defaults to
+     * 365 and the period selector offers exactly 365, so this is what most
+     * installations see when they pick "12 months".
+     *
+     * `since` and `cutoff` were taken from two different `Date.now()` calls, one
+     * before the queries and one after, so at equal offsets `cutoff > since`
+     * reduced to "did any time pass while the queries ran". It always did. The
+     * marker was drawn on the second bar with no rolled-up day in range — a
+     * boundary at the edge of the axis, which is the exact thing the code beside
+     * it warns must not be done.
+     */
+    const dashboard = await alertService.dashboardData({ days: RETENTION_DAYS, bucket: 'day' });
+    assert.equal(dashboard.rolledUpBefore, null);
+  });
+
+  it('says nothing for an hourly window, which is never folded', async () => {
+    /*
+     * A window that DOES reach past the 30-day cutoff, so only the bucket can
+     * suppress the marker. `days: 2` would have passed on the window alone and
+     * proved nothing.
+     *
+     * The rollup is not folded down into hours — a daily total cannot be split
+     * into 24 without inventing detail that was deleted — so a crossover
+     * advertised here points at a boundary that changed nothing about any bar
+     * beside it.
+     */
+    const dashboard = await alertService.dashboardData({ days: 90, bucket: 'hour' });
+    assert.equal(dashboard.rolledUpBefore, null);
+  });
+
+  it('says nothing when the whole window is still detailed', async () => {
+    // Seven days against a thirty-day retention: everything plotted is a row, so a
+    // marker would be pointing off the left edge of the axis at nothing.
+    const dashboard = await alertService.dashboardData({ days: 7, bucket: 'day' });
+    assert.equal(dashboard.rolledUpBefore, null);
+  });
+});

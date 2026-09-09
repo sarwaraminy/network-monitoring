@@ -11,6 +11,7 @@ import {
   summarizeAlerts,
   unacknowledgeAlert,
 } from '../services/alert.service.js';
+import { trendBucketFor } from '../services/alert-buckets.js';
 import { actorOf } from '../services/audit.service.js';
 import { forgetDevice, listKnownDevices } from '../services/device.service.js';
 import {
@@ -95,8 +96,9 @@ alertsRouter.get(
       });
     }
     const { days, sensor } = parsed.data;
-    // Hourly buckets are only readable over a short window.
-    const bucket = parsed.data.bucket ?? (days <= 2 ? 'hour' : 'day');
+    // `trendBucketFor` picks the width from the window; see it for the bar-count
+    // reasoning. An explicit `?bucket=` still wins, for a caller that wants one.
+    const bucket = parsed.data.bucket ?? trendBucketFor(days);
     res.json(await dashboardData({ days, bucket, ...(sensor ? { sensor } : {}) }));
   }),
 );

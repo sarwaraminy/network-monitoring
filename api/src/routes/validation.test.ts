@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { env } from '../config/env.js';
 import { HttpError } from '../middleware/error-handler.js';
+import { TREND_BUCKETS } from '../services/alert-buckets.js';
 import {
   alertDashboardQuerySchema,
   alertListQuerySchema,
@@ -148,30 +149,44 @@ describe('dashboard query', () => {
     assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '0' })).success, false);
   });
 
-  it('accepts only hour or day as a bucket', () => {
+  it('accepts only the four date_trunc units, and nothing else', () => {
     // This value is inlined into date_trunc() via sql.raw, so the closed set is
-    // load-bearing rather than cosmetic.
-    assert.equal(alertDashboardQuerySchema.parse(q({ bucket: 'hour' })).bucket, 'hour');
-    assert.equal(alertDashboardQuerySchema.parse(q({ bucket: 'day' })).bucket, 'day');
-    assert.equal(alertDashboardQuerySchema.safeParse(q({ bucket: 'week' })).success, false);
+    // load-bearing rather than cosmetic. Read from TREND_BUCKETS rather than
+    // written out again, so widening the set cannot leave this asserting the old
+    // one — which is how this test earned its keep when `week` and `month` were
+    // added.
+    for (const bucket of TREND_BUCKETS) {
+      assert.equal(alertDashboardQuerySchema.parse(q({ bucket })).bucket, bucket);
+    }
+
+    // A real date_trunc unit that this chart has no use for is still refused: the
+    // set is what the renderer can label, not what Postgres will accept.
+    assert.equal(alertDashboardQuerySchema.safeParse(q({ bucket: 'century' })).success, false);
+    assert.equal(alertDashboardQuerySchema.safeParse(q({ bucket: 'minute' })).success, false);
 
     const injection = `day'); DROP TABLE alerts;--`;
     assert.equal(alertDashboardQuerySchema.safeParse(q({ bucket: injection })).success, false);
   });
 
-  it('keeps hourly windows at the old ceiling, since the wider one only pays for itself on day buckets', () => {
+  it('keeps hourly windows at the old ceiling, since it is the one bucket the rollup cannot help', () => {
     /*
-     * The 1825-day ceiling above exists so a *daily* trend can reach the rollup.
-     * `dashboardData` only folds the rollup into day buckets — an hourly one is
-     * always live rows alone — so an hourly request at the wide ceiling would be
+     * The 1825-day ceiling above exists so a trend can reach the rollup.
+     * `dashboardData` folds it into every bucket except the hourly one — a daily
+     * total cannot be split into 24 hours without inventing detail that was
+     * deliberately deleted — so an hourly request at the wide ceiling would be a
      * pure live-row scan and grouping over five years, five times what the old,
      * single 365-day ceiling ever allowed.
+     *
+     * Weekly and monthly are not capped for the same reason they are useful: they
+     * are what the rollup absorbs.
      */
     assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '365', bucket: 'hour' })).success, true);
     assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '366', bucket: 'hour' })).success, false);
-    // The same window is fine for a day bucket, and for no bucket at all (the
-    // route picks 'day' itself once days > 2).
-    assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '1825', bucket: 'day' })).success, true);
+    // The same window is fine for every bucket that folds the rollup in, and for
+    // no bucket at all — the route picks one from the window itself.
+    for (const bucket of ['day', 'week', 'month'] as const) {
+      assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '1825', bucket })).success, true, bucket);
+    }
     assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '1825' })).success, true);
   });
 });

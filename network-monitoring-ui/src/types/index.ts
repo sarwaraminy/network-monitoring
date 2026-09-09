@@ -114,8 +114,24 @@ export interface AlertTrendPoint {
   info: number;
 }
 
+/** The units the trend can be bucketed into; mirrors `TREND_BUCKETS` in the API. */
+export type TrendBucket = 'hour' | 'day' | 'week' | 'month';
+
 export interface AlertDashboard extends AlertSummary {
   trend: AlertTrendPoint[];
+  /**
+   * The unit `trend` is bucketed in, chosen by the API from the window.
+   *
+   * Read rather than recomputed. This page used to derive `days <= 2 ? 'hour' :
+   * 'day'` for its axis labels while the route derived the same expression for the
+   * query — one rule in two places, which held only while there were two units.
+   */
+  bucket: TrendBucket;
+  /**
+   * Where detail ends and the daily rollup begins, or `null` when the window does
+   * not reach that far back and there is nothing to mark.
+   */
+  rolledUpBefore: string | null;
   topSources: Array<{ sourceIp: string; count: number; occurrences: number }>;
 }
 
