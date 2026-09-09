@@ -9,6 +9,7 @@ import {
   type AdhocSettings,
   adhocEnvironmentSource,
   effectiveAdhocSettings,
+  invalidAdhocEnvironmentVariables,
   resolveAdhocSettings,
   type StoredAdhocSettings,
 } from './adhoc-settings.js';
@@ -80,6 +81,21 @@ export async function loadAdhocSettings(): Promise<AdhocSettings> {
   }
 
   settings = effectiveAdhocSettings(resolution);
+
+  /*
+   * Logged after the resolve, so it reports what was actually ignored rather
+   * than what merely looked wrong. Not fatal, for the reason `parseFieldValue`
+   * gives — but not silent either, which is the half that was missing. Same
+   * shape as the delivery warning in `notify/settings.service.ts`.
+   */
+  const invalid = invalidAdhocEnvironmentVariables(adhocEnvironmentSource());
+  if (invalid.length > 0) {
+    log.warn(
+      { variables: invalid },
+      'These environment variables do not parse and are being ignored; using the stored or default value instead',
+    );
+  }
+
   return settings;
 }
 
@@ -141,10 +157,13 @@ export function changedAdhocFields(
  * **Nothing is written when nothing changed.** Every field of the patch schema
  * is optional, so `PUT {}` parses — and without a diff it bumped `updated_at`,
  * overwrote `updated_by` with whoever sent it, and appended `{changed: {}}` to a
- * table that is append-only by trigger and outside retention's reach. Skipping
- * the write as well as the audit goes a step further than the delivery path,
- * deliberately: a no-op save should not reattribute the last real change to
- * somebody who pressed Save without editing anything.
+ * table that is append-only by trigger and outside retention's reach. A no-op
+ * save must not reattribute the last real change to somebody who pressed Save
+ * without editing anything.
+ *
+ * This used to note that it went a step further than the delivery path, which
+ * skipped only the audit entry and still ran the upsert. That was the gap rather
+ * than the difference, and `saveDeliverySettings` closes it the same way now.
  */
 export async function saveAdhocSettings(
   patch: Partial<NewAdhocSettingsRow>,
@@ -219,6 +238,19 @@ export async function seedAdhocSettingsFromEnvironment(): Promise<AdhocField[]> 
     );
   }
 
-  await loadAdhocSettings();
+  /*
+   * The load is deliberately NOT done here.
+   *
+   * It used to be, and `index.ts` now calls it separately for a reason that
+   * docblock spells out: a transient failure anywhere in the loop above rejected
+   * this whole function, so the load never ran and the process held
+   * environment-and-defaults for its lifetime. With both, the boot read the row
+   * twice — and re-emitted the invalid-variable warning with it, so a single
+   * mistyped `ADHOC_TIMEOUT_MS` printed two identical lines, which reads as two
+   * different variables being wrong.
+   *
+   * `seedFromEnvironment` on the delivery side ends the same way, and that is
+   * what `index.ts` means when it says the two paths agree.
+   */
   return seeded;
 }

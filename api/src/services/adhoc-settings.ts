@@ -316,3 +316,43 @@ export function adhocPinnedConflicts(resolution: AdhocResolution, patch: StoredA
 export function adhocEnvironmentSource(): Record<string, string | undefined> {
   return process.env;
 }
+
+/**
+ * `ADHOC_*` variables that are set and do not parse.
+ *
+ * `resolveAdhocSettings` treats a rejection as "this layer has no opinion" and
+ * falls through to the stored value or the default, deliberately — the same
+ * choice `parseFieldValue` documents on the delivery side. Deliberately not an
+ * error is not the same as invisible, and the delivery path already says so:
+ * `invalidEnvironmentVariables` exists there precisely so a typo leaves a trace.
+ * This side had no equivalent.
+ *
+ * These are the fields where silence costs most: an operator who sets
+ * `ADHOC_AUDIT` or `ADHOC_ENABLED` has said something specific about what this
+ * console may do, and a value that does not parse gets them the default instead
+ * with nothing anywhere mentioning it.
+ *
+ * The case that prompted this — `ADHOC_AUDIT=OFF` falling through because the
+ * enum is lower-case — no longer applies: `parseFieldValue` lowercases enums,
+ * and the comment there records that fix. It was found on the seventh review
+ * pass of the PR that introduced it, by reading, which is the argument for the
+ * warning rather than against it. `ADHOC_TIMEOUT_MS=soon`, `ADHOC_MAX_ROWS=0`
+ * and any near-miss boolean still land here, and nothing else would say so.
+ *
+ * The variable name is reported rather than the field, because that is what an
+ * operator edits.
+ */
+export function invalidAdhocEnvironmentVariables(
+  environmentSource: Record<string, string | undefined>,
+): string[] {
+  const invalid: string[] = [];
+
+  for (const field of Object.keys(ADHOC_FIELDS) as AdhocField[]) {
+    const spec = ADHOC_FIELDS[field];
+    const raw = environmentSource[spec.env];
+    if (raw === undefined || raw.trim() === '') continue;
+    if (parseFieldValue(field, raw) === undefined) invalid.push(spec.env);
+  }
+
+  return invalid;
+}

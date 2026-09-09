@@ -288,8 +288,6 @@ export async function saveDeliverySettings(
   patch: Partial<NewDeliverySettingsRow>,
   updatedBy: Actor,
 ): Promise<DeliverySettings> {
-  const values = { ...patch, updatedAt: new Date(), updatedBy: updatedBy.name.slice(0, 200) };
-
   await db.transaction(async (tx) => {
     /*
      * Locked before the upsert, so the comparison below is against the row this
@@ -306,13 +304,9 @@ export async function saveDeliverySettings(
       .limit(1)
       .for('update');
 
-    await tx
-      .insert(deliverySettings)
-      .values({ id: ROW_ID, ...values })
-      .onConflictDoUpdate({ target: deliverySettings.id, set: values });
-
     /*
-     * Only when a field actually moved.
+     * Only when a field actually moved — and that now governs the WRITE, not
+     * just the audit entry.
      *
      * Every field of the patch schema is optional, so `PUT /api/notify/settings`
      * with `{}` parses and would otherwise append "Changed where findings are
@@ -326,16 +320,30 @@ export async function saveDeliverySettings(
      * has a non-empty patch and nothing that actually changed. `changedFields`
      * diffs against `current` the same way `ruleChanges` does for a suppression
      * rule, and only those fields, not the whole patch, go into the audit entry.
+     *
+     * The write used to run anyway, guarded only around the audit entry: a form
+     * re-saved with nothing edited rewrote `updated_at` and overwrote
+     * `updated_by` with whoever pressed Save, reattributing the last real change
+     * to somebody who did not make it. `saveAdhocSettings` had already skipped
+     * the write for this reason and its docblock named this path as the gap.
      */
     const changed = changedFields(current, patch);
-    if (Object.keys(changed).length > 0) {
-      await recordAudit(tx, {
-        actor: updatedBy.name,
-        actorId: updatedBy.id,
-        action: 'delivery_settings.update',
-        detail: settingsAuditDetail(changed),
-      });
-    }
+    if (Object.keys(changed).length === 0) return;
+
+    // Only the fields that moved. Unchanged ones already hold these values, so
+    // writing them back is the same row and a noisier statement.
+    const values = { ...changed, updatedAt: new Date(), updatedBy: updatedBy.name.slice(0, 200) };
+    await tx
+      .insert(deliverySettings)
+      .values({ id: ROW_ID, ...values })
+      .onConflictDoUpdate({ target: deliverySettings.id, set: values });
+
+    await recordAudit(tx, {
+      actor: updatedBy.name,
+      actorId: updatedBy.id,
+      action: 'delivery_settings.update',
+      detail: settingsAuditDetail(changed),
+    });
   });
 
   return loadDeliverySettings();

@@ -6,6 +6,7 @@ import {
   adhocPinnedFields,
   auditableAdhocPatch,
   effectiveAdhocSettings,
+  invalidAdhocEnvironmentVariables,
   isAdhocSecretField,
   redactAdhocForApi,
   resolveAdhocSettings,
@@ -249,5 +250,62 @@ describe('the password', () => {
       '  pad  ',
     );
     assert.equal(effectiveAdhocSettings(resolveAdhocSettings({}, { dbPassword: '   ' })).dbPassword, '');
+  });
+});
+
+/**
+ * A variable that is set and does not parse.
+ *
+ * `resolveAdhocSettings` treats it as "this layer has no opinion" and falls
+ * through to the stored value or the default, deliberately — but the delivery
+ * path logs the same case at boot and this one did not, so a typo took effect as
+ * silence.
+ *
+ * Note what is NOT here: `ADHOC_AUDIT=OFF`, which the roadmap named as the
+ * motivating example. It parses now — `parseFieldValue` lowercases enums, and
+ * the comment there records that fix. The warning is still worth having for
+ * everything below; the example that prompted it had already been dealt with.
+ */
+describe('environment variables that do not parse', () => {
+  it('reports the variable, not the field, because that is what gets edited', () => {
+    assert.deepEqual(invalidAdhocEnvironmentVariables({ ADHOC_TIMEOUT_MS: 'soon' }), ['ADHOC_TIMEOUT_MS']);
+  });
+
+  it('catches a number outside the range the field allows', () => {
+    // Parseable as an integer and still rejected, which is the case a check on
+    // the shape of the value rather than on its meaning would miss.
+    assert.deepEqual(invalidAdhocEnvironmentVariables({ ADHOC_MAX_ROWS: '0' }), ['ADHOC_MAX_ROWS']);
+  });
+
+  it('catches a boolean that is nearly a word it accepts', () => {
+    // `yes` is accepted; `yes please` is not, and the near-miss is the shape a
+    // typo actually takes.
+    assert.deepEqual(invalidAdhocEnvironmentVariables({ ADHOC_ENABLED: 'yes please' }), ['ADHOC_ENABLED']);
+  });
+
+  it('says nothing about a variable that is unset or blank', () => {
+    // Blank means unset here, deliberately, so a commented-out line in a `.env`
+    // must not be reported as a mistake.
+    assert.deepEqual(invalidAdhocEnvironmentVariables({}), []);
+    assert.deepEqual(invalidAdhocEnvironmentVariables({ ADHOC_AUDIT: '', ADHOC_ENABLED: '  ' }), []);
+  });
+
+  it('says nothing about values that do parse, whatever their case', () => {
+    assert.deepEqual(
+      invalidAdhocEnvironmentVariables({
+        ADHOC_ENABLED: 'TRUE',
+        ADHOC_AUDIT: 'OFF',
+        ADHOC_MAX_ROWS: '500',
+        ADHOC_DB_PASSWORD: 'anything at all',
+      }),
+      [],
+    );
+  });
+
+  it('lists every bad one rather than stopping at the first', () => {
+    assert.deepEqual(invalidAdhocEnvironmentVariables({ ADHOC_ENABLED: 'maybe', ADHOC_AUDIT: 'sometimes' }), [
+      'ADHOC_ENABLED',
+      'ADHOC_AUDIT',
+    ]);
   });
 });
