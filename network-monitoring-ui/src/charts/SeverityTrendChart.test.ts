@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createFormatters } from '../i18n/format';
-import { bucketLabel } from './SeverityTrendChart';
+import type { AlertTrendPoint } from '../types';
+import { boundaryBandIndex, bucketLabel } from './SeverityTrendChart';
 
 /**
  * Axis labels, and the timezone they are read in.
@@ -164,5 +165,77 @@ describe('week and month buckets', () => {
 
     expect(west).toBe(east);
     expect(west).toMatch(/Sep/i);
+  });
+});
+
+/**
+ * Which band the retention marker lands on.
+ *
+ * Pure, because a rendered reference line is positioned by an SVG `x` that a DOM
+ * test cannot read back: the component test can say a marker is shown, and only
+ * this can say which bar it is on. Both bugs in this search were "wrong bar"
+ * rather than "no marker", and the first attempt at a gap test asserted the axis
+ * label existed — which was true either way.
+ */
+describe('which band the retention boundary falls in', () => {
+  const bars = (...iso: string[]): AlertTrendPoint[] =>
+    iso.map((bucket) => ({ bucket, critical: 0, high: 1, medium: 0, low: 0, info: 0 }));
+
+  const DAYS = bars(
+    '2026-06-01T00:00:00.000Z',
+    '2026-06-02T00:00:00.000Z',
+    '2026-06-03T00:00:00.000Z',
+    '2026-06-05T00:00:00.000Z',
+    '2026-06-06T00:00:00.000Z',
+  );
+
+  it('skips a gap rather than absorbing it into the previous bar', () => {
+    /*
+     * Jun 4 is quiet, so the API sends no bucket for it. Reading a bucket's end
+     * off the next PLOTTED one made Jun 3 appear to run until Jun 5, so a boundary
+     * at Jun 4 landed on Jun 3 — a bar entirely before the boundary, and so
+     * entirely aggregate, under a label saying detail starts there.
+     */
+    expect(boundaryBandIndex(DAYS, 'day', '2026-06-04T00:00:00.000Z')).toBe(3);
+    expect(DAYS[3]?.bucket).toBe('2026-06-05T00:00:00.000Z');
+  });
+
+  it('picks the bar the boundary falls inside, not the next one', () => {
+    // Mid-way through Jun 2: that bar is part aggregate, part detail, and is where
+    // the transition is.
+    expect(boundaryBandIndex(DAYS, 'day', '2026-06-02T09:00:00.000Z')).toBe(1);
+  });
+
+  it('still finds a boundary inside the newest bar', () => {
+    // The -1 case: no bar starts at or after this, but the last one contains it.
+    expect(boundaryBandIndex(DAYS, 'day', '2026-06-06T18:00:00.000Z')).toBe(4);
+  });
+
+  it('gives the last bar its own width rather than the gap behind it', () => {
+    // January and May plotted: inferring the final width from the gap implied a
+    // four-month bar, so a boundary in June — past the chart — still matched.
+    const months = bars('2026-01-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z');
+    expect(boundaryBandIndex(months, 'month', '2026-06-20T00:00:00.000Z')).toBeNull();
+    // Inside May, which is the last bar, is still found.
+    expect(boundaryBandIndex(months, 'month', '2026-05-20T00:00:00.000Z')).toBe(1);
+  });
+
+  it('says nothing when the boundary is inside the first bar', () => {
+    // Nothing on screen is wholly aggregated, so a line at the left edge would be
+    // read as a boundary further back than it is.
+    expect(boundaryBandIndex(DAYS, 'day', '2026-06-01T06:00:00.000Z')).toBeNull();
+  });
+
+  it('says nothing without a boundary, or without bars', () => {
+    expect(boundaryBandIndex(DAYS, 'day', null)).toBeNull();
+    expect(boundaryBandIndex([], 'day', '2026-06-04T00:00:00.000Z')).toBeNull();
+  });
+
+  it('advances a month by the calendar rather than by 30 days', () => {
+    // February is 28 days. A fixed-width month would put the end of the February
+    // bar in early March and pick the wrong band around the boundary.
+    const months = bars('2026-01-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z');
+    expect(boundaryBandIndex(months, 'month', '2026-02-27T00:00:00.000Z')).toBe(1);
+    expect(boundaryBandIndex(months, 'month', '2026-03-02T00:00:00.000Z')).toBeNull();
   });
 });

@@ -78,6 +78,72 @@ export function bucketLabel(
   return format.day(iso);
 }
 
+/**
+ * Where a bucket ends, from its own start rather than from its neighbour's.
+ *
+ * The first version read the end off the next *plotted* bucket, which assumes
+ * consecutive entries in `trend` are consecutive in time. They are not: the API
+ * emits no row for a period with no findings, so a quiet day is a gap. Daily bars
+ * for Jun 1, 2, 3, 5, 6 with a boundary at Jun 4 put the line on **Jun 3** — a
+ * bar entirely before the boundary, and therefore entirely aggregate, under a
+ * label saying detail begins there.
+ *
+ * The last bucket had no neighbour at all, so its width was inferred from the
+ * previous gap: bars for January and May implied a four-month final bucket, and a
+ * boundary in June — genuinely past the chart — still drew a marker.
+ *
+ * A month is not a fixed number of milliseconds, so it advances the calendar
+ * field rather than adding a constant. That is also why this cannot be a
+ * subtraction between neighbours even when there are no gaps.
+ */
+function endOfBucket(iso: string, bucket: TrendBucket): number {
+  const at = new Date(iso);
+  const year = at.getUTCFullYear();
+  const month = at.getUTCMonth();
+  const date = at.getUTCDate();
+
+  switch (bucket) {
+    case 'hour':
+      return Date.UTC(year, month, date, at.getUTCHours() + 1);
+    case 'day':
+      return Date.UTC(year, month, date + 1);
+    case 'week':
+      return Date.UTC(year, month, date + 7);
+    case 'month':
+      return Date.UTC(year, month + 1, 1);
+  }
+}
+
+/**
+ * Which plotted band the retention boundary falls in, or `null` for none.
+ *
+ * Exported and pure because this is where the bugs have been, and because a
+ * rendered reference line is positioned by an SVG `x` that a DOM test cannot read
+ * back — so "is a marker shown" is testable through the component and "which bar
+ * is it on" is only testable here. The first version of the gap fix had a render
+ * test that passed either way for exactly that reason.
+ *
+ * The boundary is an instant inside a bucket, so the search is for the first
+ * bucket whose END is past it — not the first that starts at or after it, which
+ * misses whenever the boundary falls inside the newest band.
+ *
+ * `null` at index 0: the boundary is inside the first plotted band, so nothing on
+ * screen is wholly aggregated and a line at the left edge would be read as a
+ * boundary further back. `null` for no match: the boundary is past everything
+ * plotted, which is genuinely off-screen.
+ */
+export function boundaryBandIndex(
+  trend: readonly AlertTrendPoint[],
+  bucket: TrendBucket,
+  rolledUpBefore: string | null,
+): number | null {
+  if (!rolledUpBefore || trend.length === 0) return null;
+
+  const at = new Date(rolledUpBefore).getTime();
+  const index = trend.findIndex((point) => endOfBucket(point.bucket, bucket) > at);
+  return index > 0 ? index : null;
+}
+
 interface Props {
   trend: AlertTrendPoint[];
   bucket: TrendBucket;
@@ -154,20 +220,9 @@ export default function SeverityTrendChart({
    * be read as a boundary that is really further back.
    */
   const boundaryBand = useMemo(() => {
-    if (!rolledUpBefore || trend.length === 0) return null;
-    const at = new Date(rolledUpBefore).getTime();
-    const starts = trend.map((point) => new Date(point.bucket).getTime());
-
-    // The last bucket's end is not another bucket's start, so it is taken from the
-    // gap to its predecessor — the buckets are evenly spaced within a unit, except
-    // across a month, where this is approximate and only decides the final band.
-    const lastWidth = starts.length > 1 ? (starts.at(-1) as number) - (starts.at(-2) as number) : 0;
-    const endOf = (index: number) =>
-      index < starts.length - 1 ? (starts[index + 1] as number) : (starts.at(-1) as number) + lastWidth;
-
-    const index = starts.findIndex((_start, at_) => endOf(at_) > at);
-    return index > 0 ? (labels[index] ?? null) : null;
-  }, [rolledUpBefore, trend, labels]);
+    const index = boundaryBandIndex(trend, bucket, rolledUpBefore);
+    return index === null ? null : (labels[index] ?? null);
+  }, [rolledUpBefore, trend, labels, bucket]);
 
   if (trend.length === 0) {
     return <EmptyPlot height={height} message={t('chart.no_findings_period')} />;

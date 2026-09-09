@@ -75,6 +75,58 @@ describe('the retention marker', () => {
     expect(screen.queryByText(MARKER)).not.toBeInTheDocument();
   });
 
+  it('is not fooled by a quiet period leaving a gap in the series', async () => {
+    /*
+     * The API emits no bucket for a period with no findings, so consecutive
+     * entries in `trend` are not consecutive in time. Reading a bucket's end off
+     * the NEXT PLOTTED one therefore absorbs the gap into its predecessor: daily
+     * bars for Jun 1, 2, 3, 5, 6 with the boundary at Jun 4 put the line on Jun 3
+     * — a bar entirely before the boundary, so entirely aggregate, under a label
+     * saying detail begins there.
+     *
+     * Every other fixture in this file is contiguous, which is why the first
+     * version of `endOfBucket` passed.
+     */
+    const withGap: AlertTrendPoint[] = [
+      '2026-06-01T00:00:00.000Z',
+      '2026-06-02T00:00:00.000Z',
+      '2026-06-03T00:00:00.000Z',
+      // Jun 4 is quiet, so the API sends nothing for it.
+      '2026-06-05T00:00:00.000Z',
+      '2026-06-06T00:00:00.000Z',
+    ].map((bucket) => ({ bucket, critical: 0, high: 1, medium: 0, low: 0, info: 0 }));
+
+    renderApp(<SeverityTrendChart trend={withGap} bucket="day" rolledUpBefore="2026-06-04T00:00:00.000Z" />);
+
+    /*
+     * Only that a marker is drawn at all. WHICH bar it lands on is what the gap
+     * broke, and a reference line is positioned by an SVG `x` this cannot read
+     * back — the first version of this case asserted the axis label `Jun 5`
+     * existed, which was true whether or not the line was on it.
+     *
+     * `boundaryBandIndex` is exported for that reason and pinned in
+     * SeverityTrendChart.test.ts, where the band is an index and can be asserted.
+     */
+    expect(await screen.findByText(MARKER)).toBeInTheDocument();
+  });
+
+  it('does not stretch the last bucket to cover a boundary past the chart', async () => {
+    /*
+     * The last bucket has no next neighbour, so its width used to be inferred from
+     * the gap to its predecessor. Bars for January and May implied a four-month
+     * final bucket, and a boundary in June — genuinely past everything plotted —
+     * still satisfied "ends after the boundary" and drew a marker.
+     */
+    const sparse: AlertTrendPoint[] = ['2026-01-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'].map(
+      (bucket) => ({ bucket, critical: 0, high: 1, medium: 0, low: 0, info: 0 }),
+    );
+
+    renderApp(<SeverityTrendChart trend={sparse} bucket="month" rolledUpBefore="2026-06-20T00:00:00.000Z" />);
+
+    expect(await screen.findByText('May 2026')).toBeInTheDocument();
+    expect(screen.queryByText(MARKER)).not.toBeInTheDocument();
+  });
+
   it('says nothing when the API reports no crossover', async () => {
     // `rolledUpBefore: null` — an hourly window, a window that does not reach the
     // cutoff, or an install that has never rolled anything up.

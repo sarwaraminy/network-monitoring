@@ -195,7 +195,15 @@ describe('the trend at a bucket wider than a day', { skip: database.skip }, () =
      * window produces no leading bucket at all, so the case would pass against the
      * defect — which is what the first version of it did.
      */
-    for (const bucket of ['day', 'week', 'month'] as const) {
+    /*
+     * Week and month only, and the exclusion of `day` is the point rather than an
+     * omission. The rule exists for a bar that looks whole while missing rolled-up
+     * days, which needs a bucket WIDER than `firstWholeUtcDay`'s day-granular
+     * rounding. At a daily bucket the rounding is exactly the bucket width, so the
+     * leading bar can never hold a rolled-up row — dropping it would only delete
+     * live findings inside the window, which is what the hourly case below shows.
+     */
+    for (const bucket of ['week', 'month'] as const) {
       const days = bucket === 'month' ? 365 : 30;
       const windowStart = Date.now() - days * DAY_MS;
       await database.pool!.query('TRUNCATE alerts');
@@ -219,6 +227,19 @@ describe('the trend at a bucket wider than a day', { skip: database.skip }, () =
         );
       }
     }
+  });
+
+  it('keeps the leading day, where the rounding is already exactly one bucket wide', async () => {
+    /*
+     * `firstWholeUtcDay` rounds the rollup filter up to a whole day, so the day
+     * bucket containing `since` is always earlier than the first rolled-up day and
+     * holds live rows alone. Dropping it deletes findings that are genuinely in
+     * the window: on the default 7-day view, up to a day of them.
+     */
+    await seedAlert('early-in-the-window', new Date(Date.now() - (7 * 24 - 2) * 60 * 60 * 1000));
+
+    const daily = await alertService.dashboardData({ days: 7, bucket: 'day' });
+    assert.equal(totalOf(daily.trend), 1, 'the leading day was dropped with nothing to justify it');
   });
 
   it('keeps a finding the hourly window can still show, since nothing is folded there', async () => {

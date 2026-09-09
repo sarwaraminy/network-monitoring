@@ -648,16 +648,28 @@ export async function dashboardData(options: {
    * day, week or month is genuinely still in progress, and that is a property of
    * now rather than an artefact of the window arithmetic.
    *
-   * **Not for the hourly bucket**, which is the same gate the fold uses. Every
-   * word above is about a bar that looks whole while missing rolled-up days, and
-   * an hourly response never folds the rollup in — so there is no such bar, and
-   * the filter would only delete live findings that are genuinely inside the
-   * window. At `days=1` a single finding 23h50m old fell in the leading hour and
-   * the chart answered "No findings in this period" while the alerts list showed
-   * it: two views of one window disagreeing, which is the failure this whole
-   * change is about.
+   * **Only where the leading bucket can actually mix the two sources**, which is
+   * week and month.
+   *
+   * Every word above is about a bar that looks whole while missing rolled-up
+   * days, and that requires a leading bucket wider than `firstWholeUtcDay`'s
+   * rounding. It rounds to a whole DAY, so:
+   *
+   *  - **hour** folds no rollup at all, so there is nothing to be missing.
+   *  - **day** rounds at exactly the bucket width, so the leading day bucket is
+   *    always earlier than the first rolled-up day and holds live rows only.
+   *  - **week** and **month** are wider than a day, so the leading bucket can hold
+   *    rolled-up days from the part of itself inside the filter while missing the
+   *    part outside it. That is the bar the rule exists for.
+   *
+   * Dropping it anywhere else deletes live findings genuinely inside the window
+   * for nothing. At `days=1` a finding 23h50m old vanished and the chart answered
+   * "No findings in this period" while the alerts list showed it; at `days=7`
+   * issued at 14:00 UTC, up to ten hours of findings went the same way on the
+   * default view. Two views of one window disagreeing is the failure this whole
+   * change is about, so the rule is scoped to where its own premise holds.
    */
-  const wholeBucketsOnly = options.bucket !== 'hour';
+  const wholeBucketsOnly = options.bucket === 'week' || options.bucket === 'month';
   const trend = [...byBucket.values()]
     .filter((point) => !wholeBucketsOnly || new Date(point.bucket) >= since)
     .sort((a, b) => a.bucket.localeCompare(b.bucket));
