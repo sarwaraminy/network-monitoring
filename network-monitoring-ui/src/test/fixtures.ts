@@ -382,6 +382,8 @@ export const IDLE_STATUS: CaptureStatus = {
   droppedPackets: 0,
   findingCount: 0,
   startedAt: null,
+  // Nothing was left running by a previous process.
+  interrupted: null,
 };
 
 export const RUNNING_STATUS: CaptureStatus = {

@@ -72,6 +72,10 @@ services:
       # nginx container address and they all share one bucket: 20 bad logins
       # from anyone locks everybody out. A direct host install must leave it off.
       TRUST_PROXY: ${TRUST_PROXY:-true}
+      # Resume a capture the last run was interrupted mid-way through. Off by
+      # default: a container that restarts on its own would otherwise begin
+      # capturing traffic with nobody present to have asked for it.
+      CAPTURE_RESUME_ON_START: ${CAPTURE_RESUME_ON_START:-false}
       CAPTURE_BUFFER_SIZE: ${CAPTURE_BUFFER_SIZE:-5000}
       ARP_TRUSTED_MAPPINGS: ${ARP_TRUSTED_MAPPINGS:-}
       # Public registration. Off by default; a self-registered account is always

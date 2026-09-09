@@ -6,6 +6,7 @@ import { getGeolocationData } from '../networkservices/ip-geolocation.service.js
 import { getDomainName } from '../networkservices/ip-info.service.js';
 import { getWhoisData } from '../networkservices/ip-whois.service.js';
 import { withoutPayload } from '../packet/mapping.js';
+import { actorOf } from '../services/audit.service.js';
 import type { PacketCaptureService } from '../services/packet-capture.service.js';
 import type { IpInfoResponse } from '../types/dto.js';
 import { captureStartSchema, ipAddressSchema } from './validation.js';
@@ -67,6 +68,9 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
         snaplength,
         timeout,
         options.requireIpFilter ? ipAddress : null,
+        // Recorded with the session so an interruption notice can say whose
+        // capture was cut short — see V18.
+        actorOf(req.user).name,
       );
       res.json(capture.getStatus());
     }),

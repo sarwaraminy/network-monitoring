@@ -11,7 +11,7 @@ import { loadDeliverySettings, seedFromEnvironment } from './notify/settings.ser
 import { libraryVersion } from './packet/libpcap.js';
 import { startAdhoc, stopAdhoc } from './services/adhoc.service.js';
 import { loadAdhocSettings, seedAdhocSettingsFromEnvironment } from './services/adhoc-settings.service.js';
-import { stopAllCaptures } from './services/packet-capture.registry.js';
+import { restoreInterruptedCaptures, stopAllCaptures } from './services/packet-capture.registry.js';
 import { retentionIdle, startRetention, stopRetention } from './services/retention.service.js';
 import { flushSuppressionCounters, refreshSuppressions } from './services/suppression.service.js';
 
@@ -84,6 +84,17 @@ async function main(): Promise<void> {
   // Unref'd: a documentation-shaped refresh must never be the reason the process
   // will not exit.
   sensorScopeTimer.unref();
+
+  /*
+   * After the suppression rules below would be too late if this resumes a
+   * capture, and before them is where it belongs anyway: the notice is read from
+   * the database, and reporting it does not depend on anything detection does.
+   *
+   * Reached whether or not `CAPTURE_RESUME_ON_START` is set. Off, it records that
+   * a capture was interrupted so the interface can say so instead of showing an
+   * "Idle" that is equally true of a host that never captured anything.
+   */
+  await restoreInterruptedCaptures();
 
   // Before any capture can be started, so the first findings of the process are
   // filtered by the rules an operator already wrote. It fails open — see

@@ -277,6 +277,10 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'از {examined, number} هشدار اخیر، {matched, number} مورد را پنهان می‌کرد — در مجموع {occurrences, number} مشاهده.',
   'suppressions.preview_window': 'بررسی‌شده از {from} تا {to}',
 
+  'capture.resume': 'از سرگیری',
+  'capture.interrupted_note':
+    'ضبط روی {interface} با راه‌اندازی دوبارهٔ سرویس متوقف شد. {by} آن را در {at} آغاز کرده ' +
+    'بود و اکنون در حال اجرا نیست.',
   'capture.unavailable_note':
     'ضبط زنده روی سرور در دسترس نیست: کتابخانهٔ ضبط بسته بارگذاری نشد. Npcap (ویندوز) یا libpcap ' +
     '(لینوکس/مک) را نصب کنید و API را دوباره راه‌اندازی کنید. باقی این صفحه همچنان کار می‌کند.',

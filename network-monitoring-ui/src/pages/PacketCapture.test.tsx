@@ -153,3 +153,74 @@ describe('PacketCaptureWithIP', () => {
     await waitFor(() => expect(search).toContain('ipAddress=10.0.0.5'));
   });
 });
+
+/**
+ * What the screen says after a restart.
+ *
+ * Capture lives in process memory, so a restart leaves it off — and the status
+ * chip reads "Idle", which is equally true of a host that has never captured
+ * anything and one that was capturing until the service restarted at 03:14. For a
+ * monitoring product a gap in monitoring that nothing reports is the worst state
+ * it can be in, because it looks exactly like the good one.
+ *
+ * Driven through the page rather than the component, because the value comes from
+ * the status endpoint and the point is that it reaches the screen.
+ */
+describe('a capture interrupted by a restart', () => {
+  const INTERRUPTED = {
+    ...IDLE_STATUS,
+    interrupted: {
+      interfaceName: 'eth0',
+      filterIp: null,
+      snapshotLength: 65_535,
+      timeoutMs: 1000,
+      startedAt: '2026-09-09T03:14:00.000Z',
+      startedBy: 'alice@example.com',
+    },
+  };
+
+  it('says what was running instead of only "Idle"', async () => {
+    server.use(http.get('*/packets/status', () => HttpResponse.json(INTERRUPTED)));
+    renderApp(<PacketCapture />, { authenticated: true });
+
+    const note = await screen.findByText(/stopped when the service restarted/i, undefined, {
+      timeout: 10_000,
+    });
+    expect(note).toBeInTheDocument();
+    // Which interface and whose capture, so the reader knows what to restart.
+    expect(note).toHaveTextContent('eth0');
+    expect(note).toHaveTextContent('alice@example.com');
+  });
+
+  it('offers to run it again on the settings it was started with', async () => {
+    const started: Array<Record<string, string | null>> = [];
+    server.use(
+      http.get('*/packets/status', () => HttpResponse.json(INTERRUPTED)),
+      http.post('*/packets/start', ({ request }) => {
+        const url = new URL(request.url);
+        started.push(Object.fromEntries(url.searchParams));
+        return HttpResponse.json(RUNNING_STATUS);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<PacketCapture />, { authenticated: true });
+
+    await user.click(await screen.findByRole('button', { name: /resume/i }, { timeout: 10_000 }));
+
+    await waitFor(() => expect(started).toHaveLength(1));
+    // The RECORDED settings, not whatever the form happened to hold. The form is
+    // filled too, but React state is not updated synchronously, so a resume that
+    // read the fields would send the previous values.
+    expect(started[0]).toMatchObject({ interfaceName: 'eth0', snaplength: '65535', timeout: '1000' });
+  });
+
+  it('says nothing when nothing was left running', async () => {
+    // The ordinary case, and the one that must not grow a banner: `IDLE_STATUS`
+    // carries `interrupted: null`.
+    renderApp(<PacketCapture />, { authenticated: true });
+
+    await screen.findByRole('combobox', { name: /network interface/i }, { timeout: 10_000 });
+    expect(screen.queryByText(/stopped when the service restarted/i)).not.toBeInTheDocument();
+  });
+});

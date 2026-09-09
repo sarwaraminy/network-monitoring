@@ -45,6 +45,29 @@
 <p><strong>Capture by IP</strong> is the same screen with an address filter, for when you
 already know which host you are interested in.</p>
 
+<h2>Capture does not survive a restart</h2>
+
+<p>A capture runs until you stop it &mdash; the <span class="ui">Timeout</span> above is how
+long the driver waits before handing over a batch of packets, not how long the capture lasts.
+But it lives only in the running service, so restarting it, rebooting the machine or
+redeploying the container all end the capture.</p>
+
+<p class="note">Flow collection is different: if your switches export NetFlow or IPFIX, that
+comes back on its own when the service starts. Only packet capture needs somebody to start
+it.</p>
+
+<p>The screen tells you when that has happened. Instead of the bare <em>Idle</em> chip &mdash;
+which would look the same as a machine that has never captured anything &mdash; a banner names
+the interface, who started it and when, with a <span class="ui">Resume</span> button that runs
+it again on the same settings. It appears once, on the first visit after the restart.</p>
+
+<p>An installation that would rather not wait to be told can have the service resume by itself,
+by setting <code>CAPTURE_RESUME_ON_START=true</code> where the server is configured. It is off
+by default and there is deliberately no switch for it in the interface: capture reads other
+people&rsquo;s traffic, and starting it with nobody present is a decision for whoever installed
+the server. It only ever resumes a capture somebody explicitly started, on the interface they
+named.</p>
+
 <h2>What you will actually see</h2>
 
 <p>A capture only sees the traffic that reaches the machine it runs on. On an ordinary

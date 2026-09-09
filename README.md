@@ -316,6 +316,33 @@ thread. A 10 MB kernel buffer absorbs bursts between polls.
 If the library cannot be loaded, the API returns `503` from the capture endpoints, the capture
 pages show a banner, and everything else keeps working.
 
+### A capture does not survive a restart
+
+Capture is held in the running process: `startCapture` opens a pcap handle and sets some
+fields, and nothing about it outlives the process. Flow collection restarts itself at boot
+from `FLOW_ENABLED`; capture does not, and the screen afterwards said *Idle* — the same word
+it uses for a host that has never captured anything. For a monitoring product a gap in
+monitoring that nothing reports is the worst state it can be in, because it looks exactly
+like the good one.
+
+`capture_session` (V18) records what each sensor was asked to run and whether it was still
+running when the process last had an opinion. At boot a session left running is reported on
+the Capture screen — the interface, who started it and when, with a Resume button — and
+stamped stopped, so the notice is shown once by the process that found it rather than at
+every restart until somebody captures again.
+
+`CAPTURE_RESUME_ON_START=true` makes the service start it again instead. **Off by default,
+and env-only**: capture reads other people's traffic, and doing that with nobody present is
+a decision about the installation rather than a click in a browser — the same argument
+`ADHOC_DB_PASSWORD` makes about giving the database a SQL prompt. It only ever resumes a
+capture an operator explicitly started, on the interface they named, with the filter they
+set. Reporting the interruption is not optional; only the automatic part is.
+
+The row is keyed on `(sensor_id, scope)`. One process runs two captures — interface-wide and
+IP-filtered — so a row per sensor alone would have had them overwriting each other's session,
+the same way two sensors would: the shape of the `known_devices` bug V16 fixed, one table
+along.
+
 ### The vantage-point problem
 
 Worth being clear about, because it determines where capture is useful at all: a network

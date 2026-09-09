@@ -266,6 +266,23 @@ export interface NetworkInterface {
   addresses: string[];
 }
 
+/**
+ * A capture the previous process was running and did not stop cleanly — see V18.
+ *
+ * Present on the status until this process starts a capture of its own. Without
+ * it the Capture screen can only say "Idle", which is equally true of a host that
+ * has never captured anything and one that was capturing until the service
+ * restarted at 03:14.
+ */
+export interface InterruptedCapture {
+  interfaceName: string;
+  filterIp: string | null;
+  snapshotLength: number;
+  timeoutMs: number;
+  startedAt: string;
+  startedBy: string;
+}
+
 export interface CaptureStatus {
   capturing: boolean;
   captureAvailable: boolean;
@@ -278,6 +295,8 @@ export interface CaptureStatus {
   /** Findings raised during this capture, before deduplication. */
   findingCount: number;
   startedAt: string | null;
+  /** What a restart interrupted, or `null` when nothing was left running. */
+  interrupted: InterruptedCapture | null;
 }
 
 /** ip-api.com fields the UI surfaces. Everything else is passed through. */

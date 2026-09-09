@@ -15,6 +15,7 @@ import Typography from '@mui/material/Typography';
 import { type ReactNode, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import type { UsePacketCapture } from '../hooks/usePacketCapture';
+import { useFormatters } from '../i18n/format';
 import { useMessageText } from '../i18n/message-state';
 import { type Translate, useT } from '../i18n/ui';
 import { DisclosureCaret } from './DisclosureCaret';
@@ -89,6 +90,7 @@ export default function CaptureToolbar({
     setFilterIp,
     status,
     capturing,
+    resume,
     busy,
     loadingInterfaces,
     error,
@@ -100,6 +102,7 @@ export default function CaptureToolbar({
   } = capture;
 
   const errorText = useMessageText();
+  const fmt = useFormatters();
 
   const captureUnavailable = status?.captureAvailable === false;
 
@@ -143,6 +146,41 @@ export default function CaptureToolbar({
       {captureUnavailable && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           {t('capture.unavailable_note')}
+        </Alert>
+      )}
+      {/*
+        What a restart interrupted — see V18.
+        
+        Without it the chip below reads "Idle", which is equally true of a host
+        that has never captured anything and one that was capturing until the
+        service restarted at 03:14. For a monitoring product a gap in monitoring
+        that nothing reports is the worst state it can be in, because it looks
+        exactly like the good one.
+        
+        Shown until this process starts a capture of its own, and only once: the
+        server stamps the session stopped as soon as it reports it, so a second
+        restart does not repeat a notice about an interruption already seen.
+      */}
+      {status?.interrupted && !capturing && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 2 }}
+          action={
+            <Button
+              size="small"
+              color="inherit"
+              disabled={busy || captureUnavailable}
+              onClick={() => resume(status.interrupted as NonNullable<typeof status.interrupted>)}
+            >
+              {t('capture.resume')}
+            </Button>
+          }
+        >
+          {t('capture.interrupted_note', {
+            interface: status.interrupted.interfaceName,
+            at: fmt.dateTime(status.interrupted.startedAt),
+            by: status.interrupted.startedBy,
+          })}
         </Alert>
       )}
       {error && (

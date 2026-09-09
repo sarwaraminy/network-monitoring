@@ -11,6 +11,7 @@ import {
 } from '../api/packets.api';
 import { ALERTS_ROOT_KEY, queryKeys } from '../api/queryClient';
 import type { Message } from '../i18n/message-state';
+import type { InterruptedCapture, StartCaptureParams } from '../types';
 
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const POLL_INTERVAL_MS =
@@ -76,14 +77,25 @@ export function usePacketCapture(scope: CaptureScope) {
     ]);
   }, [client, scope]);
 
+  /**
+   * Starts a capture, from the form or from a recorded session.
+   *
+   * `session` is what an interrupted capture is resumed with — see V18. Passed
+   * explicitly rather than by filling the form and calling `start()`, because
+   * React state is not updated synchronously: setting four fields and starting in
+   * the same handler would start the previous values.
+   */
   const startMutation = useMutation({
-    mutationFn: () =>
-      startCapture(scope, {
-        interfaceName: selectedInterface,
-        snaplength: snapshotLength,
-        timeout,
-        ...(scope === 'filtered-ip' ? { ipAddress: filterIp.trim() } : {}),
-      }),
+    mutationFn: (session?: StartCaptureParams) =>
+      startCapture(
+        scope,
+        session ?? {
+          interfaceName: selectedInterface,
+          snaplength: snapshotLength,
+          timeout,
+          ...(scope === 'filtered-ip' ? { ipAddress: filterIp.trim() } : {}),
+        },
+      ),
     onSuccess: (status) => {
       client.setQueryData(queryKeys.captureStatus(scope), status);
       void refreshAll();
@@ -145,7 +157,27 @@ export function usePacketCapture(scope: CaptureScope) {
     canStart,
     start: () => {
       setActionError(null);
-      startMutation.mutate();
+      startMutation.mutate(undefined);
+    },
+    /**
+     * Runs the capture a restart interrupted, on the settings it was started with.
+     *
+     * The form is filled too, so the controls afterwards describe what is actually
+     * running rather than whatever was last typed — but the request carries the
+     * recorded values, not the fields.
+     */
+    resume: (session: InterruptedCapture) => {
+      setActionError(null);
+      setSelectedInterface(session.interfaceName);
+      setSnapshotLength(session.snapshotLength);
+      setTimeoutMs(session.timeoutMs);
+      if (session.filterIp !== null) setFilterIp(session.filterIp);
+      startMutation.mutate({
+        interfaceName: session.interfaceName,
+        snaplength: session.snapshotLength,
+        timeout: session.timeoutMs,
+        ...(session.filterIp !== null ? { ipAddress: session.filterIp } : {}),
+      });
     },
     stop: () => {
       setActionError(null);

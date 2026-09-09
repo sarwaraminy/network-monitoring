@@ -346,6 +346,36 @@ export const adhocSettings = pgTable('adhoc_settings', {
   updatedBy: varchar('updated_by', { length: 200 }),
 });
 
+/**
+ * What this sensor was last asked to capture — see V18__Capture_session.sql.
+ *
+ * A record, not configuration. Capture otherwise lives entirely in process
+ * memory, so a restart left the Capture screen showing "Idle" whether or not a
+ * capture had been running a second earlier. `stoppedAt === null` means the
+ * previous process was capturing and did not stop cleanly.
+ */
+export const captureSession = pgTable(
+  'capture_session',
+  {
+    sensorId: varchar('sensor_id', { length: 64 }).notNull(),
+    /** 'interface' or 'filtered-ip' — one process runs both, each independently. */
+    scope: varchar('scope', { length: 16 }).notNull(),
+    interfaceName: text('interface_name').notNull(),
+    /** As the operator sent them, not as `startCapture` clamps them. */
+    snapshotLength: integer('snapshot_length').notNull(),
+    timeoutMs: integer('timeout_ms').notNull(),
+    /** The address, not the compiled BPF string: `buildFilter` owns that shape. */
+    filterIp: text('filter_ip'),
+    startedAt: timestamp('started_at', { withTimezone: true, mode: 'date' }).notNull(),
+    startedBy: varchar('started_by', { length: 200 }).notNull(),
+    /** NULL while running. Stamped on a clean stop, and at boot for one found running. */
+    stoppedAt: timestamp('stopped_at', { withTimezone: true, mode: 'date' }),
+  },
+  (table) => [primaryKey({ columns: [table.sensorId, table.scope] })],
+);
+
+export type CaptureSessionRow = typeof captureSession.$inferSelect;
+export type NewCaptureSessionRow = typeof captureSession.$inferInsert;
 export type AdhocSettingsRow = typeof adhocSettings.$inferSelect;
 export type NewAdhocSettingsRow = typeof adhocSettings.$inferInsert;
 export type UserRow = typeof users.$inferSelect;

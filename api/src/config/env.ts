@@ -238,6 +238,28 @@ export const env = {
    */
   allowOpenSignup: bool('ALLOW_OPEN_SIGNUP', false),
 
+  /**
+   * Whether a capture interrupted by a restart is started again at boot.
+   *
+   * **Off by default, and env-only.** Packet capture is the one thing this
+   * product does that reads other people's traffic, and starting it with nobody
+   * present is a decision about the installation rather than about a browser
+   * session — the same argument `ADHOC_DB_PASSWORD` below makes about giving the
+   * database a SQL prompt. So there is no switch for this in the interface: a
+   * deployment that wants unattended capture has to say so where the deployment
+   * is described.
+   *
+   * It only ever resumes what an operator explicitly started, on the interface
+   * they named, with the filter they set — see V18. It cannot begin a capture
+   * that nobody asked for.
+   *
+   * Off, the interruption is still *reported*: the Capture screen says what was
+   * running and offers to resume it. That half is not optional, because "Idle"
+   * meaning both "never started" and "stopped when the host rebooted" is the
+   * failure this whole feature exists to remove.
+   */
+  captureResumeOnStart: bool('CAPTURE_RESUME_ON_START', false),
+
   captureBufferSize: int('CAPTURE_BUFFER_SIZE', 5000),
   /** How often a running capture is drained. The pcap handle is non-blocking. */
   capturePollIntervalMs: Math.max(1, int('CAPTURE_POLL_INTERVAL_MS', 10)),

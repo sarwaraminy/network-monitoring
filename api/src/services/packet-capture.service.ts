@@ -18,6 +18,12 @@ import {
 import { toPacketDTO } from '../packet/mapping.js';
 import type { NetworkInterfaceDTO, PacketDTO } from '../types/dto.js';
 import { AlertSink } from './alert.service.js';
+import {
+  findInterruptedCapture,
+  type InterruptedCapture,
+  recordCaptureStarted,
+  recordCaptureStopped,
+} from './capture-session.service.js';
 import { loadKnownMacAddresses, recordDevice } from './device.service.js';
 
 /**
@@ -57,6 +63,15 @@ export interface CaptureStatus {
   /** Findings raised during this capture, before deduplication. */
   findingCount: number;
   startedAt: string | null;
+  /**
+   * A capture the previous process was running and did not stop cleanly.
+   *
+   * Present until this process starts a capture of its own. Without it "Idle" is
+   * the only thing the interface can say after a restart, and it means both
+   * "nobody ever started one" and "this host was capturing until 03:14" — the
+   * second being a gap in monitoring that nothing reports.
+   */
+  interrupted: InterruptedCapture | null;
 }
 
 export class PacketCaptureService {
@@ -71,6 +86,12 @@ export class PacketCaptureService {
   private readonly packets: PacketDTO[] = [];
   private droppedPackets = 0;
   private findingCount = 0;
+  /**
+   * A session the previous process left running, until this one starts its own.
+   * Held in memory rather than re-read: the row is stamped stopped as soon as it
+   * is discovered, so it is reportable exactly once, by the process that found it.
+   */
+  private interrupted: InterruptedCapture | null = null;
   private warnedAboutLinkType = false;
 
   /** Detection state belongs to a capture session, so both are created together. */
@@ -81,7 +102,8 @@ export class PacketCaptureService {
   private readonly log: Logger;
 
   constructor(
-    label: string,
+    /** Also the session's key half in `capture_session` — see V18. */
+    private readonly label: string,
     private readonly bufferSize: number = env.captureBufferSize,
   ) {
     this.log = componentLogger('capture').child({ session: label });
@@ -110,6 +132,7 @@ export class PacketCaptureService {
     snapshotLength: number,
     timeoutMs: number,
     filterIpAddress?: string | null,
+    startedBy = 'unknown',
   ): Promise<void> {
     if (this.capturing) return;
 
@@ -191,6 +214,24 @@ export class PacketCaptureService {
     // Don't let the poll timer alone keep the process alive.
     this.pollTimer.unref();
 
+    /*
+     * The interruption notice is this process's to show, and it is answered the
+     * moment a capture is running again. Cleared before the record is written so
+     * the two cannot disagree if the write fails.
+     */
+    this.interrupted = null;
+
+    // Recorded as the operator asked for it, not as the clamps left it — see V18.
+    // Awaited, but it cannot throw: a bookkeeping failure warns and returns.
+    await recordCaptureStarted(this.label, {
+      interfaceName,
+      snapshotLength,
+      timeoutMs,
+      filterIp: filterIpAddress ?? null,
+      startedAt: this.startedAt,
+      startedBy,
+    });
+
     this.log.info(
       {
         interface: interfaceName,
@@ -225,11 +266,17 @@ export class PacketCaptureService {
       this.handle = null;
     }
 
-    if (this.capturing) {
+    const wasCapturing = this.capturing;
+    if (wasCapturing) {
       this.log.info({ bufferedPackets: this.packets.length, findings: this.findingCount }, 'Capture stopped');
     }
     this.capturing = false;
     this.startedAt = null;
+
+    // Only for a capture that was actually running. Stamping unconditionally
+    // would mark a session stopped that this process never started — including
+    // the interrupted one it is meant to be reporting.
+    if (wasCapturing) await recordCaptureStopped(this.label);
 
     // Write out whatever the detectors found before the sink is discarded.
     const sink = this.sink;
@@ -265,7 +312,64 @@ export class PacketCaptureService {
       droppedPackets: this.droppedPackets,
       findingCount: this.findingCount,
       startedAt: this.startedAt?.toISOString() ?? null,
+      interrupted: this.interrupted,
     };
+  }
+
+  /**
+   * Reads the last session at boot and decides what to do about it.
+   *
+   * Three outcomes, and the middle one is the whole point:
+   *
+   *  - nothing recorded, or it stopped cleanly — nothing to say.
+   *  - it was still running and `CAPTURE_RESUME_ON_START` is off — remember it so
+   *    the interface can report it, and stamp the row stopped so the *next* boot
+   *    does not repeat a notice about an interruption already seen.
+   *  - it was still running and resuming is on — start it again, which replaces
+   *    the row and needs no notice.
+   *
+   * Never throws. A capture host that cannot reach its database must still be
+   * able to capture, and this is bookkeeping about capture rather than capture.
+   */
+  async restoreInterruptedCapture(): Promise<void> {
+    const previous = await findInterruptedCapture(this.label);
+    if (!previous) return;
+
+    if (!env.captureResumeOnStart) {
+      this.interrupted = previous;
+      this.log.warn(
+        { interface: previous.interfaceName, startedAt: previous.startedAt },
+        'A capture was interrupted by a restart; it is NOT running. Set CAPTURE_RESUME_ON_START=true to resume automatically',
+      );
+      await recordCaptureStopped(this.label);
+      return;
+    }
+
+    try {
+      await this.startCapture(
+        previous.interfaceName,
+        previous.snapshotLength,
+        previous.timeoutMs,
+        previous.filterIp,
+        previous.startedBy,
+      );
+      this.log.warn(
+        { interface: previous.interfaceName },
+        'Resumed the capture that was interrupted by a restart (CAPTURE_RESUME_ON_START)',
+      );
+    } catch (error) {
+      /*
+       * The interface may be gone — a renamed adapter, a container without the
+       * host's network — so this is an ordinary outcome rather than a bug. It
+       * falls back to reporting, which is what the operator needs either way.
+       */
+      this.interrupted = previous;
+      this.log.warn(
+        { err: error, interface: previous.interfaceName },
+        'Could not resume the interrupted capture; reporting it instead',
+      );
+      await recordCaptureStopped(this.label);
+    }
   }
 
   private poll(): void {
