@@ -134,17 +134,38 @@ export default function SeverityTrendChart({
    * prevent arriving from the other direction: the operator sees a low bar, opens
    * it expecting findings, and gets nothing.
    *
-   * Placed on the first LIVE bucket rather than the last rolled-up one, so the line
-   * reads as "detail starts here". Null when the boundary falls outside the plotted
-   * range — before the oldest bar, or after the newest — because a line pinned to
-   * the edge of the axis would be read as a boundary that is really off-screen.
+   * The band is found by which bucket CONTAINS the boundary, not by which one
+   * starts at or after it.
+   *
+   * `point.bucket` is a bucket start and `rolledUpBefore` is an instant inside
+   * one, so a "first start at or after it" search misses whenever the boundary
+   * falls inside the newest bucket — `findIndex` returns -1 and the marker
+   * vanishes. Any retention window shorter than the bucket width reaches that:
+   * `ALERT_RETENTION_DAYS=7` with the five-year period puts the boundary about a
+   * week ago while the newest bucket starts on the 1st of the month, so from the
+   * 8th onwards there was no line at all — with essentially every bar on screen an
+   * aggregate. The user guide now tells the reader the line is what marks where
+   * detail ends, so its absence positively asserts "all of this is detailed",
+   * exactly when none of it is.
+   *
+   * Null still means off-screen, and now only that. A boundary newer than the last
+   * bucket's end is genuinely in the future; one inside the FIRST bucket has
+   * nothing aggregated to its left to divide off, so a line at the left edge would
+   * be read as a boundary that is really further back.
    */
   const boundaryBand = useMemo(() => {
-    if (!rolledUpBefore) return null;
+    if (!rolledUpBefore || trend.length === 0) return null;
     const at = new Date(rolledUpBefore).getTime();
-    const index = trend.findIndex((point) => new Date(point.bucket).getTime() >= at);
-    // `> 0`, not `>= 0`: index 0 means every plotted bucket is live, so the
-    // boundary is older than the window and there is nothing here to divide.
+    const starts = trend.map((point) => new Date(point.bucket).getTime());
+
+    // The last bucket's end is not another bucket's start, so it is taken from the
+    // gap to its predecessor — the buckets are evenly spaced within a unit, except
+    // across a month, where this is approximate and only decides the final band.
+    const lastWidth = starts.length > 1 ? (starts.at(-1) as number) - (starts.at(-2) as number) : 0;
+    const endOf = (index: number) =>
+      index < starts.length - 1 ? (starts[index + 1] as number) : (starts.at(-1) as number) + lastWidth;
+
+    const index = starts.findIndex((_start, at_) => endOf(at_) > at);
     return index > 0 ? (labels[index] ?? null) : null;
   }, [rolledUpBefore, trend, labels]);
 

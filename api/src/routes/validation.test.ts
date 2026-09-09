@@ -168,19 +168,25 @@ describe('dashboard query', () => {
     assert.equal(alertDashboardQuerySchema.safeParse(q({ bucket: injection })).success, false);
   });
 
-  it('keeps hourly windows at the old ceiling, since the wider one only pays for itself on day buckets', () => {
+  it('keeps hourly windows at the old ceiling, since it is the one bucket the rollup cannot help', () => {
     /*
-     * The 1825-day ceiling above exists so a *daily* trend can reach the rollup.
-     * `dashboardData` only folds the rollup into day buckets — an hourly one is
-     * always live rows alone — so an hourly request at the wide ceiling would be
+     * The 1825-day ceiling above exists so a trend can reach the rollup.
+     * `dashboardData` folds it into every bucket except the hourly one — a daily
+     * total cannot be split into 24 hours without inventing detail that was
+     * deliberately deleted — so an hourly request at the wide ceiling would be a
      * pure live-row scan and grouping over five years, five times what the old,
      * single 365-day ceiling ever allowed.
+     *
+     * Weekly and monthly are not capped for the same reason they are useful: they
+     * are what the rollup absorbs.
      */
     assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '365', bucket: 'hour' })).success, true);
     assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '366', bucket: 'hour' })).success, false);
-    // The same window is fine for a day bucket, and for no bucket at all (the
-    // route picks 'day' itself once days > 2).
-    assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '1825', bucket: 'day' })).success, true);
+    // The same window is fine for every bucket that folds the rollup in, and for
+    // no bucket at all — the route picks one from the window itself.
+    for (const bucket of ['day', 'week', 'month'] as const) {
+      assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '1825', bucket })).success, true, bucket);
+    }
     assert.equal(alertDashboardQuerySchema.safeParse(q({ days: '1825' })).success, true);
   });
 });

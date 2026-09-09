@@ -511,21 +511,7 @@ export async function dashboardData(options: {
   /** One sensor, or every sensor when absent — the same rule as `listAlerts`. */
   sensor?: string;
 }): Promise<AlertDashboard> {
-  /*
-   * One instant, used for both ends of the window and for the retention cutoff
-   * below.
-   *
-   * They were two `Date.now()` calls, either side of the awaits, and that is not
-   * a tidiness point: when `days` equals `ALERT_RETENTION_DAYS` the two offsets
-   * are nominally identical, so `cutoff > since` collapsed into "did any time
-   * pass while the queries ran" — which it always did. That is the *default*
-   * configuration and one click: retention defaults to 365 days and the period
-   * selector offers exactly 365. A stock install picking "12 months" therefore
-   * drew the boundary marker a few milliseconds inside the window, on the second
-   * bar, while no rolled-up day was in range at all.
-   */
-  const now = Date.now();
-  const since = new Date(now - options.days * 86_400_000);
+  const since = new Date(Date.now() - options.days * 86_400_000);
 
   /*
    * Applied to the rollup as well as to the live rows, and both are needed.
@@ -661,9 +647,19 @@ export async function dashboardData(options: {
    * So the leading partial bucket goes. The TRAILING one stays: the current hour,
    * day, week or month is genuinely still in progress, and that is a property of
    * now rather than an artefact of the window arithmetic.
+   *
+   * **Not for the hourly bucket**, which is the same gate the fold uses. Every
+   * word above is about a bar that looks whole while missing rolled-up days, and
+   * an hourly response never folds the rollup in — so there is no such bar, and
+   * the filter would only delete live findings that are genuinely inside the
+   * window. At `days=1` a single finding 23h50m old fell in the leading hour and
+   * the chart answered "No findings in this period" while the alerts list showed
+   * it: two views of one window disagreeing, which is the failure this whole
+   * change is about.
    */
+  const wholeBucketsOnly = options.bucket !== 'hour';
   const trend = [...byBucket.values()]
-    .filter((point) => new Date(point.bucket) >= since)
+    .filter((point) => !wholeBucketsOnly || new Date(point.bucket) >= since)
     .sort((a, b) => a.bucket.localeCompare(b.bucket));
 
   /*

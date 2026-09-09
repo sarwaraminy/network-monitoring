@@ -221,6 +221,22 @@ describe('the trend at a bucket wider than a day', { skip: database.skip }, () =
     }
   });
 
+  it('keeps a finding the hourly window can still show, since nothing is folded there', async () => {
+    /*
+     * The whole-bucket rule is about a bar that renders as complete while missing
+     * rolled-up days. An hourly response never folds the rollup in, so there is no
+     * such bar — and applying the filter there only deleted live findings that are
+     * genuinely inside the window.
+     *
+     * 23h50m old, inside a 24h window: the chart said "No findings in this period"
+     * while the alerts list for the same window showed it.
+     */
+    await seedAlert('nearly-a-day-old', new Date(Date.now() - (24 * 60 - 10) * 60 * 1000));
+
+    const hourly = await alertService.dashboardData({ days: 1, bucket: 'hour' });
+    assert.equal(totalOf(hourly.trend), 1, 'the leading hour was dropped with nothing to justify it');
+  });
+
   it('keeps the trailing bucket, which is in progress rather than truncated', async () => {
     // The current period is genuinely unfinished; that is a property of now, not
     // an artefact of the window. Dropping it would hide today's findings.
