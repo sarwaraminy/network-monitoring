@@ -33,8 +33,81 @@ import type { PgColumn } from 'drizzle-orm/pg-core';
  * …)` in SELECT and `date_trunc($2, …)` in GROUP BY, which Postgres treats as two
  * different expressions and rejects; the type keeps it a closed set.
  */
-export function utcTrunc(unit: 'hour' | 'day', column: PgColumn): SQL {
+export function utcTrunc(unit: TrendBucket, column: PgColumn): SQL {
   return sql`date_trunc('${sql.raw(unit)}', ${column} AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`;
+}
+
+/**
+ * The units the trend can be bucketed into, coarsest last.
+ *
+ * All four are `date_trunc` units, which is what lets `utcTrunc` inline the name
+ * and what keeps the rollup fold-in below able to reproduce the same boundary in
+ * JavaScript. Nothing else may be added here without giving `startOfUtcBucket` a
+ * matching case — the two have to agree or the chart gets two interleaved point
+ * families instead of one series.
+ */
+export const TREND_BUCKETS = ['hour', 'day', 'week', 'month'] as const;
+export type TrendBucket = (typeof TREND_BUCKETS)[number];
+
+/**
+ * How wide a bucket a window of `days` should be plotted in.
+ *
+ * A chart is about 800px wide and a readable column is several pixels, so the
+ * real constraint is the bar count rather than the unit. Five years at a daily
+ * bucket is 1,825 bars in that space: they render as a solid block, the axis
+ * labels collapse, and the one question the chart exists to answer — is this
+ * getting worse — becomes unanswerable at exactly the window where a trend is
+ * most likely to be real.
+ *
+ *   ≤ 2 days   hourly    24–48 bars
+ *   ≤ 90 days  daily     up to 90
+ *   ≤ 365 days weekly    ~52
+ *   beyond     monthly   ~60 at the five-year option
+ *
+ * **The server decides this, not the browser.** The client used to compute
+ * `days <= 2 ? 'hour' : 'day'` for its axis labels while the route computed the
+ * same expression for the query, so the rule existed twice with nothing holding
+ * the copies together — and a third and fourth unit is exactly the change that
+ * would have separated them. The bucket is reported in the response now, and
+ * `?bucket=` is still honoured for a caller that wants to override it.
+ */
+export function trendBucketFor(days: number): TrendBucket {
+  if (days <= 2) return 'hour';
+  if (days <= 90) return 'day';
+  if (days <= 365) return 'week';
+  return 'month';
+}
+
+/**
+ * The start of the bucket an instant falls in, in UTC, as an ISO string.
+ *
+ * The JavaScript half of `utcTrunc`, and it exists because the rollup is keyed by
+ * DATE. Live rows can be bucketed by Postgres; rolled-up days arrive one per day
+ * and have to be folded into the same weekly or monthly bucket here, so the two
+ * sources land on one key. A week that started on Sunday on one side and Monday
+ * on the other would draw every week twice.
+ *
+ * Monday, therefore, because that is what `date_trunc('week', …)` does — not a
+ * preference, a constraint. `getUTCDay()` counts Sunday as 0, so the offset back
+ * to Monday is `(day + 6) % 7`.
+ */
+export function startOfUtcBucket(unit: TrendBucket, at: Date): string {
+  const year = at.getUTCFullYear();
+  const month = at.getUTCMonth();
+  const date = at.getUTCDate();
+
+  switch (unit) {
+    case 'hour':
+      return new Date(Date.UTC(year, month, date, at.getUTCHours())).toISOString();
+    case 'day':
+      return new Date(Date.UTC(year, month, date)).toISOString();
+    case 'week': {
+      const backToMonday = (at.getUTCDay() + 6) % 7;
+      return new Date(Date.UTC(year, month, date - backToMonday)).toISOString();
+    }
+    case 'month':
+      return new Date(Date.UTC(year, month, 1)).toISOString();
+  }
 }
 
 /**

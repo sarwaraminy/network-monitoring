@@ -60,9 +60,12 @@ matters:</p>
 <h2>The charts</h2>
 
 <ul>
-  <li><strong>Findings over time</strong> &mdash; findings per day, stacked by severity.
-    The shape is the point: a flat line that suddenly steps up is worth more attention
-    than any single row in the alerts table.</li>
+  <li><strong>Findings over time</strong> &mdash; stacked by severity. The shape is the
+    point: a flat line that suddenly steps up is worth more attention than any single row
+    in the alerts table.
+    <br>The bars get wider as the window does, so the chart stays readable rather than
+    becoming a solid block: hourly for a day, daily out to three months, weekly out to a
+    year, and monthly beyond that. The caption above the chart always says which.</li>
   <li><strong>Findings by detector</strong> &mdash; which checks are firing. One detector
     dominating usually means a suppression rule is wanted rather than an attack; see
     <a href="suppressions.html">Suppression rules</a>.</li>
@@ -75,9 +78,13 @@ matters:</p>
 <div class="note">
   <span class="label">Note</span>
   <p>Findings are kept in full for a limited period and then aggregated into
-  daily totals, so a long window still has a shape after the detail has expired. A
-  shorter bar at the far left of <strong>Findings over time</strong> may mean the detail
-  has been rolled up rather than that the day was quiet.</p>
+  daily totals, so a long window still has a shape after the detail has expired.</p>
+  <p>A dashed line marked <span class="ui">Detail kept from here</span> shows where that
+  changes. To the right of it every bar is made of findings you can still open; to the
+  left the counts are all that was kept, so a bar there means "this many happened", not
+  "here is what happened". Without the line a short bar on the left is ambiguous &mdash;
+  it could be a quiet week or an expired one &mdash; and that is exactly the distinction
+  the rest of this product exists to preserve.</p>
 </div>
 
 <div class="access">

@@ -5,7 +5,7 @@ import { type AlertRow, alertRollupDaily, alerts, knownDevices } from '../db/sch
 import { componentLogger } from '../logger.js';
 import { notifier } from '../notify/notifier.js';
 import { type Finding, SEVERITY_RANK, type Severity } from '../packet/detect/types.js';
-import { firstWholeUtcDay, utcTrunc } from './alert-buckets.js';
+import { firstWholeUtcDay, startOfUtcBucket, type TrendBucket, utcTrunc } from './alert-buckets.js';
 import { type Actor, recordAudit } from './audit.service.js';
 import {
   countSuppressed,
@@ -466,6 +466,34 @@ export interface AlertTrendPoint {
 export interface AlertDashboard extends AlertSummary {
   /** Buckets oldest-first, ready to plot. */
   trend: AlertTrendPoint[];
+  /**
+   * The unit `trend` is bucketed in.
+   *
+   * Reported rather than left for the client to infer: the width is chosen from
+   * the window here, and a browser recomputing that rule is a second copy of it
+   * that nothing keeps in step.
+   */
+  bucket: TrendBucket;
+  /**
+   * The instant from which the trend is made of rows rather than of counts.
+   *
+   * Derived from the aggregated days actually folded into this response, not from
+   * the retention setting: `alert_rollup_daily` is never pruned, so an install
+   * that turned retention off still plots the years it aggregated while it was on,
+   * and a boundary read from `RETENTION_ENABLED` would go silent over them.
+   *
+   * `null` when nothing in this window came from the rollup — an hourly bucket,
+   * which never folds it in; a window that does not reach past the cutoff; or an
+   * install that has never rolled anything up. In all three there is no crossover
+   * and a marker would be pointing at nothing.
+   *
+   * The chart needs this because the two sources are not equally detailed and
+   * nothing else on screen says where they change over. A rolled-up bucket
+   * carries counts but no rows behind them, so a reader who clicks into a short
+   * bar before the cutoff finds nothing and concludes the data is missing rather
+   * than aggregated.
+   */
+  rolledUpBefore: string | null;
   /** Addresses implicated in the most findings. */
   topSources: Array<{ sourceIp: string; count: number; occurrences: number }>;
 }
@@ -479,7 +507,7 @@ export interface AlertDashboard extends AlertSummary {
  */
 export async function dashboardData(options: {
   days: number;
-  bucket: 'hour' | 'day';
+  bucket: TrendBucket;
   /** One sensor, or every sensor when absent — the same rule as `listAlerts`. */
   sensor?: string;
 }): Promise<AlertDashboard> {
@@ -499,7 +527,7 @@ export async function dashboardData(options: {
 
   // Both this and the rollup below are UTC buckets, and have to be: the two series
   // are merged into one chart. See alert-buckets.ts.
-  const bucketExpression = utcTrunc(options.bucket === 'hour' ? 'hour' : 'day', alerts.lastSeen);
+  const bucketExpression = utcTrunc(options.bucket, alerts.lastSeen);
 
   /*
    * Rolled-up days, folded into the same series as the live trend below.
@@ -511,9 +539,10 @@ export async function dashboardData(options: {
    * what this codebase's detectors are for, and the trend chart is the last place it
    * should be given away.
    *
-   * Only requested for a daily bucket. An hourly view cannot be served from a daily
-   * rollup, and inventing 24 equal hours from one bucket would be fabricating detail
-   * that was deliberately discarded; the honest answer for an hourly window is the
+   * Requested for every bucket except the hourly one. A daily rollup can be folded
+   * upward into a week or a month — that is just addition — but not downward into
+   * hours: inventing 24 equal hours from one bucket would be fabricating detail
+   * that was deliberately discarded. The honest answer for an hourly window is the
    * live rows alone, and an hourly window is only offered for two days anyway. The
    * ternary keeps the "no query for hourly" behaviour while still letting this run
    * concurrently with the other three below, rather than after them.
@@ -522,7 +551,7 @@ export async function dashboardData(options: {
    * left out rather than counted in full.
    */
   const rolledUp: Promise<{ day: string; severity: string; total: number }[]> =
-    options.bucket === 'day'
+    options.bucket !== 'hour'
       ? db
           .select({
             // Cast explicitly: pg-types parses a DATE into a JS Date at *local*
@@ -581,17 +610,106 @@ export async function dashboardData(options: {
     addTo(new Date(row.bucket).toISOString(), row.severity, Number(row.total));
   }
 
-  // The two sources can overlap on exactly one day — the day the cutoff falls in,
-  // whose expired half is rolled up while its recent half is still live — which is
-  // why the points are accumulated rather than assigned. `rolled` is `[]` for an
-  // hourly bucket, so this is a no-op there.
+  /*
+   * The two sources overlap, which is why the points are accumulated rather than
+   * assigned. At a daily bucket that is exactly one day — the one the cutoff falls
+   * in, whose expired half is rolled up while its recent half is still live. At a
+   * weekly or monthly bucket it is every live day sharing a bucket with a rolled-up
+   * one, which is most of the bucket the cutoff lands in.
+   *
+   * `startOfUtcBucket` is what folds a rolled-up DAY into that wider bucket, and it
+   * has to produce the same key `date_trunc` gave the live rows or the week appears
+   * twice. `rolled` is `[]` for an hourly bucket, so this is a no-op there.
+   */
   for (const row of rolled) {
-    addTo(new Date(`${row.day}T00:00:00.000Z`).toISOString(), row.severity, Number(row.total));
+    const day = new Date(`${row.day}T00:00:00.000Z`);
+    addTo(startOfUtcBucket(options.bucket, day), row.severity, Number(row.total));
   }
+
+  /*
+   * Whole buckets only, which is `firstWholeUtcDay`'s rule generalised to all four
+   * units.
+   *
+   * That function rounds the rollup filter up to the next whole UTC day, and its
+   * docblock argues the trade: a partial day cannot be reconstructed from a daily
+   * bucket, so the bar is dropped rather than shown short, and a window must not
+   * quietly reach further back than was asked for.
+   *
+   * Folding into a week or a month broke both halves. `since` is an instant, so
+   * the bucket containing it starts before it — a `days=30` request made on a
+   * Wednesday produced a week bar keyed to the preceding Monday, which is earlier
+   * than the window asked for, and which was missing that week's Monday, Tuesday
+   * and Wednesday from the rollup while rendering as a complete week. At a monthly
+   * bucket the leftmost bar could be short by a day out of 31 with nothing saying
+   * so — "inflated or deflated without saying so", which is precisely what the
+   * dropped day was chosen to avoid.
+   *
+   * So the leading partial bucket goes. The TRAILING one stays: the current hour,
+   * day, week or month is genuinely still in progress, and that is a property of
+   * now rather than an artefact of the window arithmetic.
+   *
+   * **Only where the leading bucket can actually mix the two sources**, which is
+   * week and month.
+   *
+   * Every word above is about a bar that looks whole while missing rolled-up
+   * days, and that requires a leading bucket wider than `firstWholeUtcDay`'s
+   * rounding. It rounds to a whole DAY, so:
+   *
+   *  - **hour** folds no rollup at all, so there is nothing to be missing.
+   *  - **day** rounds at exactly the bucket width, so the leading day bucket is
+   *    always earlier than the first rolled-up day and holds live rows only.
+   *  - **week** and **month** are wider than a day, so the leading bucket can hold
+   *    rolled-up days from the part of itself inside the filter while missing the
+   *    part outside it. That is the bar the rule exists for.
+   *
+   * Dropping it anywhere else deletes live findings genuinely inside the window
+   * for nothing. At `days=1` a finding 23h50m old vanished and the chart answered
+   * "No findings in this period" while the alerts list showed it; at `days=7`
+   * issued at 14:00 UTC, up to ten hours of findings went the same way on the
+   * default view. Two views of one window disagreeing is the failure this whole
+   * change is about, so the rule is scoped to where its own premise holds.
+   */
+  const wholeBucketsOnly = options.bucket === 'week' || options.bucket === 'month';
+  const trend = [...byBucket.values()]
+    .filter((point) => !wholeBucketsOnly || new Date(point.bucket) >= since)
+    .sort((a, b) => a.bucket.localeCompare(b.bucket));
+
+  /*
+   * Read from the rows that were actually folded in, not from the retention
+   * setting.
+   *
+   * The first version computed `now - ALERT_RETENTION_DAYS` and gated it on
+   * `RETENTION_ENABLED`, which is a claim about the sweep's schedule rather than
+   * about this response. The two come apart on an install that ran with retention
+   * ON for two years and then turned it OFF to stop losing detail:
+   * `alert_rollup_daily` is never pruned, the fold-in below is not gated on the
+   * setting, so the chart went on plotting a year of aggregated bars with no
+   * marker above them. That is worse than before this feature existed — the user
+   * guide now tells the reader the line is what separates aggregated bars from
+   * quiet ones, so its absence reads as "all of this is detailed".
+   *
+   * `rolled` is exactly the aggregated days in this window, so the day after the
+   * newest of them is where detail begins. Three gates fall out of that rather
+   * than being written: an hourly response never folds the rollup in, so `rolled`
+   * is empty and there is nothing to mark; a window that does not reach past the
+   * cutoff selects no rolled-up day, likewise; and an install that never rolled
+   * anything up has an empty table. One derivation, and it cannot disagree with
+   * the bars beside it because it is made of them.
+   */
+  const lastAggregatedDay = rolled.reduce<string | null>(
+    (latest, row) => (latest === null || row.day > latest ? row.day : latest),
+    null,
+  );
+  const detailBegins =
+    lastAggregatedDay === null
+      ? null
+      : new Date(Date.parse(`${lastAggregatedDay}T00:00:00.000Z`) + 86_400_000);
 
   return {
     ...summary,
-    trend: [...byBucket.values()].sort((a, b) => a.bucket.localeCompare(b.bucket)),
+    trend,
+    bucket: options.bucket,
+    rolledUpBefore: detailBegins?.toISOString() ?? null,
     topSources: sourceRows
       .filter((row): row is typeof row & { sourceIp: string } => row.sourceIp !== null)
       .map((row) => ({
