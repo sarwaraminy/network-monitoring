@@ -519,3 +519,12 @@ export interface AuditActionOption {
   action: string;
   label: string;
 }
+
+/**
+ * What `startedBy` holds when the service resumed a capture by itself.
+ *
+ * Mirrors `api/src/services/capture-limits.ts`, like the DTOs above mirror
+ * `api/src/types/dto.ts`. It is a sentinel rather than a person, so the banner
+ * says the service did it instead of naming a user who does not exist.
+ */
+export const AUTO_RESUME_ACTOR = 'system:auto-resume';

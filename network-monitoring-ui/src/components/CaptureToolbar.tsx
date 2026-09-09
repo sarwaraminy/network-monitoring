@@ -18,6 +18,7 @@ import type { UsePacketCapture } from '../hooks/usePacketCapture';
 import { useFormatters } from '../i18n/format';
 import { useMessageText } from '../i18n/message-state';
 import { type Translate, useT } from '../i18n/ui';
+import { AUTO_RESUME_ACTOR, type CaptureStatus } from '../types';
 import { DisclosureCaret } from './DisclosureCaret';
 import SurfaceCard from './SurfaceCard';
 
@@ -62,6 +63,37 @@ function interfaceHelperText(loading: boolean, count: number, t: Translate): str
 }
 
 /** Replaces the row of Bootstrap form-groups at the top of both capture pages. */
+/**
+ * What the interruption banner says, given who started the capture it is about.
+ *
+ * Three cases rather than two, and the third is the reason this moved out of the
+ * JSX: `AUTO_RESUME_ACTOR` is not a person. It is what the server records when it
+ * resumed a capture by itself at boot, so rendering it through the `{by}` slot
+ * would read as "started by system:auto-resume", which names a user who does not
+ * exist. The sentence says the service did it instead.
+ *
+ * The anonymous case stays distinct from both: it is a reader the API withheld
+ * the name from, and an empty `{by}` renders as "started by  at 03:14", which
+ * looks like a rendering fault rather than a redaction.
+ */
+function interruptedNote(
+  t: Translate,
+  fmt: ReturnType<typeof useFormatters>,
+  interrupted: NonNullable<CaptureStatus['interrupted']>,
+): string {
+  const common = {
+    interface: interrupted.interfaceName,
+    at: fmt.dateTime(interrupted.startedAt),
+  };
+
+  if (interrupted.startedBy === AUTO_RESUME_ACTOR) {
+    return t('capture.interrupted_note_auto', common);
+  }
+  return interrupted.startedBy
+    ? t('capture.interrupted_note', { ...common, by: interrupted.startedBy })
+    : t('capture.interrupted_note_anon', common);
+}
+
 export default function CaptureToolbar({
   capture,
   showIpFilter = false,
@@ -187,19 +219,7 @@ export default function CaptureToolbar({
             </Button>
           }
         >
-          {status.interrupted.startedBy
-            ? t('capture.interrupted_note', {
-                interface: status.interrupted.interfaceName,
-                at: fmt.dateTime(status.interrupted.startedAt),
-                by: status.interrupted.startedBy,
-              })
-            : // Without the name, for a reader the API did not tell. Its own
-              // sentence rather than an empty `{by}`: "started by  at 03:14"
-              // reads as a rendering fault.
-              t('capture.interrupted_note_anon', {
-                interface: status.interrupted.interfaceName,
-                at: fmt.dateTime(status.interrupted.startedAt),
-              })}
+          {interruptedNote(t, fmt, status.interrupted)}
         </Alert>
       )}
       {error && (

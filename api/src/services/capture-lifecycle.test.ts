@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { openTestDatabase } from '../test/database.js';
+import { AUTO_RESUME_ACTOR } from './capture-limits.js';
 
 /**
  * The lifecycle of the session row, which is where this feature can go quiet.
@@ -10,6 +11,13 @@ import { openTestDatabase } from '../test/database.js';
  * correctly in the ordinary run and says nothing in exactly the situation it was
  * written for — a silence that looks identical to a host that has simply never
  * captured anything.
+ *
+ * One thing deliberately NOT covered here: that `openCapture` does not await its
+ * own `sessionWrite`. Every case in this file reaches the service by replacing
+ * `openCapture`, since opening a pcap handle needs an interface CI does not have
+ * — and a test that replaces the function containing the line under test asserts
+ * nothing about it. The ordering that *is* observable, the stop waiting for the
+ * write it closes, is covered below.
  *
  * Resuming is switched ON for this file. It is the more dangerous half: with it
  * off, a lost row costs one notice, and with it on it costs unattended capture
@@ -325,6 +333,36 @@ describe('what a process does with the session row', { skip: database.skip }, ()
       false,
       'a resume that never ran was logged as having succeeded',
     );
+  });
+
+  /*
+   * The auto-resume is not a person.
+   *
+   * `started_by` is the record of who started a capture — redacted from non-admin
+   * `/status` because it names one — so carrying the previous session's value
+   * forward files an unattended machine action against somebody who was not
+   * there, and the better the resume works the more of them accumulate.
+   */
+  it('does not attribute an automatic resume to the operator it interrupted', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+    await service.reportInterruptedCapture();
+
+    // The resume itself cannot open a handle here, so the assertion is on what it
+    // passes down rather than on the row it would have written.
+    const passed: string[] = [];
+    const innards = service as unknown as {
+      startCapture: (...args: [string, number, number, string | null, string]) => Promise<boolean>;
+    };
+    innards.startCapture = async (...args) => {
+      passed.push(args[4]);
+      return true;
+    };
+
+    await service.resumeInterruptedCapture();
+
+    assert.deepEqual(passed, [AUTO_RESUME_ACTOR], 'the resumed session was filed under a person');
+    assert.notEqual(passed[0], STARTED.startedBy);
   });
 
   /*

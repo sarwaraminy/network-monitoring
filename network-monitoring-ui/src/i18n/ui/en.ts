@@ -297,6 +297,11 @@ export const UI_EN = {
   'suppressions.preview_window': 'Examined {from} to {to}',
 
   'capture.resume': 'Resume',
+  // The service resumed this one itself, so there is nobody to name. The
+  // operator who started the original capture stays on the notice about it.
+  'capture.interrupted_note_auto':
+    'Capture on {interface} stopped unexpectedly. The service had resumed it automatically at ' +
+    '{at}, and it is not running now.',
   'capture.interrupted_note_anon':
     'Capture on {interface} stopped unexpectedly. It was started at {at} and is not running now.',
   'capture.interrupted_note':

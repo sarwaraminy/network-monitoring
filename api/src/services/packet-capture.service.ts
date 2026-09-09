@@ -18,7 +18,7 @@ import {
 import { toPacketDTO } from '../packet/mapping.js';
 import type { NetworkInterfaceDTO, PacketDTO } from '../types/dto.js';
 import { AlertSink } from './alert.service.js';
-import { MAX_CAPTURE_TIMEOUT_MS, MAX_SNAPSHOT_LENGTH } from './capture-limits.js';
+import { AUTO_RESUME_ACTOR, MAX_CAPTURE_TIMEOUT_MS, MAX_SNAPSHOT_LENGTH } from './capture-limits.js';
 import {
   type CaptureSessionRecord,
   findInterruptedCapture,
@@ -347,7 +347,6 @@ export class PacketCaptureService {
      * correctness depends on the write, so the stop is what waits.
      */
     this.sessionWrite = recordCaptureStarted(this.label, this.session);
-    await this.sessionWrite;
 
     this.log.info(
       {
@@ -600,7 +599,18 @@ export class PacketCaptureService {
         previous.snapshotLength,
         previous.timeoutMs,
         previous.filterIp,
-        previous.startedBy,
+        /*
+         * Not `previous.startedBy`. Nobody started this one — the service did,
+         * unattended, at boot — and `startedBy` is the column V18 and the README
+         * describe as the record of who started a capture, redacted from
+         * non-admin `/status` precisely because it names a person. Inheriting it
+         * would file a machine's action against somebody who was not there, and
+         * the better the auto-resume works the more of those accumulate.
+         *
+         * The original operator is not lost: they stay on the interruption notice,
+         * which carries `previous.startedBy` for exactly that purpose.
+         */
+        AUTO_RESUME_ACTOR,
       );
       /*
        * Only when this call is what started it. `startCapture` declines if

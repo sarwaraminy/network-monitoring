@@ -63,7 +63,7 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
         throw HttpError.of(400, 'error.ip_required');
       }
 
-      await capture.startCapture(
+      const started = await capture.startCapture(
         interfaceName,
         snaplength,
         timeout,
@@ -72,6 +72,21 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
         // capture was cut short — see V18.
         actorOf(req.user).name,
       );
+
+      /*
+       * A start that did not claim the instance is not a success.
+       *
+       * `startCapture` declines while another caller holds it, which with
+       * `CAPTURE_RESUME_ON_START=true` is a real race: the banner and its Resume
+       * button go live before the auto-resume fires, so an operator pressing it
+       * can lose. Answering 200 with `capturing: false` sent the interface to Idle
+       * — and `usePacketCapture` only polls while capturing is true, so it stayed
+       * there, showing an interruption banner while a capture was in fact running.
+       * Worse than the double-start this replaced: the operator believed nothing
+       * was capturing and the screen agreed.
+       */
+      if (!started) throw HttpError.of(409, 'error.capture_already_starting');
+
       res.json(capture.getStatus());
     }),
   );

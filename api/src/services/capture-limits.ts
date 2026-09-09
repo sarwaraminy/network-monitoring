@@ -22,3 +22,16 @@ export const MAX_SNAPSHOT_LENGTH = 262_144;
 
 /** pcap read timeout, in milliseconds. */
 export const MAX_CAPTURE_TIMEOUT_MS = 10_000;
+
+/**
+ * What `started_by` records when the service resumed a capture by itself.
+ *
+ * A sentinel rather than the original operator's name. `started_by` is the record
+ * of who started a capture — redacted from non-admin `/status` because it names a
+ * person — so carrying the previous session's value forward would file an
+ * unattended machine action against somebody who was not there.
+ *
+ * Prefixed `system:` so it cannot collide with an email address, which is what
+ * every other value in this column is.
+ */
+export const AUTO_RESUME_ACTOR = 'system:auto-resume';

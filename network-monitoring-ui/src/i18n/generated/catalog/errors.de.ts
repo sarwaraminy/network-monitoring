@@ -46,6 +46,8 @@ export const ERRORS_DE: PartialErrorCatalog = {
     'vergessen soll.',
   'error.last_administrator':
     'Dies ist die letzte administrierende Person; ernennen Sie zuerst ein anderes Konto.',
+  'error.capture_already_starting':
+    'Auf dieser Schnittstelle startet bereits ein Mitschnitt. Warten Sie, bis er läuft, und prüfen Sie dann den Status.',
   'error.email_in_use': 'Die E-Mail-Adresse wird bereits verwendet.',
   'error.cannot_demote_self':
     'Sie können sich Ihre eigene Administratorrolle nicht entziehen. Bitten Sie eine andere ' +
