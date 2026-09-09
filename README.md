@@ -327,10 +327,18 @@ like the good one.
 
 `capture_session` (V18) records what each sensor was asked to run and whether it was still
 running when the process last had an opinion. At boot a session left running is reported on
-the Capture screen — the interface, who started it and when, with a Resume button — and
-stamped stopped, so the interruption is reported by the run that found it and not again by
-the next one. Within that run the banner stays until somebody starts a capture — the notice
-is that monitoring stopped, which remains true until it is acted on.
+the Capture screen — the interface, who started it and when, with a Resume button.
+
+**The row is stamped stopped once the interruption has been dealt with, which is not always
+the run that found it.** With `CAPTURE_RESUME_ON_START` off, nothing is going to bring the
+capture back, so the stamp happens immediately and the next run does not repeat a report
+about an interruption already seen. With it on, the row stays open until a resume actually
+succeeds — a successful one replaces it, and a failed one needs it to still be there, because
+that row is the only thing that lets the next boot try again. So an interruption nothing has
+acted on yet is reported again, deliberately: that recurrence is what keeps unattended
+capture recoverable after a reboot that came up before its network did. Within a run the
+banner stays until somebody starts a capture — the notice is that monitoring stopped, which
+remains true until it is acted on.
 
 `startedBy` is stripped for a non-admin. `GET /status` sits behind `requireAuth` rather than
 an admin gate, and it is an administrator's email address; the rest of the notice is not

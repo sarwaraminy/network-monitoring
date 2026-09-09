@@ -428,6 +428,23 @@ export class PacketCaptureService {
     const previous = await findInterruptedCapture(this.label);
     if (!previous) return;
 
+    /*
+     * Checked again, because the read above yields.
+     *
+     * The check before it is not enough on its own: a capture that starts while
+     * the query is in flight is invisible to it, and the row that capture just
+     * wrote is what comes back as `previous`. From there the sequence is the one
+     * the guard exists to prevent — the notice is set while a capture is running,
+     * and with resuming off the stamp below closes the live session, so the
+     * capture continues with nothing open and the next boot finds nothing to
+     * report.
+     *
+     * One query's width rather than five awaited startup steps, so it is narrow;
+     * it also fails in the direction that destroys the evidence, which is the
+     * direction worth spending a second comparison on.
+     */
+    if (this.capturing) return;
+
     this.interrupted = previous;
     this.log.warn(
       { interface: previous.interfaceName, startedAt: previous.startedAt },

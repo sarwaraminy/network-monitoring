@@ -61,9 +61,15 @@ which would look the same as a machine that has never captured anything &mdash; 
 the interface, when it started and &mdash; if you are an administrator &mdash; who started it,
 with a <span class="ui">Resume</span> button that runs it again on the same settings.</p>
 
-<p>The banner stays until you start a capture. It does not come back after that, and it does
-not come back on the next restart either: the notice belongs to the run that found it, so a
-service restarted twice does not report the same interruption twice.</p>
+<p>The banner stays until you start a capture, and does not come back after that.</p>
+
+<p>Whether it comes back on the <em>next</em> restart depends on whether anything has dealt
+with the interruption. Ordinarily nothing needs to &mdash; you were told, and a service
+restarted twice does not report the same interruption twice. But if the service was set to
+resume the capture by itself and could not &mdash; the usual reason being a host that came
+back up before its network did &mdash; the notice returns at the next restart, and the
+service tries again. That is deliberate rather than a fault: it is what stops an unattended
+capture staying off silently because one boot happened to be too early.</p>
 
 <p>An installation that would rather not wait to be told can have the service resume by itself,
 by setting <code>CAPTURE_RESUME_ON_START=true</code> where the server is configured. It is off

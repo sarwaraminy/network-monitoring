@@ -99,6 +99,30 @@ describe('what a process does with the session row', { skip: database.skip }, ()
   });
 
   /*
+   * The guard before the read is not enough on its own, because the read yields.
+   *
+   * A capture starting while `findInterruptedCapture` is in flight is invisible to
+   * the first check, and its own live row is what comes back — so the sequence the
+   * guard exists to prevent runs anyway, one query's width later.
+   *
+   * Sitting in that window needs no stub. `reportInterruptedCapture` runs
+   * synchronously as far as the read and then yields, so anything done between
+   * the call and the `await` below happens while the query is in flight — which
+   * is precisely where an operator's capture would land.
+   */
+  it('re-checks after the read, which is where the window actually is', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+
+    const pending = service.reportInterruptedCapture();
+    pretendCapturing(service);
+    await pending;
+
+    assert.equal(service.getStatus().interrupted, null, 'a live capture was reported as interrupted');
+    assert.equal(await isOpen(), true, 'a live capture had its own session stamped stopped');
+  });
+
+  /*
    * The row is the only durable record. Stamping it before the resume is tried
    * makes the ordinary failure permanent: the host reboots, the interface is not
    * up yet, the resume fails, and the notice that survives lives in the memory of
