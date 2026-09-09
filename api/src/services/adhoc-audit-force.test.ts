@@ -34,8 +34,15 @@ import { openTestDatabase } from '../test/database.js';
 
 process.env.ADHOC_ENABLED = 'true';
 process.env.ADHOC_DB_PASSWORD = 'adhoc-audit-force-test-password';
-// Deliberately NOT set: it would pin the field this test has to change.
-process.env.ADHOC_WRITE_ENABLED = undefined as unknown as string;
+/*
+ * Deliberately UNSET, both of them: either would pin the field this test has to
+ * move, and a pinned field cannot be changed through the stored row at all.
+ *
+ * `delete` rather than an assignment. `process.env.X = undefined` stores the
+ * *string* `"undefined"`, which every parser here would then reject as a
+ * malformed value rather than treat as absent — the opposite of what is wanted,
+ * and quiet about it.
+ */
 delete process.env.ADHOC_WRITE_ENABLED;
 delete process.env.ADHOC_AUDIT;
 

@@ -238,6 +238,19 @@ export async function seedAdhocSettingsFromEnvironment(): Promise<AdhocField[]> 
     );
   }
 
-  await loadAdhocSettings();
+  /*
+   * The load is deliberately NOT done here.
+   *
+   * It used to be, and `index.ts` now calls it separately for a reason that
+   * docblock spells out: a transient failure anywhere in the loop above rejected
+   * this whole function, so the load never ran and the process held
+   * environment-and-defaults for its lifetime. With both, the boot read the row
+   * twice — and re-emitted the invalid-variable warning with it, so a single
+   * mistyped `ADHOC_TIMEOUT_MS` printed two identical lines, which reads as two
+   * different variables being wrong.
+   *
+   * `seedFromEnvironment` on the delivery side ends the same way, and that is
+   * what `index.ts` means when it says the two paths agree.
+   */
   return seeded;
 }
