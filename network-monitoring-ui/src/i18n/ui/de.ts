@@ -290,11 +290,11 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
 
   'capture.resume': 'Fortsetzen',
   'capture.interrupted_note_anon':
-    'Der Mitschnitt auf {interface} endete beim Neustart des Dienstes. Er wurde um {at} ' +
-    'gestartet und läuft derzeit nicht.',
+    'Der Mitschnitt auf {interface} endete unerwartet. Er wurde um {at} gestartet und läuft ' +
+    'derzeit nicht.',
   'capture.interrupted_note':
-    'Der Mitschnitt auf {interface} endete beim Neustart des Dienstes. Er wurde von {by} um ' +
-    '{at} gestartet und läuft derzeit nicht.',
+    'Der Mitschnitt auf {interface} endete unerwartet. Er wurde von {by} um {at} gestartet ' +
+    'und läuft derzeit nicht.',
   'capture.unavailable_note':
     'Live-Aufzeichnung ist auf dem Server nicht verfügbar: Die Paketaufzeichnungsbibliothek konnte ' +
     'nicht geladen werden. Installieren Sie Npcap (Windows) oder libpcap (Linux/macOS) und starten ' +

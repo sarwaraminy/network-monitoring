@@ -239,7 +239,7 @@ export const env = {
   allowOpenSignup: bool('ALLOW_OPEN_SIGNUP', false),
 
   /**
-   * Whether a capture interrupted by a restart is started again at boot.
+   * Whether a capture that did not stop cleanly is started again at boot.
    *
    * **Off by default, and env-only.** Packet capture is the one thing this
    * product does that reads other people's traffic, and starting it with nobody

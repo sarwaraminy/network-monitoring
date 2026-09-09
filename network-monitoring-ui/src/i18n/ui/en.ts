@@ -298,11 +298,10 @@ export const UI_EN = {
 
   'capture.resume': 'Resume',
   'capture.interrupted_note_anon':
-    'Capture on {interface} stopped when the service restarted. It was started at {at} and ' +
-    'is not running now.',
+    'Capture on {interface} stopped unexpectedly. It was started at {at} and is not running now.',
   'capture.interrupted_note':
-    'Capture on {interface} stopped when the service restarted. It was started by {by} at ' +
-    '{at} and is not running now.',
+    'Capture on {interface} stopped unexpectedly. It was started by {by} at {at} and is not ' +
+    'running now.',
   'capture.unavailable_note':
     'Live capture is unavailable on the server: the packet capture library could not be loaded. ' +
     'Install Npcap (Windows) or libpcap (Linux/macOS) and restart the API. Everything else on this ' +

@@ -166,7 +166,7 @@ describe('PacketCaptureWithIP', () => {
  * Driven through the page rather than the component, because the value comes from
  * the status endpoint and the point is that it reaches the screen.
  */
-describe('a capture interrupted by a restart', () => {
+describe('a capture that did not stop cleanly', () => {
   const INTERRUPTED = {
     ...IDLE_STATUS,
     interrupted: {
@@ -183,7 +183,7 @@ describe('a capture interrupted by a restart', () => {
     server.use(http.get('*/packets/status', () => HttpResponse.json(INTERRUPTED)));
     renderApp(<PacketCapture />, { authenticated: true });
 
-    const note = await screen.findByText(/stopped when the service restarted/i, undefined, {
+    const note = await screen.findByText(/stopped unexpectedly/i, undefined, {
       timeout: 10_000,
     });
     expect(note).toBeInTheDocument();
@@ -221,6 +221,6 @@ describe('a capture interrupted by a restart', () => {
     renderApp(<PacketCapture />, { authenticated: true });
 
     await screen.findByRole('combobox', { name: /network interface/i }, { timeout: 10_000 });
-    expect(screen.queryByText(/stopped when the service restarted/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/stopped unexpectedly/i)).not.toBeInTheDocument();
   });
 });

@@ -300,7 +300,7 @@ export interface InterruptedCapture {
    * Absent for a non-admin. The API strips it — it is an administrator's email
    * address, and this endpoint is behind `requireAuth` rather than an admin gate.
    * Everything else in the notice is shown to everyone, because "capture stopped
-   * when the service restarted" is the point of it.
+   * stopped unexpectedly" is the point of it.
    */
   startedBy?: string;
 }

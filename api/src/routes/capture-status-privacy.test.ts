@@ -17,7 +17,7 @@ import { openTestDatabase } from '../test/database.js';
  * class, same shape, and the pattern was adjacent to the change that broke it.
  *
  * The rest of the notice stays visible to everyone on purpose. "Monitoring stopped
- * when the service restarted" is the point of the feature and is not privileged;
+ * stopped unexpectedly" is the point of the feature and is not privileged;
  * only the name is.
  *
  * Driven over real HTTP with real tokens rather than against the handler, because

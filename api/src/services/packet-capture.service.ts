@@ -19,6 +19,7 @@ import { toPacketDTO } from '../packet/mapping.js';
 import type { NetworkInterfaceDTO, PacketDTO } from '../types/dto.js';
 import { AlertSink } from './alert.service.js';
 import {
+  type CaptureSessionRecord,
   findInterruptedCapture,
   type InterruptedCapture,
   recordCaptureStarted,
@@ -107,11 +108,26 @@ export class PacketCaptureService {
   private droppedPackets = 0;
   private findingCount = 0;
   /**
-   * A session the previous process left running, until this one starts its own.
-   * Held in memory rather than re-read: the row is stamped stopped as soon as it
-   * is discovered, so it is reportable exactly once, by the process that found it.
+   * An interruption this process has to report: either one the previous process
+   * left behind, or one that happened here — see `stopCapture`.
+   *
+   * Held in memory rather than re-read. With resuming off the row is stamped as
+   * soon as it is found, so it is reportable exactly once, by the process that
+   * found it; with resuming on it stays open until a resume succeeds, and this
+   * field is what keeps the notice on screen meanwhile.
    */
   private interrupted: InterruptedCapture | null = null;
+  /**
+   * What this process is capturing, kept so a capture that ends on its own can
+   * report itself.
+   *
+   * The individual fields above cover what `/status` shows while a capture runs;
+   * this is the whole session record, which is what an interruption notice needs
+   * — the interface, who started it, and when. Held rather than re-read, because
+   * the moment it is wanted is the moment the handle has just failed, and a
+   * database round trip is the wrong thing to depend on then.
+   */
+  private session: CaptureSessionRecord | null = null;
   private warnedAboutLinkType = false;
 
   /** Detection state belongs to a capture session, so both are created together. */
@@ -243,14 +259,15 @@ export class PacketCaptureService {
 
     // Recorded as the operator asked for it, not as the clamps left it — see V18.
     // Awaited, but it cannot throw: a bookkeeping failure warns and returns.
-    await recordCaptureStarted(this.label, {
+    this.session = {
       interfaceName,
       snapshotLength,
       timeoutMs,
       filterIp: filterIpAddress ?? null,
       startedAt: this.startedAt,
       startedBy,
-    });
+    };
+    await recordCaptureStarted(this.label, this.session);
 
     this.log.info(
       {
@@ -287,6 +304,8 @@ export class PacketCaptureService {
     }
 
     const wasCapturing = this.capturing;
+    const session = this.session;
+    this.session = null;
     if (wasCapturing) {
       this.log.info({ bufferedPackets: this.packets.length, findings: this.findingCount }, 'Capture stopped');
     }
@@ -303,6 +322,30 @@ export class PacketCaptureService {
     if (wasCapturing && reason === 'operator') await recordCaptureStopped(this.label);
     if (wasCapturing && reason !== 'operator') {
       this.log.warn({ reason }, 'Capture ended without being stopped; it will be reported as interrupted');
+      /*
+       * Reported here as well as at the next boot, and the difference matters.
+       *
+       * Leaving the row open is what lets the *next* process say something. It
+       * says nothing about this one — and `read-error` happens while this process
+       * goes on running and serving `/status`, which showed a bare "Idle" for a
+       * capture that had just died under it. Two things followed: an operator who
+       * started a new capture overwrote the row and erased the incident with no
+       * record anywhere, and one who did not was told at the next restart that a
+       * restart had ended it, which was false.
+       *
+       * Built from the session this process started rather than re-read, so it
+       * holds even when the database is what failed.
+       */
+      if (session) {
+        this.interrupted = {
+          interfaceName: session.interfaceName,
+          filterIp: session.filterIp,
+          snapshotLength: session.snapshotLength,
+          timeoutMs: session.timeoutMs,
+          startedAt: session.startedAt.toISOString(),
+          startedBy: session.startedBy,
+        };
+      }
     }
 
     // Write out whatever the detectors found before the sink is discarded.
@@ -344,36 +387,44 @@ export class PacketCaptureService {
   }
 
   /**
-   * Reads the last session at boot and decides what to do about it.
-   *
-   * Three outcomes, and the middle one is the whole point:
-   *
-   *  - nothing recorded, or it stopped cleanly — nothing to say.
-   *  - it was still running and `CAPTURE_RESUME_ON_START` is off — remember it so
-   *    the interface can report it, and stamp the row stopped so the *next* boot
-   *    does not repeat a notice about an interruption already seen.
-   *  - it was still running and resuming is on — start it again, which replaces
-   *    the row and needs no notice.
-   *
-   * Never throws. A capture host that cannot reach its database must still be
-   * able to capture, and this is bookkeeping about capture rather than capture.
-   */
-  /**
    * Reads the last session and remembers it, so the interface can report it.
    *
    * Split from resuming, which happens later in boot: reading the record depends
    * on nothing, while running a capture depends on the suppression rules and
    * indicator feeds being loaded. See `packet-capture.registry.ts`.
    *
-   * The row is stamped stopped here whether or not it will be resumed, so the
-   * notice belongs to the process that found it and a second restart does not
-   * repeat a report about an interruption already seen. A resume replaces the row
-   * anyway.
+   * **Whether the row is stamped stopped here depends on whether a resume will be
+   * attempted**, and that is the whole of the difference between reporting an
+   * interruption once and losing it. With resuming off, the row is stamped: the
+   * notice belongs to the process that found it, and a second restart should not
+   * repeat a report about an interruption already seen. With resuming on, the row
+   * is left open until the resume actually succeeds — a successful one replaces it
+   * anyway, and a failed one needs it to still be there.
    *
    * Never throws. A capture host that cannot reach its database must still be
    * able to capture, and this is bookkeeping about capture rather than capture.
    */
   async reportInterruptedCapture(): Promise<void> {
+    /*
+     * Nothing to report if this process is already capturing — the open row is
+     * then its own.
+     *
+     * `index.ts` calls this after `listen()`, so the API is accepting requests
+     * before it runs: an operator or a retrying client can start a capture in that
+     * window, and without this guard the row that capture just wrote is read back
+     * as an interruption and stamped stopped underneath it. The capture goes on
+     * running with no open session, so the interruption that ends it later leaves
+     * nothing for the next boot to find — the failure is silent and lands exactly
+     * where the feature was supposed to speak up.
+     *
+     * This does not cover two processes sharing a `SENSOR_ID` — a rolling
+     * redeploy, or a scaled-out API — where the booting process stamps the other
+     * one's live capture stopped with no race at all. That wants the row keyed to
+     * the process that owns it, which is a schema change and a separate piece of
+     * work; it is written down in the roadmap's known gaps.
+     */
+    if (this.capturing) return;
+
     const previous = await findInterruptedCapture(this.label);
     if (!previous) return;
 
@@ -381,10 +432,22 @@ export class PacketCaptureService {
     this.log.warn(
       { interface: previous.interfaceName, startedAt: previous.startedAt },
       env.captureResumeOnStart
-        ? 'A capture was interrupted by a restart; it will be resumed once detection is ready'
-        : 'A capture was interrupted by a restart; it is NOT running. Set CAPTURE_RESUME_ON_START=true to resume automatically',
+        ? 'A capture did not stop cleanly; it will be resumed once detection is ready'
+        : 'A capture did not stop cleanly; it is NOT running. Set CAPTURE_RESUME_ON_START=true to resume automatically',
     );
-    await recordCaptureStopped(this.label);
+    /*
+     * Stamped only when nothing is going to try to bring it back.
+     *
+     * Stamping unconditionally, before the resume, made the ordinary failure
+     * permanent: with `CAPTURE_RESUME_ON_START=true` the host reboots, the
+     * interface is not up yet when the resume runs, the resume fails — and the
+     * only surviving trace is a notice in the memory of a process nobody is
+     * watching. The next boot finds no interrupted session and does not try again,
+     * so unattended capture is off for good, reached through the switch that
+     * exists to prevent exactly that. The more failure-prone the host, the more
+     * likely it was.
+     */
+    if (!env.captureResumeOnStart) await recordCaptureStopped(this.label);
   }
 
   /**
@@ -399,6 +462,13 @@ export class PacketCaptureService {
     const previous = this.interrupted;
     if (!previous || !env.captureResumeOnStart || this.capturing) return;
 
+    /*
+     * The row is still open at this point — `reportInterruptedCapture` leaves it
+     * that way when resuming is on. A successful `startCapture` replaces it; a
+     * failed one leaves it open on purpose, so the next boot finds the session
+     * again and tries again.
+     */
+
     try {
       await this.startCapture(
         previous.interfaceName,
@@ -409,7 +479,7 @@ export class PacketCaptureService {
       );
       this.log.warn(
         { interface: previous.interfaceName },
-        'Resumed the capture that was interrupted by a restart (CAPTURE_RESUME_ON_START)',
+        'Resumed the capture that did not stop cleanly (CAPTURE_RESUME_ON_START)',
       );
     } catch (error) {
       /*
@@ -419,7 +489,7 @@ export class PacketCaptureService {
        */
       this.log.warn(
         { err: error, interface: previous.interfaceName },
-        'Could not resume the interrupted capture; reporting it instead',
+        'Could not resume the interrupted capture; reporting it, and the next restart will try again',
       );
     }
   }
