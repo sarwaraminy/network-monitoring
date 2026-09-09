@@ -2566,6 +2566,15 @@ a line each if that judgement turns out to be wrong.
 
 ### Known gaps, named rather than left to be discovered
 
+- **The capture session row is keyed to the sensor, not to the process that owns it.** Two
+  API processes sharing a `SENSOR_ID` — a rolling redeploy, or a scaled-out API — write to the
+  same `capture_session` row per scope. The one that boots second reads the first one's live
+  capture as an interruption, and with resuming off stamps it stopped; the live capture then
+  runs with nothing open, so the interruption that really ends it has nothing for the next
+  boot to find. `reportInterruptedCapture` guards on `this.capturing`, which closes the
+  single-process window where the API is already serving requests during boot, but cannot see
+  another process at all. The fix is an owner column — a process identity written with the
+  row and compared on read — which is a schema change and its own piece of work.
 - **`SlidingWindow` does not slide.** It sets `expiresAt` once when a bucket is created and
   discards the whole bucket when that passes, which is a *tumbling* window. An attacker who
   probes just under the threshold, waits for the boundary and repeats is never detected, and
