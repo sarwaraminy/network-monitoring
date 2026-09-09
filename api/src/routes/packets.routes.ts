@@ -74,18 +74,23 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
       );
 
       /*
-       * A start that did not claim the instance is not a success.
+       * Each outcome gets its own answer, and only one of the three is an error.
        *
-       * `startCapture` declines while another caller holds it, which with
-       * `CAPTURE_RESUME_ON_START=true` is a real race: the banner and its Resume
-       * button go live before the auto-resume fires, so an operator pressing it
-       * can lose. Answering 200 with `capturing: false` sent the interface to Idle
-       * — and `usePacketCapture` only polls while capturing is true, so it stayed
-       * there, showing an interruption banner while a capture was in fact running.
-       * Worse than the double-start this replaced: the operator believed nothing
-       * was capturing and the screen agreed.
+       * `starting` is a race worth telling the caller about: with
+       * `CAPTURE_RESUME_ON_START=true` the banner and its Resume button go live
+       * before the auto-resume fires, so an operator pressing it can lose.
+       * Answering 200 with `capturing: false` sent the interface to Idle — and
+       * `usePacketCapture` only polls while capturing is true, so it stayed there,
+       * showing an interruption banner while a capture was in fact running.
+       *
+       * `running` is not an error at all. A client retry after a slow response, a
+       * second administrator on the Capture screen, or a script that starts
+       * idempotently all reach it, and the capture they asked for *is* running —
+       * so they get the live status, as they did before any of this. Telling them
+       * to wait for a start to settle would be advice about something that has
+       * already settled.
        */
-      if (!started) throw HttpError.of(409, 'error.capture_already_starting');
+      if (started === 'starting') throw HttpError.of(409, 'error.capture_already_starting');
 
       res.json(capture.getStatus());
     }),

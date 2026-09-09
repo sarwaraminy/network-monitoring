@@ -96,6 +96,15 @@ export interface CaptureStatus {
  */
 export type CaptureStopReason = 'operator' | 'shutdown' | 'read-error';
 
+/**
+ * What a `startCapture` call did.
+ *
+ * Three outcomes rather than a boolean, because the two failures want different
+ * answers from the route: `starting` is a race worth retrying, and `running`
+ * means the caller already has what it asked for.
+ */
+export type StartOutcome = 'started' | 'starting' | 'running';
+
 export class PacketCaptureService {
   private handle: PcapHandle | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
@@ -115,6 +124,11 @@ export class PacketCaptureService {
    * the insert commits, and a stop that runs first would find no row to close.
    */
   private sessionWrite: Promise<void> | null = null;
+  /**
+   * The start currently running, so a stop can wait for it rather than act
+   * before it. See `stopCapture`.
+   */
+  private startInFlight: Promise<void> | null = null;
   private interfaceName: string | null = null;
   private filter: string | null = null;
   private linkType: string | null = null;
@@ -194,10 +208,14 @@ export class PacketCaptureService {
    * The hole predates the second caller; it is the second caller that makes it
    * reachable.
    *
-   * Returns whether it claimed the instance. Declining is a real outcome now
-   * that two callers exist, and a caller that assumes "returned, therefore
-   * started" reports something that did not happen — see
-   * `resumeInterruptedCapture`.
+   * Returns *why* it did or did not start, not merely whether it did.
+   *
+   * Declining is a real outcome now that two callers exist, and a caller that
+   * assumes "returned, therefore started" reports something that did not happen —
+   * see `resumeInterruptedCapture`. The two ways of declining are not the same
+   * answer either: a caller racing a start in flight should try again in a
+   * moment, and a caller asking for a capture that is already running has already
+   * got what it asked for.
    *
    * @param snapshotLength Bytes captured per frame.
    * @param timeoutMs pcap read timeout, passed through to pcap_set_timeout.
@@ -209,16 +227,31 @@ export class PacketCaptureService {
     timeoutMs: number,
     filterIpAddress?: string | null,
     startedBy = 'unknown',
-  ): Promise<boolean> {
-    if (this.capturing || this.starting) return false;
+  ): Promise<StartOutcome> {
+    if (this.capturing) return 'running';
+    if (this.starting) return 'starting';
+
     this.starting = true;
+    /*
+     * Held so `stopCapture` can wait for it. The flag alone tells a second
+     * *start* to stand down; a stop needs the thing itself, because it has to act
+     * once the start has finished rather than decline.
+     */
+    this.startInFlight = this.openCapture(
+      interfaceName,
+      snapshotLength,
+      timeoutMs,
+      filterIpAddress,
+      startedBy,
+    );
     try {
-      await this.openCapture(interfaceName, snapshotLength, timeoutMs, filterIpAddress, startedBy);
-      return true;
+      await this.startInFlight;
+      return 'started';
     } finally {
       // Cleared on the way out either way: a failed start must not leave the
       // instance refusing every later attempt.
       this.starting = false;
+      this.startInFlight = null;
     }
   }
 
@@ -362,6 +395,27 @@ export class PacketCaptureService {
   }
 
   async stopCapture(reason: CaptureStopReason = 'operator'): Promise<void> {
+    /*
+     * Wait for a start that has claimed the instance but not finished.
+     *
+     * `startCapture` fences a competing *start* with `starting`; this is the other
+     * side of the same flag, and without it a stop landing inside the start window
+     * did nothing at all: `pollTimer` and `handle` are still null, `capturing` is
+     * still false, so it closed nothing, stamped nothing and answered
+     * `capturing: false`. The start then completed — opening the handle, starting
+     * the timer and writing an *open* session row — so the interface showed Idle
+     * and never corrected itself (`usePacketCapture` polls only while capturing),
+     * the next boot reported an interruption that never happened, and with
+     * resuming on it restarted the capture the operator had explicitly stopped.
+     *
+     * Waiting rather than refusing: the operator asked for the capture to stop,
+     * and a stop that arrives a moment early should still stop it.
+     *
+     * Cannot reject in a way that matters here — a failed start leaves `capturing`
+     * false and everything below is a no-op.
+     */
+    if (this.startInFlight) await this.startInFlight.catch(() => {});
+
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
@@ -619,7 +673,7 @@ export class PacketCaptureService {
        * been handled when it had not. On an unattended host the log is the only
        * thing anybody reads, so a false claim there is the expensive kind.
        */
-      if (!started) return;
+      if (started !== 'started') return;
       this.log.warn(
         { interface: previous.interfaceName },
         'Resumed the capture that did not stop cleanly (CAPTURE_RESUME_ON_START)',

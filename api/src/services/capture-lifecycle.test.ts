@@ -352,17 +352,92 @@ describe('what a process does with the session row', { skip: database.skip }, ()
     // passes down rather than on the row it would have written.
     const passed: string[] = [];
     const innards = service as unknown as {
-      startCapture: (...args: [string, number, number, string | null, string]) => Promise<boolean>;
+      startCapture: (...args: [string, number, number, string | null, string]) => Promise<string>;
     };
     innards.startCapture = async (...args) => {
       passed.push(args[4]);
-      return true;
+      return 'started';
     };
 
     await service.resumeInterruptedCapture();
 
     assert.deepEqual(passed, [AUTO_RESUME_ACTOR], 'the resumed session was filed under a person');
     assert.notEqual(passed[0], STARTED.startedBy);
+  });
+
+  /*
+   * A stop that lands inside the start window has to wait for it.
+   *
+   * `starting` fenced a second *start*; the stop side never read it. So a stop
+   * arriving while `openCapture` was awaiting found `handle` and `pollTimer` null
+   * and `capturing` false, closed nothing, stamped nothing, and answered
+   * `capturing: false` — and then the start finished, opening a handle, starting
+   * a timer and writing an *open* row. The operator saw Idle while the interface
+   * was in promiscuous mode, the next boot reported an interruption that never
+   * happened, and with resuming on it restarted the capture they had just stopped.
+   */
+  it('stops a capture whose start had not finished yet', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+      openCapture: () => Promise<void>;
+    };
+
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    // A start that has claimed the instance and is still working: it becomes live
+    // only once released, which is the window the stop lands in.
+    innards.openCapture = async () => {
+      await held;
+      innards.capturing = true;
+      innards.session = STARTED;
+      innards.startedAt = STARTED.startedAt;
+      innards.sessionWrite = sessions.recordCaptureStarted(SCOPE, STARTED);
+      await innards.sessionWrite;
+    };
+
+    const starting = service.startCapture('eth0', 65_535, 1000, null, 'alice');
+    const stopping = service.stopCapture('operator');
+
+    release();
+    await Promise.all([starting, stopping]);
+
+    assert.equal(service.getStatus().capturing, false, 'the capture outlived the stop');
+    assert.equal(await isOpen(), false, 'a stopped capture was left recorded as running');
+  });
+
+  /*
+   * The two ways of declining are different answers.
+   *
+   * `running` means the caller already has what it asked for — a client retry, a
+   * second administrator on the screen, a script that starts idempotently — and
+   * telling it to wait for a start to settle is advice about something that
+   * settled already.
+   */
+  it('tells a start racing another apart from one that is simply late', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      starting: boolean;
+      openCapture: () => Promise<void>;
+    };
+    innards.openCapture = async () => {};
+
+    innards.starting = true;
+    assert.equal(await service.startCapture('eth0', 65_535, 1000, null, 'alice'), 'starting');
+
+    innards.starting = false;
+    innards.capturing = true;
+    assert.equal(await service.startCapture('eth0', 65_535, 1000, null, 'alice'), 'running');
+
+    innards.capturing = false;
+    assert.equal(await service.startCapture('eth0', 65_535, 1000, null, 'alice'), 'started');
   });
 
   /*
