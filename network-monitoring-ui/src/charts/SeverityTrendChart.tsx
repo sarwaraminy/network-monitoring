@@ -8,7 +8,7 @@ import { createFormatters, type Formatters, useFormatters } from '../i18n/format
 import { DEFAULT_LOCALE } from '../i18n/generated/locales';
 import { useT } from '../i18n/ui';
 import type { AlertTrendPoint, TrendBucket } from '../types';
-import { axisChrome, axisLabelCandidates, chartChromeSx, valueAxisWidth } from './chrome';
+import { axisChrome, chartChromeSx } from './chrome';
 import { SEVERITY_ORDER } from './palette';
 import { useChartPalette } from './useChartPalette';
 
@@ -193,20 +193,6 @@ export default function SeverityTrendChart({
 
   const format = useFormatters();
 
-  /*
-   * The axis is sized from the widest label it will actually carry.
-   *
-   * The stack's tallest column is what sets the scale, so its total is about the
-   * largest tick MUI will place — close enough to size from, and it is the only
-   * value available before the chart lays itself out.
-   */
-  const axisWidth = useMemo(() => {
-    const tallest = trend.reduce(
-      (most, point) => Math.max(most, point.critical + point.high + point.medium + point.low + point.info),
-      0,
-    );
-    return valueAxisWidth(...axisLabelCandidates(tallest, format.compact));
-  }, [trend, format]);
   const labels = useMemo(
     () => trend.map((point) => bucketLabel(bucket, point.bucket, format)),
     [trend, bucket, format],
@@ -279,7 +265,28 @@ export default function SeverityTrendChart({
            * is passed, not from what CSS paints.
            */
           disableLine: true,
-          width: axisWidth,
+          /*
+           * Measured by MUI rather than estimated here.
+           *
+           * This was a computed width, and it was wrong in the one direction that
+           * matters: it sized from the data, and the scale draws ticks *above* the
+           * data. `.nice()` extends the domain, so 8,221 findings gets a `10.000`
+           * tick in German that nothing in the candidate set ever measured — 51
+           * such magnitudes in German and 26 in Dari below two million, against
+           * none in English, whose `1K`/`10K` are short enough to hide it.
+           *
+           * `computeAxisAutoSize` measures the labels that are actually drawn,
+           * using graphemes and real text metrics. That makes the whole class
+           * impossible rather than fixing one case of it, and it is markedly
+           * better than 6.4px-per-character for Perso-Arabic, which is where the
+           * estimate was already weakest.
+           *
+           * The cost is a left edge that shifts when the counts cross a
+           * magnitude. That is real, and it is the reason a fixed width was tried
+           * first — but it was a concern about tidiness, and what it was bought
+           * with was ellipsized numbers in two of three languages.
+           */
+          width: 'auto',
           // Shortened per locale, so a large count is a tick rather than an axis
           // wide enough to crowd the plot.
           valueFormatter: (value: number | null) => (value === null ? '' : format.compact(value)),

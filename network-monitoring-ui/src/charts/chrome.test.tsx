@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { createFormatters } from '../i18n/format';
 import { renderApp } from '../test/render';
 import type { AlertTrendPoint } from '../types';
-import { axisLabelCandidates, valueAxisWidth } from './chrome';
 import SeverityTrendChart from './SeverityTrendChart';
 
 /**
@@ -18,6 +17,11 @@ import SeverityTrendChart from './SeverityTrendChart';
  * German dashboard drew American axis labels. That failure is invisible to
  * anybody whose browser and interface already agree, which is everybody who would
  * report it.
+ *
+ * The axis *width* is no longer asserted here at all: it is `width: 'auto'` now,
+ * so MUI measures the drawn labels and there is no arithmetic of ours left to
+ * check. The cases that used to cover `valueAxisWidth` went with it — a test of a
+ * deleted approximation is worse than no test, because it reads as coverage.
  *
  * Only the trend chart is asserted through the DOM. `MagnitudeBarChart` renders
  * no value-axis ticks and no direct labels under jsdom — the plot has no measured
@@ -64,60 +68,6 @@ describe('shortening a count for an axis', () => {
    */
   it('does not render NaN at anybody', () => {
     expect(createFormatters('en').compact(Number.NaN)).toBe('—');
-  });
-});
-
-describe('sizing the value axis', () => {
-  /*
-   * The three locales are nowhere near each other, which is the whole reason this
-   * is computed rather than fixed. A width sized from German truncated every Dari
-   * tick past a thousand: German does not abbreviate below a million at all
-   * (`120.000`), while Dari spells the unit out — `۱٫۲ میلیارد` against `1.2B`.
-   *
-   * MUI subtracts the tick size and label gap from the width and ellipsizes what
-   * is left over, so "too narrow" is silent: the number is still drawn, just not
-   * all of it.
-   */
-  it('gives a Dari label more room than an English one', () => {
-    const english = valueAxisWidth(createFormatters('en').compact(1_200_000_000));
-    const dari = valueAxisWidth(createFormatters('fa-AF').compact(1_200_000_000));
-
-    expect(dari).toBeGreaterThan(english);
-  });
-
-  /*
-   * The top of the domain is not the longest label, and compact notation is what
-   * breaks the assumption. German does not abbreviate below a million, so a
-   * domain topping out at two million gives a short `2 Mio.` while the ticks
-   * beneath it — `400.000`, `1,2 Mio.` — are the long ones. Sizing from the top
-   * alone ellipsized exactly those.
-   */
-  it('sizes from the widest tick, not the largest value', () => {
-    const de = createFormatters('de');
-    const fromTopOnly = valueAxisWidth(de.compact(2_000_000));
-    const fromCandidates = valueAxisWidth(...axisLabelCandidates(2_000_000, de.compact));
-
-    expect(fromCandidates).toBeGreaterThan(fromTopOnly);
-  });
-
-  it('includes the mid-domain label German spells out in full', () => {
-    const de = createFormatters('de');
-    // `500.000` — seven characters where the top of the domain gives six.
-    expect(axisLabelCandidates(2_000_000, de.compact)).toContain('500.000');
-  });
-
-  it('fits the longest label the locale can produce', () => {
-    // Eleven characters at ~6.4px, plus what MUI reserves beside the label.
-    const longest = createFormatters('fa-AF').compact(1_200_000_000);
-    expect(valueAxisWidth(longest)).toBeGreaterThanOrEqual(longest.length * 6.4);
-  });
-
-  it('does not let a long label take the chart over', () => {
-    expect(valueAxisWidth('x'.repeat(200))).toBeLessThanOrEqual(88);
-  });
-
-  it('keeps a floor under a short one, so the axis does not collapse', () => {
-    expect(valueAxisWidth('0')).toBeGreaterThanOrEqual(34);
   });
 });
 

@@ -26,78 +26,13 @@ export const TICK_FONT_SIZE = 11;
 /**
  * Rough advance of one character at the tick size.
  *
- * Exported because both axes guess text width, and a second copy of this number
- * is exactly the drift this module exists to prevent — it was briefly declared
- * here *and* in `MagnitudeBarChart`.
- *
- * An estimate rather than a measurement, and the same trade either way:
- * measuring text properly means rendering it, and an axis that resizes after
- * paint makes the plot jump.
+ * Used only by `MagnitudeBarChart`'s *category* axis, whose labels are known
+ * strings rather than ticks a scale invents. The value axes ask MUI to measure
+ * instead — see the note on `width: 'auto'` in SeverityTrendChart — because an
+ * estimate cannot see a tick the scale added above the data, and because 6.4px a
+ * character is a poor guess for Perso-Arabic in particular.
  */
 export const APPROX_CHAR_WIDTH = 6.4;
-
-/**
- * What MUI reserves beside a Y tick label, and does not give back.
- *
- * `tickSize` (4 with `disableTicks`, 6 without) plus `TICK_LABEL_GAP` (2) are
- * subtracted from the axis width before the label is laid out, and a label past
- * what is left is ellipsized — `ChartsSingleYAxisTicks.js`. Worth naming because
- * `disableTicks` does *not* reclaim the space it stops drawing: it forces
- * `tickSize` to 4 rather than 0.
- */
-const Y_TICK_OVERHEAD = 4 + 2;
-
-const MIN_VALUE_AXIS_WIDTH = 34;
-/**
- * A ceiling, because the axis competes with the plot for the card's width.
- *
- * At this point a label is ellipsized rather than allowed to take the chart over
- * — the same trade `MagnitudeBarChart` makes on its category axis.
- */
-const MAX_VALUE_AXIS_WIDTH = 88;
-
-/**
- * Room for a Y axis whose widest label is `longest`.
- *
- * Computed rather than fixed, and computed from the *rendered* label, because the
- * three locales are not close to each other. A fixed 52px was sized from German
- * on the assumption that `"2,8 Mio."` was the longest of the three; both halves
- * of that were wrong. German does not abbreviate below a million at all —
- * `compact(120_000)` is `120.000` — and Dari spells the unit out where German
- * shortens it, so `compact(1_200_000_000)` is `۱٫۲ میلیارد`, eleven characters
- * against four for `1.2B`. Every Dari tick past a thousand was being ellipsized,
- * on numbers whose whole purpose is to be read at a glance, in the locale least
- * likely to be checked by eye.
- *
- * It follows the data rather than the poll: the label only lengthens when the
- * series changes order of magnitude, which is both rare and the moment a wider
- * axis is genuinely needed.
- */
-export function valueAxisWidth(...candidates: string[]): number {
-  const longest = candidates.reduce((most, label) => Math.max(most, label.length), 0);
-  const text = Math.ceil(longest * APPROX_CHAR_WIDTH);
-  return Math.min(MAX_VALUE_AXIS_WIDTH, Math.max(MIN_VALUE_AXIS_WIDTH, text + Y_TICK_OVERHEAD));
-}
-
-/**
- * Labels to size an axis from, given the top of its domain.
- *
- * The top value is *not* the longest label, and compact notation is what breaks
- * the assumption. In German a domain topping out near two million gives
- * `compact(2_000_000)` = `"2 Mio."` — short — while the ticks MUI actually places
- * below it are `"400.000"` and `"1,2 Mio."`, both longer, because German does not
- * abbreviate below a million and so its *intermediate* ticks are the long ones.
- * Sizing from the top alone ellipsized them. Dari is borderline for the same
- * reason.
- *
- * Fractions of the domain rather than MUI's real tick values, which are not
- * available before layout — and MUI "nice"-extends the domain anyway, so the
- * largest tick is often a round number above anything in the data. These land in
- * the band where the long form appears, which is what the sizing needs.
- */
-export function axisLabelCandidates(top: number, format: (value: number) => string): string[] {
-  return [1, 0.75, 0.5, 0.25].map((fraction) => format(Math.round(top * fraction)));
-}
 
 export const tickLabelStyle = { fontSize: TICK_FONT_SIZE } as const;
 
