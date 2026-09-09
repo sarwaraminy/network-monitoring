@@ -32,6 +32,18 @@ export interface Formatters {
   /** A count. Grouped and digit-shaped per locale, which for a count is correct. */
   number(value: number): string;
   /**
+   * A count shortened for a chart axis — "2.8M", "475K".
+   *
+   * A tick label has about four characters of room before the axis starts eating
+   * the plot, and a findings count over a five-year window reaches six figures.
+   * The shortening is `Intl`'s rather than hand-rolled, so the suffix belongs to
+   * the reader: German gives "2,8 Mio." and Dari "۲٫۸ میلیون".
+   *
+   * A quantity, so it is digit-shaped like `number` and unlike an identifier —
+   * see the note on `MessagePrimitive` in the generated message module.
+   */
+  compact(value: number): string;
+  /**
    * "3 minutes ago", in the reader's language.
    *
    * Two pages had a hand-rolled copy of this that returned English units — `just
@@ -81,6 +93,7 @@ export function createFormatters(locale: Locale): Formatters {
   const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'medium' });
   const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' });
   const number = new Intl.NumberFormat(locale);
+  const compact = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 });
   // `numeric: 'auto'` is what produces "yesterday" rather than "1 day ago", and
   // the equivalent in each other language.
   const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
@@ -134,6 +147,7 @@ export function createFormatters(locale: Locale): Formatters {
     day: (value, options) => safely(asDate(value), (at) => dayFormat(options).format(at)),
     time: (value) => safely(asDate(value), (at) => time.format(at)),
     number: (value) => (Number.isFinite(value) ? number.format(value) : UNREADABLE_DATE),
+    compact: (value) => (Number.isFinite(value) ? compact.format(value) : UNREADABLE_DATE),
     relativeTime: (value) =>
       safely(asDate(value), (at) => {
         const elapsed = Date.now() - at.getTime();

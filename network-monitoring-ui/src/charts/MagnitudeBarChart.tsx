@@ -1,7 +1,9 @@
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { BarChart } from '@mui/x-charts/BarChart';
+import { useMemo } from 'react';
 import { useFormatters } from '../i18n/format';
+import { chartChromeSx, TICK_FONT_SIZE, tickLabelStyle } from './chrome';
 import { useChartPalette } from './useChartPalette';
 
 export interface MagnitudeDatum {
@@ -46,6 +48,9 @@ const APPROX_CHAR_WIDTH = 6.4;
  * One series, so: one hue, no legend box (the card title already says what is
  * plotted), and the value direct-labelled at the bar tip so the reader does not
  * have to trace back to an axis.
+ *
+ * Shares its chrome with the trend chart — see charts/chrome.ts — so the two
+ * halves of the dashboard do not read as two products.
  */
 export default function MagnitudeBarChart({
   data,
@@ -56,6 +61,7 @@ export default function MagnitudeBarChart({
 }: Props) {
   const palette = useChartPalette();
   const fmt = useFormatters();
+  const chrome = useMemo(() => chartChromeSx(palette), [palette]);
 
   if (data.length === 0) {
     return (
@@ -89,13 +95,21 @@ export default function MagnitudeBarChart({
           scaleType: 'band',
           data: sorted.map((d) => d.label),
           tickLabelStyle: {
-            fontSize: 11,
+            ...tickLabelStyle,
             ...(labelsAreIdentifiers ? { direction: 'ltr', unicodeBidi: 'isolate' } : {}),
           },
           width: categoryAxisWidth,
         },
       ]}
-      xAxis={[{ tickMinStep: 1, tickLabelStyle: { fontSize: 11 } }]}
+      xAxis={[
+        {
+          tickMinStep: 1,
+          tickLabelStyle,
+          // Horizontal bars, so the *value* scale is the X axis here. Shortened
+          // per locale for the same reason the trend chart's is.
+          valueFormatter: (value: number | null) => (value === null ? '' : fmt.compact(value)),
+        },
+      ]}
       series={[
         {
           data: sorted.map((d) => d.value),
@@ -119,10 +133,12 @@ export default function MagnitudeBarChart({
       borderRadius={4}
       margin={{ left: 8, right: 24, top: 8, bottom: 8 }}
       sx={{
-        '& .MuiChartsGrid-line': { stroke: palette.grid, strokeWidth: 1 },
-        '& .MuiChartsAxis-line, & .MuiChartsAxis-tick': { stroke: palette.axis },
+        ...chrome,
         // Direct labels wear a text token, never the series colour.
-        '& .MuiBarLabel-root': { fill: 'var(--mui-palette-text-secondary)', fontSize: 11 },
+        '& .MuiBarLabel-root': {
+          fill: 'var(--mui-palette-text-secondary)',
+          fontSize: TICK_FONT_SIZE,
+        },
       }}
     />
   );
