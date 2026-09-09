@@ -750,7 +750,7 @@ That emphasis is load-bearing, and getting it wrong once made the whole feature 
 Retention rolls up days *older* than its cutoff, so if the longest window anyone can ask for
 is also the retention window, every bucket in `alert_rollup_daily` sits just outside it and the
 fold-in is dead code. The dashboard accepts up to five years and the period selector offers 12
-months and 3 years for exactly that reason: the reachable window has to be able to reach past
+months and 5 years for exactly that reason: the reachable window has to be able to reach past
 the cutoff.
 
 Sharing a transaction is what makes the sweep safe to retry: rolling up and then failing to

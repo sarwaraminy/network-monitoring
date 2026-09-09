@@ -179,6 +179,57 @@ describe('the trend at a bucket wider than a day', { skip: database.skip }, () =
     );
   });
 
+  it('plots no bucket that begins before the window did', async () => {
+    /*
+     * `since` is an instant, so the bucket containing it starts earlier — on a
+     * weekly bucket, by up to six days. That bar was plotted: keyed before the
+     * window began, and missing the rolled-up days from the part of its own week
+     * that fell outside the filter, while rendering as a complete week.
+     *
+     * `firstWholeUtcDay` makes exactly this argument for the daily case and
+     * chooses a missing bar over a short one. This is the same rule at every unit.
+     *
+     * Seeded just INSIDE the window rather than spread across it, and that is the
+     * whole fixture: a finding an hour after `since` passes the live-row filter,
+     * but the bucket it lands in began before `since`. Data anywhere else in the
+     * window produces no leading bucket at all, so the case would pass against the
+     * defect — which is what the first version of it did.
+     */
+    for (const bucket of ['day', 'week', 'month'] as const) {
+      const days = bucket === 'month' ? 365 : 30;
+      const windowStart = Date.now() - days * DAY_MS;
+      await database.pool!.query('TRUNCATE alerts');
+      await seedAlert(`edge-${bucket}`, new Date(windowStart + 60 * 60 * 1000));
+
+      const dashboard = await alertService.dashboardData({ days, bucket });
+
+      /*
+       * Dropped with its bucket, and that is the trade rather than a side effect.
+       * The finding is real and inside the window; the bucket holding it is not
+       * wholly inside, and a bar that renders as a complete week while missing
+       * most of one is the worse of the two answers. `firstWholeUtcDay` makes the
+       * same choice for a day and says so.
+       */
+      assert.equal(totalOf(dashboard.trend), 0, `${bucket}: a partial leading bucket was plotted`);
+
+      for (const point of dashboard.trend) {
+        assert.ok(
+          new Date(point.bucket).getTime() >= windowStart,
+          `${bucket}: plotted ${point.bucket}, which starts before the window did`,
+        );
+      }
+    }
+  });
+
+  it('keeps the trailing bucket, which is in progress rather than truncated', async () => {
+    // The current period is genuinely unfinished; that is a property of now, not
+    // an artefact of the window. Dropping it would hide today's findings.
+    await seedAlert('today', new Date());
+
+    const dashboard = await alertService.dashboardData({ days: 30, bucket: 'day' });
+    assert.equal(totalOf(dashboard.trend), 1, 'the current bucket was dropped with the leading one');
+  });
+
   it('reports the bucket it used, so the client does not have to guess', async () => {
     await seedAlert('one', new Date());
 

@@ -635,7 +635,31 @@ export async function dashboardData(options: {
     addTo(startOfUtcBucket(options.bucket, day), row.severity, Number(row.total));
   }
 
-  const trend = [...byBucket.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));
+  /*
+   * Whole buckets only, which is `firstWholeUtcDay`'s rule generalised to all four
+   * units.
+   *
+   * That function rounds the rollup filter up to the next whole UTC day, and its
+   * docblock argues the trade: a partial day cannot be reconstructed from a daily
+   * bucket, so the bar is dropped rather than shown short, and a window must not
+   * quietly reach further back than was asked for.
+   *
+   * Folding into a week or a month broke both halves. `since` is an instant, so
+   * the bucket containing it starts before it — a `days=30` request made on a
+   * Wednesday produced a week bar keyed to the preceding Monday, which is earlier
+   * than the window asked for, and which was missing that week's Monday, Tuesday
+   * and Wednesday from the rollup while rendering as a complete week. At a monthly
+   * bucket the leftmost bar could be short by a day out of 31 with nothing saying
+   * so — "inflated or deflated without saying so", which is precisely what the
+   * dropped day was chosen to avoid.
+   *
+   * So the leading partial bucket goes. The TRAILING one stays: the current hour,
+   * day, week or month is genuinely still in progress, and that is a property of
+   * now rather than an artefact of the window arithmetic.
+   */
+  const trend = [...byBucket.values()]
+    .filter((point) => new Date(point.bucket) >= since)
+    .sort((a, b) => a.bucket.localeCompare(b.bucket));
 
   /*
    * Reported only when it falls inside what was plotted.
