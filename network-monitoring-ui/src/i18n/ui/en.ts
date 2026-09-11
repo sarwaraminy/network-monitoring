@@ -790,6 +790,11 @@ export const UI_EN = {
   'sensors.col_history': 'Aggregated days',
   'sensors.col_last_seen': 'Last seen',
   'sensors.last_seen_never': 'never',
+  'sensors.active': 'still writing',
+  'sensors.active_hint':
+    'Something is still writing under this name. Decommissioning it would empty tables that ' +
+    'refill, and emptying its device list would report every machine on its segment as new. ' +
+    'Stop that sensor, or wait until it has gone quiet.',
   'sensors.retire': 'Decommission',
   'sensors.retire_sensor': 'Decommission sensor {sensor}',
   'sensors.confirm_retire': 'Yes, delete it all',

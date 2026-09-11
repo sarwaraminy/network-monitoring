@@ -758,7 +758,7 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'sensors.load_failed': 'سنسورها خوانده نشدند',
   'sensors.retire_failed': 'سنسور از رده خارج نشد',
   'sensors.none':
-    'هیچ سنسور دیگری چیزی در این پایگاه داده نوشته است. این نصب در فهرست نیست، چون هنوز ' +
+    'هیچ سنسور دیگری چیزی در این پایگاه داده ننوشته است. این نصب در فهرست نیست، چون هنوز ' +
     'می‌نویسد — از رده خارج کردن آن جدول‌هایی را خالی می‌کند که بی‌درنگ دوباره پر می‌شوند.',
   'sensors.col_sensor': 'سنسور',
   'sensors.col_findings': 'یافته‌ها',
@@ -766,6 +766,11 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'sensors.col_history': 'روزهای تجمیع‌شده',
   'sensors.col_last_seen': 'آخرین مشاهده',
   'sensors.last_seen_never': 'هرگز',
+  'sensors.active': 'هنوز می‌نویسد',
+  'sensors.active_hint':
+    'چیزی هنوز زیر این نام می‌نویسد. از رده خارج کردن آن جدول‌هایی را خالی می‌کند که دوباره پر ' +
+    'می‌شوند، و خالی کردن فهرست دستگاه‌هایش هر ماشین آن بخش شبکه را دوباره تازه گزارش می‌کند. آن ' +
+    'سنسور را متوقف کنید، یا تا آرام شدنش صبر کنید.',
   'sensors.retire': 'از رده خارج کردن',
   'sensors.retire_sensor': 'از رده خارج کردن سنسور {sensor}',
   'sensors.confirm_retire': 'بله، همه را پاک کن',

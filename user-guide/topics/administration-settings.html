@@ -149,6 +149,27 @@ reports every machine on the network as new all over again. To empty the current
 findings, use <span class="ui">Clear all</span> on the
 <a href="security-alerts.html">Security findings</a> page instead.</p>
 
+<p><strong>A sensor that is still writing is refused for the same reason</strong>, even
+though it is somebody else's machine. Any sensor heard from in the last quarter of an hour
+is marked <span class="ui">still writing</span> and its button is disabled: the damage is
+the same as decommissioning this one, it just happens on a host you are not looking at.
+Stop that sensor, or wait until it has gone quiet, and the row becomes available on the
+next refresh.</p>
+
+<div class="note">
+  <span class="label">What "still writing" can and cannot tell you</span>
+  <p>It is read from the most recent finding or device sighting recorded under that name, so
+  it is a good signal for a sensor watching a busy segment and a poor one for a sensor
+  watching an idle one. A sensor that is running but has seen no traffic at all for fifteen
+  minutes will not be marked, because nothing in the database distinguishes that from a
+  sensor that has been switched off. <strong>Know that the sensor is really retired before
+  you retire it</strong> &mdash; this check is a safety net, not an answer.</p>
+</div>
+
+<p>One more refusal you may see: <em>the retention sweep is running</em>. Retention and a
+decommission both rewrite the aggregated history, so they take turns rather than overlap.
+Nothing has changed when you see it; try again in a few minutes.</p>
+
 <h2>Everything here is recorded</h2>
 
 <p>Each change writes a row to the <a href="audit-trail.html">audit trail</a> naming who

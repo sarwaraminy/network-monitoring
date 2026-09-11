@@ -187,6 +187,54 @@ describe('decommissioning a sensor', { skip: database.skip }, () => {
     });
   });
 
+  it('stands down when the retention sweep holds the rollup lock', async () => {
+    /*
+     * The race this closes, from the only side a test can drive: under READ
+     * COMMITTED the sweep's aggregate INSERT still sees alerts this transaction
+     * has deleted and not committed, so it can write `alert_rollup_daily` rows
+     * for the sensor being retired — invisible to the rollup delete, which has
+     * already run. Both commit, and the sensor comes back in `listSensors` with
+     * nothing but buckets while the audit row claims all four tables were
+     * emptied.
+     *
+     * Held with the session-scoped `pg_advisory_lock` on its own client, which is
+     * what `lockedSweep` does, so this is the real contention rather than a
+     * simulation of it.
+     */
+    await seed(RETIRED, '2026-01-01T00:00:00Z');
+    const { ALERT_ROLLUP_LOCK_KEY } = await import('./retention.service.js');
+    const holder = await database.pool!.connect();
+
+    try {
+      await holder.query('SELECT pg_advisory_lock($1)', [ALERT_ROLLUP_LOCK_KEY]);
+
+      const result = await sensor.decommissionSensor(RETIRED, ACTOR);
+
+      assert.deepEqual(result, { outcome: 'busy', sensorId: RETIRED });
+      // Nothing touched, and nothing recorded: a refusal, not a partial run.
+      assert.deepEqual(await countsFor(RETIRED), {
+        alerts: 1,
+        devices: 1,
+        rollupBuckets: 1,
+        captureSessions: 1,
+      });
+    } finally {
+      await holder.query('SELECT pg_advisory_unlock($1)', [ALERT_ROLLUP_LOCK_KEY]);
+      holder.release();
+    }
+  });
+
+  it('proceeds once the lock is free, and releases its own with the transaction', async () => {
+    // The other half: the lock is taken per transaction, so it must not outlive
+    // one. A second decommission in the same process would otherwise be told the
+    // database was busy with a sweep that had finished.
+    await seed(RETIRED, '2026-01-01T00:00:00Z');
+    await seed(KEPT, '2026-01-01T00:00:00Z');
+
+    assert.equal((await sensor.decommissionSensor(RETIRED, ACTOR)).outcome, 'decommissioned');
+    assert.equal((await sensor.decommissionSensor(KEPT, ACTOR)).outcome, 'decommissioned');
+  });
+
   it('reports a name with nothing under it, and records nothing', async () => {
     await seed(KEPT);
 
@@ -198,8 +246,51 @@ describe('decommissioning a sensor', { skip: database.skip }, () => {
     assert.equal(rows[0]!.count, '0', 'an act that did not happen was recorded');
   });
 
+  it('refuses another installation that is evidently still writing', async () => {
+    /*
+     * The gap the self-check could not see. Comparing against `env.sensorId`
+     * protects the host serving the request; on the shared database V16 exists
+     * for, the list offers every OTHER installation and nothing asked whether
+     * those were still going. So an admin on sensor A could delete sensor B's
+     * rows out from under B's live detectors — the same damage the 409 was
+     * written to prevent, on the host nobody was watching.
+     */
+    await seed(RETIRED, new Date().toISOString());
+
+    const result = await sensor.decommissionSensor(RETIRED, ACTOR);
+
+    assert.equal(result.outcome, 'active');
+    assert.deepEqual(await countsFor(RETIRED), {
+      alerts: 1,
+      devices: 1,
+      rollupBuckets: 1,
+      captureSessions: 1,
+    });
+  });
+
+  it('does not treat an open capture session as a sensor being alive', async () => {
+    /*
+     * The signal it would be wrong to use, asserted so nobody adds it later.
+     * `stopped_at IS NULL` means "was capturing when that process last had an
+     * opinion" — which is exactly what a host that died mid-capture leaves
+     * behind, the interruption marker V18 exists to write. Treating it as
+     * liveness would refuse to retire the crashed sensor, which is the main
+     * thing this feature is for.
+     */
+    await seed(RETIRED, '2026-01-01T00:00:00Z');
+    const open = await database.pool!.query<{ n: string }>(
+      'SELECT count(*)::text AS n FROM capture_session WHERE sensor_id = $1 AND stopped_at IS NULL',
+      [RETIRED],
+    );
+    assert.equal(open.rows[0]!.n, '1', 'the fixture did not leave a session open to begin with');
+
+    assert.equal((await sensor.decommissionSensor(RETIRED, ACTOR)).outcome, 'decommissioned');
+  });
+
   it('refuses this installation, whose rows would come straight back', async () => {
-    await seed('live-sensor');
+    // Seeded with an old timestamp deliberately: the `self` refusal has to be
+    // what fires, not the recency one, or this stops testing the check it names.
+    await seed('live-sensor', '2026-01-01T00:00:00Z');
 
     const result = await sensor.decommissionSensor('live-sensor', ACTOR);
 
@@ -247,6 +338,19 @@ describe('which sensors can be retired', { skip: database.skip }, () => {
     assert.equal(entry?.devices, 1);
     assert.equal(entry?.rollupBuckets, 1);
     assert.equal(entry?.lastSeen, '2026-09-01T12:00:00.000Z');
+  });
+
+  it('flags a sensor that is still writing, so the control can be disabled', async () => {
+    // Same clock and same threshold the refusal uses, computed on the server:
+    // the browser would need a second copy of the window, and two copies of a
+    // rule are two rules.
+    await seed(RETIRED, new Date().toISOString());
+    await seed(KEPT, '2026-01-01T00:00:00Z');
+
+    const byName = new Map((await sensor.listRetirableSensors()).map((e) => [e.sensorId, e]));
+
+    assert.equal(byName.get(RETIRED)?.active, true);
+    assert.equal(byName.get(KEPT)?.active, false);
   });
 
   it('counts a sensor that has only aggregated history left', async () => {

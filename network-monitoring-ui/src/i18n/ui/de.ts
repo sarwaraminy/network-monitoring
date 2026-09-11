@@ -811,6 +811,11 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'sensors.col_history': 'Aggregierte Tage',
   'sensors.col_last_seen': 'Zuletzt gesehen',
   'sensors.last_seen_never': 'nie',
+  'sensors.active': 'schreibt noch',
+  'sensors.active_hint':
+    'Unter diesem Namen schreibt noch etwas. Eine Außerbetriebnahme würde Tabellen leeren, die ' +
+    'sich wieder füllen, und eine geleerte Geräteliste meldet jedes Gerät in seinem Segment ' +
+    'erneut als neu. Halten Sie diesen Sensor an, oder warten Sie, bis er ruhig ist.',
   'sensors.retire': 'Außer Betrieb nehmen',
   'sensors.retire_sensor': 'Sensor {sensor} außer Betrieb nehmen',
   'sensors.confirm_retire': 'Ja, alles löschen',

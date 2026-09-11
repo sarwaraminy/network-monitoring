@@ -145,6 +145,22 @@ alertsRouter.delete(
        */
       throw HttpError.of(409, 'error.sensor_is_self', { sensor: result.sensorId });
     }
+    if (result.outcome === 'active') {
+      /*
+       * The same refusal for another installation that is evidently still
+       * writing, and a separate message because the remedy is different: this one
+       * stops being true on its own once that sensor is actually off.
+       */
+      throw HttpError.of(409, 'error.sensor_still_active', {
+        sensor: result.sensorId,
+        lastSeen: result.lastSeen,
+      });
+    }
+    if (result.outcome === 'busy') {
+      // Retention holds the lock this needs. Retriable in a moment, and 409 says
+      // so more usefully than a 503 would: nothing is wrong with the server.
+      throw HttpError.of(409, 'error.sensor_decommission_busy', { sensor: result.sensorId });
+    }
 
     res.json({ sensorId: sensor.data, removed: result.removed });
   }),

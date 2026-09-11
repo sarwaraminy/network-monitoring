@@ -1663,15 +1663,42 @@ Three refusals, each a lockout it prevents:
 | `DELETE` | `/:id`                  | Delete one finding (ADMIN)                              |
 | `DELETE` | `/`                     | Clear all findings (ADMIN)                              |
 | `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN). `sensor` picks the row; without it, the single holder is resolved and several are a 400 |
-| `DELETE` | `/sensors/:sensorId`    | Decommission a sensor: its findings, devices, rollups and capture session, in one audited transaction (ADMIN). 404 for a name with nothing under it, 409 for this installation |
+| `DELETE` | `/sensors/:sensorId`    | Decommission a sensor: its findings, devices, rollups and capture session, in one audited transaction (ADMIN). 404 for a name with nothing under it; 409 for this installation, for a sensor still writing, and while the retention sweep holds the rollup lock |
 
-`DELETE /sensors/:sensorId` refuses the sensor serving the request, and the 409 is the
-interesting half of it. That sensor's detectors are running, so the rows come back — a device
-on the next frame, a finding on the next detection — leaving a half-emptied sensor and no
-error to explain it. And `known_devices` is what `NewDeviceDetector` treats as already-known,
-so emptying it for a live sensor re-arms new-device detection across the whole segment: the
-next few minutes are a flood of findings about machines that have been there for months.
-Clearing findings has its own route; this one is for a name nothing will write again.
+`DELETE /sensors/:sensorId` has three refusals, and they are the interesting part.
+
+**This installation.** Its detectors are running, so the rows come back — a device on the next
+frame, a finding on the next detection — leaving a half-emptied sensor and no error to explain
+it. And `known_devices` is what `NewDeviceDetector` treats as already-known, so emptying it
+for a live sensor re-arms new-device detection across the whole segment: the next few minutes
+are a flood of findings about machines that have been there for months. Clearing findings has
+its own route; this one is for a name nothing will write again.
+
+**Another sensor that is still writing.** The same objection on a host the operator cannot
+see, and the one this action's own deployment model creates: a shared database is the point of
+`sensor_id`, so the list offers every *other* installation, and comparing against `SENSOR_ID`
+protects only the one serving the request. A sensor heard from within the last fifteen minutes
+is refused. `GET /sensors/retirable` reports `active` for the same reason, so the interface
+disables the control rather than offering a guaranteed refusal.
+
+Two things that guard is not. An open `capture_session` row is **not** evidence of liveness:
+`stopped_at IS NULL` means "was capturing when that process last had an opinion", which is
+exactly what a host that died mid-capture leaves behind — it is the interruption marker, and
+treating it as liveness would refuse to retire the crashed sensor this feature is mostly for.
+And the recency window is a guard against an operator mistake, not a guarantee: a sensor
+running on a segment with no traffic at all for fifteen minutes still looks retired, and
+nothing in the database can tell those apart. Closing that would need the sensors to
+heartbeat, which is a schema change and separate work.
+
+**A retention sweep in progress.** Both hold `ALERT_ROLLUP_LOCK_KEY`, because they race in a
+way neither can see: under READ COMMITTED the sweep's aggregate INSERT still sees alerts the
+decommission has deleted and not committed, so it writes `alert_rollup_daily` rows for the
+sensor being retired — invisible to the decommission's own rollup delete, which has already
+run. Both commit, and the sensor is back in `listSensors` with nothing but buckets while the
+audit row says all four tables were emptied. The decommission takes the lock with
+`pg_try_advisory_xact_lock` and reports rather than waiting, the same call `lockedSweep` makes
+in the other direction: a reclaim can run for hours and an operator's request must not hang
+behind one.
 
 ### Audit trail — `/api/audit`
 

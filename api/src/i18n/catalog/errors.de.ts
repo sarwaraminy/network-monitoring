@@ -44,6 +44,14 @@ export const ERRORS_DE: PartialErrorCatalog = {
     'vergessen soll.',
   'error.last_administrator':
     'Dies ist die letzte administrierende Person; ernennen Sie zuerst ein anderes Konto.',
+  'error.sensor_still_active':
+    '{sensor} wurde zuletzt um {lastSeen} gehört; unter diesem Namen schreibt also noch etwas. ' +
+    'Eine Außerbetriebnahme würde Tabellen leeren, die sich wieder füllen, und eine geleerte ' +
+    'Geräteliste meldet jedes Gerät in seinem Segment erneut als neu. Halten Sie diesen Sensor ' +
+    'zuerst an, oder warten Sie, bis er ruhig ist.',
+  'error.sensor_decommission_busy':
+    'Der Aufbewahrungslauf läuft und hält die benötigte Sperre, daher wurde {sensor} nicht ' +
+    'angetastet. Es hat sich nichts geändert; versuchen Sie es in einigen Minuten erneut.',
   'error.sensor_is_self':
     '{sensor} ist diese Installation; sie schreibt weiterhin Funde und Geräte. Eine ' +
     'Außerbetriebnahme würde Tabellen leeren, die sich sofort wieder füllen — und eine ' +

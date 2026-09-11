@@ -434,8 +434,9 @@ export const RETIRABLE_SENSORS = [
     devices: 260,
     rollupBuckets: 190,
     lastSeen: '2026-08-30T22:05:00.000Z',
+    active: false,
   },
-  { sensorId: 'old-laptop', alerts: 0, devices: 0, rollupBuckets: 12, lastSeen: null },
+  { sensorId: 'old-laptop', alerts: 0, devices: 0, rollupBuckets: 12, lastSeen: null, active: false },
 ];
 
 /**

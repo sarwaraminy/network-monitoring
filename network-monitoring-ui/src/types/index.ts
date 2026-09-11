@@ -293,6 +293,14 @@ export interface RetirableSensor {
   rollupBuckets: number;
   /** The most recent activity under this name, across findings and rollups. */
   lastSeen: string | null;
+  /**
+   * Evidently still writing, by the server's own rule and clock.
+   *
+   * The server refuses these, so the control is disabled with the reason rather
+   * than offered — but the server is what enforces it, since this list can be
+   * minutes stale by the time somebody presses a button.
+   */
+  active: boolean;
 }
 
 /** What a decommission actually removed, per table. */

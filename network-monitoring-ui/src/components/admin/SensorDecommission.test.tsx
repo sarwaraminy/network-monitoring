@@ -2,6 +2,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
+import { RETIRABLE_SENSORS } from '../../test/fixtures';
 import { renderApp } from '../../test/render';
 import { server } from '../../test/server';
 import SensorDecommission from './SensorDecommission';
@@ -58,6 +59,29 @@ describe('decommissioning a sensor', () => {
 
     expect(await screen.findByText('old-laptop')).toBeInTheDocument();
     expect(screen.getByText('never')).toBeInTheDocument();
+  });
+
+  it('will not offer to retire a sensor that is still writing', async () => {
+    /*
+     * The server refuses these, so offering the button would be offering a
+     * guaranteed 409. Disabled with the reason on the tooltip, following what
+     * `UserRoles` does for the two role changes it knows are impossible.
+     *
+     * The server is still what enforces it: this list can be minutes stale by
+     * the time somebody presses a button, which is why the decommission
+     * re-checks inside its own transaction.
+     */
+    server.use(
+      http.get('/api/alerts/sensors/retirable', () =>
+        HttpResponse.json([{ ...RETIRABLE_SENSORS[0], active: true }]),
+      ),
+    );
+    renderApp(<SensorDecommission />);
+
+    const button = await screen.findByRole('button', { name: /decommission sensor branch-2/i });
+    expect(button).toBeDisabled();
+    // And says why, rather than being a dead control somebody files a bug about.
+    expect(screen.getByText('still writing')).toBeInTheDocument();
   });
 
   it('asks before deleting, and names what would go', async () => {

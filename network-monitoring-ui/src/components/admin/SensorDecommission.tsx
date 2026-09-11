@@ -1,12 +1,14 @@
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -141,7 +143,16 @@ export default function SensorDecommission() {
                   <TableCell align="right">{fmt.number(sensor.devices)}</TableCell>
                   <TableCell align="right">{fmt.number(sensor.rollupBuckets)}</TableCell>
                   <TableCell>
-                    {sensor.lastSeen ? fmt.dateTime(sensor.lastSeen) : t('sensors.last_seen_never')}
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                      <span>
+                        {sensor.lastSeen ? fmt.dateTime(sensor.lastSeen) : t('sensors.last_seen_never')}
+                      </span>
+                      {/* The reason the control beside it is disabled, next to the
+                          date it is derived from. */}
+                      {sensor.active && (
+                        <Chip size="small" color="warning" variant="outlined" label={t('sensors.active')} />
+                      )}
+                    </Stack>
                   </TableCell>
                   <TableCell>
                     {confirming === sensor.sensorId ? (
@@ -164,21 +175,38 @@ export default function SensorDecommission() {
                       </Stack>
                     ) : (
                       <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
-                        <Button
-                          size="small"
-                          color="error"
-                          // Named per row, so each button is addressable — by a
-                          // screen reader and by a test alike. Four buttons all
-                          // called "Retire" are four buttons nobody can name.
-                          aria-label={t('sensors.retire_sensor', { sensor: sensor.sensorId })}
-                          disabled={retire.isPending}
-                          onClick={() => {
-                            setMessage(null);
-                            setConfirming(sensor.sensorId);
-                          }}
-                        >
-                          {t('sensors.retire')}
-                        </Button>
+                        {/*
+                          Disabled for a sensor that is evidently still writing,
+                          with the reason on the tooltip — the convention
+                          `UserRoles` follows for the two role changes it knows the
+                          server will refuse. A disabled control with no
+                          explanation is the thing an administrator files a bug
+                          about.
+
+                          The server refuses it regardless: this list can be
+                          minutes stale by the time the button is pressed, so the
+                          decommission re-checks inside its own transaction.
+                        */}
+                        <Tooltip title={sensor.active ? t('sensors.active_hint') : ''}>
+                          <span>
+                            <Button
+                              size="small"
+                              color="error"
+                              // Named per row, so each button is addressable — by
+                              // a screen reader and by a test alike. Four buttons
+                              // all called "Retire" are four buttons nobody can
+                              // name.
+                              aria-label={t('sensors.retire_sensor', { sensor: sensor.sensorId })}
+                              disabled={retire.isPending || sensor.active}
+                              onClick={() => {
+                                setMessage(null);
+                                setConfirming(sensor.sensorId);
+                              }}
+                            >
+                              {t('sensors.retire')}
+                            </Button>
+                          </span>
+                        </Tooltip>
                       </Stack>
                     )}
                   </TableCell>
