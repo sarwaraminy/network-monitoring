@@ -8,6 +8,7 @@ import { createFormatters, type Formatters, useFormatters } from '../i18n/format
 import { DEFAULT_LOCALE } from '../i18n/generated/locales';
 import { useT } from '../i18n/ui';
 import type { AlertTrendPoint, TrendBucket } from '../types';
+import { axisChrome, chartChromeSx } from './chrome';
 import { SEVERITY_ORDER } from './palette';
 import { useChartPalette } from './useChartPalette';
 
@@ -165,6 +166,20 @@ interface Props {
  *
  * A 2px gap in the surface colour separates the segments, which is what makes
  * neighbouring steps read as distinct without drawing a border around them.
+ *
+ * The chrome — dashed horizontal grid, hairline axes, small recessive ticks, a
+ * compact numeric scale, a crosshair on hover — is ported from the dashboard
+ * charts in the sibling `professional` project, so the two read as one house
+ * style. See charts/chrome.ts.
+ *
+ * **Their area-under-line form is deliberately not ported**, and the reason is
+ * the data rather than taste. The API emits no row for a period with no findings,
+ * so a quiet bucket is a *gap* in `trend` — see `endOfBucket`. A line or a
+ * stacked area interpolates straight through that gap and draws values for
+ * periods the series says nothing about, which on a security dashboard is a
+ * fabricated quiet spell rather than a cosmetic difference. Columns leave the gap
+ * visible. Adopting the area form would mean the API emitting explicit zeroes
+ * first, which is a change to the endpoint and not to this file.
  */
 export default function SeverityTrendChart({
   trend,
@@ -174,8 +189,10 @@ export default function SeverityTrendChart({
 }: Readonly<Props>) {
   const t = useT();
   const palette = useChartPalette();
+  const chrome = useMemo(() => chartChromeSx(palette), [palette]);
 
   const format = useFormatters();
+
   const labels = useMemo(
     () => trend.map((point) => bucketLabel(bucket, point.bucket, format)),
     [trend, bucket, format],
@@ -231,8 +248,50 @@ export default function SeverityTrendChart({
   return (
     <BarChart
       height={height}
-      xAxis={[{ scaleType: 'band', data: labels, tickLabelStyle: { fontSize: 11 } }]}
-      yAxis={[{ tickMinStep: 1, tickLabelStyle: { fontSize: 11 } }]}
+      xAxis={[{ scaleType: 'band', data: labels, ...axisChrome }]}
+      yAxis={[
+        {
+          tickMinStep: 1,
+          ...axisChrome,
+          /*
+           * No axis line, which is right here and not in the shared chrome: this
+           * chart is vertical, so Y is the value axis and the horizontal grid
+           * already carries the scale. `MagnitudeBarChart` is horizontal, where Y
+           * is the category axis and its line is the baseline every bar grows
+           * from.
+           *
+           * The prop rather than a `display: none` rule, for the reason
+           * `disableTicks` replaced the equivalent CSS: MUI lays out from what it
+           * is passed, not from what CSS paints.
+           */
+          disableLine: true,
+          /*
+           * Measured by MUI rather than estimated here.
+           *
+           * This was a computed width, and it was wrong in the one direction that
+           * matters: it sized from the data, and the scale draws ticks *above* the
+           * data. `.nice()` extends the domain, so 8,221 findings gets a `10.000`
+           * tick in German that nothing in the candidate set ever measured — 51
+           * such magnitudes in German and 26 in Dari below two million, against
+           * none in English, whose `1K`/`10K` are short enough to hide it.
+           *
+           * `computeAxisAutoSize` measures the labels that are actually drawn,
+           * using graphemes and real text metrics. That makes the whole class
+           * impossible rather than fixing one case of it, and it is markedly
+           * better than 6.4px-per-character for Perso-Arabic, which is where the
+           * estimate was already weakest.
+           *
+           * The cost is a left edge that shifts when the counts cross a
+           * magnitude. That is real, and it is the reason a fixed width was tried
+           * first — but it was a concern about tidiness, and what it was bought
+           * with was ellipsized numbers in two of three languages.
+           */
+          width: 'auto',
+          // Shortened per locale, so a large count is a tick rather than an axis
+          // wide enough to crowd the plot.
+          valueFormatter: (value: number | null) => (value === null ? '' : format.compact(value)),
+        },
+      ]}
       series={
         present.length > 0
           ? present.map((severity) => ({
@@ -240,20 +299,50 @@ export default function SeverityTrendChart({
               label: t(SEVERITY_STYLE[severity].labelKey),
               stack: 'severity',
               color: palette.severity[severity],
+              /*
+               * Without this MUI falls back to `v.toLocaleString()`, which reads
+               * the *browser's* locale — so a Dari interface on an English browser
+               * showed `۱٫۲ میلیون` on the axis and `1,200,000` in the tooltip, for
+               * one quantity, on one chart, at one moment. The same disagreement
+               * `MagnitudeBarChart` was corrected for, on the chart beside it.
+               *
+               * `number` rather than `compact`: a tooltip is where the exact figure
+               * belongs and it has the room. The axis is what has to shorten.
+               */
+              valueFormatter: (value: number | null) => (value === null ? '' : format.number(value)),
             }))
-          : [{ data: trend.map(() => 0), label: t('dashboard.no_findings'), color: palette.grid }]
+          : [
+              {
+                data: trend.map(() => 0),
+                label: t('dashboard.no_findings'),
+                color: palette.grid,
+                // The empty dashboard is the first thing a new installation sees,
+                // and it is the series a reader would assume the fix above covered.
+                // Without this its tooltip goes through MUI's default
+                // `toLocaleString()` — so a Dari interface on an English browser
+                // reads `۰` on the axis and `0` in the tooltip.
+                valueFormatter: (value: number | null) => (value === null ? '' : format.number(value)),
+              },
+            ]
       }
       // A legend is always present once two or more series are plotted; identity
       // must never rest on colour alone.
       hideLegend={present.length < 2}
       slotProps={{ legend: { position: { vertical: 'bottom', horizontal: 'center' } } }}
       grid={{ horizontal: true }}
+      /*
+       * No `axisHighlight` here on purpose. `useBarChartProps` already defaults a
+       * vertical bar series to `{ x: 'band' }` — and a horizontal one to
+       * `{ y: 'band' }`, which is how `MagnitudeBarChart` gets the same crosshair
+       * without a line of its own. Passing it explicitly changed nothing and read
+       * as load-bearing.
+       */
       borderRadius={4}
       margin={{ left: 8, right: 8, top: 8, bottom: 8 }}
       sx={{
-        // Recessive hairline grid, and the 2px surface gap between stacked segments.
-        '& .MuiChartsGrid-line': { stroke: palette.grid, strokeWidth: 1 },
-        '& .MuiChartsAxis-line, & .MuiChartsAxis-tick': { stroke: palette.axis },
+        ...chrome,
+        // The 2px surface gap between stacked segments, which is this chart's own
+        // and not part of the shared chrome.
         '& .MuiBarChart-element': { stroke: palette.surface, strokeWidth: 2 },
       }}
     >

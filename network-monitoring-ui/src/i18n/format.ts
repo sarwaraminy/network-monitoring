@@ -32,6 +32,23 @@ export interface Formatters {
   /** A count. Grouped and digit-shaped per locale, which for a count is correct. */
   number(value: number): string;
   /**
+   * A count shortened for a chart axis — "2.8M", "475K".
+   *
+   * A tick label has about four characters of room before the axis starts eating
+   * the plot, and a findings count over a five-year window reaches six figures.
+   * The shortening is `Intl`'s rather than hand-rolled, so the suffix belongs to
+   * the reader: German gives "2,8 Mio." and Dari "۲٫۸ میلیون".
+   *
+   * A quantity, so it is digit-shaped like `number` and unlike an identifier —
+   * see the note on `MessagePrimitive` in the generated message module.
+   *
+   * **Shortened only where shortening is real.** In a language whose abbreviation
+   * is longer than the number it replaces — Dari spells "هزار" where English
+   * writes "K" — this is `number`, because an axis that takes more room to say
+   * less is worse than no abbreviation at all.
+   */
+  compact(value: number): string;
+  /**
    * "3 minutes ago", in the reader's language.
    *
    * Two pages had a hand-rolled copy of this that returned English units — `just
@@ -81,6 +98,54 @@ export function createFormatters(locale: Locale): Formatters {
   const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'medium' });
   const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' });
   const number = new Intl.NumberFormat(locale);
+  /*
+   * `useGrouping: 'always'` is not decoration. `notation: 'compact'` silently
+   * resolves grouping to `'min2'` — separators only from five digits up — so
+   * German `compact(8221)` rendered `"8221"` while `number(8221)` rendered
+   * `"8.221"`, and both appear on one chart: the axis goes through `compact`, the
+   * bar label and tooltip through `number`. The same magnitude, formatted two ways
+   * side by side, and a regression against the plain `toLocaleString()` this
+   * replaced.
+   */
+  const compactFormat = new Intl.NumberFormat(locale, {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+    useGrouping: 'always',
+  });
+
+  /*
+   * Whether abbreviating actually shortens anything *in this language*.
+   *
+   * The point of a compact axis is a short tick. Measured against ICU, that is not
+   * a property of the notation — it is a property of the locale:
+   *
+   *  - English wins everywhere: `1.2M` against `1,200,000`.
+   *  - German wins above a million and ties below it; it does not abbreviate
+   *    `10.000` or `100.000` at all, so those ticks are byte-identical.
+   *  - **Dari loses at every magnitude.** `۸٫۲ هزار` is longer than `۸٬۲۲۱`, and
+   *    `۱٫۲ میلیون` longer than `۱٬۲۰۰٬۰۰۰`: spelling the unit out costs more than
+   *    the digits it replaces.
+   *
+   * That was invisible while the axis had a fixed width. With `width: 'auto'` the
+   * axis takes exactly the room its labels need, so abbreviating in Dari would
+   * hand that locale a *narrower plot* than it had before any of this — the
+   * opposite of the stated goal, in the language with the longest labels.
+   *
+   * Decided once per locale rather than per value, so one axis cannot mix
+   * notations. Probed across the magnitudes a findings count actually reaches.
+   *
+   * The test is "never longer", not "sometimes shorter", and the difference is
+   * Dari: it abbreviates usefully at twelve million (۱۲ میلیون against
+   * ۱۲٬۰۰۰٬۰۰۰) and badly everywhere below, so `some` let it through on the one
+   * magnitude a findings count rarely reaches while it lost on all the ones it
+   * does.
+   */
+  const lengths = [8_221, 100_000, 1_200_000, 12_000_000].map(
+    (probe) => [compactFormat.format(probe).length, number.format(probe).length] as const,
+  );
+  const abbreviates =
+    lengths.every(([short, plain]) => short <= plain) && lengths.some(([short, plain]) => short < plain);
+  const compact = abbreviates ? compactFormat : number;
   // `numeric: 'auto'` is what produces "yesterday" rather than "1 day ago", and
   // the equivalent in each other language.
   const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
@@ -134,6 +199,7 @@ export function createFormatters(locale: Locale): Formatters {
     day: (value, options) => safely(asDate(value), (at) => dayFormat(options).format(at)),
     time: (value) => safely(asDate(value), (at) => time.format(at)),
     number: (value) => (Number.isFinite(value) ? number.format(value) : UNREADABLE_DATE),
+    compact: (value) => (Number.isFinite(value) ? compact.format(value) : UNREADABLE_DATE),
     relativeTime: (value) =>
       safely(asDate(value), (at) => {
         const elapsed = Date.now() - at.getTime();

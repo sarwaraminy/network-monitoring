@@ -1,0 +1,123 @@
+import { screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { createFormatters } from '../i18n/format';
+import { renderApp } from '../test/render';
+import type { AlertTrendPoint } from '../types';
+import SeverityTrendChart from './SeverityTrendChart';
+
+/**
+ * The chart chrome ported from the sibling `professional` project.
+ *
+ * Most of a look is not worth asserting — a dash pattern and a hairline are
+ * things you check by looking. What is worth asserting is the part that changes
+ * what the reader is *told*: the numeric scale is now shortened, and shortening
+ * is a formatting decision that has a locale in it and a wrong answer.
+ *
+ * The bare `toLocaleString()` this replaced followed the *browser's* locale, so a
+ * German dashboard drew American axis labels. That failure is invisible to
+ * anybody whose browser and interface already agree, which is everybody who would
+ * report it.
+ *
+ * The axis *width* is no longer asserted here at all: it is `width: 'auto'` now,
+ * so MUI measures the drawn labels and there is no arithmetic of ours left to
+ * check. The cases that used to cover `valueAxisWidth` went with it — a test of a
+ * deleted approximation is worse than no test, because it reads as coverage.
+ *
+ * Only the trend chart is asserted through the DOM. `MagnitudeBarChart` renders
+ * no value-axis ticks and no direct labels under jsdom — the plot has no measured
+ * width for the chart to place them in — so the only assertion available there
+ * would be one that passes whatever the code does. It shares `chrome.ts` and the
+ * same `compact` formatter, which is where its behaviour comes from.
+ */
+
+const BUSY: AlertTrendPoint[] = [
+  { bucket: '2026-05-01T00:00:00.000Z', critical: 0, high: 1_200_000, medium: 0, low: 0, info: 0 },
+  { bucket: '2026-06-01T00:00:00.000Z', critical: 0, high: 2_840_000, medium: 0, low: 0, info: 0 },
+];
+
+describe('shortening a count for an axis', () => {
+  it('shortens with the suffix the locale uses', () => {
+    expect(createFormatters('en').compact(2_840_000)).toBe('2.8M');
+    /*
+     * Matched rather than compared: `Intl` separates the number from the suffix
+     * with a non-breaking space (U+00A0), so the obvious `toBe('2,8 Mio.')`
+     * fails against a literal typed with an ordinary one — and reports
+     * "expected '2,8 Mio.' to be '2,8 Mio.'", which is a confusing half hour.
+     */
+    expect(createFormatters('de').compact(2_840_000)).toMatch(/^2,8\sMio\.$/);
+  });
+
+  /*
+   * A quantity, so it is digit-shaped — unlike a port or an address, which must
+   * stay ASCII to match what the switch prints. The distinction is the one rule
+   * the message catalogue turns on, and an axis label is squarely on the prose
+   * side of it.
+   */
+  it('shapes the digits in Dari, because a count is prose', () => {
+    expect(createFormatters('fa-AF').compact(2_840_000)).toContain('۲');
+  });
+
+  /*
+   * The gate itself, stated across all three locales rather than through the
+   * strings it happens to produce.
+   *
+   * Abbreviating is only worth doing where it abbreviates, and that is a property
+   * of the language: Dari spells the unit out — `۸٫۲ هزار` is longer than
+   * `۸٬۲۲۱`, and `۱٫۲ میلیون` longer than `۱٬۲۰۰٬۰۰۰` — so with `width: 'auto'`
+   * taking the axis exactly as wide as its labels, abbreviating there would hand
+   * that locale a narrower plot than it had before any of this.
+   *
+   * Asserted as "diverges from plain, or does not", because that is the branch.
+   * Asserting the rendered strings instead only repeats the case above, which
+   * already fails for the same reason if the gate goes wrong for English or
+   * German — leaving the Dari branch, the one that actually turns the gate off,
+   * covered by nothing that says so.
+   */
+  it('abbreviates only in the languages where abbreviating shortens', () => {
+    for (const locale of ['en', 'de'] as const) {
+      const format = createFormatters(locale);
+      expect(format.compact(2_840_000)).not.toBe(format.number(2_840_000));
+    }
+
+    const dari = createFormatters('fa-AF');
+    expect(dari.compact(2_840_000)).toBe(dari.number(2_840_000));
+    expect(dari.compact(8_221)).toBe(dari.number(8_221));
+  });
+
+  /*
+   * `notation: 'compact'` resolves `useGrouping` to `'min2'` on its own, which
+   * drops the separator below five digits — so German `compact(8221)` was `8221`
+   * beside a `number(8221)` of `8.221` on the same chart. A regression against
+   * the plain `toLocaleString()` this replaced.
+   */
+  it('groups a four-digit German count, as the plain formatter does', () => {
+    const german = createFormatters('de');
+    expect(german.compact(8_221)).toBe('8.221');
+    expect(german.compact(8_221)).toBe(german.number(8_221));
+  });
+
+  it('leaves a small number alone rather than inventing a suffix', () => {
+    expect(createFormatters('en').compact(475)).toBe('475');
+  });
+
+  /*
+   * `Formatters.number` answers an unreadable value with an em dash rather than
+   * "NaN", and the axis formatter has to agree — a chart is the last place that
+   * should render the word NaN at a reader.
+   */
+  it('does not render NaN at anybody', () => {
+    expect(createFormatters('en').compact(Number.NaN)).toBe('—');
+  });
+});
+
+describe('the trend chart axis', () => {
+  it('draws the shortened scale rather than the full count', async () => {
+    renderApp(<SeverityTrendChart trend={BUSY} bucket="month" />);
+
+    // The Y axis is generated by the chart, so this asserts that *some* tick
+    // carries the compact form — not which values were chosen, which is the
+    // chart's business.
+    const ticks = await screen.findAllByText(/^\d+(\.\d)?M$/);
+    expect(ticks.length).toBeGreaterThan(0);
+  });
+});
