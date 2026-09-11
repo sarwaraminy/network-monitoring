@@ -311,7 +311,19 @@ export default function SeverityTrendChart({
                */
               valueFormatter: (value: number | null) => (value === null ? '' : format.number(value)),
             }))
-          : [{ data: trend.map(() => 0), label: t('dashboard.no_findings'), color: palette.grid }]
+          : [
+              {
+                data: trend.map(() => 0),
+                label: t('dashboard.no_findings'),
+                color: palette.grid,
+                // The empty dashboard is the first thing a new installation sees,
+                // and it is the series a reader would assume the fix above covered.
+                // Without this its tooltip goes through MUI's default
+                // `toLocaleString()` — so a Dari interface on an English browser
+                // reads `۰` on the axis and `0` in the tooltip.
+                valueFormatter: (value: number | null) => (value === null ? '' : format.number(value)),
+              },
+            ]
       }
       // A legend is always present once two or more series are plotted; identity
       // must never rest on colour alone.

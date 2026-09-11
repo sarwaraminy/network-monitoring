@@ -58,22 +58,30 @@ describe('shortening a count for an axis', () => {
   });
 
   /*
-   * Abbreviating is only worth doing where it abbreviates.
+   * The gate itself, stated across all three locales rather than through the
+   * strings it happens to produce.
    *
-   * Dari spells the unit out — `۸٫۲ هزار` is longer than `۸٬۲۲۱`, and
-   * `۱٫۲ میلیون` longer than `۱٬۲۰۰٬۰۰۰` — so with `width: 'auto'` taking the axis
-   * exactly as wide as its labels, abbreviating there would hand that locale a
-   * narrower plot than it had before any of this.
+   * Abbreviating is only worth doing where it abbreviates, and that is a property
+   * of the language: Dari spells the unit out — `۸٫۲ هزار` is longer than
+   * `۸٬۲۲۱`, and `۱٫۲ میلیون` longer than `۱٬۲۰۰٬۰۰۰` — so with `width: 'auto'`
+   * taking the axis exactly as wide as its labels, abbreviating there would hand
+   * that locale a narrower plot than it had before any of this.
+   *
+   * Asserted as "diverges from plain, or does not", because that is the branch.
+   * Asserting the rendered strings instead only repeats the case above, which
+   * already fails for the same reason if the gate goes wrong for English or
+   * German — leaving the Dari branch, the one that actually turns the gate off,
+   * covered by nothing that says so.
    */
-  it('does not abbreviate in a language where the abbreviation is longer', () => {
+  it('abbreviates only in the languages where abbreviating shortens', () => {
+    for (const locale of ['en', 'de'] as const) {
+      const format = createFormatters(locale);
+      expect(format.compact(2_840_000)).not.toBe(format.number(2_840_000));
+    }
+
     const dari = createFormatters('fa-AF');
     expect(dari.compact(2_840_000)).toBe(dari.number(2_840_000));
     expect(dari.compact(8_221)).toBe(dari.number(8_221));
-  });
-
-  it('still abbreviates where it actually shortens', () => {
-    expect(createFormatters('en').compact(2_840_000)).toBe('2.8M');
-    expect(createFormatters('de').compact(2_840_000)).toMatch(/Mio\./);
   });
 
   /*
