@@ -441,6 +441,73 @@ describe('what a process does with the session row', { skip: database.skip }, ()
   });
 
   /*
+   * A start landing inside a stop must keep its own detection.
+   *
+   * `stopCapture` clears `capturing` and then awaits twice with no claim held, so
+   * a `POST /stop` and a `POST /start` can interleave. Reading `this.sink` and
+   * `this.engine` after those awaits picked up the *new* capture's objects — the
+   * stop nulled them and closed the new sink, leaving a capture that is genuinely
+   * running, reports `capturing: true`, and feeds a live poll timer into a null
+   * engine. No findings, no alerts, no device recording, and nothing on screen to
+   * say so, because the packet count still climbs.
+   *
+   * Driven by holding the stop inside its own await and starting during it.
+   */
+  it('leaves a capture that started mid-stop with its detection attached', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+      sink: { close: () => Promise<void> } | null;
+      engine: object | null;
+      openCapture: () => Promise<void>;
+    };
+
+    // A capture already running, with detection attached.
+    innards.capturing = true;
+    innards.session = STARTED;
+    innards.startedAt = STARTED.startedAt;
+    innards.sink = { close: async () => {} };
+    innards.engine = { the: 'first engine' };
+
+    // The stop yields here, which is the window.
+    let release: () => void = () => {};
+    innards.sessionWrite = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const freshSink = { close: async () => {} };
+    const freshEngine = { the: 'second engine' };
+    innards.openCapture = async () => {
+      innards.capturing = true;
+      innards.session = STARTED;
+      innards.startedAt = STARTED.startedAt;
+      innards.sink = freshSink;
+      innards.engine = freshEngine;
+    };
+
+    const stopping = service.stopCapture('operator');
+
+    /*
+     * The window opens where `stopCapture` clears `capturing` — until then a
+     * start is refused as `'running'`. The stop is held at its first await, one
+     * line earlier than that, so the flag is cleared here to stand in for the
+     * line that clears it. Everything after is the real interleaving.
+     */
+    innards.capturing = false;
+    // The operator's new capture, started while the stop was mid-flight.
+    const starting = service.startCapture('eth0', 65_535, 1000, null, 'alice');
+
+    release();
+    await Promise.all([stopping, starting]);
+
+    assert.equal(innards.engine, freshEngine, 'the new capture was left with no detection engine');
+    assert.equal(innards.sink, freshSink, 'the new capture had its alert sink taken away');
+  });
+
+  /*
    * With resuming off nothing is going to bring it back, so the notice belongs to
    * the process that found it and the row is closed behind it — otherwise every
    * restart re-announces an interruption from a machine that has been fine since.

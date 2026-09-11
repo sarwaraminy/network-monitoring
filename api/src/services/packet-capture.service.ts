@@ -441,6 +441,31 @@ export class PacketCaptureService {
     this.session = null;
 
     /*
+     * Detaching everything this stop is responsible for, before it yields.
+     *
+     * `this.capturing` goes false below and this function then awaits twice —
+     * `sessionWrite` and `recordCaptureStopped` — with no claim held. A
+     * `POST /start` landing in that gap passes every guard and installs a fresh
+     * handle, poll timer, sink and engine. Reading `this.sink` and `this.engine`
+     * *after* those awaits therefore picked up the new capture's objects, and the
+     * stop nulled them and closed the new sink.
+     *
+     * What that leaves is the worst shape this feature has: a capture genuinely
+     * running, reporting `capturing: true`, with a live handle and a poll timer
+     * feeding a null engine. No findings, no alerts, no device recording, for the
+     * whole life of that capture — and nothing on screen different from a working
+     * one, because the packet count still climbs.
+     *
+     * The window is this branch's own: before the stop was made to wait for the
+     * record it closes, nothing was awaited between clearing `capturing` and
+     * reading the sink, so the two could not interleave. Same treatment as
+     * `session` above, and for the same reason.
+     */
+    const sink = this.sink;
+    this.sink = null;
+    this.engine = null;
+
+    /*
      * Let the start's own record land before deciding anything about it.
      *
      * Cannot reject — `recordCaptureStarted` warns and returns on failure — so
@@ -486,8 +511,14 @@ export class PacketCaptureService {
        *
        * Built from the session this process started rather than re-read, so it
        * holds even when the database is what failed.
+       *
+       * `!this.capturing` because this runs after the awaits above: a start that
+       * took over in the meantime has already cleared the notice, and putting the
+       * old session back would leave a stale interruption attached to a capture
+       * that is running. Found while fixing the sink, and the same shape — a write
+       * to an instance field the concurrent start now owns.
        */
-      if (session) {
+      if (session && !this.capturing) {
         this.interrupted = {
           interfaceName: session.interfaceName,
           filterIp: session.filterIp,
@@ -500,9 +531,6 @@ export class PacketCaptureService {
     }
 
     // Write out whatever the detectors found before the sink is discarded.
-    const sink = this.sink;
-    this.sink = null;
-    this.engine = null;
     if (sink) {
       try {
         await sink.close();
