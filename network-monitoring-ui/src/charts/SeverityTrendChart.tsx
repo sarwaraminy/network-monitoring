@@ -299,6 +299,17 @@ export default function SeverityTrendChart({
               label: t(SEVERITY_STYLE[severity].labelKey),
               stack: 'severity',
               color: palette.severity[severity],
+              /*
+               * Without this MUI falls back to `v.toLocaleString()`, which reads
+               * the *browser's* locale — so a Dari interface on an English browser
+               * showed `۱٫۲ میلیون` on the axis and `1,200,000` in the tooltip, for
+               * one quantity, on one chart, at one moment. The same disagreement
+               * `MagnitudeBarChart` was corrected for, on the chart beside it.
+               *
+               * `number` rather than `compact`: a tooltip is where the exact figure
+               * belongs and it has the room. The axis is what has to shorten.
+               */
+              valueFormatter: (value: number | null) => (value === null ? '' : format.number(value)),
             }))
           : [{ data: trend.map(() => 0), label: t('dashboard.no_findings'), color: palette.grid }]
       }

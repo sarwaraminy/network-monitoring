@@ -57,6 +57,37 @@ describe('shortening a count for an axis', () => {
     expect(createFormatters('fa-AF').compact(2_840_000)).toContain('۲');
   });
 
+  /*
+   * Abbreviating is only worth doing where it abbreviates.
+   *
+   * Dari spells the unit out — `۸٫۲ هزار` is longer than `۸٬۲۲۱`, and
+   * `۱٫۲ میلیون` longer than `۱٬۲۰۰٬۰۰۰` — so with `width: 'auto'` taking the axis
+   * exactly as wide as its labels, abbreviating there would hand that locale a
+   * narrower plot than it had before any of this.
+   */
+  it('does not abbreviate in a language where the abbreviation is longer', () => {
+    const dari = createFormatters('fa-AF');
+    expect(dari.compact(2_840_000)).toBe(dari.number(2_840_000));
+    expect(dari.compact(8_221)).toBe(dari.number(8_221));
+  });
+
+  it('still abbreviates where it actually shortens', () => {
+    expect(createFormatters('en').compact(2_840_000)).toBe('2.8M');
+    expect(createFormatters('de').compact(2_840_000)).toMatch(/Mio\./);
+  });
+
+  /*
+   * `notation: 'compact'` resolves `useGrouping` to `'min2'` on its own, which
+   * drops the separator below five digits — so German `compact(8221)` was `8221`
+   * beside a `number(8221)` of `8.221` on the same chart. A regression against
+   * the plain `toLocaleString()` this replaced.
+   */
+  it('groups a four-digit German count, as the plain formatter does', () => {
+    const german = createFormatters('de');
+    expect(german.compact(8_221)).toBe('8.221');
+    expect(german.compact(8_221)).toBe(german.number(8_221));
+  });
+
   it('leaves a small number alone rather than inventing a suffix', () => {
     expect(createFormatters('en').compact(475)).toBe('475');
   });
