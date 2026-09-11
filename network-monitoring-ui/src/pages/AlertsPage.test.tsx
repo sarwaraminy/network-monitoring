@@ -150,6 +150,9 @@ describe('AlertsPage', () => {
     renderApp(<AlertsPage />, { authenticated: true });
     await waitFor(() => expect(requested.length).toBeGreaterThan(0), { timeout: 10_000 });
 
+    // The page's own filter, labelled "Detector". The rule dialog's equivalent is
+    // labelled "Finding kind" — two different controls, and the suppression cases
+    // below name the other one.
     await user.click(screen.getByRole('combobox', { name: /detector/i }));
     await user.click(await screen.findByRole('option', { name: /port scan/i }));
 
@@ -389,6 +392,125 @@ describe('AlertsPage', () => {
     await waitFor(() => expect(requested.at(-1)).toBe(''));
     // Still rendered, because there is still a choice to make.
     expect(screen.getByRole('combobox', { name: /sensor/i })).toBeInTheDocument();
+  });
+
+  /*
+   * "Suppress this" from a row — the obvious next touch on this page, and the
+   * reason a suppression usually gets written at all.
+   *
+   * What the cases below are about is that the row opens the *form* rather than
+   * writing a rule. A suppression is the one piece of configuration here that can
+   * make the tool go quiet, and a one-click version from a table row is how a whole
+   * detector gets switched off by somebody who meant to dismiss one finding.
+   */
+  describe('suppressing from a row', () => {
+    it('offers an administrator the control', async () => {
+      // Asserted from the admin side first, so the absence below cannot pass
+      // because the button moved or stopped rendering for everybody.
+      await renderAlertsAs('ADMIN');
+
+      expect(await screen.findAllByRole('button', { name: /suppress findings like/i })).not.toHaveLength(0);
+    });
+
+    it('does not offer it to a plain user', async () => {
+      // Writing a rule is ADMIN on the server; offering it and then refusing
+      // reads as a broken product rather than as a permission.
+      await renderAlertsAs('USER');
+
+      expect(screen.queryAllByRole('button', { name: /suppress findings like/i })).toHaveLength(0);
+    });
+
+    it('opens the rule form filled in from the finding', async () => {
+      const user = userEvent.setup();
+      await renderAlertsAs('ADMIN');
+
+      await user.click(await screen.findByRole('button', { name: /suppress findings like finding 101/i }));
+
+      const dialog = await screen.findByRole('dialog');
+      // The credential finding: its kind, its source address and its port.
+      expect(within(dialog).getByRole('combobox', { name: /finding kind/i })).toHaveTextContent(
+        /cleartext credentials/i,
+      );
+      expect(within(dialog).getByLabelText(/source address or range/i)).toHaveValue('10.0.0.89');
+      expect(within(dialog).getByLabelText(/destination port/i)).toHaveValue(80);
+    });
+
+    it('leaves the target blank, which is the criterion that varies', async () => {
+      /*
+       * Deliberate, and the one prefill decision worth a test. A scan sweeps
+       * targets by definition, so pinning the one that happened to be observed
+       * writes a rule that stops covering the same activity tomorrow. Blank is
+       * wider — and visible, with a field the operator can type into and a preview
+       * that says what the rule as it stands would have hidden.
+       */
+      const user = userEvent.setup();
+      await renderAlertsAs('ADMIN');
+
+      await user.click(await screen.findByRole('button', { name: /suppress findings like finding 101/i }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByLabelText(/target address or range/i)).toHaveValue('');
+    });
+
+    it('will not save until a reason is written', async () => {
+      // `reason` is mandatory on the server and deliberately not prefilled: a
+      // suppression needs a reason somebody wrote, and "suppressed from the alerts
+      // page" would satisfy the constraint while defeating it.
+      const user = userEvent.setup();
+      await renderAlertsAs('ADMIN');
+
+      await user.click(await screen.findByRole('button', { name: /suppress findings like finding 101/i }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByRole('button', { name: /create rule/i })).toBeDisabled();
+
+      await user.type(
+        within(dialog).getByLabelText(/why is this expected/i),
+        'Known monitoring probe, OPS-9',
+      );
+      expect(within(dialog).getByRole('button', { name: /create rule/i })).toBeEnabled();
+    });
+
+    it('says what a saved rule will do to this list', async () => {
+      /*
+       * A suppressed finding is DROPPED, not hidden, and the rule is in force
+       * before the response arrives — so the table is about to get shorter for a
+       * reason nothing else on this page would explain.
+       */
+      const user = userEvent.setup();
+      await renderAlertsAs('ADMIN');
+
+      await user.click(await screen.findByRole('button', { name: /suppress findings like finding 101/i }));
+      const dialog = await screen.findByRole('dialog');
+      await user.type(
+        within(dialog).getByLabelText(/why is this expected/i),
+        'Known monitoring probe, OPS-9',
+      );
+      await user.click(within(dialog).getByRole('button', { name: /create rule/i }));
+
+      expect(await screen.findByText(/is in force/i)).toBeInTheDocument();
+      expect(screen.getByText(/discarded rather than hidden/i)).toBeInTheDocument();
+    });
+
+    it('closes without sending anything on cancel', async () => {
+      let sent = 0;
+      server.use(
+        http.post('/api/suppressions', async () => {
+          sent += 1;
+          return HttpResponse.json({ id: 9 }, { status: 201 });
+        }),
+      );
+
+      const user = userEvent.setup();
+      await renderAlertsAs('ADMIN');
+
+      await user.click(await screen.findByRole('button', { name: /suppress findings like finding 101/i }));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: /cancel/i }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(sent).toBe(0);
+    });
   });
 
   it('looks up an IP address from the table', async () => {

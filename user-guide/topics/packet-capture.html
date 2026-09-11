@@ -45,6 +45,16 @@
 <p><strong>Capture by IP</strong> is the same screen with an address filter, for when you
 already know which host you are interested in.</p>
 
+<div class="note">
+  <span class="label">Starting and stopping are recorded</span>
+  <p>Capture reads other people's traffic, so beginning one is written to the
+  <a href="audit-trail.html">audit trail</a> &mdash; who started it, which interface, and
+  the filter and limits they asked for &mdash; and so is stopping it. Only a start that
+  actually started something: asking for a capture that is already running, which a retry
+  or a second administrator on this screen will do, is answered with the live status and
+  is not a new event.</p>
+</div>
+
 <h2>Capture does not survive a restart</h2>
 
 <p>A capture runs until you stop it &mdash; the <span class="ui">Timeout</span> above is how

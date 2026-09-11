@@ -1,5 +1,6 @@
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
+import NotificationsOffOutlinedIcon from '@mui/icons-material/NotificationsOffOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined';
 import TravelExploreIcon from '@mui/icons-material/TravelExplore';
@@ -25,6 +26,7 @@ import DataGrid from '../components/DataGrid';
 import Identifier from '../components/Identifier';
 import IpInfoDialog from '../components/IpInfoDialog';
 import { KIND_DESCRIPTION, KIND_LABEL, SeverityChip } from '../components/SeverityChip';
+import SuppressionRuleDialog, { draftFromAlert } from '../components/SuppressionRuleDialog';
 import SurfaceCard from '../components/SurfaceCard';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../contexts/LocaleContext';
@@ -41,7 +43,13 @@ import { useFormatters } from '../i18n/format';
 import { type Message, useMessageText } from '../i18n/message-state';
 import { type Translate, type UiMessageKey, useT } from '../i18n/ui';
 import { monoSx } from '../theme';
-import { ALERT_KINDS, type AlertKind, type Alert as AlertRecord, type Severity } from '../types';
+import {
+  ALERT_KINDS,
+  type AlertKind,
+  type Alert as AlertRecord,
+  type Severity,
+  type SuppressionDraft,
+} from '../types';
 
 const WINDOWS = [
   { value: '', labelKey: 'period.all' },
@@ -67,6 +75,25 @@ export default function AlertsPage() {
   // A message rather than its words, so it re-reads when the language does —
   // see i18n/message-state.ts.
   const [actionError, setActionError] = useState<Message | null>(null);
+  /**
+   * A suppression being written from a row, or null.
+   *
+   * Held as the draft rather than as the alert, so the dialog does not have to
+   * know what an alert is — `draftFromAlert` is the whole of the translation, and
+   * it lives next to the form it fills.
+   */
+  const [suppressing, setSuppressing] = useState<SuppressionDraft | null>(null);
+  /**
+   * What a saved rule did, kept separate from `actionError`.
+   *
+   * Separate rather than one `{ severity, body }` like the suppressions page uses,
+   * because on this page the error banner is shared with two query failures — see
+   * `failure` below — and folding a success into that would mean a load error and
+   * a saved rule competing for one slot. A suppression takes effect immediately
+   * and drops findings rather than hiding them, so its confirmation is the one
+   * thing on screen saying why the table just got shorter.
+   */
+  const [suppressed, setSuppressed] = useState<Message | null>(null);
   const ipInfo = useIpInfo();
   const { user } = useAuth();
   /*
@@ -159,6 +186,7 @@ export default function AlertsPage() {
 
   const load = useCallback(() => {
     setActionError(null);
+    setSuppressed(null);
     void alertsQuery.refetch();
     void summaryQuery.refetch();
   }, [alertsQuery, summaryQuery]);
@@ -182,6 +210,21 @@ export default function AlertsPage() {
     },
     [remove],
   );
+
+  /*
+   * Opening the form, not writing the rule.
+   *
+   * A suppression is the one piece of configuration here that can make the tool go
+   * quiet, and a one-click version of it from a table row is how a whole detector
+   * gets switched off by somebody who meant to dismiss one finding. So the row
+   * offers a filled-in draft and the operator still has to write a reason, read
+   * what the criteria cover, and press Create — the same form as the Suppressions
+   * page, because it is the same form.
+   */
+  const handleSuppress = useCallback((alert: AlertRecord) => {
+    setActionError(null);
+    setSuppressing(draftFromAlert(alert));
+  }, []);
 
   const showIp = ipInfo.show;
 
@@ -245,6 +288,17 @@ export default function AlertsPage() {
             )}
           </IconButton>
         </Tooltip>
+        {isAdmin && (
+          <Tooltip title={t('alerts.suppress')}>
+            <IconButton
+              size="small"
+              aria-label={t('alerts.suppress_finding', { id: row.original.id })}
+              onClick={() => handleSuppress(row.original)}
+            >
+              <NotificationsOffOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
         {isAdmin && (
           <Tooltip title={t('alerts.delete')}>
             <IconButton
@@ -385,6 +439,11 @@ export default function AlertsPage() {
           {messageText(failure)}
         </Alert>
       )}
+      {suppressed && (
+        <Alert severity="success" onClose={() => setSuppressed(null)}>
+          {messageText(suppressed)}
+        </Alert>
+      )}
       <AlertSummaryTiles summary={summary} selected={severity} onSelect={setSeverity} />
       <SurfaceCard bodyVariant="grid">
         <DataGrid columns={columns} data={alerts} isLoading={loading} tableOptions={tableOptions} />
@@ -397,6 +456,24 @@ export default function AlertsPage() {
         error={ipInfo.error}
         onClose={ipInfo.close}
       />
+      {suppressing && (
+        <SuppressionRuleDialog
+          rule={null}
+          draft={suppressing}
+          onClose={() => setSuppressing(null)}
+          onSaved={(saved) => {
+            setSuppressing(null);
+            /*
+             * A saved rule takes effect before the response, so the list on screen
+             * is already describing what arrives differently now — and findings the
+             * rule covers are being dropped rather than hidden, so a refetch is the
+             * only way to see what it did.
+             */
+            load();
+            setSuppressed({ key: 'alerts.suppressed_toast', params: { id: saved.id } });
+          }}
+        />
+      )}
     </>
   );
 }

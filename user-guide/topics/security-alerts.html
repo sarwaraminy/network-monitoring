@@ -96,6 +96,30 @@ finding already acknowledged.</p>
 no undo, and the deletion itself is recorded in the <a href="audit-trail.html">audit
 trail</a> &mdash; who deleted what, and when.</p>
 
+<h2>Suppressing findings like this one</h2>
+
+<p>When a finding is correct but expected &mdash; the authorised scanner, the backup job
+that sweeps the estate every night &mdash; acknowledging it one at a time is not the
+answer, because it will be back tomorrow. The bell icon at the end of the row opens a
+<a href="suppressions.html">suppression rule</a> already filled in from that finding: its
+detector, the address it came from and the port, where the finding names one.</p>
+
+<p>It opens the form; it does not write the rule. You still have to say <em>why</em> it is
+expected, and that is on purpose &mdash; a rule with no reason is one nobody can review
+next year. The form's <span class="ui">Check against recent alerts</span> button will tell
+you how many findings the rule as it stands would have hidden before you save it, which is
+worth doing: a suppression <strong>discards</strong> matching findings rather than hiding
+them, so a rule wider than you meant is silence rather than an error message.</p>
+
+<div class="note">
+  <span class="label">The target is left blank on purpose</span>
+  <p>The rule is prefilled with the detector, the source and the port, but not the
+  <span class="ui">Target</span>. A scanner sweeps targets by definition, so a rule pinned
+  to the one address that happened to be observed would stop covering the same activity
+  tomorrow. Fill it in yourself if the target is the fixed part &mdash; a particular
+  server everybody logs into, say.</p>
+</div>
+
 <h2 id="more-than-one-sensor">More than one sensor</h2>
 
 <p>Several installations can watch different parts of a network and store their findings

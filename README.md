@@ -1450,8 +1450,10 @@ The groups worth knowing about:
   nothing, since the same account could delete the same rows one at a time. And the legacy
   `logs` CRUD (`POST /log/add`, `PUT /log/:id`, `DELETE /log/:id`) let any authenticated user
   add a fabricated record of network traffic, rewrite one, or delete one. On a tool whose
-  output is evidence, both are a different kind of act from acknowledging a finding. All four
-  are ADMIN now; reading stays open, which is the point of keeping the table.
+  output is evidence, both are a different kind of act from acknowledging a finding. The alert
+  delete is ADMIN now; the three `logs` writes were made ADMIN, then removed outright, which is
+  the fix the guard was standing in for. Reading stays open, which is the point of keeping the
+  table.
 - **The audit trail** (`src/services/audit.test.ts`) pins the parts that fail quietly. The
   action vocabulary is checked against the CHECK constraint *read out of the migration* rather
   than a second copy of the pattern — an action the database would reject fails at the moment
@@ -1653,6 +1655,7 @@ Three refusals, each a lockout it prevents:
 | `GET`    | `/`                     | Findings, most urgent first. Filter by `severity`, `kind`, `sensor`, `since` (ISO or `24h`), `acknowledged` |
 | `GET`    | `/summary`              | Counts by severity and detector, for the dashboard tiles (`sensor`) |
 | `GET`    | `/sensors`              | Every sensor with findings, devices or rollups here, and which one is answering |
+| `GET`    | `/sensors/retirable`    | Sensors that could be decommissioned, with what is under each (ADMIN). Excludes this installation |
 | `GET`    | `/dashboard`            | Summary plus trend buckets and top sources (`days`, `bucket`, `sensor`) |
 | `GET`    | `/devices`              | MAC addresses seen on the network (`sensor`)            |
 | `POST`   | `/:id/acknowledge`      | Mark a finding as handled                               |
@@ -1660,6 +1663,15 @@ Three refusals, each a lockout it prevents:
 | `DELETE` | `/:id`                  | Delete one finding (ADMIN)                              |
 | `DELETE` | `/`                     | Clear all findings (ADMIN)                              |
 | `DELETE` | `/devices/:mac`         | Forget a device, so it is reported as new again (ADMIN). `sensor` picks the row; without it, the single holder is resolved and several are a 400 |
+| `DELETE` | `/sensors/:sensorId`    | Decommission a sensor: its findings, devices, rollups and capture session, in one audited transaction (ADMIN). 404 for a name with nothing under it, 409 for this installation |
+
+`DELETE /sensors/:sensorId` refuses the sensor serving the request, and the 409 is the
+interesting half of it. That sensor's detectors are running, so the rows come back — a device
+on the next frame, a finding on the next detection — leaving a half-emptied sensor and no
+error to explain it. And `known_devices` is what `NewDeviceDetector` treats as already-known,
+so emptying it for a live sensor re-arms new-device detection across the whole segment: the
+next few minutes are a flood of findings about machines that have been there for months.
+Clearing findings has its own route; this one is for a name nothing will write again.
 
 ### Audit trail — `/api/audit`
 
@@ -1709,16 +1721,26 @@ is saved.
 
 ### Legacy packet log — `/api`
 
-The per-packet anomaly log that `alerts` supersedes. Nothing writes to it any more; the
-endpoints remain so existing history stays reachable.
+The per-packet anomaly log that `alerts` supersedes. Nothing writes to it any more, and
+nothing can: the read remains so existing history stays reachable, and that is all there is.
 
-| Method   | Path            | Purpose                                |
-| -------- | --------------- | -------------------------------------- |
-| `GET`    | `/logs`         | All historical records                 |
-| `POST`   | `/logs`         | Same as `GET` (kept for compatibility) |
-| `POST`   | `/log/add`      | Create a record (ADMIN)                |
-| `PUT`    | `/log/:id`      | Update a record (ADMIN)                |
-| `DELETE` | `/log/:id`      | Delete a record (ADMIN)                |
+| Method | Path    | Purpose                                |
+| ------ | ------- | -------------------------------------- |
+| `GET`  | `/logs` | All historical records                 |
+| `POST` | `/logs` | Same as `GET` (kept for compatibility) |
+
+`POST /log/add`, `PUT /log/:id` and `DELETE /log/:id` are **gone**, not gated. Rows in this
+table are a record of what was observed on the network; an endpoint that can add a fabricated
+one or rewrite one existed only so that it could be protected, and it went through three
+rounds of that — anonymous, then authenticated, then ADMIN-only and audited — without anybody
+asking whether it should exist. Removing the surface is the one change no later refactor can
+undo.
+
+The three `log.*` audit actions are still in the vocabulary. The trail cannot be pruned, so
+rows those endpoints wrote are still there; dropping the entries would have unlabelled them
+and taken the values out of the `action` filter, which is the failure V9's own docblock
+predicts. They live in `RETIRED_AUDIT_ACTIONS` instead — labelled and filterable, and not part
+of the type `recordAudit` accepts.
 
 ### Packet capture — `/api/packets` and `/api/ip/packets`
 
@@ -1988,7 +2010,8 @@ packet. See [What it detects](#what-it-detects).
   headers, so the column was usually empty or wrong. Padding is now the bytes past the length
   the network layer declares.
 - **`PUT /api/log/:id` trusted the body's id**, so a mismatched body could overwrite a
-  different row. The path id wins.
+  different row. The path id won, and then the whole endpoint was removed — see the legacy
+  packet log above.
 - **Loopback capture silently produced nothing.** Npcap's loopback adapter reports link type
   `NULL`, not Ethernet, and anything non-Ethernet was skipped. `NULL`, `LOOP` and `RAW` frames
   are now decoded, which also makes the app testable without touching a real network.
@@ -2233,6 +2256,7 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
+| **Five small gaps, each noticed while doing something else** — the roadmap's own group, cleared. **A sensor can be decommissioned**: since V16 every finding, device and rollup bucket carries the `sensor_id` of the installation that wrote it and nothing could ever remove a set of them, so a sensor retired after a hardware swap stayed in the filter and the inventory for ever — and retention could not reclaim the rows, because the device sweep's cutoff comes from each sensor's own last sighting and the alert sweep *rolls up* as it deletes into a table that is never pruned. One audited transaction over all four tables, refusing this installation with a 409: its detectors are running, so the rows come back, and emptying `known_devices` for a live sensor re-arms new-device detection across the whole segment. **The legacy packet-log writes are gone rather than guarded** — three rounds of improving a guard on endpoints nothing calls, over a table nothing writes, whose rows are a record of what was observed on the network; the `log.*` audit actions stay in `RETIRED_AUDIT_ACTIONS` because the trail cannot be pruned and dropping them would have unlabelled existing rows and taken the values out of the `action` filter. **`capture.start` and `capture.stop`** close the last unrecorded administrator action, including the unattended `CAPTURE_RESUME_ON_START` one — filed under `system:auto-resume`, because the start nobody witnesses is the one the trail most needs — and recorded from the outcome, since two of `startCapture`'s three answers start nothing and `stopCapture` runs happily against an idle service. **"Suppress this" from an alert row** opens the rule form prefilled from the finding, extracted from `SuppressionsPage` rather than copied: kind, source and port, with the target left blank because a scan sweeps targets and pinning the observed one writes a rule that stops covering the same activity tomorrow, and the reason still typed by a person. **And a duplicate-version guard in the migration runner**, over the filenames before the first file is read: two files sharing `V14__` used to be reported as a duplicate key on `schema_migrations` or as a *changed migration*, neither of which mentions that a second file exists | *this branch* |
 | **A restart no longer ends a capture silently** — capture lived entirely in the running process, so a service restart, reboot or redeploy left it off while the screen said *Idle*, which is the same word it uses for a host that has never captured anything. Flow collection comes back from `FLOW_ENABLED`; capture did not, and nothing reported the difference. `capture_session` (V18) records what each sensor was asked to run and whether it was still running when the process last had an opinion, keyed on `(sensor_id, scope)` because one process runs two captures and a row per sensor would have had them overwriting each other — the `known_devices` bug V16 fixed, one table along. The Capture screen now names the interface, who started it and when, with a Resume button that sends the recorded settings rather than the form's; `CAPTURE_RESUME_ON_START` does it automatically and is off by default, because starting a capture with nobody present is a decision about the installation rather than a click in a browser | #59 |
 | **The dashboard charts read as one house style** — the chrome from the sibling `professional` project's dashboard, ported into a shared `charts/chrome.ts` rather than an `sx` per chart, because the point is that the two charts match and two charts restyled separately drift on the first change to either: a dashed horizontal-only grid, hairline axes with the tick marks removed (`disableTicks`, not CSS — MUI lays the axis out from `tickSize` and `display: none` left the six pixels reserved), small recessive tick labels and a crosshair on hover. The compact value scale is the part that is not cosmetic: both charts labelled their axes with a bare `toLocaleString()`, which reads the *browser's* locale and not the application's, so a dashboard switched to German drew American labels — invisible to anyone whose browser and interface already agree. `Formatters.compact` shortens through `Intl`, so the suffix belongs to the reader ("2.8M", "2,8 Mio.", "۲٫۸ میلیون"), which a five-year findings count needs because it reaches six figures. Each value axis is sized from the label it will actually carry by asking MUI to measure it, not from a character-count estimate that cannot see a tick the scale invented above the data. **Professional's area-under-line form is deliberately not ported**, for a reason about the data rather than taste: the endpoint emits no row for a period with no findings, so a line or stacked area interpolates through the gap and draws a quiet spell that never happened — columns leave it visible | #60 |
 | **A trend chart that stays readable, and says where its detail ends** — the five-year window plotted 1,825 daily bars into about 800px, a solid block with no legible axis at exactly the window where a trend is most likely to be real. The bucket now widens with the window (hourly ≤ 2 days, daily ≤ 90, weekly ≤ a year, monthly beyond), and the API reports which it chose rather than the browser recomputing the rule — the two copies of `days <= 2 ? 'hour' : 'day'` would not have survived four units. Folding rolled-up days into a week or a month means the JavaScript truncation has to agree with Postgres's `date_trunc` exactly, verified two ways: `trend-buckets.test.ts` runs its whole suite on an `Asia/Kabul` session, because `date_trunc` reads the session's zone and a missing UTC pin is invisible under UTC — and the four units were checked case by case against a real server on the same offset. A dashed marker now shows where detail ends and the rollup begins, so a short bar on the left reads as "aggregated" rather than "quiet" — the distinction the rollup exists to preserve, given away by the one chart that shows it | #58 |
@@ -2277,29 +2301,7 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
    administration panels' long-form prose was converted in #55, and `DataGrid`'s numeric
    cell already formats through the application locale — the conflict described with the
    query console's grid does not exist, because that page renders its own cells.
-2. **Small, and each independently useful:**
-   - Delete the legacy packet-log write endpoints rather than guarding them. Nothing calls
-     `POST /api/log/add`, `PUT /api/log/:id` or `DELETE /api/log/:id`, and nothing writes
-     the table; removing them removes the surface instead of protecting it. The `GET` stays,
-     because the history is why the table is kept.
-   - "Suppress this" from an alert row — left out of the suppression PR to keep it
-     reviewable, and the obvious next touch on that page.
-   - A way to decommission a sensor: drop its findings, its devices and its rollups in one
-     audited action. There is none today, so a sensor retired after a hardware swap leaves its
-     rows behind for ever — retention cannot reclaim the newest of them, because each sensor's
-     staleness cutoff is derived from its own last sighting and that stops advancing with it.
-   - An audit action for starting and stopping a capture. `AUDIT_ACTIONS` has none, and
-     `POST /start` never calls `recordAudit`, so beginning to read traffic off an interface
-     is one of the few administrator actions on this server that leaves no trail. Noticed
-     while adding `capture_session.started_by`, which is currently the only record that
-     anyone started a capture — a column whose purpose is a banner, standing in for an audit
-     row.
-   - A duplicate-version guard in the migration runner. Two files sharing a `V14__` prefix
-     are not detected as a collision: the second one's checksum is compared against the
-     first one's recorded row, and the runner reports a *changed migration* and refuses to
-     apply anything. The message sends you looking for an edit that never happened. Caught
-     this while adding V14, and the fix is a check before the first file is read.
-3. **The flow collector has no interface at all**, and it is the last subsystem that is
+2. **The flow collector has no interface at all**, and it is the last subsystem that is
    still environment-only. Two halves, worth doing in this order because only the second
    one carries any risk.
 

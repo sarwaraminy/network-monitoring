@@ -65,6 +65,7 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'alerts.open': 'باز',
   'alerts.acknowledged': 'تأیید شد',
   'alerts.acknowledged_by': 'تأییدشده توسط {who}',
+  'alerts.suppress': 'سرکوب یافته‌های مانند این — قاعده‌ای پرشده از همین ردیف باز می‌شود',
   'alerts.delete': 'حذف — یافته و شواهدش با هم می‌روند',
   'alerts.unacknowledged_count': '{count, plural, one {# تأییدنشده} other {# تأییدنشده}}',
   'alerts.what_this_means': 'این یعنی چه',
@@ -479,6 +480,10 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'alerts.update_failed': 'هشدار به‌روز نشد',
   'alerts.delete_failed': 'هشدار حذف نشد',
   'alerts.delete_finding': 'حذف یافتهٔ {id}',
+  'alerts.suppress_finding': 'سرکوب یافته‌هایی مانند یافتهٔ {id}',
+  'alerts.suppressed_toast':
+    'قاعدهٔ {id} برقرار است. یافته‌هایی که پوشش می‌دهد از این پس دور انداخته می‌شوند نه پنهان، ' +
+    'پس این فهرست کوتاه‌تر می‌شود — برای دیدن مقدار آن به صفحهٔ سرکوب‌ها بروید.',
   'alerts.this_sensor': ' (همین یکی)',
   'alerts.empty_body':
     'هیچ یافته‌ای با این پالایه‌ها همخوان نیست. فهرست خالی در هنگام ضبط یعنی آشکارسازها چیز ' +

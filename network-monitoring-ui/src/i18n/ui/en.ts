@@ -70,6 +70,7 @@ export const UI_EN = {
   'alerts.open': 'Open',
   'alerts.acknowledged': 'Acknowledged',
   'alerts.acknowledged_by': 'Acknowledged by {who}',
+  'alerts.suppress': 'Suppress findings like this — opens a rule filled in from this row',
   'alerts.delete': 'Delete — the finding and its evidence go with it',
   'alerts.unacknowledged_count': '{count, plural, one {# unacknowledged} other {# unacknowledged}}',
   'alerts.what_this_means': 'What this means',
@@ -498,6 +499,10 @@ export const UI_EN = {
   'alerts.update_failed': 'Could not update the alert',
   'alerts.delete_failed': 'Could not delete the alert',
   'alerts.delete_finding': 'Delete finding {id}',
+  'alerts.suppress_finding': 'Suppress findings like finding {id}',
+  'alerts.suppressed_toast':
+    'Rule {id} is in force. Findings it covers are now discarded rather than hidden, so this list ' +
+    'will get shorter — see the Suppressions page for how much it is hiding.',
   'alerts.this_sensor': ' (this one)',
   'alerts.empty_body':
     'No findings match these filters. An empty list during a capture means the detectors saw ' +

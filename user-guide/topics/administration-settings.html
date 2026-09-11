@@ -59,6 +59,12 @@ because a floating panel in a narrow window is a panel with no margins.</p>
         <a href="delivery-settings.html">Delivery settings</a>.</td>
     </tr>
     <tr>
+      <td>Sensors</td>
+      <td><span class="ui">Decommission a sensor</span></td>
+      <td>Delete everything a retired sensor recorded &mdash; see
+        <a href="#decommission">Retiring a sensor</a> below.</td>
+    </tr>
+    <tr>
       <td>Accounts</td>
       <td><span class="ui">Users and roles</span></td>
       <td>Who is an administrator. See <a href="access-and-roles.html">Who can do
@@ -103,6 +109,45 @@ line keeps the behaviour you had rather than reverting to a default nobody chose
   so it does not pin the field. The shipped Compose file and example environment pass
   every one of these through blank for exactly that reason.</p>
 </div>
+
+<h2 id="decommission">Retiring a sensor</h2>
+
+<p>More than one installation can write to one database, and every finding, device and
+aggregated day is stamped with the name of the sensor that recorded it. That name has no
+registration step and no way to remove it: a sensor is simply whatever has written
+something. So when a sensor is retired &mdash; a machine replaced, a branch closed, a
+container that came back under a different name &mdash; its rows stay where they are, and
+it goes on appearing in the <span class="ui">Sensor</span> filter and the device list
+for ever.</p>
+
+<p><strong>Retention does not clear them either</strong>, and that is not an oversight.
+Devices expire only after a period of not being seen, measured from that sensor's own
+last sighting &mdash; which stops moving when the sensor does, so its newest devices
+never become old enough. Findings do expire, but they are
+<a href="security-alerts.html">aggregated into a daily summary</a> on the way out, and
+that summary is deliberately never deleted.</p>
+
+<p>This tool is the way out. It lists every sensor <em>other than this one</em>, with how
+many findings, devices and aggregated days are recorded under each, and when it was last
+heard from. Choosing one and confirming deletes all of it, along with its record of what
+it was last asked to capture.</p>
+
+<div class="note">
+  <span class="label">There is no undo</span>
+  <p>The findings, the devices and the aggregated history are gone, and nothing else in
+  the product holds a copy. The <a href="audit-trail.html">audit trail</a> entry &mdash;
+  who did it, which sensor, and how much was removed &mdash; is what remains. Read the
+  counts in the confirmation before you agree to them: that is what they are there for.</p>
+</div>
+
+<p><strong>This installation is never offered</strong>, and the server refuses it even if
+asked directly. Its detectors are running, so the rows would come back immediately &mdash;
+a device on the next frame it decodes, a finding on the next detection &mdash; leaving a
+half-emptied sensor and nothing to say why. Worse, the device list is what tells the
+new-device detector which machines it has already seen, so emptying it for a live sensor
+reports every machine on the network as new all over again. To empty the current sensor's
+findings, use <span class="ui">Clear all</span> on the
+<a href="security-alerts.html">Security findings</a> page instead.</p>
 
 <h2>Everything here is recorded</h2>
 

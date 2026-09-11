@@ -65,6 +65,7 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'alerts.open': 'Offen',
   'alerts.acknowledged': 'Bestätigt',
   'alerts.acknowledged_by': 'Bestätigt von {who}',
+  'alerts.suppress': 'Solche Funde unterdrücken — öffnet eine aus dieser Zeile gefüllte Regel',
   'alerts.delete': 'Löschen — der Fund und seine Belege gehen mit',
   'alerts.unacknowledged_count': '{count, plural, one {# unbestätigt} other {# unbestätigt}}',
   'alerts.what_this_means': 'Was das bedeutet',
@@ -512,6 +513,10 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'alerts.update_failed': 'Die Meldung konnte nicht aktualisiert werden',
   'alerts.delete_failed': 'Die Meldung konnte nicht gelöscht werden',
   'alerts.delete_finding': 'Fund {id} löschen',
+  'alerts.suppress_finding': 'Funde wie Fund {id} unterdrücken',
+  'alerts.suppressed_toast':
+    'Regel {id} ist in Kraft. Erfasste Funde werden nun verworfen statt versteckt, diese Liste ' +
+    'wird also kürzer — wie viel sie verbirgt, steht auf der Seite Unterdrückungen.',
   'alerts.this_sensor': ' (dieser)',
   'alerts.empty_body':
     'Keine Funde entsprechen diesen Filtern. Eine leere Liste während einer Aufzeichnung bedeutet, ' +
