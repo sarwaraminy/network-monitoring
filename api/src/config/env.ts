@@ -190,7 +190,14 @@ function arpTrustedMappings(): ReadonlyMap<string, string> {
   return map;
 }
 
-/** Parses `10.0.0.1,10.0.0.2` into the flow exporter allow-list. */
+/**
+ * Everything this process reads from the environment, resolved once at load.
+ *
+ * Once, deliberately: a value that could change under a running process is a
+ * value two parts of it can disagree about. The settings that *do* change at
+ * runtime — delivery, the query console, flow collection — are not here at all;
+ * they have their own resolvers, which weigh this layer against a stored row.
+ */
 export const env = {
   nodeEnv: optional('NODE_ENV', 'development'),
   isProduction: optional('NODE_ENV', 'development') === 'production',

@@ -37,6 +37,15 @@ export interface FlowSettingsPatch {
 }
 
 export interface FlowSettingsSaved extends FlowSettingsResponse {
+  /**
+   * Whether anything was actually written.
+   *
+   * A patch can resubmit what is already stored without anybody doing anything
+   * odd — clearing a field that has already fallen back to its default sends
+   * `null` over a column that is already NULL. Saying "Saved, and in force" for
+   * that is the one answer that is untrue.
+   */
+  changed: boolean;
   /** Whether the socket had to be closed and reopened for this to take effect. */
   rebound: boolean;
   /** The state straight afterwards — how a failed rebind is reported. */

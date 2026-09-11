@@ -294,6 +294,11 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'flow_settings.read_failed': 'تنظیمات جریان خوانده نشد',
   'flow_settings.save_failed': 'تنظیمات جریان ذخیره نشد',
   'flow_settings.save': 'ذخیرهٔ تغییرات',
+  'flow_settings.retry_bind': 'دوباره تلاش برای بستن',
+  'flow_settings.rebound_only':
+    'چیزی برای تغییر نبود — تنظیمات از پیش درست بودند. سوکت دوباره باز شد و وضعیت پایین ' +
+    'می‌گوید که آیا گرفت.',
+  'flow_settings.nothing_changed': 'چیزی تغییر نکرد — این مقادیر از پیش ذخیره بودند.',
   'flow_settings.saving': 'در حال ذخیره…',
   'flow_settings.saved': 'ذخیره شد و برقرار است.',
   'flow_settings.saved_rebound':

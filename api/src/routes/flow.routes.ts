@@ -108,6 +108,7 @@ flowRouter.put(
     res.json({
       settings: flowForApi(currentFlowResolution()),
       pinned: flowPinnedFields(currentFlowResolution()),
+      changed: saved.changed,
       rebound,
       status: flowCollector().getStatus(),
     });

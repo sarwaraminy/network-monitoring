@@ -302,6 +302,11 @@ export const UI_EN = {
   'flow_settings.read_failed': 'Could not read the flow settings',
   'flow_settings.save_failed': 'Could not save the flow settings',
   'flow_settings.save': 'Save changes',
+  'flow_settings.retry_bind': 'Try binding again',
+  'flow_settings.rebound_only':
+    'Nothing needed changing — the settings were already right. The socket was reopened and the ' +
+    'state below says whether it took.',
+  'flow_settings.nothing_changed': 'Nothing changed — these values were already stored.',
   'flow_settings.saving': 'Saving…',
   'flow_settings.saved': 'Saved, and in force.',
   'flow_settings.saved_rebound':

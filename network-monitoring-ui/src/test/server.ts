@@ -184,7 +184,13 @@ export const handlers = [
       if (known) settings[field] = { ...known, value, source: 'database' };
     }
     const rebound = ['enabled', 'port', 'bindAddress'].some((field) => field in patch);
-    return HttpResponse.json({ settings, pinned: [], rebound, status: FLOW_STATUS });
+    return HttpResponse.json({
+      settings,
+      pinned: [],
+      changed: Object.keys(patch).length > 0,
+      rebound,
+      status: FLOW_STATUS,
+    });
   }),
   http.get('/api/alerts/sensors/retirable', () => HttpResponse.json(RETIRABLE_SENSORS)),
   // Echoes back what the fixture says is under the name, which is what the real

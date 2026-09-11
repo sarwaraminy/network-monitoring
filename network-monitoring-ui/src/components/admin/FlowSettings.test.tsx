@@ -192,6 +192,130 @@ describe('FlowSettings', () => {
     expect(await screen.findByText(/listening on 0\.0\.0\.0:2055/i)).toBeInTheDocument();
   });
 
+  it('clears the bind address rather than storing an empty string', async () => {
+    /*
+     * The same fix the port got, and it matters for a reason the port's did not
+     * show: an empty string is stored, read back as unset, and resolves to the
+     * `0.0.0.0` default — so clearing once appears to work, and clearing a second
+     * time produces a patch the server sees as no change while the form still
+     * says "Saved". The admin is told twice that something happened and the
+     * second time nothing did.
+     */
+    let sent: Record<string, unknown> | null = null;
+    server.use(
+      http.put('/api/flow/settings', async ({ request }) => {
+        sent = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...FLOW_SETTINGS, changed: true, rebound: true, status: FLOW_STATUS });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<FlowSettings />, { authenticated: true });
+
+    await user.clear(await screen.findByDisplayValue('0.0.0.0'));
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => expect(sent).not.toBeNull());
+    expect(sent).toEqual({ bindAddress: null });
+  });
+
+  it('keeps an emptied allowlist as a value, because empty means something', async () => {
+    /*
+     * The deliberate asymmetry. An empty allowlist is a real choice — accept any
+     * sender — so it must reach the server as `''` and not as the `null` that
+     * clears the row and falls back to whatever the environment said. The two
+     * ends have to agree; `resolveFlowSettings` reads a blank stored value for
+     * exactly this reason.
+     */
+    let sent: Record<string, unknown> | null = null;
+    server.use(
+      http.put('/api/flow/settings', async ({ request }) => {
+        sent = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...FLOW_SETTINGS, changed: true, rebound: false, status: FLOW_STATUS });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<FlowSettings />, { authenticated: true });
+
+    await user.clear(await screen.findByDisplayValue('10.0.0.1, 10.0.0.2'));
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => expect(sent).not.toBeNull());
+    expect(sent).toEqual({ exporters: '' });
+  });
+
+  it('does not claim a save when nothing was written', async () => {
+    // The false success the round trip above produces. The server reports what it
+    // actually wrote, so the form can say so instead of crediting a change that
+    // did not happen.
+    server.use(
+      http.put('/api/flow/settings', () =>
+        HttpResponse.json({ ...FLOW_SETTINGS, changed: false, rebound: false, status: FLOW_STATUS }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<FlowSettings />, { authenticated: true });
+
+    const port = await screen.findByDisplayValue('2055');
+    await user.clear(port);
+    await user.type(port, '4739');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    expect(await screen.findByText(/Nothing changed/i)).toBeInTheDocument();
+  });
+
+  it('offers a retry only while the collector should be listening and is not', async () => {
+    /*
+     * The half that made the server's rebind-when-stalled branch unreachable. An
+     * operator whose port was busy at boot frees it and comes back to a form
+     * where every value is already correct — nothing differs, the patch is empty,
+     * and Save refuses before a request is sent. The recovery was an API restart,
+     * which is the shell access this feature exists to remove the need for.
+     */
+    server.use(
+      http.get('/api/flow/status', () =>
+        HttpResponse.json({ ...FLOW_STATUS, listening: false, address: null, port: null }),
+      ),
+    );
+    renderApp(<FlowSettings />, { authenticated: true });
+
+    expect(await screen.findByRole('button', { name: /try binding again/i })).toBeInTheDocument();
+  });
+
+  it('hides the retry on a collector that is listening', async () => {
+    // Absent on a working installation, rather than an always-present button
+    // whose effect nobody can predict.
+    renderApp(<FlowSettings />, { authenticated: true });
+
+    await screen.findByDisplayValue('2055');
+    expect(screen.queryByRole('button', { name: /try binding again/i })).not.toBeInTheDocument();
+  });
+
+  it('sends an empty patch for the retry, so nothing is written or audited', async () => {
+    let sent: Record<string, unknown> | null = null;
+    server.use(
+      http.get('/api/flow/status', () =>
+        HttpResponse.json({ ...FLOW_STATUS, listening: false, address: null, port: null }),
+      ),
+      http.put('/api/flow/settings', async ({ request }) => {
+        sent = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...FLOW_SETTINGS, changed: false, rebound: true, status: FLOW_STATUS });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<FlowSettings />, { authenticated: true });
+
+    await user.click(await screen.findByRole('button', { name: /try binding again/i }));
+
+    await waitFor(() => expect(sent).not.toBeNull());
+    expect(sent).toEqual({});
+    // And says what happened: the socket came back, nothing was stored.
+    expect(await screen.findByText(/Nothing needed changing/i)).toBeInTheDocument();
+  });
+
   it('reports a failure to read the settings', async () => {
     server.use(http.get('/api/flow/settings', () => HttpResponse.json({ message: 'nope' }, { status: 500 })));
     renderApp(<FlowSettings />, { authenticated: true });

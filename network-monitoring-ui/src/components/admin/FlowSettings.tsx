@@ -11,7 +11,12 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { describeError } from '../../api/client';
-import { type FlowSettingsPatch, fetchFlowSettings, saveFlowSettings } from '../../api/flow.api';
+import {
+  type FlowSettingsPatch,
+  fetchFlowSettings,
+  fetchFlowStatus,
+  saveFlowSettings,
+} from '../../api/flow.api';
 import { type Message, useMessageText } from '../../i18n/message-state';
 import { useT } from '../../i18n/ui';
 import { monoSx } from '../../theme';
@@ -64,8 +69,18 @@ export default function FlowSettings() {
   const t = useT();
   const queryClient = useQueryClient();
   const current = useQuery({ queryKey: ['flow', 'settings'], queryFn: fetchFlowSettings });
+  /*
+   * The collector's live state, for the retry below.
+   *
+   * The same query key the embedded panel uses, so React Query serves both from
+   * one request and one cache entry — this costs nothing and cannot disagree with
+   * what the reader sees underneath the form.
+   */
+  const status = useQuery({ queryKey: ['flow', 'status'], queryFn: fetchFlowStatus });
   // The message, not its words — see i18n/message-state.ts.
-  const [message, setMessage] = useState<{ severity: 'success' | 'error'; body: Message } | null>(null);
+  const [message, setMessage] = useState<{ severity: 'success' | 'error' | 'info'; body: Message } | null>(
+    null,
+  );
   const messageText = useMessageText();
   const [draft, setDraft] = useState<Draft | null>(null);
 
@@ -82,6 +97,12 @@ export default function FlowSettings() {
        */
       if (saved.rebound && saved.settings.enabled?.value === true && !saved.status.listening) {
         setMessage({ severity: 'error', body: { key: 'flow_settings.saved_not_listening' } });
+      } else if (!saved.changed && saved.rebound) {
+        // The retry: nothing was written, and the socket came back. Saying
+        // "Saved" would credit a change that did not happen.
+        setMessage({ severity: 'success', body: { key: 'flow_settings.rebound_only' } });
+      } else if (!saved.changed) {
+        setMessage({ severity: 'info', body: { key: 'flow_settings.nothing_changed' } });
       } else {
         setMessage({
           severity: 'success',
@@ -143,8 +164,21 @@ export default function FlowSettings() {
       patch.port = shown.port.trim() === '' ? null : Number(shown.port);
     }
     if (!pinned('bindAddress') && shown.bindAddress !== live.bindAddress) {
-      patch.bindAddress = shown.bindAddress;
+      // Emptied means cleared, as with the port above. Sending `''` stored an
+      // empty string that reads back as unset, so the field reverted to the
+      // default and a second clear produced a patch the server saw as no change
+      // — nothing written, nothing audited, and the form saying "Saved" twice.
+      patch.bindAddress = shown.bindAddress.trim() === '' ? null : shown.bindAddress;
     }
+    /*
+     * `exporters` is deliberately NOT given the same treatment.
+     *
+     * An empty allowlist is a real choice — accept any sender — so clearing the
+     * field means it, and mapping that to `null` would fall back to whatever the
+     * environment said and silently reinstate a list somebody had emptied on
+     * purpose. `resolveFlowSettings` reads a blank stored `exporters` as a value
+     * for exactly this reason; the two ends have to agree.
+     */
     if (!pinned('exporters') && shown.exporters !== live.exporters) patch.exporters = shown.exporters;
 
     if (Object.keys(patch).length === 0) {
@@ -156,6 +190,15 @@ export default function FlowSettings() {
   };
 
   const everythingPinned = ['enabled', 'port', 'bindAddress', 'exporters'].every(pinned);
+  /**
+   * Meant to be collecting, and not.
+   *
+   * Read from the status the panel below already polls rather than from the last
+   * save's response, so it reflects the collector now — including a bind that
+   * failed at boot, long before this dialog was opened, which is the case the
+   * retry exists for.
+   */
+  const needsRetry = fields.enabled?.value === true && status.data?.listening === false;
 
   return (
     <Stack spacing={2}>
@@ -263,6 +306,36 @@ export default function FlowSettings() {
         <Button disabled={save.isPending || draft === null} onClick={() => setDraft(null)}>
           {t('common.cancel')}
         </Button>
+
+        {/*
+          The retry, and the only way the server's rebind-when-stalled branch can
+          be reached.
+
+          An operator whose port was busy at boot frees it and comes back to a
+          form where every value is already correct — so nothing differs, the
+          patch is empty, and Save refuses before a request is sent. Without this
+          the recovery was an API restart, which is the shell access this whole
+          feature exists to remove the need for.
+
+          Shown only while the collector is meant to be listening and is not, so
+          it is absent on a working installation rather than an always-present
+          button whose effect nobody can predict. It deliberately sends an empty
+          patch: `saveFlowSettings` writes and audits nothing for one, and the
+          route rebinds on the state rather than on the contents.
+        */}
+        {needsRetry && (
+          <Button
+            color="warning"
+            variant="outlined"
+            disabled={save.isPending}
+            onClick={() => {
+              setMessage(null);
+              save.mutate({});
+            }}
+          >
+            {t('flow_settings.retry_bind')}
+          </Button>
+        )}
       </Stack>
 
       <Divider />

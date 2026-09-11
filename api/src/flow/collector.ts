@@ -433,9 +433,22 @@ export async function stopFlowCollector(): Promise<void> {
  * **Stop first, unconditionally, and only then decide whether to start.** The
  * ordering hazards `PUT /api/adhoc/settings` took three review rounds to get
  * right are the same ones here, and this is the shape that avoids most of them:
- * there is one socket, the stop is idempotent, and a start that would bind the
- * port the stop just released cannot race it because both are awaited in order.
- * Switching off is then simply the case where nothing follows the stop.
+ * there is one socket, the stop is idempotent, and switching off is simply the
+ * case where nothing follows the stop.
+ *
+ * **Serialised, because within one call is not the same as between two.** The
+ * stop and the start are ordered by the `await` between them, and that says
+ * nothing about a second restart arriving in the middle. Two administrators
+ * saving at once — or one double-submitting — interleave like this: A stops and
+ * begins its start; B's stop runs before A has assigned `this.socket`, so it
+ * finds nothing to close; A's assignment lands; B's start hits the
+ * `if (this.socket) return` guard and returns without binding. The socket is
+ * left on A's port while B is told it is listening on theirs.
+ *
+ * Each restart therefore chains onto the one before it. Low likelihood — it needs
+ * two savers inside one bind — but the previous comment claimed the stronger
+ * property, and the next person to add a caller would have read it as covering
+ * them.
  *
  * Never throws. A save that leaves the collector unable to bind — the port is
  * taken, or the address is not on this host — is a real outcome an operator has
@@ -444,7 +457,19 @@ export async function stopFlowCollector(): Promise<void> {
  * the *save* failed, which is untrue: the row was written and is what the next
  * boot will use.
  */
-export async function restartFlowCollector(): Promise<void> {
+let restartInFlight: Promise<void> = Promise.resolve();
+
+export function restartFlowCollector(): Promise<void> {
+  /*
+   * Queued behind whatever restart is already running, and `catch` on the tail so
+   * one failure does not poison every restart after it — `rebind` never rejects
+   * anyway, and a chain that could is a chain that stops working silently.
+   */
+  restartInFlight = restartInFlight.then(rebind, rebind);
+  return restartInFlight;
+}
+
+async function rebind(): Promise<void> {
   await stopFlowCollector();
 
   const settings = currentFlowSettings();

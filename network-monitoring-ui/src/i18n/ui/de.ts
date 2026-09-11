@@ -303,6 +303,11 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'flow_settings.read_failed': 'Die Flusseinstellungen konnten nicht gelesen werden',
   'flow_settings.save_failed': 'Die Flusseinstellungen konnten nicht gespeichert werden',
   'flow_settings.save': 'Änderungen speichern',
+  'flow_settings.retry_bind': 'Erneut binden',
+  'flow_settings.rebound_only':
+    'Es war nichts zu ändern — die Einstellungen waren bereits richtig. Der Socket wurde neu ' +
+    'geöffnet; ob es geklappt hat, sagt der Zustand unten.',
+  'flow_settings.nothing_changed': 'Nichts geändert — diese Werte waren bereits gespeichert.',
   'flow_settings.saving': 'Wird gespeichert…',
   'flow_settings.saved': 'Gespeichert und in Kraft.',
   'flow_settings.saved_rebound':

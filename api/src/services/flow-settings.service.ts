@@ -151,6 +151,16 @@ export async function seedFlowSettingsFromEnvironment(): Promise<FlowField[]> {
 export interface FlowSaveResult {
   settings: FlowSettings;
   /**
+   * Whether anything was actually written.
+   *
+   * False for a patch that resubmits what is already stored — which the form can
+   * produce without anybody doing anything odd: clear a field, it falls back to
+   * its default, clear it again, and the patch is `null` over a column that is
+   * already NULL. Reported so the interface can say "nothing changed" rather than
+   * "Saved, and in force", which is the one answer that is untrue.
+   */
+  changed: boolean;
+  /**
    * Whether the socket has to be closed and reopened for this to take effect.
    *
    * `exporters` is a filter test per datagram, so it applies the moment the cache
@@ -216,6 +226,8 @@ export function changedFlowFields(
 export async function saveFlowSettings(patch: StoredFlowSettings, actor: Actor): Promise<FlowSaveResult> {
   const before = effectiveFlowSettings(resolution);
 
+  let wrote = false;
+
   await db.transaction(async (tx) => {
     const values: Partial<NewFlowSettingsRow> = {};
     for (const field of Object.keys(FLOW_FIELDS) as FlowField[]) {
@@ -229,6 +241,7 @@ export async function saveFlowSettings(patch: StoredFlowSettings, actor: Actor):
     const [current] = await tx.select().from(table).where(eq(table.id, ROW_ID)).limit(1);
     const changed = changedFlowFields(current, values);
     if (Object.keys(changed).length === 0) return;
+    wrote = true;
 
     const row = { ...changed, updatedAt: new Date(), updatedBy: actor.name.slice(0, 200) };
     await tx
@@ -251,6 +264,7 @@ export async function saveFlowSettings(patch: StoredFlowSettings, actor: Actor):
 
   return {
     settings: after,
+    changed: wrote,
     needsRebind: REBIND_FIELDS.some((field) => before[field] !== after[field]),
   };
 }
