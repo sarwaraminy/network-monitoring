@@ -63,9 +63,9 @@ describe('FlowPage', () => {
 
     expect(await screen.findByText(/flow collection is off/i)).toBeInTheDocument();
     expect(screen.getByText(/FLOW_ENABLED=true/)).toBeInTheDocument();
-    // And says the variables need a restart, which is true until the roadmap's
-    // next half lands.
-    expect(screen.getByText(/restarted/i)).toBeInTheDocument();
+    // And points at the form, since an administrator no longer needs the file at
+    // all — the variables are one of three layers now, not the only one.
+    expect(screen.getByText(/Administration settings/i)).toBeInTheDocument();
   });
 
   it('names templates as the cause when nothing decodes', async () => {

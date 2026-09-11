@@ -85,6 +85,9 @@ export const ERRORS_EN = {
     'You cannot remove your own administrator role. Ask another administrator to do it.',
   // The variable names are the useful half of this 409, so they are the parameter
   // rather than being summarised away.
+  'error.flow_pinned':
+    'Set in the environment and cannot be changed here: {variables}. Remove the variable and ' +
+    'restart the API to manage it from this page.',
   'error.adhoc_pinned':
     'Set in the environment and cannot be changed here: {variables}. Remove the variable and ' +
     'restart the API to manage it from this page.',

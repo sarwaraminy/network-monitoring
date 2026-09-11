@@ -575,9 +575,25 @@ const ROUTERS: RouterPosture[] = [
     anonymous: ['GET /signup-allowed', 'POST /login', 'POST /signup'],
     ungatedMutations: ['POST /login', 'POST /signup'],
   },
-  // One route, `GET /status`, and it is a read every account should see: whether the
-  // collector is listening is not privileged information.
-  { file: 'flow.routes.ts', router: () => flowRouter, role: 'admin', readsAreOpen: true },
+  {
+    file: 'flow.routes.ts',
+    router: () => flowRouter,
+    /*
+     * `PUT /settings` is the only thing here that changes state, and it is ADMIN:
+     * it decides whether this installation collects flow at all, on which port,
+     * and which senders are accepted — and that allowlist is the collector's only
+     * access control, since NetFlow has no authentication.
+     */
+    role: 'admin',
+    /*
+     * Both reads are open to any authenticated account, deliberately. Whether the
+     * collector is listening is not privileged information, and neither is how it
+     * is configured: there is no credential among these fields, which is itself a
+     * fact about the protocol rather than an oversight. The operator watching the
+     * network is usually not the administrator.
+     */
+    readsAreOpen: true,
+  },
   { file: 'intel.routes.ts', router: () => intelRouter, role: 'admin' },
   {
     file: 'logs.routes.ts',

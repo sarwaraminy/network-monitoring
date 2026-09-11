@@ -1,5 +1,6 @@
 import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
 import GroupOutlinedIcon from '@mui/icons-material/GroupOutlined';
+import RouterOutlinedIcon from '@mui/icons-material/RouterOutlined';
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
@@ -16,6 +17,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { type UiMessageKey, useT } from '../../i18n/ui';
 import AppDialog from '../AppDialog';
 import DeliverySettingsForm from '../DeliverySettingsForm';
+import FlowSettings from './FlowSettings';
 import QueryConsoleSettings from './QueryConsoleSettings';
 import SensorDecommission from './SensorDecommission';
 import UserRoles from './UserRoles';
@@ -126,6 +128,19 @@ export const ADMIN_GROUPS: AdminGroup[] = [
          * wrong one.
          */
         Component: EmbeddedDeliverySettings,
+      },
+    ],
+  },
+  {
+    headingKey: 'admin.group.collection',
+    items: [
+      {
+        id: 'flow-settings',
+        icon: <RouterOutlinedIcon fontSize="small" />,
+        labelKey: 'admin.tool.flow',
+        descriptionKey: 'admin.tool.flow_desc',
+        titleKey: 'admin.tool.flow',
+        Component: FlowSettings,
       },
     ],
   },

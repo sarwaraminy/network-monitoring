@@ -1,7 +1,8 @@
 import { createSocket, type Socket } from 'node:dgram';
-import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
 import { AlertSink } from '../services/alert.service.js';
+import { exporterList } from '../services/flow-settings.js';
+import { currentFlowSettings } from '../services/flow-settings.service.js';
 import { FlowDetectionEngine } from './detect.js';
 import { FLOW_VERSION, looksLikeSflow, parseFlowDatagram } from './parse.js';
 import { TemplateCache } from './templates.js';
@@ -134,7 +135,15 @@ export class FlowCollector {
   async start(): Promise<void> {
     if (this.socket) return;
 
-    const { port, bindAddress } = env.flow;
+    /*
+     * The resolved settings, not `env.flow`.
+     *
+     * These are three-layer since V19 — environment → stored row → default — so
+     * an administrator can change them from the browser. Read at bind time
+     * rather than held, because `restart()` below reopens the socket after a
+     * save and has to pick up what was just written.
+     */
+    const { port, bindAddress } = currentFlowSettings();
     // reuseAddr so a restart does not fail while the old socket lingers.
     const socket = createSocket({ type: 'udp4', reuseAddr: true });
 
@@ -176,7 +185,7 @@ export class FlowCollector {
       {
         address: address.address,
         port: address.port,
-        allowedExporters: env.flow.allowedExporters.length > 0 ? env.flow.allowedExporters : 'any',
+        allowedExporters: this.allowedExporters().length > 0 ? this.allowedExporters() : 'any',
         receiveBufferBytes: safeRecvBufferSize(socket),
       },
       `Flow collector listening on ${address.address}:${address.port} (NetFlow v5/v9, IPFIX)`,
@@ -273,8 +282,24 @@ export class FlowCollector {
    * address. Setting FLOW_EXPORTERS once the devices are known is the hardening
    * step, and it is the only defence the format permits.
    */
+  /**
+   * The permitted senders, from the live settings.
+   *
+   * Read per datagram rather than captured at bind time, and that is the point of
+   * the whole feature: the allowlist is the one flow setting that changes in
+   * ordinary operation, as devices are added, and it applies the moment it is
+   * saved. Nothing is rebound and nothing in flight is lost.
+   *
+   * `currentFlowSettings` is a cached value, not a query — see
+   * `flow-settings.service.ts`, which explains why a database round trip per
+   * datagram would be the wrong shape entirely.
+   */
+  private allowedExporters(): string[] {
+    return exporterList(currentFlowSettings());
+  }
+
   private isAllowed(exporter: string): boolean {
-    const allowed = env.flow.allowedExporters;
+    const allowed = this.allowedExporters();
     return allowed.length === 0 || allowed.includes(exporter);
   }
 
@@ -317,7 +342,7 @@ export class FlowCollector {
   getStatus(): FlowCollectorStatus {
     const address = this.socket?.address();
     return {
-      enabled: env.flow.enabled,
+      enabled: currentFlowSettings().enabled,
       listening: this.socket !== null,
       address: address?.address ?? null,
       port: address?.port ?? null,
@@ -329,7 +354,7 @@ export class FlowCollector {
       ignored:
         this.ignoredReasons.notAllowed + this.ignoredReasons.sflow + this.ignoredReasons.unsupportedVersion,
       ignoredReasons: { ...this.ignoredReasons },
-      allowedExporters: [...env.flow.allowedExporters],
+      allowedExporters: this.allowedExporters(),
       templatesCached: this.templates.size,
       detection: this.engine.stats(),
       // Busiest first: on a real network one exporter dominates and that is the
@@ -377,18 +402,61 @@ export function flowCollector(): FlowCollector {
 
 /** Starts the collector when configured. Never rejects: the API must still boot. */
 export async function startFlowCollector(): Promise<void> {
-  if (!env.flow.enabled) {
-    log.info('Flow collector disabled (set FLOW_ENABLED=true to receive NetFlow/IPFIX)');
+  const settings = currentFlowSettings();
+  if (!settings.enabled) {
+    log.info('Flow collector disabled (switch it on in Administration settings, or set FLOW_ENABLED)');
     return;
   }
   try {
     await flowCollector().start();
   } catch (error) {
     // A busy port or a bad bind address should not stop the HTTP API from serving.
-    log.error({ err: error, port: env.flow.port }, 'Could not start the flow collector');
+    log.error({ err: error, port: settings.port }, 'Could not start the flow collector');
   }
 }
 
 export async function stopFlowCollector(): Promise<void> {
   if (collector) await collector.stop();
+}
+
+/**
+ * Closes the socket and opens it again on whatever the settings now say.
+ *
+ * For the three fields that are properties of a bound socket — `enabled`, `port`,
+ * `bindAddress` — which cannot be changed on one. `exporters` never comes here:
+ * it is a filter test per datagram and applies as soon as the cache is refreshed,
+ * so rebinding for it would drop whatever is in flight to no purpose.
+ *
+ * **Stop first, unconditionally, and only then decide whether to start.** The
+ * ordering hazards `PUT /api/adhoc/settings` took three review rounds to get
+ * right are the same ones here, and this is the shape that avoids most of them:
+ * there is one socket, the stop is idempotent, and a start that would bind the
+ * port the stop just released cannot race it because both are awaited in order.
+ * Switching off is then simply the case where nothing follows the stop.
+ *
+ * Never throws. A save that leaves the collector unable to bind — the port is
+ * taken, or the address is not on this host — is a real outcome an operator has
+ * to be told about, and the way they are told is `listening: false` on the status
+ * the form shows straight afterwards. Turning it into a failed request would say
+ * the *save* failed, which is untrue: the row was written and is what the next
+ * boot will use.
+ */
+export async function restartFlowCollector(): Promise<void> {
+  await stopFlowCollector();
+
+  const settings = currentFlowSettings();
+  if (!settings.enabled) {
+    log.info('Flow collector switched off; the socket is closed');
+    return;
+  }
+
+  try {
+    await flowCollector().start();
+    log.info({ port: settings.port, bindAddress: settings.bindAddress }, 'Flow collector rebound');
+  } catch (error) {
+    log.error(
+      { err: error, port: settings.port, bindAddress: settings.bindAddress },
+      'Could not rebind the flow collector after a settings change; it is not listening',
+    );
+  }
 }

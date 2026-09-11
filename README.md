@@ -1806,18 +1806,46 @@ Both prefixes expose the same routes and keep independent capture handles and bu
 
 ### Flow collector — `/api/flow`
 
-| Method | Path      | Purpose                                                     |
-| ------ | --------- | ----------------------------------------------------------- |
-| `GET`  | `/status` | Socket state, totals, per-exporter counters, detection stats |
+| Method | Path        | Purpose                                                       |
+| ------ | ----------- | ------------------------------------------------------------- |
+| `GET`  | `/status`   | Socket state, totals, per-exporter counters, detection stats   |
+| `GET`  | `/settings` | Each field with the layer that decided it, and which are pinned |
+| `PUT`  | `/settings` | Change them (**ADMIN**); rebinds the socket when it has to      |
 
-Read-only by design. The collector's lifetime is the process's — it is infrastructure, driven by
+No start/stop endpoint, by design. The collector's lifetime is the process's — it is infrastructure, driven by
 whether exporters are configured to send to it, not something a user starts and stops like a
 capture. A start/stop endpoint would invite a UI button that silently switches off security
 telemetry.
 
-Not admin-only, deliberately, and recorded as this router's posture in `route-guards.test.ts`:
-whether the collector is listening is not privileged, and the operator watching the network is
-usually not the administrator.
+`PUT /settings` is not a start/stop button in disguise: it writes a stored setting that
+survives a restart and is recorded in the audit trail, which is the difference between
+configuring an installation and toggling a running process. The socket is reopened as a
+consequence, not as the request's purpose.
+
+Both reads are open to any authenticated account, recorded as this router's posture in
+`route-guards.test.ts`: whether the collector is listening is not privileged, and neither is
+how it is configured — there is no credential among these fields, which is a fact about the
+protocol rather than an oversight. The operator watching the network is usually not the
+administrator.
+
+**Only the allowlist applies without a rebind.** `FLOW_EXPORTERS` is a filter test per
+datagram, so it takes effect the moment the cache refreshes; `FLOW_ENABLED`, `FLOW_PORT` and
+`FLOW_BIND_ADDRESS` are properties of a bound socket, so saving one closes and reopens it. That
+distinction is why `needsRebind` exists rather than the route restarting unconditionally —
+rebinding drops whatever is in flight, and doing that because somebody edited an allowlist
+would be a cost nobody asked for.
+
+**A save can succeed and still not work**, and the response says so rather than hiding it. The
+row is written and is what the next boot will use; the bind can still fail because the port is
+taken or the address is not on this host. That is reported as `listening: false` on the status
+the response carries, not as a failed request — the save really did happen.
+
+**The port is a deployment fact as much as a setting.** Under Compose the host port is
+published by `docker-compose.flow.yml`, which this application cannot see or change, so a port
+changed in the browser rebinds inside the container while Docker goes on forwarding the old
+one — and collection stops with every counter reading exactly like a device that is not
+sending. The form says so beside the field, and the flow overlay pins the port and the bind
+address, so an operator on Compose cannot reach the mistake.
 
 Three details in the response shape exist because a total cannot answer the question underneath
 it. **`enabled` and `listening` are separate** — the first is what `FLOW_ENABLED` says, the

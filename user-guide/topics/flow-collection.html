@@ -127,11 +127,46 @@ above.</p>
 settings that switch it on rather than an empty set of counters &mdash; a page reading
 "0 datagrams" is indistinguishable from a broken one.</p>
 
-<p>An administrator can change these from
-<a href="administration-settings.html">Administration settings</a> without editing a file.
-A setting present in the server's own configuration wins and is shown disabled there, with
-the variable named, for the reason every setting in this product follows that rule: a
-deployment that keeps its configuration in a file is meant to keep that guarantee.</p>
+<p>An administrator changes these from <a href="administration-settings.html">Administration
+settings</a> &rarr; <span class="ui">Flow collection settings</span>, with no file to edit
+and no restart. A setting present in the server's own configuration wins and is shown
+disabled there, with the variable named, for the reason every setting in this product
+follows that rule: a deployment that keeps its configuration in a file is meant to keep that
+guarantee.</p>
+
+<h2>The four settings are not equal</h2>
+
+<p>Only one of them is purely this application's business, and the form separates them for
+that reason:</p>
+
+<ul>
+  <li><strong>Permitted senders</strong> is checked against each arriving datagram, so it
+    takes effect the moment you save it. Nothing is interrupted. This is the one that
+    changes in ordinary use, as devices are added &mdash; and since NetFlow has no
+    authentication at all, it is the only access control there is.</li>
+  <li><strong>The switch, the port and the bind address</strong> describe a socket that is
+    already open, so saving any of them closes it and opens a new one. A few seconds of
+    traffic is not collected. The form says which group you are editing.</li>
+</ul>
+
+<div class="note">
+  <span class="label">A save can succeed and still not take effect</span>
+  <p>If the new port is already in use, or the bind address is not an address on this
+  machine, the socket cannot be reopened. The setting <em>is</em> saved &mdash; it is what
+  the next restart will use &mdash; but nothing is being collected right now, and the panel
+  says so rather than showing a tick. The state underneath the form is the live answer.</p>
+</div>
+
+<div class="note">
+  <span class="label">On Docker, the port is not this form's to change</span>
+  <p>The port your devices send to is published by the Compose file, which this application
+  cannot see. Changing the port here moves the socket <em>inside</em> the container while
+  Docker goes on forwarding the old one, so collection stops &mdash; and every counter then
+  reads exactly like a device that has stopped sending. Change it for the whole stack and
+  redeploy instead.</p>
+  <p>On the flow Compose override the port and the bind address are fixed for you, so the
+  field is disabled and the mistake is out of reach.</p>
+</div>
 
 <div class="access">
   <span class="label">Who can use this</span>

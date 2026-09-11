@@ -287,14 +287,63 @@ export const UI_EN = {
     'per connection than packet capture and vastly more of the network.',
   'flow.enable_hint': 'To switch it on, add these to',
   'flow.off_restart_note':
-    'These are read once at boot, so the API has to be restarted. Making them editable here is ' +
-    'the next piece of work on this feature.',
+    'An administrator can also switch it on without touching a file, from Administration ' +
+    'settings → Flow collection settings.',
   'flow.compose': 'On Docker Compose, the port needs a second file',
   'flow.compose_note':
     'The UDP port is published by docker-compose.flow.yml, not by the main file — putting it ' +
     'there would open 2055/udp on every deployment. Without that override the collector binds ' +
     'inside the container and reports itself listening while nothing can reach it, which looks ' +
     'exactly like a device that is not sending. Start the stack with both files:',
+
+  // --- Flow collection settings ---
+
+  'flow_settings.loading': 'Asking the server…',
+  'flow_settings.read_failed': 'Could not read the flow settings',
+  'flow_settings.save_failed': 'Could not save the flow settings',
+  'flow_settings.save': 'Save changes',
+  'flow_settings.saving': 'Saving…',
+  'flow_settings.saved': 'Saved, and in force.',
+  'flow_settings.saved_rebound':
+    'Saved. The socket was closed and reopened, so anything in flight at that moment was not ' + 'collected.',
+  'flow_settings.saved_not_listening':
+    'Saved, but the collector could not bind and is NOT listening. The port may be in use, or the ' +
+    'bind address may not be an address on this host. The setting is stored and will be used at ' +
+    'the next restart; the state below is what is happening now.',
+  'flow_settings.nothing_to_save': 'Nothing has changed.',
+  'flow_settings.pinned_note':
+    'Set by {variable} in the environment. Remove that line and restart the API to manage it here.',
+  'flow_settings.all_pinned': 'Every field here is set in the environment',
+  'flow_settings.all_pinned_note':
+    'This deployment configures flow collection from a file, so nothing on this form can change ' +
+    'it — which is the guarantee that arrangement exists to give. Remove the variables named below ' +
+    'each field and restart the API to manage them from here instead. Nothing is lost by doing so: ' +
+    'the values were copied into the stored settings the first time the server saw them.',
+  'flow_settings.group.everyday': 'Which senders are accepted',
+  'flow_settings.group.socket': 'The socket',
+  'flow_settings.group.socket_note':
+    'Changing any of these closes and reopens the socket, so a few seconds of traffic is not ' +
+    'collected. The allowlist above needs none of that.',
+  'flow_settings.exporters': 'Permitted senders',
+  'flow_settings.exporters_help':
+    'Comma-separated addresses. Empty accepts any sender — which is what you want for the first ' +
+    'run, to discover them, and not afterwards: NetFlow has no authentication, so this list is the ' +
+    'only access control there is and a forged datagram forges a finding. Applies immediately; ' +
+    'nothing is rebound.',
+  'flow_settings.enabled': 'Collect flow data',
+  'flow_settings.port': 'UDP port',
+  'flow_settings.port_help': '2055 is the de facto NetFlow port; 4739 is IANA’s for IPFIX.',
+  'flow_settings.bind_address': 'Bind address',
+  'flow_settings.bind_address_help':
+    '0.0.0.0 listens on every interface. In a container it has to be — a published port forwards ' +
+    'to the container’s interface, not its loopback.',
+  'flow_settings.port_published': 'On Docker, the published port is a separate file',
+  'flow_settings.port_published_note':
+    'Changing the port here rebinds the socket inside the container. It does not change what Docker ' +
+    'forwards, which docker-compose.flow.yml publishes — so collection would stop, and every ' +
+    'counter would read exactly like a device that is not sending. Change FLOW_PORT for the stack ' +
+    'and redeploy instead. This warning cannot tell whether you are on Docker; if you are not, the ' +
+    'port here is the whole story.',
 
   // --- Threat intelligence ---
 
@@ -675,6 +724,9 @@ export const UI_EN = {
   'admin.tool.console_settings_desc': 'Switch it on or off, and set its limits, without a restart.',
   'admin.tool.delivery': 'Delivery settings',
   'admin.tool.delivery_desc': 'Where findings go, and how often. In force on save.',
+  'admin.group.collection': 'Collection',
+  'admin.tool.flow': 'Flow collection settings',
+  'admin.tool.flow_desc': 'Which senders are accepted, and the socket. In force on save.',
   'admin.group.sensors': 'Sensors',
   'admin.tool.decommission': 'Decommission a sensor',
   'admin.tool.decommission_desc': 'Drop everything a retired sensor recorded. Irreversible, and audited.',

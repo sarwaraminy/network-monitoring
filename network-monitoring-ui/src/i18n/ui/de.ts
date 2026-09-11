@@ -288,14 +288,66 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'Pro Verbindung sieht das weniger als ein Mitschnitt und vom Netz sehr viel mehr.',
   'flow.enable_hint': 'Zum Einschalten dies hier ergänzen in',
   'flow.off_restart_note':
-    'Diese Werte werden einmal beim Start gelesen, die API muss also neu gestartet werden. Sie ' +
-    'hier editierbar zu machen ist der nächste Arbeitsschritt an dieser Funktion.',
+    'Eine administrierende Person kann es auch ohne Datei einschalten, unter ' +
+    'Administrationseinstellungen → Einstellungen der Flusserfassung.',
   'flow.compose': 'Unter Docker Compose braucht der Port eine zweite Datei',
   'flow.compose_note':
     'Der UDP-Port wird von docker-compose.flow.yml veröffentlicht, nicht von der Hauptdatei — ' +
     'dort würde er 2055/udp bei jeder Bereitstellung öffnen. Ohne dieses Override bindet der ' +
     'Kollektor im Container, meldet sich als lauschend, und nichts kann ihn erreichen — was genau ' +
     'wie ein Gerät aussieht, das nicht sendet. Starten Sie den Stack mit beiden Dateien:',
+
+  // --- Einstellungen der Flusserfassung ---
+
+  'flow_settings.loading': 'Server wird abgefragt…',
+  'flow_settings.read_failed': 'Die Flusseinstellungen konnten nicht gelesen werden',
+  'flow_settings.save_failed': 'Die Flusseinstellungen konnten nicht gespeichert werden',
+  'flow_settings.save': 'Änderungen speichern',
+  'flow_settings.saving': 'Wird gespeichert…',
+  'flow_settings.saved': 'Gespeichert und in Kraft.',
+  'flow_settings.saved_rebound':
+    'Gespeichert. Der Socket wurde geschlossen und neu geöffnet; was in diesem Moment unterwegs ' +
+    'war, wurde nicht erfasst.',
+  'flow_settings.saved_not_listening':
+    'Gespeichert, aber der Kollektor konnte sich nicht binden und hört NICHT zu. Der Port ist ' +
+    'womöglich belegt, oder die Bindeadresse gibt es auf diesem Host nicht. Die Einstellung ist ' +
+    'gespeichert und gilt beim nächsten Start; der Zustand unten ist der aktuelle.',
+  'flow_settings.nothing_to_save': 'Es hat sich nichts geändert.',
+  'flow_settings.pinned_note':
+    'Durch {variable} in der Umgebung gesetzt. Entfernen Sie die Zeile und starten Sie die API ' +
+    'neu, um dies hier zu verwalten.',
+  'flow_settings.all_pinned': 'Jedes Feld hier ist in der Umgebung gesetzt',
+  'flow_settings.all_pinned_note':
+    'Diese Installation konfiguriert die Flusserfassung aus einer Datei, daher kann dieses ' +
+    'Formular nichts ändern — genau die Garantie, für die es diese Anordnung gibt. Entfernen Sie ' +
+    'die unter den Feldern genannten Variablen und starten Sie die API neu, um sie hier zu ' +
+    'verwalten. Dabei geht nichts verloren: die Werte wurden beim ersten Start in die ' +
+    'gespeicherten Einstellungen übernommen.',
+  'flow_settings.group.everyday': 'Welche Absender angenommen werden',
+  'flow_settings.group.socket': 'Der Socket',
+  'flow_settings.group.socket_note':
+    'Jede Änderung hier schließt den Socket und öffnet ihn neu; einige Sekunden werden dabei nicht ' +
+    'erfasst. Die Liste oben braucht das nicht.',
+  'flow_settings.exporters': 'Erlaubte Absender',
+  'flow_settings.exporters_help':
+    'Kommagetrennte Adressen. Leer nimmt jeden Absender an — für den ersten Lauf sinnvoll, um sie ' +
+    'zu finden, danach nicht: NetFlow kennt keine Authentifizierung, diese Liste ist die einzige ' +
+    'Zugangskontrolle, und ein gefälschtes Datagramm fälscht einen Fund. Gilt sofort, ohne ' +
+    'Neubindung.',
+  'flow_settings.enabled': 'Flussdaten erfassen',
+  'flow_settings.port': 'UDP-Port',
+  'flow_settings.port_help': '2055 ist der De-facto-NetFlow-Port; 4739 ist der IANA-Port für IPFIX.',
+  'flow_settings.bind_address': 'Bindeadresse',
+  'flow_settings.bind_address_help':
+    '0.0.0.0 hört auf allen Schnittstellen. Im Container muss es das sein — ein veröffentlichter ' +
+    'Port wird auf die Schnittstelle des Containers geleitet, nicht auf sein Loopback.',
+  'flow_settings.port_published': 'Unter Docker liegt der veröffentlichte Port in einer eigenen Datei',
+  'flow_settings.port_published_note':
+    'Eine Änderung hier bindet den Socket im Container neu. Sie ändert nicht, was Docker ' +
+    'weiterleitet — das veröffentlicht docker-compose.flow.yml — die Erfassung würde also aufhören, ' +
+    'und jeder Zähler läse sich genau wie ein Gerät, das nicht sendet. Ändern Sie stattdessen ' +
+    'FLOW_PORT für den Stack und deployen Sie neu. Ob Sie unter Docker laufen, kann dieser Hinweis ' +
+    'nicht wissen; wenn nicht, ist der Port hier die ganze Geschichte.',
 
   // --- Bedrohungsdaten ---
 
@@ -690,6 +742,9 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'admin.tool.console_settings_desc': 'Ein- oder ausschalten und ihre Grenzen setzen, ohne Neustart.',
   'admin.tool.delivery': 'Zustellungseinstellungen',
   'admin.tool.delivery_desc': 'Wohin Funde gehen und wie oft. Beim Speichern in Kraft.',
+  'admin.group.collection': 'Erfassung',
+  'admin.tool.flow': 'Einstellungen der Flusserfassung',
+  'admin.tool.flow_desc': 'Welche Absender angenommen werden, und der Socket. Gilt ab Speichern.',
   'admin.group.sensors': 'Sensoren',
   'admin.tool.decommission': 'Sensor außer Betrieb nehmen',
   'admin.tool.decommission_desc':

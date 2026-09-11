@@ -11,6 +11,7 @@ import { loadDeliverySettings, seedFromEnvironment } from './notify/settings.ser
 import { libraryVersion } from './packet/libpcap.js';
 import { startAdhoc, stopAdhoc } from './services/adhoc.service.js';
 import { loadAdhocSettings, seedAdhocSettingsFromEnvironment } from './services/adhoc-settings.service.js';
+import { loadFlowSettings, seedFlowSettingsFromEnvironment } from './services/flow-settings.service.js';
 import {
   reportInterruptedCaptures,
   resumeInterruptedCaptures,
@@ -39,6 +40,28 @@ async function main(): Promise<void> {
       },
       `Network Monitoring API listening on http://localhost:${env.port}`,
     );
+  });
+
+  /*
+   * Flow settings before the collector, because the collector reads them.
+   *
+   * These are three-layer since V19, so the port, the bind address, the switch
+   * and the exporter allowlist can all come from the stored row. Starting the
+   * collector first would have bound a socket from the environment and the code
+   * defaults and then never re-read it — so an administrator who had switched
+   * flow on in the interface would find it off after every restart, which is
+   * precisely the failure the settings table exists to remove.
+   *
+   * Seed then load, as two separate awaits, for the reason spelled out at length
+   * where the query console does the same: a transient failure inside the seed's
+   * per-field loop must not take the load down with it, or the process holds
+   * environment-and-defaults for its whole lifetime with nothing to retry it.
+   */
+  await seedFlowSettingsFromEnvironment().catch((error: unknown) => {
+    log.warn({ err: error }, 'Could not seed the flow settings from the environment');
+  });
+  await loadFlowSettings().catch((error: unknown) => {
+    log.warn({ err: error }, 'Could not read the flow settings; the environment and defaults apply');
   });
 
   // After listen(), so a flow port that is already in use cannot stop the API

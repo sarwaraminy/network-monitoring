@@ -418,6 +418,24 @@ export const PACKET: Packet = {
 };
 
 /**
+ * Flow settings as a deployment that manages them from the browser reports them.
+ *
+ * Nothing pinned, which is the shipped state since the Compose file stopped
+ * baking its defaults in — see `compose-unpinned.test.ts`. A test that needs a
+ * pinned field overrides one, because that is the interesting case rather than
+ * the default one.
+ */
+export const FLOW_SETTINGS = {
+  settings: {
+    enabled: { source: 'database', env: 'FLOW_ENABLED', value: true },
+    port: { source: 'default', env: 'FLOW_PORT', value: 2055 },
+    bindAddress: { source: 'default', env: 'FLOW_BIND_ADDRESS', value: '0.0.0.0' },
+    exporters: { source: 'database', env: 'FLOW_EXPORTERS', value: '10.0.0.1, 10.0.0.2' },
+  },
+  pinned: [] as string[],
+};
+
+/**
  * A flow collector that is working, with one exporter of each interesting shape.
  *
  * Not three healthy rows, for the same reason `SUPPRESSION_RULES` is not four: the

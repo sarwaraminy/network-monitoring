@@ -53,10 +53,13 @@ import SurfaceCard from './SurfaceCard';
  * somewhere else, so each gets its own line and the allowlist is printed beside
  * them.
  *
- * Read-only, deliberately, and not only because the endpoint is: the collector's
- * lifetime is the process's, and a start/stop button here would invite switching
- * security telemetry off by accident. Changing the port or the exporters is still
- * a file and a restart — the roadmap's next half.
+ * Read-only, deliberately: the collector's lifetime is the process's, and a
+ * start/stop button on a monitoring screen would invite switching security
+ * telemetry off for an afternoon and forgetting. Changing the port or the
+ * exporters is a *setting* rather than a toggle, so it lives under the
+ * administration gear — see `admin/FlowSettings.tsx`, which embeds this panel
+ * underneath itself, because watching the socket come back is how an operator
+ * tells a save took effect.
  */
 
 /**
