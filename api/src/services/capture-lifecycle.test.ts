@@ -732,20 +732,46 @@ describe('what a process does with the session row', { skip: database.skip }, ()
         )
       ).rows;
 
-    it('reports a stop that ended a running capture', async () => {
+    it('names the capture a stop ended', async () => {
+      /*
+       * The route records `capture.stop` off this, and the interface is the half
+       * it cannot work out for itself: `this.interfaceName` is set when a capture
+       * opens and never cleared, so a route reading it before the stop gets the
+       * PREVIOUS capture's interface inside the start window and null on the
+       * first one, while reading it after gets a concurrent start's. The session
+       * this call detached is the only correct answer.
+       */
       const service = new PacketCaptureService(SCOPE);
       await openRow();
       pretendCapturing(service);
 
-      assert.equal(await service.stopCapture('operator'), true);
+      assert.deepEqual(await service.stopCapture('operator'), {
+        interfaceName: STARTED.interfaceName,
+      });
     });
 
     it('reports that a stop on an idle service stopped nothing', async () => {
-      // The route records `capture.stop` off this, so a `true` here would file an
+      // Null, so the route files nothing. Anything truthy here would be an audit
       // entry every time somebody pressed Stop on an idle Capture screen.
       const service = new PacketCaptureService(SCOPE);
 
-      assert.equal(await service.stopCapture('operator'), false);
+      assert.equal(await service.stopCapture('operator'), null);
+    });
+
+    it('does not invent an interface for a second stop that has nothing left', async () => {
+      /*
+       * `wasCapturing` true with the session already detached: the double-stop
+       * the comments in `stopCapture` describe. That is a stop of a capture this
+       * call cannot name rather than a stop of nothing, and the two are worth
+       * telling apart — reaching for `this.interfaceName` here is exactly how a
+       * row naming the wrong interface would get written.
+       */
+      const service = new PacketCaptureService(SCOPE);
+      const innards = service as unknown as { capturing: boolean; session: typeof STARTED | null };
+      innards.capturing = true;
+      innards.session = null;
+
+      assert.deepEqual(await service.stopCapture('operator'), { interfaceName: null });
     });
 
     it('records an unattended resume, and not against the operator it interrupted', async () => {

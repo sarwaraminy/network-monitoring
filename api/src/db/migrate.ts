@@ -63,10 +63,12 @@ export interface MigrationFile {
  * Both are the same missing check, and neither mentions the second file's
  * existence. This one names both files and the version they share.
  *
- * The collision is decided by the *comparable* version rather than by the
- * filename, so `V1.2__a.sql` and `V1_2__b.sql` collide as well: `compareVersions`
- * reads both as `1.2` and sorts them equal, which is exactly the property that
- * makes two files indistinguishable to everything downstream.
+ * The collision is decided by whether two versions **sort equal**, not by whether
+ * their filenames match, because sorting equal is the property that makes two
+ * files indistinguishable to everything downstream: the apply order between them
+ * falls to `readdir`, which differs between filesystems, so the same repository
+ * can migrate in one order locally and the other in CI. `sortKey` is derived from
+ * `compareVersions`' own rules for that reason — see it.
  */
 export function orderMigrationFiles(files: readonly string[]): MigrationFile[] {
   const parsed: MigrationFile[] = [];
@@ -80,9 +82,7 @@ export function orderMigrationFiles(files: readonly string[]): MigrationFile[] {
     }
     const version = match[1]!;
     parsed.push({ version, name: match[2]!.replace(/_/g, ' '), file });
-    // Keyed on the *comparable* version, so `1.2` and `1_2` land together: they
-    // sort equal, which is the property that makes two files indistinguishable.
-    const key = version.split(/[._]/).map(Number).join('.');
+    const key = sortKey(version);
     byVersion.set(key, [...(byVersion.get(key) ?? []), file]);
   }
 
@@ -126,15 +126,42 @@ async function loadMigrations(): Promise<Migration[]> {
   return migrations;
 }
 
+/** A version as numeric parts. `19`, `19.0` and `19_0` all read as `[19, 0]`-ish. */
+function parts(version: string): number[] {
+  return version.split(/[._]/).map(Number);
+}
+
 function compareVersions(a: string, b: string): number {
-  const left = a.split(/[._]/).map(Number);
-  const right = b.split(/[._]/).map(Number);
+  const left = parts(a);
+  const right = parts(b);
   const length = Math.max(left.length, right.length);
   for (let i = 0; i < length; i += 1) {
+    // A missing component counts as 0, which is what makes `19` and `19.0` equal.
     const diff = (left[i] ?? 0) - (right[i] ?? 0);
     if (diff !== 0) return diff;
   }
   return 0;
+}
+
+/**
+ * One string per equivalence class of `compareVersions`, for grouping.
+ *
+ * The collision check needs a key that is identical exactly when two versions
+ * sort equal, and joining the raw components is not that: `19` becomes `"19"` and
+ * `19.0` becomes `"19.0"`, two different keys for two versions `compareVersions`
+ * cannot tell apart. So `V19__a.sql` and `V19.0__b.sql` — which is the likelier
+ * way two people number one migration than the `_` form — sailed through the
+ * guard written to catch them, and their apply order fell to whatever `readdir`
+ * returned.
+ *
+ * Trailing zeros are what carry that difference, since `compareVersions` pads a
+ * missing component with `0`, so dropping them is the whole normalisation. Every
+ * remaining component is already a number, so `19.00` and `19.0` collapse too.
+ */
+function sortKey(version: string): string {
+  const components = parts(version);
+  while (components.length > 1 && components.at(-1) === 0) components.pop();
+  return components.join('.');
 }
 
 async function tableExists(client: PoolClient, table: string): Promise<boolean> {

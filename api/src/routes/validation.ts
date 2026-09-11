@@ -566,18 +566,13 @@ export const ipAddressSchema = z.object({
   ipAddress: z.string().trim().min(1, 'ipAddress is required').max(255),
 });
 
-// --- Legacy log rows ---
-
-export const logSchema = z.object({
-  timestamp: z.coerce.date().optional(),
-  sourceip: z.string().trim().min(1, 'sourceip is required').max(200),
-  sourcemac: z.string().trim().max(2000).nullish(),
-  destinationip: z.string().trim().min(1, 'destinationip is required').max(200),
-  destinationmac: z.string().trim().max(2000).nullish(),
-  protocol: z.string().trim().min(1, 'protocol is required').max(100),
-  ipversion: z.string().trim().max(100).nullish(),
-  details: z.string().min(1, 'details is required'),
-});
+/*
+ * No `logSchema`. The three legacy packet-log writes it validated are gone — see
+ * logs.routes.ts — and a schema left sitting here under a "Legacy log rows"
+ * heading would read as though those endpoints were merely unrouted for now,
+ * with the validation already written and waiting for whoever thought about
+ * restoring them. The removal should say what that docblock says.
+ */
 
 // --- Auth ---
 

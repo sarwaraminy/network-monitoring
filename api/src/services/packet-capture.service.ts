@@ -431,20 +431,36 @@ export class PacketCaptureService {
   }
 
   /**
-   * Ends the capture, and reports whether there was one to end.
+   * Ends the capture, and reports which one it ended.
    *
-   * The return value exists for the audit trail. This runs happily against an
-   * idle service — nothing is open, nothing is stamped, and the caller gets back
-   * the same `capturing: false` either way — so a route that recorded a stop on
-   * every call would be filing entries for administrators who pressed Stop on an
+   * `null` when there was nothing to end. This runs happily against an idle
+   * service — nothing is open, nothing is stamped, and the caller gets back the
+   * same `capturing: false` either way — so a route that recorded a stop on every
+   * call would be filing audit entries for administrators who pressed Stop on an
    * idle screen. `wasCapturing` is the answer the rest of this function already
    * computes for its own decisions; handing it back is what lets the trail say
    * only what happened.
    *
+   * **It carries the interface because no caller can work it out.** Both orders a
+   * route could try are wrong: `this.interfaceName` is set when a capture opens
+   * and never cleared, so reading it *before* the stop yields null on the first
+   * capture and the previous one's interface inside the start window, and reading
+   * it *after* yields a concurrent start's interface if one took over during the
+   * awaits below. What is correct is the session this call detached, which is the
+   * same value `recordCaptureStopped` is scoped to — and this is the only scope
+   * that holds it.
+   *
+   * `interfaceName` is null in the one case where `wasCapturing` is true and the
+   * session is not: a second stop entering behind the first, which has already
+   * detached it. That is a stop of a capture this call cannot name rather than a
+   * stop of nothing, and the two are worth telling apart.
+   *
    * Not the whole `StartOutcome` treatment on this side: there is one way for a
    * stop to do nothing, and the caller has nothing to retry.
    */
-  async stopCapture(reason: CaptureStopReason = 'operator'): Promise<boolean> {
+  async stopCapture(
+    reason: CaptureStopReason = 'operator',
+  ): Promise<{ interfaceName: string | null } | null> {
     /*
      * Wait for a start that has claimed the instance but not finished.
      *
@@ -627,7 +643,7 @@ export class PacketCaptureService {
       }
     }
 
-    return wasCapturing;
+    return wasCapturing ? { interfaceName: session?.interfaceName ?? null } : null;
   }
 
   getCapturedPackets(): PacketDTO[] {

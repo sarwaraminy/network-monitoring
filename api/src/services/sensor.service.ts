@@ -78,28 +78,28 @@ export async function decommissionSensor(sensorId: string, actor: Actor): Promis
   if (sensorId === env.sensorId) return { outcome: 'self', sensorId };
 
   return db.transaction(async (tx) => {
-    const removedAlerts = await tx
-      .delete(alerts)
-      .where(eq(alerts.sensorId, sensorId))
-      .returning({ id: alerts.id });
-    const removedDevices = await tx
-      .delete(knownDevices)
-      .where(eq(knownDevices.sensorId, sensorId))
-      .returning({ mac: knownDevices.macAddress });
-    const removedRollups = await tx
-      .delete(alertRollupDaily)
-      .where(eq(alertRollupDaily.sensorId, sensorId))
-      .returning({ day: alertRollupDaily.day });
-    const removedSessions = await tx
-      .delete(captureSession)
-      .where(eq(captureSession.sensorId, sensorId))
-      .returning({ scope: captureSession.scope });
-
+    /*
+     * `rowCount`, not `.returning()`.
+     *
+     * The counts are all this needs, and a `RETURNING` clause asks Postgres to
+     * send back a column for every row it removed. On the input this function is
+     * written for — the docblock above talks about six figures of findings — that
+     * materialises hundreds of thousands of values into Node and holds them while
+     * the transaction stays open and the row locks stay held, to compute four
+     * numbers the driver already reports. It was the only part of this function
+     * that scaled with the data rather than with the number of tables.
+     *
+     * `rowCount` is nullable in the driver's types — a statement that returns no
+     * count at all — and a delete always has one, so the `?? 0` is for the type
+     * rather than for a case that happens.
+     */
     const removed: DecommissionCounts = {
-      alerts: removedAlerts.length,
-      devices: removedDevices.length,
-      rollupBuckets: removedRollups.length,
-      captureSessions: removedSessions.length,
+      alerts: (await tx.delete(alerts).where(eq(alerts.sensorId, sensorId))).rowCount ?? 0,
+      devices: (await tx.delete(knownDevices).where(eq(knownDevices.sensorId, sensorId))).rowCount ?? 0,
+      rollupBuckets:
+        (await tx.delete(alertRollupDaily).where(eq(alertRollupDaily.sensorId, sensorId))).rowCount ?? 0,
+      captureSessions:
+        (await tx.delete(captureSession).where(eq(captureSession.sensorId, sensorId))).rowCount ?? 0,
     };
 
     /*
@@ -109,7 +109,7 @@ export async function decommissionSensor(sensorId: string, actor: Actor): Promis
      *
      * Read from the counts rather than from a prior existence query, for the
      * reason `forgetDevice` gives: a pre-fetch narrows the race without closing
-     * it, and the delete's own return is the answer.
+     * it, and what the deletes actually removed is the answer.
      */
     if (Object.values(removed).every((count) => count === 0)) {
       return { outcome: 'not-found' };

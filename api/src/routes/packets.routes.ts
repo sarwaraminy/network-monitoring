@@ -103,16 +103,24 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
        * starts for one capture and give an operator no way to tell which was the
        * real one.
        *
+       * The explicit `=== 'started'` and not "we got past the 409": `starting`
+       * throws above, but `running` falls through, so the first version of this
+       * recorded every idempotent retry as a start — the paragraph above stating
+       * exactly why it must not. The resume path fences the identical call the
+       * same way; see `resumeInterruptedCapture`.
+       *
        * The parsed values, not the clamped ones, matching what `capture_session`
        * records: the trail says what was asked for, and `capture-limits.ts` says
        * what the service will honour.
        */
-      await auditCaptureStarted(actorOf(req.user), interfaceName, {
-        scope: capture.scope,
-        snapshotLength: snaplength,
-        timeoutMs: timeout,
-        filterIp: options.requireIpFilter ? (ipAddress ?? null) : null,
-      });
+      if (started === 'started') {
+        await auditCaptureStarted(actorOf(req.user), interfaceName, {
+          scope: capture.scope,
+          snapshotLength: snaplength,
+          timeoutMs: timeout,
+          filterIp: options.requireIpFilter ? (ipAddress ?? null) : null,
+        });
+      }
 
       res.json(capture.getStatus());
     }),
@@ -123,19 +131,26 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
     '/stop',
     asyncHandler(async (req, res) => {
       /*
-       * The interface is read before the stop, because the stop clears it.
+       * The interface comes from the stop itself, not from a status read either
+       * side of it.
        *
-       * `getStatus().interfaceName` is null by the time `stopCapture` resolves, and
-       * an audit row saying a capture was stopped without saying which one is the
-       * half-record this action was added to avoid.
+       * Both of the obvious orders are wrong, and `stopCapture` is the only place
+       * that knows the answer. `this.interfaceName` is assigned when a capture
+       * opens and never cleared, so reading it *before* the stop gives null on the
+       * first one and the PREVIOUS capture's interface inside the start-window
+       * race — an audit row naming an interface that is not the one being stopped,
+       * which is harder to notice and worse to act on than no interface at all.
+       * Reading it *after* is right as the code stands today and wrong the moment
+       * a start takes over during the stop's awaits, which is a window this branch
+       * has already closed three other bugs in.
+       *
+       * So the stop reports the session it actually closed. Same value its own
+       * `recordCaptureStopped` is scoped to, and null exactly when there was no
+       * capture to stop — pressing Stop on an idle screen is not an event.
        */
-      const stopping = capture.getStatus().interfaceName;
       const stopped = await capture.stopCapture();
-
-      // Only a stop that ended a running capture. Pressing Stop on an idle screen
-      // is not an event — see `stopCapture`, which is why it reports this.
       if (stopped) {
-        await auditCaptureStopped(actorOf(req.user), stopping, { scope: capture.scope });
+        await auditCaptureStopped(actorOf(req.user), stopped.interfaceName, { scope: capture.scope });
       }
 
       res.json(capture.getStatus());

@@ -67,6 +67,36 @@ describe('migration filenames', () => {
     assert.throws(() => orderMigrationFiles(['V1.2__a.sql', 'V1_2__b.sql']), /V1\.2/);
   });
 
+  it('refuses a trailing-zero spelling of a version already used', () => {
+    /*
+     * The case the first version of this guard let through, and the likelier of
+     * the two: joining the raw components gave `"19"` and `"19.0"` — different
+     * keys for two versions `compareVersions` pads to equality and cannot order.
+     * The apply order between them then fell to `readdir`, which differs between
+     * filesystems, so the same repository could migrate in one order locally and
+     * the other in CI.
+     */
+    assert.throws(
+      () => orderMigrationFiles(['V19__a.sql', 'V19.0__b.sql']),
+      (error: Error) => {
+        assert.match(error.message, /V19__a\.sql/);
+        assert.match(error.message, /V19\.0__b\.sql/);
+        return true;
+      },
+    );
+  });
+
+  it('still tells genuinely different versions apart', () => {
+    // The normalisation drops trailing zeros only, so it must not collapse a
+    // version whose last component is a real number — otherwise the guard starts
+    // refusing correctly numbered files, which is the expensive false positive.
+    const ordered = orderMigrationFiles(['V19.1__a.sql', 'V19__b.sql', 'V19.10__c.sql']);
+    assert.deepEqual(
+      ordered.map((entry) => entry.file),
+      ['V19__b.sql', 'V19.1__a.sql', 'V19.10__c.sql'],
+    );
+  });
+
   it('reports every collision, not only the first', () => {
     assert.throws(
       () => orderMigrationFiles(['V4__a.sql', 'V4__b.sql', 'V9__c.sql', 'V9__d.sql']),
