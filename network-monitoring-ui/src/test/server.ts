@@ -10,6 +10,7 @@ import {
   AUDIT_EVENTS,
   DASHBOARD,
   DELIVERY_SETTINGS,
+  FLOW_STATUS,
   IDLE_STATUS,
   INTEL_STATUS,
   INTERFACES,
@@ -167,6 +168,7 @@ export const handlers = [
   // this default keeps every other test on this page describing the single-sensor
   // interface. A test about two sensors overrides it.
   http.get('/api/alerts/sensors', () => HttpResponse.json([{ sensorId: 'default', self: true }])),
+  http.get('/api/flow/status', () => HttpResponse.json(FLOW_STATUS)),
   http.get('/api/alerts/sensors/retirable', () => HttpResponse.json(RETIRABLE_SENSORS)),
   // Echoes back what the fixture says is under the name, which is what the real
   // endpoint returns: the counts of what it actually deleted, not of what the

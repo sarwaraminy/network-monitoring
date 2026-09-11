@@ -90,6 +90,19 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { labelKey: 'nav.capture_interface', to: '/capture-packets' },
       { labelKey: 'nav.capture_ip', to: '/capture-packets-ip' },
+      /*
+       * Flow belongs in this group and not under Security, for the reason the
+       * group's own docblock gives: these entries are "what is happening on the
+       * wire" rather than "what did this system do". Flow collection is the
+       * second telemetry source beside packet capture — the one that works
+       * without a SPAN port — so it sits with it.
+       *
+       * Not admin-only. `GET /api/flow/status` is deliberately open to any
+       * authenticated account (see the router posture in `route-guards.test.ts`):
+       * whether the collector is listening is not privileged, and the page
+       * changes nothing.
+       */
+      { labelKey: 'nav.flow', to: '/flow' },
     ],
   },
   {

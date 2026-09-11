@@ -1257,15 +1257,27 @@ Then point the device at it. On pfSense/OPNsense that is the softflowd or ipfix 
 Cisco, `ip flow-export destination <collector> 2055`; on UniFi and Meraki it is a field in the
 controller UI.
 
-Check it is arriving:
+Check it is arriving on the **Flow collection** screen, under Capture in the navigation. It
+names whichever of the setup failures applies rather than leaving you to infer it from counters:
+
+- **Listening, and nothing has arrived yet** — reachability. The device is not sending, cannot
+  reach this host, or is sending somewhere else.
+- **Receiving, but every record is waiting for a template** — the sharp one. A v9 or IPFIX
+  exporter that sends data records before the templates describing them is counted in
+  `datagrams`, decodes nothing, and is indistinguishable from a working device in any total.
+- **Flow collection is on, but the socket is not open** — the bind failed. The port is taken, or
+  `FLOW_BIND_ADDRESS` names an address that is not on this host. This is why `enabled` and
+  `listening` are two fields and not one on/off.
+- **Datagrams discarded** — broken out by cause, because the three have nothing to do with each
+  other: a sender the allowlist refuses (shown beside the permitted list, which is the whole
+  diagnosis), a device configured for sFlow, and a version with no parser.
+
+The same numbers are available directly, and the per-exporter breakdown is the point of the
+endpoint:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/flow/status
 ```
-
-The per-exporter breakdown is the point of that endpoint. The two failure modes during setup —
-"configured but nothing is arriving" and "arriving, but every record is waiting on a template" —
-look identical in a single total, so they are counted separately per device.
 
 ### What is supported
 
@@ -1803,6 +1815,18 @@ whether exporters are configured to send to it, not something a user starts and 
 capture. A start/stop endpoint would invite a UI button that silently switches off security
 telemetry.
 
+Not admin-only, deliberately, and recorded as this router's posture in `route-guards.test.ts`:
+whether the collector is listening is not privileged, and the operator watching the network is
+usually not the administrator.
+
+Three details in the response shape exist because a total cannot answer the question underneath
+it. **`enabled` and `listening` are separate** — the first is what `FLOW_ENABLED` says, the
+second whether the socket actually opened, and they differ exactly when the bind failed.
+**`ignoredReasons` breaks `ignored` into three** — allowlist, sFlow, unimplemented version —
+each fixed on a different box, which is the same complaint this route's docblock makes about
+record totals one level up. And **`allowedExporters` is reported** so a refusal can be acted on:
+"412 datagrams refused" names a problem, and the permitted list beside it names the cause.
+
 ### Threat intelligence — `/api/intel`
 
 | Method | Path      | Purpose                                                        |
@@ -2290,7 +2314,7 @@ Newest first. Each of these has a merged pull request with the reasoning in it.
 
 | What | Where |
 | --- | --- |
-| **Five small gaps, each noticed while doing something else** — the roadmap's own group, cleared. **A sensor can be decommissioned**: since V16 every finding, device and rollup bucket carries the `sensor_id` of the installation that wrote it and nothing could ever remove a set of them, so a sensor retired after a hardware swap stayed in the filter and the inventory for ever — and retention could not reclaim the rows, because the device sweep's cutoff comes from each sensor's own last sighting and the alert sweep *rolls up* as it deletes into a table that is never pruned. One audited transaction over all four tables, refusing this installation with a 409: its detectors are running, so the rows come back, and emptying `known_devices` for a live sensor re-arms new-device detection across the whole segment. **The legacy packet-log writes are gone rather than guarded** — three rounds of improving a guard on endpoints nothing calls, over a table nothing writes, whose rows are a record of what was observed on the network; the `log.*` audit actions stay in `RETIRED_AUDIT_ACTIONS` because the trail cannot be pruned and dropping them would have unlabelled existing rows and taken the values out of the `action` filter. **`capture.start` and `capture.stop`** close the last unrecorded administrator action, including the unattended `CAPTURE_RESUME_ON_START` one — filed under `system:auto-resume`, because the start nobody witnesses is the one the trail most needs — and recorded from the outcome, since two of `startCapture`'s three answers start nothing and `stopCapture` runs happily against an idle service. **"Suppress this" from an alert row** opens the rule form prefilled from the finding, extracted from `SuppressionsPage` rather than copied: kind, source and port, with the target left blank because a scan sweeps targets and pinning the observed one writes a rule that stops covering the same activity tomorrow, and the reason still typed by a person. **And a duplicate-version guard in the migration runner**, over the filenames before the first file is read: two files sharing `V14__` used to be reported as a duplicate key on `schema_migrations` or as a *changed migration*, neither of which mentions that a second file exists | *this branch* |
+| **Five small gaps, each noticed while doing something else** — the roadmap's own group, cleared. **A sensor can be decommissioned**: since V16 every finding, device and rollup bucket carries the `sensor_id` of the installation that wrote it and nothing could ever remove a set of them, so a sensor retired after a hardware swap stayed in the filter and the inventory for ever — and retention could not reclaim the rows, because the device sweep's cutoff comes from each sensor's own last sighting and the alert sweep *rolls up* as it deletes into a table that is never pruned. One audited transaction over all four tables, refusing this installation with a 409: its detectors are running, so the rows come back, and emptying `known_devices` for a live sensor re-arms new-device detection across the whole segment. **The legacy packet-log writes are gone rather than guarded** — three rounds of improving a guard on endpoints nothing calls, over a table nothing writes, whose rows are a record of what was observed on the network; the `log.*` audit actions stay in `RETIRED_AUDIT_ACTIONS` because the trail cannot be pruned and dropping them would have unlabelled existing rows and taken the values out of the `action` filter. **`capture.start` and `capture.stop`** close the last unrecorded administrator action, including the unattended `CAPTURE_RESUME_ON_START` one — filed under `system:auto-resume`, because the start nobody witnesses is the one the trail most needs — and recorded from the outcome, since two of `startCapture`'s three answers start nothing and `stopCapture` runs happily against an idle service. **"Suppress this" from an alert row** opens the rule form prefilled from the finding, extracted from `SuppressionsPage` rather than copied: kind, source and port, with the target left blank because a scan sweeps targets and pinning the observed one writes a rule that stops covering the same activity tomorrow, and the reason still typed by a person. **And a duplicate-version guard in the migration runner**, over the filenames before the first file is read: two files sharing `V14__` used to be reported as a duplicate key on `schema_migrations` or as a *changed migration*, neither of which mentions that a second file exists | #61 |
 | **A restart no longer ends a capture silently** — capture lived entirely in the running process, so a service restart, reboot or redeploy left it off while the screen said *Idle*, which is the same word it uses for a host that has never captured anything. Flow collection comes back from `FLOW_ENABLED`; capture did not, and nothing reported the difference. `capture_session` (V18) records what each sensor was asked to run and whether it was still running when the process last had an opinion, keyed on `(sensor_id, scope)` because one process runs two captures and a row per sensor would have had them overwriting each other — the `known_devices` bug V16 fixed, one table along. The Capture screen now names the interface, who started it and when, with a Resume button that sends the recorded settings rather than the form's; `CAPTURE_RESUME_ON_START` does it automatically and is off by default, because starting a capture with nobody present is a decision about the installation rather than a click in a browser | #59 |
 | **The dashboard charts read as one house style** — the chrome from the sibling `professional` project's dashboard, ported into a shared `charts/chrome.ts` rather than an `sx` per chart, because the point is that the two charts match and two charts restyled separately drift on the first change to either: a dashed horizontal-only grid, hairline axes with the tick marks removed (`disableTicks`, not CSS — MUI lays the axis out from `tickSize` and `display: none` left the six pixels reserved), small recessive tick labels and a crosshair on hover. The compact value scale is the part that is not cosmetic: both charts labelled their axes with a bare `toLocaleString()`, which reads the *browser's* locale and not the application's, so a dashboard switched to German drew American labels — invisible to anyone whose browser and interface already agree. `Formatters.compact` shortens through `Intl`, so the suffix belongs to the reader ("2.8M", "2,8 Mio.", "۲٫۸ میلیون"), which a five-year findings count needs because it reaches six figures. Each value axis is sized from the label it will actually carry by asking MUI to measure it, not from a character-count estimate that cannot see a tick the scale invented above the data. **Professional's area-under-line form is deliberately not ported**, for a reason about the data rather than taste: the endpoint emits no row for a period with no findings, so a line or stacked area interpolates through the gap and draws a quiet spell that never happened — columns leave it visible | #60 |
 | **A trend chart that stays readable, and says where its detail ends** — the five-year window plotted 1,825 daily bars into about 800px, a solid block with no legible axis at exactly the window where a trend is most likely to be real. The bucket now widens with the window (hourly ≤ 2 days, daily ≤ 90, weekly ≤ a year, monthly beyond), and the API reports which it chose rather than the browser recomputing the rule — the two copies of `days <= 2 ? 'hour' : 'day'` would not have survived four units. Folding rolled-up days into a week or a month means the JavaScript truncation has to agree with Postgres's `date_trunc` exactly, verified two ways: `trend-buckets.test.ts` runs its whole suite on an `Asia/Kabul` session, because `date_trunc` reads the session's zone and a missing UTC pin is invisible under UTC — and the four units were checked case by case against a real server on the same offset. A dashed marker now shows where detail ends and the rollup begins, so a short bar on the left reads as "aggregated" rather than "quiet" — the distinction the rollup exists to preserve, given away by the one chart that shows it | #58 |

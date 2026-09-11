@@ -95,6 +95,12 @@ workstation that is its own traffic plus broadcasts &mdash; enough for ARP and n
 detection, and not much else. Seeing a whole segment needs the switch configured to
 mirror traffic to this machine (a SPAN port) or a network TAP.</p>
 
+<p>That is a managed switch and a configuration change, which is a bigger ask than
+installing a driver &mdash; and it is the reason
+<a href="flow-collection.html">flow collection</a> exists. Your routers and switches can
+summarise the conversations crossing them and send those summaries here, with no mirror
+port and no driver: less detail per connection, and vastly more of the network.</p>
+
 <div class="note">
   <span class="label">Note</span>
   <p>Detection does not depend on this screen. Findings are raised from

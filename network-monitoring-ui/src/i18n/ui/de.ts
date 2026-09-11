@@ -32,6 +32,7 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'nav.threat_intel': 'Bedrohungsdaten',
   'nav.capture_interface': 'Mitschnitt nach Schnittstelle',
   'nav.capture_ip': 'Mitschnitt nach IP',
+  'nav.flow': 'Flusserfassung',
   'nav.delivery': 'Zustellung',
   'nav.audit': 'Prüfprotokoll',
   'nav.adhoc': 'Ad-hoc-Abfrage',
@@ -189,6 +190,112 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'suppressions.reason_helper':
     'Wer diese Liste in sechs Monaten liest, hat nur diese Zeile als Anhaltspunkt',
   'suppressions.in_force': 'In Kraft',
+
+  // --- Flusserfassung ---
+
+  'flow.title': 'Flusserfassung',
+  'flow.subtitle': 'Was von Ihren Routern und Switches eintrifft, und ob es dekodiert wird.',
+  'flow.status_failed': 'Der Status der Flusserfassung konnte nicht gelesen werden',
+  'flow.state.off': 'Aus',
+  'flow.state.not_listening': 'Hört nicht zu',
+  'flow.state.listening': 'Hört auf {address}:{port}',
+  'flow.bind_failed': 'Die Flusserfassung ist an, aber der Socket ist nicht offen',
+  'flow.bind_failed_note':
+    'Der Kollektor sollte zuhören und konnte sich nicht binden. Entweder belegt ein anderer ' +
+    'Prozess den Port, oder FLOW_BIND_ADDRESS nennt eine Adresse, die es auf diesem Host nicht ' +
+    'gibt. Es wird nichts empfangen. Der Grund für die Ablehnung steht im API-Protokoll.',
+  'flow.waiting': 'Hört zu, und es ist noch nichts eingetroffen',
+  'flow.waiting_note':
+    'Der Socket ist auf {address}:{port} offen, und kein Datagramm hat ihn erreicht. Richten Sie ' +
+    'einen Exporter hierher, und prüfen Sie, ob auf dem Weg UDP verworfen wird.',
+  'flow.all_refused':
+    '{count, plural, one {# Datagramm wurde abgewiesen} other {# Datagramme wurden abgewiesen}} ' +
+    'und nichts wurde angenommen',
+  'flow.all_refused_note':
+    'Alle bisherigen Datagramme kamen von einer Adresse, die FLOW_EXPORTERS nicht aufführt, und ' +
+    'wurden vor dem Lesen verworfen. Vergleichen Sie den Absender unten mit der erlaubten Liste.',
+  'flow.awaiting_templates': 'Empfang läuft, aber jeder Datensatz wartet auf eine Vorlage',
+  'flow.awaiting_templates_note':
+    '{count, plural, one {# Datensatz beschreibt} other {# Datensätze beschreiben}} Felder, deren ' +
+    'Form dieser Kollektor nicht kennt. NetFlow v9 und IPFIX senden die Vorlage separat, und sie ' +
+    'ist noch nicht gekommen — Geräte senden sie meist in Intervallen erneut, das klärt sich also ' +
+    'oft von selbst. Wenn nicht, verkürzen Sie das Vorlagen-Intervall am Exporter.',
+  'flow.unreadable_version': 'Ein Exporter sendet eine Version, die dieser Kollektor nicht lesen kann',
+  'flow.unreadable_version_note':
+    'Von {exporters}. Implementiert sind NetFlow v5, NetFlow v9 und IPFIX; sFlow und der Rest ' +
+    'nicht. Stellen Sie das Gerät auf eine der drei um.',
+  'flow.nothing_decoded': 'Datagramme treffen ein und keines wurde dekodiert',
+  'flow.nothing_decoded_note':
+    '{count, plural, one {# Datagramm} other {# Datagramme}} empfangen, keine Datensätze gelesen, ' +
+    'und nichts abgewiesen oder auf eine Vorlage wartend — keine der üblichen Ursachen passt. Es ' +
+    'bleiben die Zähler unten und das API-Protokoll.',
+  'flow.healthy': 'Erfassung läuft',
+  'flow.healthy_note':
+    '{records, plural, one {# Datensatz} other {# Datensätze}} von ' +
+    '{exporters, plural, one {# Exporter} other {# Exportern}}, ' +
+    '{findings, plural, =0 {und nichts sah verdächtig aus} one {und # Fund gemeldet} ' +
+    'other {und # Funde gemeldet}}.',
+  'flow.tile.datagrams': 'Datagramme',
+  'flow.tile.datagrams_note': 'Empfangene UDP-Pakete',
+  'flow.tile.records': 'Flussdatensätze',
+  'flow.tile.records_note': 'Dekodiert und geprüft',
+  'flow.tile.pending': 'Warten auf Vorlagen',
+  'flow.tile.pending_note': 'Noch nicht lesbare Datensätze',
+  'flow.tile.findings': 'Funde',
+  'flow.tile.findings_note': 'Aus Flussdaten gemeldet',
+  'flow.exporters': 'Exporter',
+  'flow.exporters_note': 'Aktivste zuerst — in echten Netzen dominiert ein Gerät.',
+  'flow.no_exporters': 'Kein Exporter hat etwas gesendet',
+  'flow.no_exporters_note':
+    'Richten Sie einen Router oder Switch so ein, dass er NetFlow oder IPFIX an diesen Host auf ' +
+    'Port {port} exportiert. Das Protokoll ist einseitig und ohne Authentifizierung: von hier aus ' +
+    'wird kein Gerät angesprochen.',
+  'flow.column.exporter': 'Exporter',
+  'flow.column.protocol': 'Protokoll',
+  'flow.column.datagrams': 'Datagramme',
+  'flow.column.records': 'Datensätze',
+  'flow.column.pending': 'Warten auf Vorlage',
+  'flow.column.pending_hint':
+    'Datensätze, die vor der Vorlage für ihre Felder eintrafen. Sie werden gezählt, aber nicht ' +
+    'gelesen — dieser Exporter kann also beschäftigt wirken und nichts beitragen.',
+  'flow.column.malformed': 'Fehlerhaft',
+  'flow.column.last_seen': 'Zuletzt gesehen',
+  'flow.protocol.netflow5': 'NetFlow v5',
+  'flow.protocol.netflow9': 'NetFlow v9',
+  'flow.protocol.ipfix': 'IPFIX',
+  'flow.protocol.unsupported': 'Version {version}',
+  'flow.protocol.unsupported_hint':
+    'Kein Parser für diese Version. Implementiert sind NetFlow v5, NetFlow v9 und IPFIX.',
+  'flow.ignored.title': '{count, plural, one {# Datagramm verworfen} other {# Datagramme verworfen}}',
+  'flow.ignored.subtitle':
+    'Verworfen, bevor etwas daraus gelesen wurde. Jede Ursache wird an anderer Stelle behoben.',
+  'flow.ignored.not_allowed': 'Absender nicht erlaubt',
+  'flow.ignored.not_allowed_hint':
+    'Die Adresse steht nicht in FLOW_EXPORTERS, also wird von ihr nichts gelesen.',
+  'flow.ignored.sflow': 'sFlow',
+  'flow.ignored.sflow_hint':
+    'Ein anderes Protokoll auf demselben Port. Stellen Sie das Gerät auf NetFlow oder IPFIX um.',
+  'flow.ignored.unsupported': 'Version nicht implementiert',
+  'flow.ignored.unsupported_hint': 'Für dieses Versionswort hat dieser Kollektor keinen Parser.',
+  'flow.allowlist': 'Erlaubte Absender:',
+  'flow.allowlist_empty':
+    'FLOW_EXPORTERS ist leer und nimmt damit jeden Absender an — es hätte also nichts abgewiesen ' +
+    'werden dürfen. Das ist einen Fehlerbericht wert.',
+  'flow.off': 'Die Flusserfassung ist aus',
+  'flow.off_note':
+    'Flussdaten liefern die Verbindungen über Ihre Router, ohne SPAN-Port und ohne ' +
+    'Mitschnitt-Treiber — die vorhandenen Geräte beobachten und senden Zusammenfassungen hierher. ' +
+    'Pro Verbindung sieht das weniger als ein Mitschnitt und vom Netz sehr viel mehr.',
+  'flow.enable_hint': 'Zum Einschalten dies hier ergänzen in',
+  'flow.off_restart_note':
+    'Diese Werte werden einmal beim Start gelesen, die API muss also neu gestartet werden. Sie ' +
+    'hier editierbar zu machen ist der nächste Arbeitsschritt an dieser Funktion.',
+  'flow.compose': 'Unter Docker Compose braucht der Port eine zweite Datei',
+  'flow.compose_note':
+    'Der UDP-Port wird von docker-compose.flow.yml veröffentlicht, nicht von der Hauptdatei — ' +
+    'dort würde er 2055/udp bei jeder Bereitstellung öffnen. Ohne dieses Override bindet der ' +
+    'Kollektor im Container, meldet sich als lauschend, und nichts kann ihn erreichen — was genau ' +
+    'wie ein Gerät aussieht, das nicht sendet. Starten Sie den Stack mit beiden Dateien:',
 
   // --- Bedrohungsdaten ---
 
@@ -579,8 +686,6 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'admin.group.database': 'Datenbank',
   'admin.group.notifications': 'Benachrichtigungen',
   'admin.group.accounts': 'Konten',
-  'admin.tool.console': 'Abfragekonsole',
-  'admin.tool.console_desc': 'Ob die Ad-hoc-SQL-Konsole starten kann, und warum nicht.',
   'admin.tool.console_settings': 'Einstellungen der Abfragekonsole',
   'admin.tool.console_settings_desc': 'Ein- oder ausschalten und ihre Grenzen setzen, ohne Neustart.',
   'admin.tool.delivery': 'Zustellungseinstellungen',

@@ -45,6 +45,32 @@ export interface ExporterStats {
   lastSeen: string;
 }
 
+/**
+ * Why datagrams were dropped before anything was read out of them.
+ *
+ * A single `ignored` total counted three unrelated causes, which is the same
+ * complaint `flow.routes.ts` makes about a single record total one level up:
+ * "configured but receiving nothing" and "receiving but nothing decodes" are
+ * different problems and a sum cannot tell them apart. Here the three are an
+ * allowlist that does not include the device, a device configured for sFlow,
+ * and a NetFlow version this collector does not implement — and every one of
+ * them has a different fix, on a different box.
+ *
+ * Worth splitting because none of the three is visible any other way: an
+ * exporter rejected by the allowlist never reaches `statsFor`, so it does not
+ * appear in the per-exporter list at all. Before this, the whole of what the
+ * interface could say about a mistyped `FLOW_EXPORTERS` entry was that the
+ * datagram count was climbing and the record count was not.
+ */
+export interface IgnoredDatagrams {
+  /** Sender not in `FLOW_EXPORTERS`. */
+  notAllowed: number;
+  /** sFlow, which this collector does not implement — see `looksLikeSflow`. */
+  sflow: number;
+  /** A version word we have no parser for. */
+  unsupportedVersion: number;
+}
+
 export interface FlowCollectorStatus {
   enabled: boolean;
   listening: boolean;
@@ -53,7 +79,22 @@ export interface FlowCollectorStatus {
   datagrams: number;
   records: number;
   malformed: number;
+  /** Total of `ignoredReasons`, kept because it is the headline number. */
   ignored: number;
+  ignoredReasons: IgnoredDatagrams;
+  /**
+   * The senders `FLOW_EXPORTERS` permits. Empty accepts any.
+   *
+   * Reported so `ignoredReasons.notAllowed` can be acted on: "412 datagrams
+   * refused" is only useful beside the list they were refused against, and an
+   * operator comparing a device's address to that list is the whole diagnosis.
+   *
+   * Not privileged. This router's reads are open to any authenticated account by
+   * a deliberate decision recorded in `route-guards.test.ts` — whether the
+   * collector is listening is not a secret — and the per-exporter breakdown
+   * beside this already names the addresses actually sending.
+   */
+  allowedExporters: string[];
   templatesCached: number;
   detection: ReturnType<FlowDetectionEngine['stats']>;
   exporters: ExporterStats[];
@@ -81,7 +122,11 @@ export class FlowCollector {
   private datagrams = 0;
   private records = 0;
   private malformed = 0;
-  private ignored = 0;
+  private readonly ignoredReasons: IgnoredDatagrams = {
+    notAllowed: 0,
+    sflow: 0,
+    unsupportedVersion: 0,
+  };
   private readonly exporters = new Map<string, ExporterStats>();
   private warnedAboutSflow = false;
 
@@ -171,12 +216,12 @@ export class FlowCollector {
       this.datagrams += 1;
 
       if (!this.isAllowed(exporter)) {
-        this.ignored += 1;
+        this.ignoredReasons.notAllowed += 1;
         return;
       }
 
       if (looksLikeSflow(datagram)) {
-        this.ignored += 1;
+        this.ignoredReasons.sflow += 1;
         if (!this.warnedAboutSflow) {
           this.warnedAboutSflow = true;
           log.warn(
@@ -203,7 +248,7 @@ export class FlowCollector {
       this.malformed += result.malformed;
 
       if (result.unsupported) {
-        this.ignored += 1;
+        this.ignoredReasons.unsupportedVersion += 1;
         log.warn({ exporter, version: result.unsupported }, 'Unsupported flow version');
         return;
       }
@@ -279,7 +324,12 @@ export class FlowCollector {
       datagrams: this.datagrams,
       records: this.records,
       malformed: this.malformed,
-      ignored: this.ignored,
+      // Summed rather than counted separately, so the total and the breakdown
+      // cannot drift — the failure a second counter would eventually produce.
+      ignored:
+        this.ignoredReasons.notAllowed + this.ignoredReasons.sflow + this.ignoredReasons.unsupportedVersion,
+      ignoredReasons: { ...this.ignoredReasons },
+      allowedExporters: [...env.flow.allowedExporters],
       templatesCached: this.templates.size,
       detection: this.engine.stats(),
       // Busiest first: on a real network one exporter dominates and that is the

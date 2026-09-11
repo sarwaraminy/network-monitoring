@@ -2,7 +2,6 @@ import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
 import GroupOutlinedIcon from '@mui/icons-material/GroupOutlined';
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
-import StorageOutlinedIcon from '@mui/icons-material/StorageOutlined';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
@@ -18,7 +17,6 @@ import { type UiMessageKey, useT } from '../../i18n/ui';
 import AppDialog from '../AppDialog';
 import DeliverySettingsForm from '../DeliverySettingsForm';
 import QueryConsoleSettings from './QueryConsoleSettings';
-import QueryConsoleStatus from './QueryConsoleStatus';
 import SensorDecommission from './SensorDecommission';
 import UserRoles from './UserRoles';
 
@@ -36,6 +34,13 @@ import UserRoles from './UserRoles';
  * these tools is ADMIN-gated on the server, which is what makes failing closed
  * here free: the worst case is an administrator who has to reload, not an
  * unauthorised reader who gets in.
+ *
+ * **Every entry here changes something.** The list held a read-only diagnostics
+ * panel for a while — the query console's, which the Ad hoc Query page already
+ * shows at the top of itself — and it read as a menu that sometimes did nothing
+ * when opened. Administration is where an administrator goes to *set* something;
+ * a row that only reports belongs on the screen it reports about, next to the
+ * thing it describes. Anything added here should be a form or an action.
  */
 
 interface AdminTool {
@@ -81,14 +86,20 @@ export const ADMIN_GROUPS: AdminGroup[] = [
   {
     headingKey: 'admin.group.database',
     items: [
-      {
-        id: 'query-console',
-        icon: <StorageOutlinedIcon fontSize="small" />,
-        labelKey: 'admin.tool.console',
-        descriptionKey: 'admin.tool.console_desc',
-        titleKey: 'admin.tool.console',
-        Component: QueryConsoleStatus,
-      },
+      /*
+       * No diagnostics entry here, deliberately.
+       *
+       * `QueryConsoleStatus` used to open from this list as well, and it is the
+       * same component the Ad hoc Query page already renders at the top of
+       * itself — so the panel offered a second way to reach a read that was
+       * never missing. This menu is where settings are *changed*; a tool that
+       * only reports is one more row between an administrator and the thing they
+       * came here to edit.
+       *
+       * The diagnostics have not moved and nothing is lost: they are on the page
+       * they diagnose, which is where somebody wondering why the console will
+       * not start is already standing.
+       */
       {
         id: 'query-console-settings',
         icon: <TuneOutlinedIcon fontSize="small" />,

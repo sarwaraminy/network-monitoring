@@ -72,14 +72,53 @@ describe('AdminSettingsMenu', () => {
 
     expect(screen.getByText('Database')).toBeInTheDocument();
     // By its label rather than its accessible name: the row's name includes its
-    // description, and the panel now holds a second row whose label starts the
-    // same way, so a substring match on the name matches both.
-    await user.click(screen.getByText('Query console'));
+    // description, so a substring match on the name matches the description too.
+    await user.click(screen.getByText('Query console settings'));
 
     // The tool's own content, not just its title: opening a row that renders
     // nothing would look identical from the panel's side.
     const dialog = await screen.findByRole('dialog');
-    expect(await within(dialog).findByText(/has not been switched on/i)).toBeInTheDocument();
+    expect(await within(dialog).findByRole('switch', { name: 'Query console' })).toBeInTheDocument();
+  });
+
+  it('offers nothing that only reports', async () => {
+    /*
+     * The panel used to open the query console's diagnostics as well — the same
+     * component the Ad hoc Query page already renders at the top of itself. It
+     * read as a menu that sometimes did nothing when opened, under a heading
+     * that promises settings.
+     *
+     * Asserted as a property of the whole list rather than as the absence of
+     * that one row, because the rule is what matters: administration is where an
+     * administrator goes to *set* something, and the next read-only panel
+     * somebody is tempted to add here belongs on the screen it describes. Every
+     * tool renders either a form control or a button.
+     */
+    const user = userEvent.setup();
+    renderApp(<AdminSettingsMenu />, { authenticated: true });
+    await user.click(await screen.findByRole('button', { name: /administration settings/i }));
+
+    for (const group of ADMIN_GROUPS) {
+      for (const item of group.items) {
+        await user.click(screen.getByText(translate('en', item.labelKey)));
+        const dialog = await screen.findByRole('dialog');
+
+        const controls = [
+          ...within(dialog).queryAllByRole('textbox'),
+          ...within(dialog).queryAllByRole('switch'),
+          ...within(dialog).queryAllByRole('combobox'),
+          ...within(dialog).queryAllByRole('spinbutton'),
+          ...within(dialog).queryAllByRole('button'),
+        ];
+        expect(
+          controls.length,
+          `${item.id} opens a dialog with nothing to change — it belongs on the screen it describes`,
+        ).toBeGreaterThan(0);
+
+        await user.keyboard('{Escape}');
+        await user.click(await screen.findByRole('button', { name: /administration settings/i }));
+      }
+    }
   });
 
   it('opens the settings tool, in a dialog that can be dragged', async () => {

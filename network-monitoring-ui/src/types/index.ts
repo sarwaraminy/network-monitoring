@@ -314,6 +314,72 @@ export interface DecommissionResult {
   };
 }
 
+/** A NetFlow/IPFIX version this collector implements. */
+export type FlowProtocol = 'netflow5' | 'netflow9' | 'ipfix';
+
+/** One device sending flow records here, busiest first in the status. */
+export interface FlowExporter {
+  /** The source address the datagrams arrived from. */
+  exporter: string;
+  /** The version word off the wire, whether or not we implement it. */
+  version: number;
+  /** Null for a version with no parser — which is what makes it worth showing. */
+  protocolVersion: FlowProtocol | null;
+  datagrams: number;
+  records: number;
+  /**
+   * Records that arrived before the template describing them.
+   *
+   * The sharp number on this page: a v9 or IPFIX exporter that sends data
+   * records before its templates is counted in `datagrams`, decodes nothing, and
+   * looks identical to a working device from any total.
+   */
+  pendingTemplates: number;
+  malformed: number;
+  lastSeen: string;
+}
+
+/** Why datagrams were dropped before anything was read out of them. */
+export interface IgnoredDatagrams {
+  /** Sender not in `FLOW_EXPORTERS`. */
+  notAllowed: number;
+  /** sFlow, which this collector does not implement. */
+  sflow: number;
+  /** A version word with no parser. */
+  unsupportedVersion: number;
+}
+
+export interface FlowStatus {
+  /** What `FLOW_ENABLED` says. */
+  enabled: boolean;
+  /**
+   * Whether the socket is actually open.
+   *
+   * Separate from `enabled`, and they differ exactly when the bind failed — the
+   * port is taken, or the address is not on this host. A single on/off would hide
+   * the second most likely setup failure, so the page renders them as two facts.
+   */
+  listening: boolean;
+  address: string | null;
+  port: number | null;
+  datagrams: number;
+  records: number;
+  malformed: number;
+  ignored: number;
+  ignoredReasons: IgnoredDatagrams;
+  /** The senders `FLOW_EXPORTERS` permits. Empty accepts any. */
+  allowedExporters: string[];
+  templatesCached: number;
+  detection: {
+    flowsInspected: number;
+    unansweredFlows: number;
+    findings: number;
+    intelMatches: number;
+  };
+  exporters: FlowExporter[];
+  startedAt: string | null;
+}
+
 export interface NetworkInterface {
   name: string;
   description: string | null;

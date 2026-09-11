@@ -32,6 +32,7 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'nav.threat_intel': 'اطلاعات تهدید',
   'nav.capture_interface': 'ضبط بر اساس رابط',
   'nav.capture_ip': 'ضبط بر اساس IP',
+  'nav.flow': 'گردآوری جریان',
   'nav.delivery': 'تحویل',
   'nav.audit': 'رد ممیزی',
   'nav.adhoc': 'پرس‌وجوی موردی',
@@ -186,6 +187,107 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'suppressions.reason': 'چرا این مورد انتظار است؟',
   'suppressions.reason_helper': 'هر کسی این فهرست را شش ماه دیگر بخواند، تنها همین سطر را در دست دارد',
   'suppressions.in_force': 'برقرار',
+
+  // --- گردآوری جریان ---
+
+  'flow.title': 'گردآوری جریان',
+  'flow.subtitle': 'چه چیزی از روترها و سویچ‌های شما می‌رسد، و آیا رمزگشایی می‌شود.',
+  'flow.status_failed': 'وضعیت گردآورندهٔ جریان خوانده نشد',
+  'flow.state.off': 'خاموش',
+  'flow.state.not_listening': 'گوش نمی‌دهد',
+  'flow.state.listening': 'در حال گوش دادن روی {address}:{port}',
+  'flow.bind_failed': 'گردآوری جریان روشن است، اما سوکت باز نیست',
+  'flow.bind_failed_note':
+    'از گردآورنده خواسته شد گوش دهد و نتوانست خود را ببندد. یا بندر را فرایند دیگری گرفته است، ' +
+    'یا FLOW_BIND_ADDRESS نشانی‌ای را نام می‌برد که روی این میزبان نیست. چیزی دریافت نمی‌شود. ' +
+    'دلیل رد شدن در گزارش API ثبت است.',
+  'flow.waiting': 'گوش می‌دهد و هنوز چیزی نرسیده است',
+  'flow.waiting_note':
+    'سوکت روی {address}:{port} باز است و هیچ دیتاگرامی به آن نرسیده. یک صادرکننده را به اینجا ' +
+    'نشانه بگیرید، و ببینید در مسیر چیزی UDP را دور نمی‌اندازد.',
+  'flow.all_refused': '{count, plural, one {# دیتاگرام رد شد} other {# دیتاگرام رد شد}} و چیزی پذیرفته نشد',
+  'flow.all_refused_note':
+    'همهٔ دیتاگرام‌های تا اینجا از نشانی‌ای آمدند که FLOW_EXPORTERS آن را فهرست نکرده است، پس ' +
+    'پیش از خوانده شدن دور انداخته شدند. فرستندهٔ زیر را با فهرست مجاز بسنجید.',
+  'flow.awaiting_templates': 'دریافت می‌شود، اما هر رکورد در انتظار یک قالب است',
+  'flow.awaiting_templates_note':
+    '{count, plural, one {# رکورد} other {# رکورد}} رسیده که میدان‌هایی را توصیف می‌کند که شکل ' +
+    'آن‌ها به این گردآورنده گفته نشده است. NetFlow v9 و IPFIX قالب را جدا می‌فرستند و هنوز ' +
+    'نفرستاده‌اند — دستگاه‌ها معمولاً آن را در فواصل زمانی باز می‌فرستند، پس این اغلب خودش ' +
+    'برطرف می‌شود. اگر نشد، فاصلهٔ بازفرست قالب را در صادرکننده کوتاه کنید.',
+  'flow.unreadable_version': 'یک صادرکننده نسخه‌ای می‌فرستد که این گردآورنده نمی‌تواند بخواند',
+  'flow.unreadable_version_note':
+    'از {exporters}. NetFlow v5، NetFlow v9 و IPFIX پیاده‌سازی شده‌اند؛ sFlow و بقیه نه. دستگاه ' +
+    'را بر یکی از این سه تنظیم کنید.',
+  'flow.nothing_decoded': 'دیتاگرام می‌رسد و هیچ‌یک رمزگشایی نشد',
+  'flow.nothing_decoded_note':
+    '{count, plural, one {# دیتاگرام} other {# دیتاگرام}} دریافت شد، هیچ رکوردی خوانده نشد، و ' +
+    'چیزی رد نشده یا در انتظار قالب نیست — پس هیچ‌یک از علت‌های معمول جور نمی‌آید. ' +
+    'شمارنده‌های زیر و گزارش API آنچه می‌ماند هستند.',
+  'flow.healthy': 'در حال گردآوری',
+  'flow.healthy_note':
+    '{records, plural, one {# رکورد} other {# رکورد}} از ' +
+    '{exporters, plural, one {# صادرکننده} other {# صادرکننده}}، ' +
+    '{findings, plural, =0 {و چیزی مشکوک به نظر نرسیده} one {و # یافته گزارش شد} ' +
+    'other {و # یافته گزارش شد}}.',
+  'flow.tile.datagrams': 'دیتاگرام‌ها',
+  'flow.tile.datagrams_note': 'بسته‌های UDP دریافت‌شده',
+  'flow.tile.records': 'رکوردهای جریان',
+  'flow.tile.records_note': 'رمزگشایی و بررسی‌شده',
+  'flow.tile.pending': 'در انتظار قالب',
+  'flow.tile.pending_note': 'رکوردهایی که هنوز خواندنی نیستند',
+  'flow.tile.findings': 'یافته‌ها',
+  'flow.tile.findings_note': 'گزارش‌شده از دادهٔ جریان',
+  'flow.exporters': 'صادرکننده‌ها',
+  'flow.exporters_note': 'پرکارترین نخست — در شبکهٔ واقعی یک دستگاه غالب است.',
+  'flow.no_exporters': 'هیچ صادرکننده‌ای چیزی نفرستاده است',
+  'flow.no_exporters_note':
+    'یک روتر یا سویچ را تنظیم کنید تا NetFlow یا IPFIX را به این میزبان روی بندر {port} صادر ' +
+    'کند. این پروتکل یک‌طرفه و بدون احراز هویت است: از اینجا هیچ دستگاهی فراخوانده نمی‌شود.',
+  'flow.column.exporter': 'صادرکننده',
+  'flow.column.protocol': 'پروتکل',
+  'flow.column.datagrams': 'دیتاگرام‌ها',
+  'flow.column.records': 'رکوردها',
+  'flow.column.pending': 'در انتظار قالب',
+  'flow.column.pending_hint':
+    'رکوردهایی که پیش از قالب توصیف‌کنندهٔ میدان‌هایشان رسیدند. شمرده می‌شوند ولی خوانده ' +
+    'نمی‌شوند، پس این صادرکننده می‌تواند پرکار به نظر برسد و چیزی نیفزاید.',
+  'flow.column.malformed': 'ناقص',
+  'flow.column.last_seen': 'آخرین مشاهده',
+  'flow.protocol.netflow5': 'NetFlow v5',
+  'flow.protocol.netflow9': 'NetFlow v9',
+  'flow.protocol.ipfix': 'IPFIX',
+  'flow.protocol.unsupported': 'نسخهٔ {version}',
+  'flow.protocol.unsupported_hint':
+    'برای این نسخه تجزیه‌گری نیست. NetFlow v5، NetFlow v9 و IPFIX پیاده‌سازی شده‌اند.',
+  'flow.ignored.title': '{count, plural, one {# دیتاگرام دور انداخته شد} other {# دیتاگرام دور انداخته شد}}',
+  'flow.ignored.subtitle':
+    'پیش از آنکه چیزی از آن‌ها خوانده شود دور انداخته شدند. هر علت جای دیگری برطرف می‌شود.',
+  'flow.ignored.not_allowed': 'فرستنده مجاز نیست',
+  'flow.ignored.not_allowed_hint': 'این نشانی در FLOW_EXPORTERS نیست، پس چیزی از آن خوانده نمی‌شود.',
+  'flow.ignored.sflow': 'sFlow',
+  'flow.ignored.sflow_hint': 'پروتکلی دیگر روی همان بندر. دستگاه را بر NetFlow یا IPFIX تنظیم کنید.',
+  'flow.ignored.unsupported': 'نسخه پیاده‌سازی نشده',
+  'flow.ignored.unsupported_hint': 'این گردآورنده برای این واژهٔ نسخه تجزیه‌گری ندارد.',
+  'flow.allowlist': 'فرستندگان مجاز:',
+  'flow.allowlist_empty':
+    'FLOW_EXPORTERS خالی است و هر فرستنده‌ای را می‌پذیرد — پس نباید چیزی رد شده باشد. ارزش گزارش ' +
+    'کردن دارد.',
+  'flow.off': 'گردآوری جریان خاموش است',
+  'flow.off_note':
+    'جریان، گفتگوهای گذرنده از روترهای شما را بدون بندر SPAN و بدون راه‌انداز ضبط به دست ' +
+    'می‌دهد — دستگاه‌هایی که همین حالا دارید مشاهده می‌کنند و خلاصه را به اینجا می‌فرستند. برای ' +
+    'هر اتصال کمتر از ضبط بسته می‌بیند و از شبکه بسیار بیشتر.',
+  'flow.enable_hint': 'برای روشن کردن، این‌ها را بیفزایید در',
+  'flow.off_restart_note':
+    'این‌ها یک بار در آغاز خوانده می‌شوند، پس API باید بازراه‌اندازی شود. ویرایش‌پذیر کردن ' +
+    'آن‌ها از همین‌جا کار بعدی این قابلیت است.',
+  'flow.compose': 'روی Docker Compose بندر به پروندهٔ دومی نیاز دارد',
+  'flow.compose_note':
+    'بندر UDP را docker-compose.flow.yml منتشر می‌کند، نه پروندهٔ اصلی — گذاشتن آن در پروندهٔ ' +
+    'اصلی بندر 2055/udp را در هر استقرار باز می‌کرد. بدون این بازنویسی، گردآورنده درون کانتینر ' +
+    'بسته می‌شود، خود را گوش‌دهنده گزارش می‌کند و چیزی نمی‌تواند به آن برسد — که درست مانند ' +
+    'دستگاهی به نظر می‌رسد که نمی‌فرستد. پشته را با هر دو پرونده آغاز کنید:',
 
   // --- اطلاعات تهدید ---
 
@@ -542,8 +644,6 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'admin.group.database': 'پایگاه داده',
   'admin.group.notifications': 'اطلاع‌رسانی‌ها',
   'admin.group.accounts': 'حساب‌ها',
-  'admin.tool.console': 'کنسول پرس‌وجو',
-  'admin.tool.console_desc': 'اینکه آیا کنسول SQL موردی می‌تواند آغاز شود، و چرا نه.',
   'admin.tool.console_settings': 'تنظیمات کنسول پرس‌وجو',
   'admin.tool.console_settings_desc': 'روشن یا خاموش کردن آن و تعیین حدودش، بدون راه‌اندازی دوباره.',
   'admin.tool.delivery': 'تنظیمات تحویل',
