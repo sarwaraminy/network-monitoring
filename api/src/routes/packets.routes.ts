@@ -7,6 +7,7 @@ import { getDomainName } from '../networkservices/ip-info.service.js';
 import { getWhoisData } from '../networkservices/ip-whois.service.js';
 import { withoutPayload } from '../packet/mapping.js';
 import { actorOf } from '../services/audit.service.js';
+import { auditCaptureStarted, auditCaptureStopped } from '../services/capture-audit.js';
 import type { PacketCaptureService } from '../services/packet-capture.service.js';
 import type { IpInfoResponse } from '../types/dto.js';
 import { captureStartSchema, ipAddressSchema } from './validation.js';
@@ -92,6 +93,35 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
        */
       if (started === 'starting') throw HttpError.of(409, 'error.capture_already_starting');
 
+      /*
+       * Audited only when this call started something.
+       *
+       * `running` answers 200 with the live status because the caller already has
+       * what it asked for — a retry after a slow response, a second administrator
+       * on the Capture screen, a script that starts idempotently. None of those
+       * started a capture, and a trail that recorded them would show a row of
+       * starts for one capture and give an operator no way to tell which was the
+       * real one.
+       *
+       * The explicit `=== 'started'` and not "we got past the 409": `starting`
+       * throws above, but `running` falls through, so the first version of this
+       * recorded every idempotent retry as a start — the paragraph above stating
+       * exactly why it must not. The resume path fences the identical call the
+       * same way; see `resumeInterruptedCapture`.
+       *
+       * The parsed values, not the clamped ones, matching what `capture_session`
+       * records: the trail says what was asked for, and `capture-limits.ts` says
+       * what the service will honour.
+       */
+      if (started === 'started') {
+        await auditCaptureStarted(actorOf(req.user), interfaceName, {
+          scope: capture.scope,
+          snapshotLength: snaplength,
+          timeoutMs: timeout,
+          filterIp: options.requireIpFilter ? (ipAddress ?? null) : null,
+        });
+      }
+
       res.json(capture.getStatus());
     }),
   );
@@ -99,8 +129,30 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
   /** POST /stop */
   router.post(
     '/stop',
-    asyncHandler(async (_req, res) => {
-      await capture.stopCapture();
+    asyncHandler(async (req, res) => {
+      /*
+       * The interface comes from the stop itself, not from a status read either
+       * side of it.
+       *
+       * Both of the obvious orders are wrong, and `stopCapture` is the only place
+       * that knows the answer. `this.interfaceName` is assigned when a capture
+       * opens and never cleared, so reading it *before* the stop gives null on the
+       * first one and the PREVIOUS capture's interface inside the start-window
+       * race — an audit row naming an interface that is not the one being stopped,
+       * which is harder to notice and worse to act on than no interface at all.
+       * Reading it *after* is right as the code stands today and wrong the moment
+       * a start takes over during the stop's awaits, which is a window this branch
+       * has already closed three other bugs in.
+       *
+       * So the stop reports the session it actually closed. Same value its own
+       * `recordCaptureStopped` is scoped to, and null exactly when there was no
+       * capture to stop — pressing Stop on an idle screen is not an event.
+       */
+      const stopped = await capture.stopCapture();
+      if (stopped) {
+        await auditCaptureStopped(actorOf(req.user), stopped.interfaceName, { scope: capture.scope });
+      }
+
       res.json(capture.getStatus());
     }),
   );
@@ -146,8 +198,9 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
    * The rest of the notice is kept: a USER seeing that capture stopped when the
    * service restarted is the point of the feature, and *who* started it is the only
    * part that is not theirs to know. `startCapture` is what records it — see V18 —
-   * and until capture actions reach the audit trail this column is the only place
-   * that answer exists at all, which is a further reason not to hand it out.
+   * and `capture.start` in the audit trail now records it too, which is the proper
+   * home for the answer and behind an ADMIN-only read, exactly as this redaction
+   * wants it.
    */
   router.get('/status', (req, res) => {
     const status = capture.getStatus();

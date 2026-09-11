@@ -65,6 +65,7 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'alerts.open': 'Offen',
   'alerts.acknowledged': 'Bestätigt',
   'alerts.acknowledged_by': 'Bestätigt von {who}',
+  'alerts.suppress': 'Solche Funde unterdrücken — öffnet eine aus dieser Zeile gefüllte Regel',
   'alerts.delete': 'Löschen — der Fund und seine Belege gehen mit',
   'alerts.unacknowledged_count': '{count, plural, one {# unbestätigt} other {# unbestätigt}}',
   'alerts.what_this_means': 'Was das bedeutet',
@@ -172,6 +173,10 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'suppressions.delete': 'Löschen — der Nachweis, was sie verworfen hat, geht mit',
   'suppressions.none': 'Keine Unterdrückungsregeln. Jeder Fund der Detektoren wird gespeichert.',
   'suppressions.kind': 'Art des Fundes',
+  'suppressions.kind_only_warning':
+    'Diese Regel hat keine Adresse und keinen Port, verwirft also jeden Fund vom Typ {kind} aus ' +
+    'dem gesamten Netz — der Detektor meldet nichts mehr, bis die Regel entfernt wird. Grenzen ' +
+    'Sie sie mit Quelle, Ziel oder Port ein, oder prüfen Sie sie zuerst gegen aktuelle Funde.',
   'suppressions.kind_helper': 'Jede Art, sofern Sie keine auswählen',
   'suppressions.source': 'Quelladresse oder -bereich',
   'suppressions.source_helper': 'Woher der Verkehr kam',
@@ -512,6 +517,11 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'alerts.update_failed': 'Die Meldung konnte nicht aktualisiert werden',
   'alerts.delete_failed': 'Die Meldung konnte nicht gelöscht werden',
   'alerts.delete_finding': 'Fund {id} löschen',
+  'alerts.suppress_finding': 'Funde wie Fund {id} unterdrücken',
+  'alerts.suppressed_toast':
+    'Regel {id} gilt ab jetzt für neue Funde. An dieser Liste ändert sich nichts — eine ' +
+    'Unterdrückung verwirft einen Fund beim Erfassen, Gespeichertes bleibt. Was sie ab jetzt ' +
+    'abfängt, zählt die Seite Unterdrückungen.',
   'alerts.this_sensor': ' (dieser)',
   'alerts.empty_body':
     'Keine Funde entsprechen diesen Filtern. Eine leere Liste während einer Aufzeichnung bedeutet, ' +
@@ -575,6 +585,10 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'admin.tool.console_settings_desc': 'Ein- oder ausschalten und ihre Grenzen setzen, ohne Neustart.',
   'admin.tool.delivery': 'Zustellungseinstellungen',
   'admin.tool.delivery_desc': 'Wohin Funde gehen und wie oft. Beim Speichern in Kraft.',
+  'admin.group.sensors': 'Sensoren',
+  'admin.tool.decommission': 'Sensor außer Betrieb nehmen',
+  'admin.tool.decommission_desc':
+    'Alles löschen, was ein stillgelegter Sensor erfasst hat. Unumkehrbar und protokolliert.',
   'admin.tool.users': 'Benutzer und Rollen',
   'admin.tool.users_desc': 'Wer Administrator ist. Im Prüfprotokoll festgehalten.',
 
@@ -786,6 +800,44 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'users.audit_note':
     'Jede Änderung wird im Prüfprotokoll festgehalten — wer sie vorgenommen hat und in welche ' +
     'Richtung die Rolle geändert wurde.',
+
+  // --- Sensor außer Betrieb nehmen ---
+
+  'sensors.loading': 'Server wird abgefragt…',
+  'sensors.load_failed': 'Die Sensoren konnten nicht gelesen werden',
+  'sensors.retire_failed': 'Der Sensor konnte nicht außer Betrieb genommen werden',
+  'sensors.none':
+    'Kein anderer Sensor hat etwas in diese Datenbank geschrieben. Diese Installation steht nicht ' +
+    'in der Liste, weil sie weiterhin schreibt — eine Außerbetriebnahme würde Tabellen leeren, ' +
+    'die sich sofort wieder füllen.',
+  'sensors.col_sensor': 'Sensor',
+  'sensors.col_findings': 'Funde',
+  'sensors.col_devices': 'Geräte',
+  'sensors.col_history': 'Aggregierte Tage',
+  'sensors.col_last_seen': 'Zuletzt gesehen',
+  'sensors.last_seen_never': 'nie',
+  'sensors.active': 'schreibt noch',
+  'sensors.active_hint':
+    'Unter diesem Namen schreibt noch etwas. Eine Außerbetriebnahme würde Tabellen leeren, die ' +
+    'sich wieder füllen, und eine geleerte Geräteliste meldet jedes Gerät in seinem Segment ' +
+    'erneut als neu. Halten Sie diesen Sensor an, oder warten Sie, bis er ruhig ist.',
+  'sensors.retire': 'Außer Betrieb nehmen',
+  'sensors.retire_sensor': 'Sensor {sensor} außer Betrieb nehmen',
+  'sensors.confirm_retire': 'Ja, alles löschen',
+  'sensors.confirm_body':
+    'Dies löscht dauerhaft {alerts, plural, one {# Fund} other {# Funde}}, ' +
+    '{devices, plural, one {# Gerät} other {# Geräte}} und ' +
+    '{buckets, plural, one {# aggregierten Tag} other {# aggregierte Tage}}, die unter {sensor} ' +
+    'erfasst wurden, samt seiner Mitschnitt-Sitzung. Es gibt kein Zurück: der Protokolleintrag ' +
+    'ist, was bleibt.',
+  'sensors.retired_toast':
+    '{sensor} ist außer Betrieb: {alerts, plural, one {# Fund} other {# Funde}}, ' +
+    '{devices, plural, one {# Gerät} other {# Geräte}} und ' +
+    '{buckets, plural, one {# aggregierter Tag} other {# aggregierte Tage}} entfernt.',
+  'sensors.audit_note':
+    'Im Prüfprotokoll erfasst, mit der ausführenden Person und der entfernten Menge. Dieser ' +
+    'Eintrag ist danach der einzige Nachweis, dass der Sensor existiert hat, und das Protokoll ' +
+    'lässt sich nicht bereinigen.',
 
   // --- Abfragekonsole: Diagnose ---
 

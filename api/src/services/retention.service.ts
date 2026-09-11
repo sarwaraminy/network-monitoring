@@ -62,11 +62,26 @@ const EMPTY: SweepResult = {
 };
 
 /**
- * Key for the Postgres advisory lock that serialises sweeps across processes.
+ * Key for the Postgres advisory lock over expiring and aggregating alert rows.
  *
  * Arbitrary, and only has to be unique within this database's advisory-lock space.
+ *
+ * Exported, and the name should now be read as what it guards rather than as
+ * "the sweep's own lock": `decommissionSensor` takes the same key, because a
+ * sweep and a decommission race in a way neither can see. Under READ COMMITTED
+ * the sweep's aggregate INSERT still sees alerts the decommission has deleted and
+ * not committed, so it can write `alert_rollup_daily` rows for the sensor being
+ * retired — invisible to the decommission's own rollup delete, which has already
+ * run. Both commit, and what is left is a retired sensor back in `listSensors`
+ * with nothing but buckets, while the audit row says all four tables were
+ * emptied. The trail and the database disagree, and the trail is the one that
+ * looks authoritative.
+ *
+ * The same argument this file already makes about two concurrent sweeps, one
+ * table along: it is idempotence across *sequential* retries, and never was
+ * idempotence under concurrency.
  */
-const SWEEP_LOCK_KEY = 7_213_559_001;
+export const ALERT_ROLLUP_LOCK_KEY = 7_213_559_001;
 
 /** Set while a sweep is running in *this* process. */
 let sweeping = false;
@@ -149,7 +164,7 @@ async function lockedSweep(now: number): Promise<SweepResult> {
   try {
     client = await pool.connect();
     const held = await client.query<{ locked: boolean }>('SELECT pg_try_advisory_lock($1) AS locked', [
-      SWEEP_LOCK_KEY,
+      ALERT_ROLLUP_LOCK_KEY,
     ]);
     locked = held.rows[0]?.locked === true;
 
@@ -196,7 +211,7 @@ async function lockedSweep(now: number): Promise<SweepResult> {
         // Best effort. A connection that died has already dropped the lock with
         // its session, and failing to unlock must not mask the sweep's own error.
         await client
-          .query('SELECT pg_advisory_unlock($1)', [SWEEP_LOCK_KEY])
+          .query('SELECT pg_advisory_unlock($1)', [ALERT_ROLLUP_LOCK_KEY])
           .catch((error: unknown) => log.warn({ err: error }, 'Could not release the retention lock'));
       }
       client.release();

@@ -65,6 +65,7 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'alerts.open': 'باز',
   'alerts.acknowledged': 'تأیید شد',
   'alerts.acknowledged_by': 'تأییدشده توسط {who}',
+  'alerts.suppress': 'سرکوب یافته‌های مانند این — قاعده‌ای پرشده از همین ردیف باز می‌شود',
   'alerts.delete': 'حذف — یافته و شواهدش با هم می‌روند',
   'alerts.unacknowledged_count': '{count, plural, one {# تأییدنشده} other {# تأییدنشده}}',
   'alerts.what_this_means': 'این یعنی چه',
@@ -170,6 +171,10 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'suppressions.delete': 'حذف — سابقهٔ آنچه پنهان کرده نیز می‌رود',
   'suppressions.none': 'هیچ قاعدهٔ سرکوبی نیست. هر یافته‌ای که آشکارسازها بیابند ذخیره می‌شود.',
   'suppressions.kind': 'نوع یافته',
+  'suppressions.kind_only_warning':
+    'این قاعده نه نشانی دارد و نه بندر، پس هر یافتهٔ {kind} را از هر جای شبکه دور می‌اندازد — ' +
+    'آن شناساگر تا برداشتن قاعده چیزی گزارش نمی‌کند. با مبدأ، مقصد یا بندر تنگ‌ترش کنید، یا ' +
+    'نخست آن را با یافته‌های اخیر بسنجید.',
   'suppressions.kind_helper': 'هر نوعی، مگر آنکه یکی را انتخاب کنید',
   'suppressions.source': 'آدرس یا بازهٔ مبدأ',
   'suppressions.source_helper': 'ترافیک از کجا آمده است',
@@ -479,6 +484,11 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'alerts.update_failed': 'هشدار به‌روز نشد',
   'alerts.delete_failed': 'هشدار حذف نشد',
   'alerts.delete_finding': 'حذف یافتهٔ {id}',
+  'alerts.suppress_finding': 'سرکوب یافته‌هایی مانند یافتهٔ {id}',
+  'alerts.suppressed_toast':
+    'قاعدهٔ {id} از این پس برای یافته‌های تازه برقرار است. در این فهرست چیزی تغییر نمی‌کند — ' +
+    'سرکوب یافته را هنگام ثبت دور می‌اندازد و آنچه ذخیره شده می‌ماند. صفحهٔ سرکوب‌ها شمار ' +
+    'آنچه از این پس می‌گیرد را نشان می‌دهد.',
   'alerts.this_sensor': ' (همین یکی)',
   'alerts.empty_body':
     'هیچ یافته‌ای با این پالایه‌ها همخوان نیست. فهرست خالی در هنگام ضبط یعنی آشکارسازها چیز ' +
@@ -538,6 +548,10 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'admin.tool.console_settings_desc': 'روشن یا خاموش کردن آن و تعیین حدودش، بدون راه‌اندازی دوباره.',
   'admin.tool.delivery': 'تنظیمات تحویل',
   'admin.tool.delivery_desc': 'اینکه یافته‌ها کجا می‌روند و هر چند وقت. با ذخیره در اثر می‌آید.',
+  'admin.group.sensors': 'سنسورها',
+  'admin.tool.decommission': 'از رده خارج کردن سنسور',
+  'admin.tool.decommission_desc':
+    'هر چه یک سنسور بازنشسته ثبت کرده است پاک می‌شود. بازگشت‌ناپذیر و ثبت‌شده در رد حسابرسی.',
   'admin.tool.users': 'کاربران و نقش‌ها',
   'admin.tool.users_desc': 'اینکه چه کسی مدیر است. در رد حسابرسی ثبت می‌شود.',
 
@@ -742,6 +756,42 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'users.audit_note':
     'هر تغییر در رد حسابرسی ثبت می‌شود، همراه با اینکه چه کسی آن را انجام داده و نقش به کدام سو ' +
     'تغییر کرده است.',
+
+  // --- از رده خارج کردن سنسور ---
+
+  'sensors.loading': 'در حال پرسش از سرور…',
+  'sensors.load_failed': 'سنسورها خوانده نشدند',
+  'sensors.retire_failed': 'سنسور از رده خارج نشد',
+  'sensors.none':
+    'هیچ سنسور دیگری چیزی در این پایگاه داده ننوشته است. این نصب در فهرست نیست، چون هنوز ' +
+    'می‌نویسد — از رده خارج کردن آن جدول‌هایی را خالی می‌کند که بی‌درنگ دوباره پر می‌شوند.',
+  'sensors.col_sensor': 'سنسور',
+  'sensors.col_findings': 'یافته‌ها',
+  'sensors.col_devices': 'دستگاه‌ها',
+  'sensors.col_history': 'روزهای تجمیع‌شده',
+  'sensors.col_last_seen': 'آخرین مشاهده',
+  'sensors.last_seen_never': 'هرگز',
+  'sensors.active': 'هنوز می‌نویسد',
+  'sensors.active_hint':
+    'چیزی هنوز زیر این نام می‌نویسد. از رده خارج کردن آن جدول‌هایی را خالی می‌کند که دوباره پر ' +
+    'می‌شوند، و خالی کردن فهرست دستگاه‌هایش هر ماشین آن بخش شبکه را دوباره تازه گزارش می‌کند. آن ' +
+    'سنسور را متوقف کنید، یا تا آرام شدنش صبر کنید.',
+  'sensors.retire': 'از رده خارج کردن',
+  'sensors.retire_sensor': 'از رده خارج کردن سنسور {sensor}',
+  'sensors.confirm_retire': 'بله، همه را پاک کن',
+  'sensors.confirm_body':
+    'این کار {alerts, plural, one {# یافته} other {# یافته}}، ' +
+    '{devices, plural, one {# دستگاه} other {# دستگاه}} و ' +
+    '{buckets, plural, one {# روز تجمیع‌شده} other {# روز تجمیع‌شده}} ثبت‌شده زیر {sensor} را ' +
+    'همراه با نشست ضبط آن برای همیشه پاک می‌کند. راهی برای بازگرداندن نیست: تنها رکورد حسابرسی ' +
+    'باقی می‌ماند.',
+  'sensors.retired_toast':
+    '{sensor} از رده خارج شد: {alerts, plural, one {# یافته} other {# یافته}}، ' +
+    '{devices, plural, one {# دستگاه} other {# دستگاه}} و ' +
+    '{buckets, plural, one {# روز تجمیع‌شده} other {# روز تجمیع‌شده}} حذف شد.',
+  'sensors.audit_note':
+    'در رد حسابرسی ثبت می‌شود، با نام انجام‌دهنده و مقدار حذف‌شده. پس از این کار، همان رکورد ' +
+    'تنها نشانهٔ وجود آن سنسور است و رد حسابرسی پاک‌شدنی نیست.',
 
   // --- کنسول پرس‌وجو: تشخیص ---
 

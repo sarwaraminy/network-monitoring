@@ -49,10 +49,12 @@ export const ERRORS_EN = {
   // --- Not found ---
 
   'error.alert_not_found': 'No alert with id {id}',
-  'error.log_not_found': 'No log with id {id}',
   'error.suppression_not_found': 'No suppression rule with id {id}',
   'error.account_not_found': 'No such account.',
   'error.device_not_found': 'No known device {mac}',
+  'error.sensor_not_found':
+    'Nothing is recorded under sensor {sensor}: no findings, no devices and no aggregated ' +
+    'history. There is nothing to decommission.',
   'error.device_not_on_sensor': 'No known device {mac} on sensor {sensor}. It is known to: {sensors}.',
   'error.interface_not_found': 'No such interface found: {name}',
 
@@ -62,6 +64,24 @@ export const ERRORS_EN = {
     '{mac} is known to more than one sensor ({sensors}). Add ?sensor= to say which one should ' +
     'forget it.',
   'error.last_administrator': 'This is the only administrator left; promote another account first.',
+  // Refused rather than performed, and the message says why: the rows come back.
+  // See `decommissionSensor`.
+  // Another installation that is evidently still writing. `lastSeen` is an ISO
+  // instant rather than a phrase: the reader's locale formats it, and a server
+  // that guessed at "3 minutes ago" would be guessing in the wrong timezone.
+  'error.sensor_still_active':
+    '{sensor} was last heard from at {lastSeen}, so something is still writing under that name. ' +
+    'Decommissioning it would empty tables that refill, and emptying its device list would ' +
+    'report every machine on its segment as new. Stop that sensor first, or wait until it has ' +
+    'gone quiet.',
+  'error.sensor_decommission_busy':
+    'The retention sweep is running and holds the lock this needs, so {sensor} was left alone. ' +
+    'Nothing has changed; try again in a few minutes.',
+  'error.sensor_is_self':
+    '{sensor} is this installation, which is still writing findings and devices, so ' +
+    'decommissioning it would empty tables that immediately refill — and emptying the ' +
+    'device list re-reports every machine on the network as new. Decommission a sensor that ' +
+    'has been retired, or clear the findings instead.',
   'error.capture_already_starting':
     'A capture is already starting on this interface. Wait for it to settle, then check the capture status.',
   'error.email_in_use': 'Email is already in use.',

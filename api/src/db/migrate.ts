@@ -31,6 +31,76 @@ function migrationsDir(): string {
   return found;
 }
 
+/** A migration identified by its filename alone, before its contents are read. */
+export interface MigrationFile {
+  version: string;
+  name: string;
+  file: string;
+}
+
+/**
+ * Filenames to versions, refusing two files that claim the same one.
+ *
+ * Exported and separate from `loadMigrations` so the collision check can be
+ * tested without a migrations directory, and so it runs **before the first file
+ * is read** — which is the whole point of where it sits.
+ *
+ * Two files sharing a version is a mistake someone makes once per project and
+ * cannot diagnose from what the runner used to say. `V14__Adhoc_settings.sql` and
+ * a second `V14__Something_else.sql` both parse as version `14`, and neither the
+ * sort nor the applied-set has any way to tell them apart. What happened then
+ * depended on the state of the database and was misleading in both directions:
+ *
+ *  - On a fresh database the first file applied and inserted row `14`; the second
+ *    tried to insert `14` again and failed the primary key, so the runner reported
+ *    `Migration V14 (V14__Something_else.sql) failed: duplicate key value` — a
+ *    Postgres error about `schema_migrations`, for a problem in a filename.
+ *  - On a database that already had `14`, the second file's checksum was compared
+ *    against the *first* file's recorded row, and the runner reported a
+ *    **changed migration** — "the file changed after it was applied" — which sends
+ *    you looking through git for an edit that never happened.
+ *
+ * Both are the same missing check, and neither mentions the second file's
+ * existence. This one names both files and the version they share.
+ *
+ * The collision is decided by whether two versions **sort equal**, not by whether
+ * their filenames match, because sorting equal is the property that makes two
+ * files indistinguishable to everything downstream: the apply order between them
+ * falls to `readdir`, which differs between filesystems, so the same repository
+ * can migrate in one order locally and the other in CI. `sortKey` is derived from
+ * `compareVersions`' own rules for that reason — see it.
+ */
+export function orderMigrationFiles(files: readonly string[]): MigrationFile[] {
+  const parsed: MigrationFile[] = [];
+  const byVersion = new Map<string, string[]>();
+
+  for (const file of files) {
+    const match = /^V(\d+(?:[._]\d+)*)__(.+)\.sql$/.exec(file);
+    if (!match) {
+      log.warn({ file }, 'Skipping file: not named V<version>__<name>.sql');
+      continue;
+    }
+    const version = match[1]!;
+    parsed.push({ version, name: match[2]!.replace(/_/g, ' '), file });
+    const key = sortKey(version);
+    byVersion.set(key, [...(byVersion.get(key) ?? []), file]);
+  }
+
+  const collisions = [...byVersion.entries()]
+    .filter(([, sharing]) => sharing.length > 1)
+    .map(([version, sharing]) => `V${version}: ${[...sharing].sort().join(', ')}`);
+
+  if (collisions.length > 0) {
+    throw new Error(
+      'Two migration files claim the same version, so neither can be applied or recorded ' +
+        'separately. Renumber all but one — and not to a version already applied ' +
+        `elsewhere, which cannot be reused either:\n  ${collisions.sort().join('\n  ')}`,
+    );
+  }
+
+  return parsed.sort((a, b) => compareVersions(a.version, b.version));
+}
+
 /**
  * Reads `V<version>__<name>.sql` files, matching the Flyway naming convention the
  * Spring Boot app used, and orders them by numeric version.
@@ -39,35 +109,59 @@ async function loadMigrations(): Promise<Migration[]> {
   const dir = migrationsDir();
   const files = (await readdir(dir)).filter((file) => file.endsWith('.sql'));
 
+  // Before any `readFile` below, which is what makes the collision message the
+  // first thing reported rather than a consequence of it.
+  const ordered = orderMigrationFiles(files);
+
   const migrations: Migration[] = [];
-  for (const file of files) {
-    const match = /^V(\d+(?:[._]\d+)*)__(.+)\.sql$/.exec(file);
-    if (!match) {
-      log.warn({ file }, 'Skipping file: not named V<version>__<name>.sql');
-      continue;
-    }
-    const sql = await readFile(join(dir, file), 'utf8');
+  for (const entry of ordered) {
+    const sql = await readFile(join(dir, entry.file), 'utf8');
     migrations.push({
-      version: match[1]!,
-      name: match[2]!.replace(/_/g, ' '),
-      file,
+      ...entry,
       sql,
       checksum: createHash('sha256').update(sql).digest('hex'),
     });
   }
 
-  return migrations.sort((a, b) => compareVersions(a.version, b.version));
+  return migrations;
+}
+
+/** A version as numeric parts. `19`, `19.0` and `19_0` all read as `[19, 0]`-ish. */
+function parts(version: string): number[] {
+  return version.split(/[._]/).map(Number);
 }
 
 function compareVersions(a: string, b: string): number {
-  const left = a.split(/[._]/).map(Number);
-  const right = b.split(/[._]/).map(Number);
+  const left = parts(a);
+  const right = parts(b);
   const length = Math.max(left.length, right.length);
   for (let i = 0; i < length; i += 1) {
+    // A missing component counts as 0, which is what makes `19` and `19.0` equal.
     const diff = (left[i] ?? 0) - (right[i] ?? 0);
     if (diff !== 0) return diff;
   }
   return 0;
+}
+
+/**
+ * One string per equivalence class of `compareVersions`, for grouping.
+ *
+ * The collision check needs a key that is identical exactly when two versions
+ * sort equal, and joining the raw components is not that: `19` becomes `"19"` and
+ * `19.0` becomes `"19.0"`, two different keys for two versions `compareVersions`
+ * cannot tell apart. So `V19__a.sql` and `V19.0__b.sql` — which is the likelier
+ * way two people number one migration than the `_` form — sailed through the
+ * guard written to catch them, and their apply order fell to whatever `readdir`
+ * returned.
+ *
+ * Trailing zeros are what carry that difference, since `compareVersions` pads a
+ * missing component with `0`, so dropping them is the whole normalisation. Every
+ * remaining component is already a number, so `19.00` and `19.0` collapse too.
+ */
+function sortKey(version: string): string {
+  const components = parts(version);
+  while (components.length > 1 && components.at(-1) === 0) components.pop();
+  return components.join('.');
 }
 
 async function tableExists(client: PoolClient, table: string): Promise<boolean> {

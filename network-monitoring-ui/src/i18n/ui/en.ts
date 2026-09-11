@@ -70,6 +70,7 @@ export const UI_EN = {
   'alerts.open': 'Open',
   'alerts.acknowledged': 'Acknowledged',
   'alerts.acknowledged_by': 'Acknowledged by {who}',
+  'alerts.suppress': 'Suppress findings like this — opens a rule filled in from this row',
   'alerts.delete': 'Delete — the finding and its evidence go with it',
   'alerts.unacknowledged_count': '{count, plural, one {# unacknowledged} other {# unacknowledged}}',
   'alerts.what_this_means': 'What this means',
@@ -175,6 +176,10 @@ export const UI_EN = {
   'suppressions.delete': 'Delete — the record of what it hid goes too',
   'suppressions.none': 'No suppression rules. Every finding the detectors raise is being stored.',
   'suppressions.kind': 'Finding kind',
+  'suppressions.kind_only_warning':
+    'This rule has no address and no port, so it discards every {kind} finding from anywhere on ' +
+    'the network — the detector stops reporting until the rule is removed. Add a source, a ' +
+    'target or a port to narrow it, or check it against recent alerts first.',
   'suppressions.kind_helper': 'Any kind, unless you pick one',
   'suppressions.source': 'Source address or range',
   'suppressions.source_helper': 'Where the traffic came from',
@@ -498,6 +503,15 @@ export const UI_EN = {
   'alerts.update_failed': 'Could not update the alert',
   'alerts.delete_failed': 'Could not delete the alert',
   'alerts.delete_finding': 'Delete finding {id}',
+  'alerts.suppress_finding': 'Suppress findings like finding {id}',
+  // A suppression is applied when a finding is WRITTEN, so it changes what
+  // arrives from now on and nothing already stored. Saying "this list will get
+  // shorter" promised a table that cannot change, over a table that visibly did
+  // not.
+  'alerts.suppressed_toast':
+    'Rule {id} is in force for findings from now on. Nothing already in this list changes — ' +
+    'suppression drops a finding as it is recorded, so what is stored stays. The Suppressions ' +
+    'page counts what it starts catching.',
   'alerts.this_sensor': ' (this one)',
   'alerts.empty_body':
     'No findings match these filters. An empty list during a capture means the detectors saw ' +
@@ -559,6 +573,9 @@ export const UI_EN = {
   'admin.tool.console_settings_desc': 'Switch it on or off, and set its limits, without a restart.',
   'admin.tool.delivery': 'Delivery settings',
   'admin.tool.delivery_desc': 'Where findings go, and how often. In force on save.',
+  'admin.group.sensors': 'Sensors',
+  'admin.tool.decommission': 'Decommission a sensor',
+  'admin.tool.decommission_desc': 'Drop everything a retired sensor recorded. Irreversible, and audited.',
   'admin.tool.users': 'Users and roles',
   'admin.tool.users_desc': 'Who is an administrator. Recorded in the audit trail.',
 
@@ -767,6 +784,42 @@ export const UI_EN = {
   'users.role_for': 'Role for {account}',
   'users.audit_note':
     'Every change is recorded in the audit trail, with who made it and which way the role moved.',
+
+  // --- Decommissioning a sensor ---
+
+  'sensors.loading': 'Asking the server…',
+  'sensors.load_failed': 'Could not read the sensors',
+  'sensors.retire_failed': 'Could not decommission the sensor',
+  'sensors.none':
+    'No other sensor has written anything to this database. This installation is not listed, ' +
+    'because it is still writing — decommissioning it would empty tables that immediately refill.',
+  'sensors.col_sensor': 'Sensor',
+  'sensors.col_findings': 'Findings',
+  'sensors.col_devices': 'Devices',
+  'sensors.col_history': 'Aggregated days',
+  'sensors.col_last_seen': 'Last seen',
+  'sensors.last_seen_never': 'never',
+  'sensors.active': 'still writing',
+  'sensors.active_hint':
+    'Something is still writing under this name. Decommissioning it would empty tables that ' +
+    'refill, and emptying its device list would report every machine on its segment as new. ' +
+    'Stop that sensor, or wait until it has gone quiet.',
+  'sensors.retire': 'Decommission',
+  'sensors.retire_sensor': 'Decommission sensor {sensor}',
+  'sensors.confirm_retire': 'Yes, delete it all',
+  'sensors.confirm_body':
+    'This permanently deletes {alerts, plural, one {# finding} other {# findings}}, ' +
+    '{devices, plural, one {# device} other {# devices}} and ' +
+    '{buckets, plural, one {# aggregated day} other {# aggregated days}} recorded under {sensor}, ' +
+    'along with its capture session. There is nothing to undo it: the audit entry is what will be ' +
+    'left.',
+  'sensors.retired_toast':
+    '{sensor} is decommissioned: {alerts, plural, one {# finding} other {# findings}}, ' +
+    '{devices, plural, one {# device} other {# devices}} and ' +
+    '{buckets, plural, one {# aggregated day} other {# aggregated days}} removed.',
+  'sensors.audit_note':
+    'Recorded in the audit trail with who did it and how much was removed. That entry is the only ' +
+    'record that the sensor existed once this is done, and the trail cannot be pruned.',
 
   // --- Query console: diagnosis ---
 

@@ -1,7 +1,13 @@
 import { desc, eq, lt, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { type AuditEventRow, auditEvents, type UserRow } from '../db/schema.js';
-import { AUDIT_ACTIONS, type AuditAction } from './audit-types.js';
+import {
+  AUDIT_ACTION_LABELS,
+  AUDIT_ACTIONS,
+  type AuditAction,
+  type AuditActionFilter,
+  RETIRED_AUDIT_ACTIONS,
+} from './audit-types.js';
 
 /**
  * The audit trail: who did what, and when.
@@ -33,18 +39,27 @@ import { AUDIT_ACTIONS, type AuditAction } from './audit-types.js';
  * display name, because `actor` and `actor_id` answer different questions and the
  * first version only wrote one of them — see `Actor`.
  *
- * **The vocabulary is closed.** `AUDIT_ACTIONS` is the list, the type is derived
- * from it, and the database enforces the `domain.verb` shape independently. An audit
- * trail whose `action` column is free text cannot be filtered or counted a year
- * later, which is when someone first needs to.
+ * **The vocabulary is closed.** `AUDIT_ACTIONS` is the list, `AuditAction` is
+ * derived from it, and the database enforces the `domain.verb` shape
+ * independently. An audit trail whose `action` column is free text cannot be
+ * filtered or counted a year later, which is when someone first needs to — and
+ * that is also why retiring an action does not mean deleting its entry:
+ * `RETIRED_AUDIT_ACTIONS` keeps the label and the filter value for rows nothing
+ * writes any more, on a table that by design cannot be pruned.
  */
 
 // Defined in audit-types.ts, not here, and re-exported so every existing importer
-// of these two names from this module — audit.routes.ts, audit.test.ts — keeps
+// of these names from this module — audit.routes.ts, audit.test.ts — keeps
 // working unchanged. See that file for why: this module imports `db`, which
 // constructs the connection pool at load, and validation.ts needs only the
 // vocabulary, not the pool.
-export { AUDIT_ACTIONS, type AuditAction };
+export {
+  AUDIT_ACTION_LABELS,
+  AUDIT_ACTIONS,
+  type AuditAction,
+  type AuditActionFilter,
+  RETIRED_AUDIT_ACTIONS,
+};
 
 export interface AuditEvent {
   /** From `actorOf`. */
@@ -170,7 +185,15 @@ export interface AuditPage {
  */
 export async function listAuditEvents(options: {
   limit: number;
-  action?: AuditAction;
+  /**
+   * Any action the table may hold, not only a writable one.
+   *
+   * Filtering is a question about rows that already exist, and a retired action's
+   * rows are still there — see `RETIRED_AUDIT_ACTIONS`. Typing this as
+   * `AuditAction` would have made the trail's own history the one thing the
+   * filter could not ask for.
+   */
+  action?: AuditActionFilter;
   before?: number;
 }): Promise<AuditPage> {
   const conditions = [

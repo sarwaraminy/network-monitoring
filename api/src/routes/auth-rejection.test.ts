@@ -361,7 +361,7 @@ const EXPECTED: readonly string[] = [
   'DELETE /api/alerts',
   'DELETE /api/alerts/1',
   'DELETE /api/alerts/devices/aa:bb:cc:dd:ee:ff',
-  'DELETE /api/log/1',
+  'DELETE /api/alerts/sensors/1',
   'DELETE /api/suppressions/1',
   'DELETE /api/user-guide/session',
   'GET /api/adhoc',
@@ -370,6 +370,7 @@ const EXPECTED: readonly string[] = [
   'GET /api/alerts/dashboard',
   'GET /api/alerts/devices',
   'GET /api/alerts/sensors',
+  'GET /api/alerts/sensors/retirable',
   'GET /api/alerts/summary',
   'GET /api/audit',
   'GET /api/audit/actions',
@@ -399,7 +400,6 @@ const EXPECTED: readonly string[] = [
   'POST /api/ip/packets/clear',
   'POST /api/ip/packets/start',
   'POST /api/ip/packets/stop',
-  'POST /api/log/add',
   'POST /api/logs',
   'POST /api/notify/test',
   'POST /api/packets/clear',
@@ -409,7 +409,6 @@ const EXPECTED: readonly string[] = [
   'POST /api/suppressions/preview',
   'POST /api/user-guide/session',
   'PUT /api/adhoc/settings',
-  'PUT /api/log/1',
   'PUT /api/notify/settings',
 ];
 

@@ -8,7 +8,7 @@ import { EMAIL_AUTH_METHODS } from '../notify/settings.js';
 import { WEBHOOK_FORMATS } from '../notify/types.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
 import { TREND_BUCKETS } from '../services/alert-buckets.js';
-import { AUDIT_ACTIONS, type AuditAction } from '../services/audit-types.js';
+import { AUDIT_ACTION_LABELS, type AuditActionFilter } from '../services/audit-types.js';
 import { MAX_CAPTURE_TIMEOUT_MS, MAX_SNAPSHOT_LENGTH } from '../services/capture-limits.js';
 import { hasSuppressionCriterion, NO_CRITERIA } from '../services/suppression-rules.js';
 
@@ -188,7 +188,13 @@ export const userRoleSchema = z
 
 export const auditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
-  action: z.enum(Object.keys(AUDIT_ACTIONS) as [AuditAction, ...AuditAction[]]).optional(),
+  /*
+   * Every label in the map, retired actions included. The filter answers a
+   * question about rows the table already holds, and refusing `log.delete`
+   * because nothing writes it any more would make the trail's own history the
+   * one thing it could not be filtered by — see `RETIRED_AUDIT_ACTIONS`.
+   */
+  action: z.enum(Object.keys(AUDIT_ACTION_LABELS) as [AuditActionFilter, ...AuditActionFilter[]]).optional(),
   /**
    * Keyset cursor: only events with an id below this one.
    *
@@ -560,18 +566,13 @@ export const ipAddressSchema = z.object({
   ipAddress: z.string().trim().min(1, 'ipAddress is required').max(255),
 });
 
-// --- Legacy log rows ---
-
-export const logSchema = z.object({
-  timestamp: z.coerce.date().optional(),
-  sourceip: z.string().trim().min(1, 'sourceip is required').max(200),
-  sourcemac: z.string().trim().max(2000).nullish(),
-  destinationip: z.string().trim().min(1, 'destinationip is required').max(200),
-  destinationmac: z.string().trim().max(2000).nullish(),
-  protocol: z.string().trim().min(1, 'protocol is required').max(100),
-  ipversion: z.string().trim().max(100).nullish(),
-  details: z.string().min(1, 'details is required'),
-});
+/*
+ * No `logSchema`. The three legacy packet-log writes it validated are gone — see
+ * logs.routes.ts — and a schema left sitting here under a "Legacy log rows"
+ * heading would read as though those endpoints were merely unrouted for now,
+ * with the validation already written and waiting for whoever thought about
+ * restoring them. The removal should say what that docblock says.
+ */
 
 // --- Auth ---
 

@@ -1,3 +1,4 @@
+import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
 import GroupOutlinedIcon from '@mui/icons-material/GroupOutlined';
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
@@ -18,6 +19,7 @@ import AppDialog from '../AppDialog';
 import DeliverySettingsForm from '../DeliverySettingsForm';
 import QueryConsoleSettings from './QueryConsoleSettings';
 import QueryConsoleStatus from './QueryConsoleStatus';
+import SensorDecommission from './SensorDecommission';
 import UserRoles from './UserRoles';
 
 /**
@@ -113,6 +115,19 @@ export const ADMIN_GROUPS: AdminGroup[] = [
          * wrong one.
          */
         Component: EmbeddedDeliverySettings,
+      },
+    ],
+  },
+  {
+    headingKey: 'admin.group.sensors',
+    items: [
+      {
+        id: 'sensor-decommission',
+        icon: <DeleteSweepOutlinedIcon fontSize="small" />,
+        labelKey: 'admin.tool.decommission',
+        descriptionKey: 'admin.tool.decommission_desc',
+        titleKey: 'admin.tool.decommission',
+        Component: SensorDecommission,
       },
     ],
   },

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
-import { AUDIT_ACTIONS, listAuditEvents } from '../services/audit.service.js';
+import { AUDIT_ACTION_LABELS, listAuditEvents } from '../services/audit.service.js';
 import { auditQuerySchema } from './validation.js';
 
 /**
@@ -60,7 +60,13 @@ auditRouter.get(
  *
  * The vocabulary and its labels, so the filter in the UI is built from the same
  * list the server validates against instead of a second copy that can drift.
+ *
+ * `AUDIT_ACTION_LABELS` rather than `AUDIT_ACTIONS`: retired actions are offered
+ * too, because their rows are still in a table that cannot be pruned and the
+ * filter exists to reach rows that exist. Nothing marks them retired in the
+ * dropdown beyond the label saying so — a filter that hid them would be a filter
+ * that silently cannot find what the trail contains.
  */
 auditRouter.get('/actions', (_req, res) => {
-  res.json(Object.entries(AUDIT_ACTIONS).map(([action, label]) => ({ action, label })));
+  res.json(Object.entries(AUDIT_ACTION_LABELS).map(([action, label]) => ({ action, label })));
 });

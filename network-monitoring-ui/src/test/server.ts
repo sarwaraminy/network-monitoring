@@ -15,6 +15,7 @@ import {
   INTERFACES,
   NOTIFY_STATUS,
   PACKET,
+  RETIRABLE_SENSORS,
   SUPPRESSION_PREVIEW,
   SUPPRESSION_RULES,
 } from './fixtures';
@@ -166,6 +167,24 @@ export const handlers = [
   // this default keeps every other test on this page describing the single-sensor
   // interface. A test about two sensors overrides it.
   http.get('/api/alerts/sensors', () => HttpResponse.json([{ sensorId: 'default', self: true }])),
+  http.get('/api/alerts/sensors/retirable', () => HttpResponse.json(RETIRABLE_SENSORS)),
+  // Echoes back what the fixture says is under the name, which is what the real
+  // endpoint returns: the counts of what it actually deleted, not of what the
+  // list had said. A test that needs a refusal overrides this.
+  http.delete('/api/alerts/sensors/:sensorId', ({ params }) => {
+    const sensor = RETIRABLE_SENSORS.find((candidate) => candidate.sensorId === params.sensorId);
+    if (!sensor)
+      return HttpResponse.json({ message: 'Nothing is recorded under that sensor' }, { status: 404 });
+    return HttpResponse.json({
+      sensorId: sensor.sensorId,
+      removed: {
+        alerts: sensor.alerts,
+        devices: sensor.devices,
+        rollupBuckets: sensor.rollupBuckets,
+        captureSessions: 1,
+      },
+    });
+  }),
 
   http.post('/api/alerts/:id/acknowledge', ({ params }) =>
     HttpResponse.json({

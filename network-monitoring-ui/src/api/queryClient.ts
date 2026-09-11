@@ -64,6 +64,13 @@ export const queryKeys = {
   // another. A sentinel rather than `undefined`, which would not survive the key.
   alertSummary: (sensor?: string) => ['alerts', 'summary', sensor ?? ALL_SENSORS] as const,
   sensors: ['alerts', 'sensors'] as const,
+  /*
+   * Under `alerts/sensors` rather than a root of its own, so `ALERTS_ROOT_KEY`
+   * reaches it. A decommission changes this list and every list below it at once,
+   * and a key outside the root would have been the one thing left stale by the
+   * invalidation that exists for exactly that case.
+   */
+  retirableSensors: ['alerts', 'sensors', 'retirable'] as const,
   knownDevices: (sensor?: string) => ['alerts', 'devices', sensor ?? ALL_SENSORS] as const,
   interfaces: (scope: string) => ['packets', scope, 'interfaces'] as const,
   captureStatus: (scope: string) => ['packets', scope, 'status'] as const,
