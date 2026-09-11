@@ -3,6 +3,7 @@ import type { Server } from 'node:http';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import type { Express } from 'express';
 import { openTestDatabase, truncateAll } from '../test/database.js';
+import { unsetForTest } from '../test/env.js';
 
 /**
  * The query console's settings, over HTTP, against a real database.
@@ -40,16 +41,21 @@ const SECRET = 'adhoc-settings-suite-secret';
  */
 process.env.JWT_SECRET = SECRET;
 process.env.NODE_ENV = 'test';
-for (const name of [
+/*
+ * Blanked rather than deleted. `delete` looks like it works and does not: this
+ * runs before `config/env.ts` is loaded, and that module's `dotenv.config()`
+ * then reads `api/.env` and puts every one of these back — so the leak this
+ * block exists to prevent was arriving through the very statements meant to stop
+ * it. See `unsetForTest`.
+ */
+unsetForTest(
   'ADHOC_ENABLED',
   'ADHOC_WRITE_ENABLED',
   'ADHOC_TIMEOUT_MS',
   'ADHOC_MAX_ROWS',
   'ADHOC_MAX_QUERY_LENGTH',
   'ADHOC_AUDIT',
-]) {
-  delete process.env[name];
-}
+);
 /*
  * A password, so `passwordConfigured` is true and the leak assertion has
  * something to leak. The console still cannot start: nothing has provisioned the

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { openTestDatabase } from '../test/database.js';
+import { unsetForTest } from '../test/env.js';
 
 /**
  * "Write mode forces auditing to `all`", and the window in which it was not.
@@ -38,13 +39,15 @@ process.env.ADHOC_DB_PASSWORD = 'adhoc-audit-force-test-password';
  * Deliberately UNSET, both of them: either would pin the field this test has to
  * move, and a pinned field cannot be changed through the stored row at all.
  *
- * `delete` rather than an assignment. `process.env.X = undefined` stores the
- * *string* `"undefined"`, which every parser here would then reject as a
- * malformed value rather than treat as absent — the opposite of what is wanted,
- * and quiet about it.
+ * Blanked rather than deleted, and not assigned `undefined` either. A blank is
+ * how "the environment says nothing about this field" is spelled throughout this
+ * codebase, whereas `process.env.X = undefined` stores the *string*
+ * `"undefined"` — a malformed value rather than an absent one, and quiet about
+ * it. `delete` has the opposite problem: it runs before `config/env.ts` loads, so
+ * that module's `dotenv.config()` reads `api/.env` and restores both of these
+ * underneath the test. See `unsetForTest`.
  */
-delete process.env.ADHOC_WRITE_ENABLED;
-delete process.env.ADHOC_AUDIT;
+unsetForTest('ADHOC_WRITE_ENABLED', 'ADHOC_AUDIT');
 
 const database = await openTestDatabase({ id: 'adhocauditforce' });
 
