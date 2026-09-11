@@ -37,6 +37,7 @@ export const UI_EN = {
   'nav.threat_intel': 'Threat Intel',
   'nav.capture_interface': 'Capture by Interface',
   'nav.capture_ip': 'Capture by IP',
+  'nav.flow': 'Flow collection',
   'nav.delivery': 'Delivery',
   'nav.audit': 'Audit Trail',
   'nav.adhoc': 'Ad Hoc Query',
@@ -191,6 +192,158 @@ export const UI_EN = {
   'suppressions.reason': 'Why is this expected?',
   'suppressions.reason_helper': 'Whoever reads this list in six months will only have this line to go on',
   'suppressions.in_force': 'In force',
+
+  // --- Flow collection ---
+
+  'flow.title': 'Flow collection',
+  'flow.subtitle': 'What is arriving from your routers and switches, and whether it decodes.',
+  'flow.status_failed': 'Could not read the flow collector status',
+  'flow.state.off': 'Off',
+  'flow.state.not_listening': 'Not listening',
+  'flow.state.listening': 'Listening on {address}:{port}',
+  'flow.bind_failed': 'Flow collection is on, but the socket is not open',
+  'flow.bind_failed_note':
+    'The collector was asked to listen and could not bind. Either the port is already in use by ' +
+    'another process, or FLOW_BIND_ADDRESS names an address that is not on this host. Nothing is ' +
+    'being received. The API log records the reason the bind was refused.',
+  'flow.waiting': 'Listening, and nothing has arrived yet',
+  'flow.waiting_note':
+    'The socket is open on {address}:{port} and no datagram has reached it. Point an exporter ' +
+    'here, and check that nothing between it and this host is dropping UDP.',
+  'flow.all_refused':
+    '{count, plural, one {# datagram was refused} other {# datagrams were refused}} and nothing ' +
+    'was accepted',
+  'flow.all_refused_note':
+    'Every datagram so far came from an address FLOW_EXPORTERS does not list, so all of it was ' +
+    'discarded before being read. Compare the sender below with the permitted list.',
+  'flow.awaiting_templates': 'Receiving, but every record is waiting for a template',
+  'flow.awaiting_templates_note':
+    '{count, plural, one {# record has} other {# records have}} arrived describing fields this ' +
+    'collector has not been told the shape of. NetFlow v9 and IPFIX send the template separately, ' +
+    'and it has not been sent yet — devices usually resend it on an interval, so this often ' +
+    'clears on its own. If it does not, shorten the template refresh on the exporter.',
+  'flow.unreadable_version': 'An exporter is sending a version this collector cannot read',
+  'flow.unreadable_version_note':
+    'From {exporters}. NetFlow v5, NetFlow v9 and IPFIX are implemented; sFlow and the rest are ' +
+    'not. Reconfigure the device to export one of the three.',
+  'flow.nothing_decoded': 'Datagrams are arriving and none of them decoded',
+  'flow.nothing_decoded_note':
+    '{count, plural, one {# datagram} other {# datagrams}} received, no records read, and nothing ' +
+    'refused or awaiting a template — so none of the usual causes fits. The counters below and ' +
+    'the API log are what to go on.',
+  'flow.healthy': 'Collecting',
+  'flow.healthy_note':
+    '{records, plural, one {# record} other {# records}} from ' +
+    '{exporters, plural, one {# exporter} other {# exporters}}, ' +
+    '{findings, plural, =0 {and nothing has looked suspicious} one {and # finding raised} ' +
+    'other {and # findings raised}}.',
+  'flow.tile.datagrams': 'Datagrams',
+  'flow.tile.datagrams_note': 'UDP packets received',
+  'flow.tile.records': 'Flow records',
+  'flow.tile.records_note': 'Decoded and inspected',
+  'flow.tile.pending': 'Awaiting templates',
+  'flow.tile.pending_note': 'Records that cannot be read yet',
+  'flow.tile.findings': 'Findings',
+  'flow.tile.findings_note': 'Raised from flow data',
+  'flow.exporters': 'Exporters',
+  'flow.exporters_note': 'Busiest first — on a real network one device dominates.',
+  'flow.no_exporters': 'No exporter has sent anything',
+  'flow.no_exporters_note':
+    'Configure a router or switch to export NetFlow or IPFIX to this host on port {port}. The ' +
+    'protocol is one-way and unauthenticated: nothing here reaches out to a device.',
+  'flow.column.exporter': 'Exporter',
+  'flow.column.protocol': 'Protocol',
+  'flow.column.datagrams': 'Datagrams',
+  'flow.column.records': 'Records',
+  'flow.column.pending': 'Awaiting template',
+  'flow.column.pending_hint':
+    'Records that arrived before the template describing their fields. They are counted but not ' +
+    'read, so this exporter can look busy while contributing nothing.',
+  'flow.column.malformed': 'Malformed',
+  'flow.column.last_seen': 'Last seen',
+  'flow.protocol.netflow5': 'NetFlow v5',
+  'flow.protocol.netflow9': 'NetFlow v9',
+  'flow.protocol.ipfix': 'IPFIX',
+  'flow.protocol.unsupported': 'Version {version}',
+  'flow.protocol.unsupported_hint':
+    'No parser for this version. NetFlow v5, NetFlow v9 and IPFIX are the ones implemented.',
+  'flow.ignored.title': '{count, plural, one {# datagram discarded} other {# datagrams discarded}}',
+  'flow.ignored.subtitle': 'Dropped before anything was read out of them. Each cause is fixed elsewhere.',
+  'flow.ignored.not_allowed': 'Sender not permitted',
+  'flow.ignored.not_allowed_hint': 'The address is not in FLOW_EXPORTERS, so nothing from it is read.',
+  'flow.ignored.sflow': 'sFlow',
+  'flow.ignored.sflow_hint':
+    'A different protocol that shares the port. Reconfigure the device for NetFlow or IPFIX.',
+  'flow.ignored.unsupported': 'Version not implemented',
+  'flow.ignored.unsupported_hint': 'The version word is one this collector has no parser for.',
+  'flow.allowlist': 'Permitted senders:',
+  'flow.allowlist_empty':
+    'FLOW_EXPORTERS is empty, which accepts any sender — so nothing should have been refused. ' +
+    'Worth reporting.',
+  'flow.off': 'Flow collection is off',
+  'flow.off_note':
+    'Flow gives you the conversations crossing your routers without a SPAN port or a capture ' +
+    'driver — the devices you already own do the observing and send summaries here. It sees less ' +
+    'per connection than packet capture and vastly more of the network.',
+  'flow.enable_hint': 'To switch it on, add these to',
+  'flow.off_restart_note':
+    'An administrator can also switch it on without touching a file, from Administration ' +
+    'settings → Flow collection settings.',
+  'flow.compose': 'On Docker Compose, the port needs a second file',
+  'flow.compose_note':
+    'The UDP port is published by docker-compose.flow.yml, not by the main file — putting it ' +
+    'there would open 2055/udp on every deployment. Without that override the collector binds ' +
+    'inside the container and reports itself listening while nothing can reach it, which looks ' +
+    'exactly like a device that is not sending. Start the stack with both files:',
+
+  // --- Flow collection settings ---
+
+  'flow_settings.loading': 'Asking the server…',
+  'flow_settings.read_failed': 'Could not read the flow settings',
+  'flow_settings.save_failed': 'Could not save the flow settings',
+  'flow_settings.save': 'Save changes',
+  'flow_settings.saving': 'Saving…',
+  'flow_settings.saved': 'Saved, and in force.',
+  'flow_settings.saved_rebound':
+    'Saved. The socket was closed and reopened, so anything in flight at that moment was not ' + 'collected.',
+  'flow_settings.saved_not_listening':
+    'Saved, but the collector could not bind and is NOT listening. The port may be in use, or the ' +
+    'bind address may not be an address on this host. The setting is stored and will be used at ' +
+    'the next restart; the state below is what is happening now.',
+  'flow_settings.nothing_to_save': 'Nothing has changed.',
+  'flow_settings.pinned_note':
+    'Set by {variable} in the environment. Remove that line and restart the API to manage it here.',
+  'flow_settings.all_pinned': 'Every field here is set in the environment',
+  'flow_settings.all_pinned_note':
+    'This deployment configures flow collection from a file, so nothing on this form can change ' +
+    'it — which is the guarantee that arrangement exists to give. Remove the variables named below ' +
+    'each field and restart the API to manage them from here instead. Nothing is lost by doing so: ' +
+    'the values were copied into the stored settings the first time the server saw them.',
+  'flow_settings.group.everyday': 'Which senders are accepted',
+  'flow_settings.group.socket': 'The socket',
+  'flow_settings.group.socket_note':
+    'Changing any of these closes and reopens the socket, so a few seconds of traffic is not ' +
+    'collected. The allowlist above needs none of that.',
+  'flow_settings.exporters': 'Permitted senders',
+  'flow_settings.exporters_help':
+    'Comma-separated addresses. Empty accepts any sender — which is what you want for the first ' +
+    'run, to discover them, and not afterwards: NetFlow has no authentication, so this list is the ' +
+    'only access control there is and a forged datagram forges a finding. Applies immediately; ' +
+    'nothing is rebound.',
+  'flow_settings.enabled': 'Collect flow data',
+  'flow_settings.port': 'UDP port',
+  'flow_settings.port_help': '2055 is the de facto NetFlow port; 4739 is IANA’s for IPFIX.',
+  'flow_settings.bind_address': 'Bind address',
+  'flow_settings.bind_address_help':
+    '0.0.0.0 listens on every interface. In a container it has to be — a published port forwards ' +
+    'to the container’s interface, not its loopback.',
+  'flow_settings.port_published': 'On Docker, the published port is a separate file',
+  'flow_settings.port_published_note':
+    'Changing the port here rebinds the socket inside the container. It does not change what Docker ' +
+    'forwards, which docker-compose.flow.yml publishes — so collection would stop, and every ' +
+    'counter would read exactly like a device that is not sending. Change FLOW_PORT for the stack ' +
+    'and redeploy instead. This warning cannot tell whether you are on Docker; if you are not, the ' +
+    'port here is the whole story.',
 
   // --- Threat intelligence ---
 
@@ -567,12 +720,13 @@ export const UI_EN = {
   'admin.group.database': 'Database',
   'admin.group.notifications': 'Notifications',
   'admin.group.accounts': 'Accounts',
-  'admin.tool.console': 'Query console',
-  'admin.tool.console_desc': 'Whether the ad hoc SQL console can start, and why not.',
   'admin.tool.console_settings': 'Query console settings',
   'admin.tool.console_settings_desc': 'Switch it on or off, and set its limits, without a restart.',
   'admin.tool.delivery': 'Delivery settings',
   'admin.tool.delivery_desc': 'Where findings go, and how often. In force on save.',
+  'admin.group.collection': 'Collection',
+  'admin.tool.flow': 'Flow collection settings',
+  'admin.tool.flow_desc': 'Which senders are accepted, and the socket. In force on save.',
   'admin.group.sensors': 'Sensors',
   'admin.tool.decommission': 'Decommission a sensor',
   'admin.tool.decommission_desc': 'Drop everything a retired sensor recorded. Irreversible, and audited.',

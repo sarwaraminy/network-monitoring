@@ -323,6 +323,44 @@ export const suppressionPreviewSchema = z
   })
   .refine(hasSuppressionCriterion, { message: NO_CRITERIA });
 
+/**
+ * A patch to the stored flow settings.
+ *
+ * Every field optional and nullable, and the two mean different things: absent
+ * leaves the stored value alone, `null` clears it so the field falls back to the
+ * environment and then the code default. Same contract as the delivery and
+ * console patches.
+ *
+ * Bounds mirror V19's CHECK constraints rather than restating a different set —
+ * a value this layer accepted and the database refused would surface as a
+ * constraint error to somebody editing a form.
+ */
+export const flowSettingsPatchSchema = z
+  .object({
+    enabled: z.boolean().nullish(),
+    /*
+     * Floor of 1024, matching the column. The API runs unprivileged in a
+     * container, so a privileged port cannot be bound at all and would report
+     * itself as "not listening" — indistinguishable from a port already in use.
+     */
+    port: z.coerce.number().int().min(1024).max(65_535).nullish(),
+    /*
+     * Not validated as an address beyond a length bound, deliberately. What is
+     * bindable depends on the host's interfaces, which this process cannot
+     * enumerate portably, and a regex that accepted `0.0.0.0` and `::` while
+     * rejecting something legitimate would be a rule nobody could predict. A bad
+     * value fails the bind and the status says so, which is the honest answer.
+     */
+    bindAddress: z.string().trim().max(64).nullish(),
+    /*
+     * The allowlist, as the comma-separated string the environment carries. An
+     * empty string is a real choice — accept any sender — and is distinct from
+     * `null`, which clears the row and falls back to the environment.
+     */
+    exporters: z.string().trim().max(2000).nullish(),
+  })
+  .strict();
+
 // --- Delivery settings ---
 
 /**

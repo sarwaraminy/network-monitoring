@@ -63,6 +63,9 @@ export const ERRORS_DE: PartialErrorCatalog = {
   'error.cannot_demote_self':
     'Sie können sich Ihre eigene Administratorrolle nicht entziehen. Bitten Sie eine andere ' +
     'administrierende Person darum.',
+  'error.flow_pinned':
+    'In der Umgebung gesetzt und hier nicht änderbar: {variables}. Entfernen Sie die Variable ' +
+    'und starten Sie die API neu, um dies hier zu verwalten.',
   'error.adhoc_pinned':
     'In der Umgebung gesetzt und hier nicht änderbar: {variables}. Entfernen Sie die Variable und ' +
     'starten Sie die API neu, um sie auf dieser Seite zu verwalten.',

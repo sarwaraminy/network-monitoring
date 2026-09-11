@@ -26,6 +26,10 @@ export const AUDIT_ACTIONS = {
   'suppression.update': 'Changed a suppression rule',
   'suppression.delete': 'Deleted a suppression rule',
   'delivery_settings.update': 'Changed where findings are delivered',
+  // `detail` carries the values, not just the field names, because none of them
+  // is a credential and *which* port and *which* allowlist is the whole content
+  // of the event. The exporter list is this collector's only access control.
+  'flow_settings.update': 'Changed the flow collector settings',
   // `detail` carries the interface, the scope and the filter. Which interface is
   // the content of the event: "started a capture" without saying where reads as
   // an administrative act with no object, and the two scopes one process runs are

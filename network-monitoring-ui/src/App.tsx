@@ -22,6 +22,7 @@ import { SnackbarProvider } from './contexts/SnackbarContext';
  */
 const SignUpPage = lazy(() => import('./auth/SignUpPage'));
 const ThreatIntelPage = lazy(() => import('./pages/ThreatIntelPage'));
+const FlowPage = lazy(() => import('./pages/FlowPage'));
 const DeliveryPage = lazy(() => import('./pages/DeliveryPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
@@ -81,6 +82,7 @@ export default function App() {
                             <Route path="/logs" element={<Navigate to="/alerts" replace />} />
                             <Route path="/capture-packets" element={<PacketCapture />} />
                             <Route path="/capture-packets-ip" element={<PacketCaptureWithIP />} />
+                            <Route path="/flow" element={<FlowPage />} />
                           </Route>
                         </Route>
 

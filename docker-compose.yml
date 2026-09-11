@@ -158,9 +158,24 @@ services:
       # to prevent.
       #
       #   docker compose -f docker-compose.yml -f docker-compose.flow.yml up -d
-      FLOW_ENABLED: ${FLOW_ENABLED:-false}
-      FLOW_PORT: ${FLOW_PORT:-2055}
-      FLOW_BIND_ADDRESS: ${FLOW_BIND_ADDRESS:-0.0.0.0}
+      #
+      # PASSED THROUGH BLANK, for the reason the delivery block above gives at
+      # length — and this is the second time that bug has been caught rather than
+      # the first. These three carried their code defaults (`:-false`, `:-2055`,
+      # `:-0.0.0.0`), and a variable that is SET pins its field, so all three
+      # would have rendered disabled in Administration settings on every Compose
+      # deployment: a customer with no shell on the box could not have switched
+      # flow collection on at all.
+      #
+      # Blank means "not decided here", so the code default applies — and these
+      # defaults are identical to it, which is why this changes no behaviour. Set
+      # one in .env to pin it deliberately.
+      #
+      # `compose-unpinned.test.ts` now reads every settings field table and fails
+      # on a non-blank default here, so there should not be a third time.
+      FLOW_ENABLED: ${FLOW_ENABLED:-}
+      FLOW_PORT: ${FLOW_PORT:-}
+      FLOW_BIND_ADDRESS: ${FLOW_BIND_ADDRESS:-}
       # Empty accepts any exporter. Narrow it: the collector is an unauthenticated
       # write path into the alert table, and a forged flow forges a finding.
       FLOW_EXPORTERS: ${FLOW_EXPORTERS:-}
