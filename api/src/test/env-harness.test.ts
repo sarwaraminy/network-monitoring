@@ -1,8 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { unsetForTest } from './env.js';
 
@@ -24,10 +21,16 @@ import { unsetForTest } from './env.js';
  * code this repository does not own. Neither is visible from a test that depends
  * on it, and if either changes the suites go quietly wrong again in the same way
  * — so both are pinned here rather than trusted.
+ *
+ * **What is deliberately not asserted: anything about this machine's `api/.env`.**
+ * The first version of this file ended with a case checking that the local file
+ * really did pin a query-console field, on the reasoning that it was the
+ * configuration under which the broken tests passed. It failed the first time
+ * somebody tidied that file — which is to say, it asserted a property of a
+ * developer's machine rather than of this code, and would have been muted rather
+ * than fixed. The three cases below hold on any machine, with or without an
+ * `api/.env`.
  */
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const API_ENV = join(HERE, '..', '..', '.env');
 
 describe('unsetting an environment variable for a test', () => {
   it('leaves a value the config parsers read as absent', () => {
@@ -88,35 +91,6 @@ describe('unsetting an environment variable for a test', () => {
       process.env.NM_TEST_DELETED_TARGET,
       'from-the-dotenv-file',
       'if this ever stops holding, `delete` has become safe and this file can go',
-    );
-  });
-
-  it('is needed because a developer .env really does set these', () => {
-    /*
-     * The environmental half, and why this was invisible in CI. Skipped where
-     * there is no `api/.env` — which is CI, and is precisely the configuration
-     * under which the five broken tests passed.
-     *
-     * Asserted as "the file sets something the query-console suites clear",
-     * rather than naming one variable: the point is that the shipped example
-     * environment is expected to pin these, so a test must not depend on their
-     * being absent by default.
-     */
-    let file: string;
-    try {
-      file = readFileSync(API_ENV, 'utf8');
-    } catch {
-      return; // No api/.env here. Nothing to leak, which is CI's situation.
-    }
-
-    const parsed = dotenv.parse(file);
-    const cleared = ['ADHOC_ENABLED', 'ADHOC_WRITE_ENABLED', 'ADHOC_AUDIT'];
-    const present = cleared.filter((name) => (parsed[name] ?? '').trim() !== '');
-
-    assert.ok(
-      present.length > 0,
-      'this api/.env pins none of the query-console fields, so it would not have exposed the bug ' +
-        'either — not a failure, but this case is asserting nothing on this machine',
     );
   });
 });
