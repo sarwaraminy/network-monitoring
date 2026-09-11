@@ -112,8 +112,12 @@ describe('the shipped Compose file pins no editable setting', () => {
     // report a clean file no matter what it contained, which is precisely how the
     // delivery bug survived: nothing was looking.
     const sample = [
+      // biome-ignore-start lint/suspicious/noTemplateCurlyInString: Compose
+      // interpolation, which is the syntax under test. A template literal here
+      // would make JavaScript substitute a variable that does not exist.
       '      FLOW_PORT: ${FLOW_PORT:-2055}',
       '      NOTIFY_ENABLED: ${NOTIFY_ENABLED:-}',
+      // biome-ignore-end lint/suspicious/noTemplateCurlyInString: as above
       '      HARD_CODED: 7',
     ].join('\n');
 
