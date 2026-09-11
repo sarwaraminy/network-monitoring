@@ -112,6 +112,15 @@ worth doing: a suppression <strong>discards</strong> matching findings rather th
 them, so a rule wider than you meant is silence rather than an error message.</p>
 
 <div class="note">
+  <span class="label">It does not clear what is already here</span>
+  <p>A suppression is applied when a finding is <em>recorded</em>, so saving a rule changes
+  what arrives from then on and nothing already in this list. The finding you wrote the rule
+  for stays exactly where it is, with the same count beside it &mdash; acknowledge or delete
+  it if you want it out of the way. What the rule starts catching is counted on the
+  <a href="suppressions.html">Suppressions</a> page.</p>
+</div>
+
+<div class="note">
   <span class="label">The target is left blank on purpose</span>
   <p>The rule is prefilled with the detector, the source and the port, but not the
   <span class="ui">Target</span>. A scanner sweeps targets by definition, so a rule pinned

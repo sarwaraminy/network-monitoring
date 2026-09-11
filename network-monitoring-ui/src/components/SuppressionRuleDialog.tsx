@@ -152,6 +152,26 @@ export default function SuppressionRuleDialog({
   const hasCriterion =
     draft.kind !== null || draft.sourceCidr !== null || draft.targetCidr !== null || draft.port !== null;
 
+  /**
+   * A rule whose only criterion is the detector.
+   *
+   * Legal, occasionally what somebody means, and the widest rule this form can
+   * produce: every finding of that kind, from every address, until the rule is
+   * removed. It passes the "at least one criterion" check that exists to stop a
+   * single rule swallowing everything, because it swallows everything *of one
+   * kind* instead.
+   *
+   * It is also one click away now. `draftFromAlert` fills in the source and the
+   * port from the finding, but ARP and device findings identify the actor by MAC
+   * and carry neither — so suppressing one of those from a row opens this form
+   * with the detector alone, three characters of reason away from silencing that
+   * detector network-wide. Said out loud rather than prevented: an operator who
+   * means it has no other way to write it, and the preview below will report how
+   * much it covers if they ask.
+   */
+  const kindOnly =
+    draft.kind !== null && draft.sourceCidr === null && draft.targetCidr === null && draft.port === null;
+
   const preview = useMutation({
     mutationFn: () =>
       previewSuppression({
@@ -271,6 +291,12 @@ export default function SuppressionRuleDialog({
             }
             label={t('suppressions.in_force')}
           />
+
+          {kindOnly && (
+            <Alert severity="warning">
+              {t('suppressions.kind_only_warning', { kind: kindLabel(draft.kind ?? '', t) })}
+            </Alert>
+          )}
 
           <Box>
             <Button

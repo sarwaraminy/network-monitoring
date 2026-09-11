@@ -173,6 +173,10 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'suppressions.delete': 'Löschen — der Nachweis, was sie verworfen hat, geht mit',
   'suppressions.none': 'Keine Unterdrückungsregeln. Jeder Fund der Detektoren wird gespeichert.',
   'suppressions.kind': 'Art des Fundes',
+  'suppressions.kind_only_warning':
+    'Diese Regel hat keine Adresse und keinen Port, verwirft also jeden Fund vom Typ {kind} aus ' +
+    'dem gesamten Netz — der Detektor meldet nichts mehr, bis die Regel entfernt wird. Grenzen ' +
+    'Sie sie mit Quelle, Ziel oder Port ein, oder prüfen Sie sie zuerst gegen aktuelle Funde.',
   'suppressions.kind_helper': 'Jede Art, sofern Sie keine auswählen',
   'suppressions.source': 'Quelladresse oder -bereich',
   'suppressions.source_helper': 'Woher der Verkehr kam',
@@ -515,8 +519,9 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'alerts.delete_finding': 'Fund {id} löschen',
   'alerts.suppress_finding': 'Funde wie Fund {id} unterdrücken',
   'alerts.suppressed_toast':
-    'Regel {id} ist in Kraft. Erfasste Funde werden nun verworfen statt versteckt, diese Liste ' +
-    'wird also kürzer — wie viel sie verbirgt, steht auf der Seite Unterdrückungen.',
+    'Regel {id} gilt ab jetzt für neue Funde. An dieser Liste ändert sich nichts — eine ' +
+    'Unterdrückung verwirft einen Fund beim Erfassen, Gespeichertes bleibt. Was sie ab jetzt ' +
+    'abfängt, zählt die Seite Unterdrückungen.',
   'alerts.this_sensor': ' (dieser)',
   'alerts.empty_body':
     'Keine Funde entsprechen diesen Filtern. Eine leere Liste während einer Aufzeichnung bedeutet, ' +

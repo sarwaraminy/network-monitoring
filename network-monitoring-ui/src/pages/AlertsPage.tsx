@@ -84,14 +84,15 @@ export default function AlertsPage() {
    */
   const [suppressing, setSuppressing] = useState<SuppressionDraft | null>(null);
   /**
-   * What a saved rule did, kept separate from `actionError`.
+   * What a saved rule will do, kept separate from `actionError`.
    *
    * Separate rather than one `{ severity, body }` like the suppressions page uses,
    * because on this page the error banner is shared with two query failures — see
    * `failure` below — and folding a success into that would mean a load error and
-   * a saved rule competing for one slot. A suppression takes effect immediately
-   * and drops findings rather than hiding them, so its confirmation is the one
-   * thing on screen saying why the table just got shorter.
+   * a saved rule competing for one slot. And it is the one thing on screen that
+   * can say what a suppression actually does: nothing about this table, because
+   * the rule is applied where findings are written, so the visible result of
+   * saving one is no visible result at all.
    */
   const [suppressed, setSuppressed] = useState<Message | null>(null);
   const ipInfo = useIpInfo();
@@ -464,10 +465,19 @@ export default function AlertsPage() {
           onSaved={(saved) => {
             setSuppressing(null);
             /*
-             * A saved rule takes effect before the response, so the list on screen
-             * is already describing what arrives differently now — and findings the
-             * rule covers are being dropped rather than hidden, so a refetch is the
-             * only way to see what it did.
+             * The refetch is housekeeping, not the point.
+             *
+             * A suppression is applied where a finding is *written* — `AlertSink`
+             * checks the rules and drops it rather than storing it — and
+             * `listAlerts` has no suppression filter at all. So a new rule changes
+             * what arrives from now on and nothing that is already stored: this
+             * table will look exactly the same afterwards, with the finding that
+             * prompted the rule still at the top of it.
+             *
+             * Worth being explicit because the first version of this got it
+             * backwards and said so in the banner. `load()` still earns its place,
+             * for what arrived while the dialog was open, but the message is what
+             * tells the operator the truth — see `alerts.suppressed_toast`.
              */
             load();
             setSuppressed({ key: 'alerts.suppressed_toast', params: { id: saved.id } });

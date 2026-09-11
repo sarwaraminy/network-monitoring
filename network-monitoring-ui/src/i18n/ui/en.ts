@@ -176,6 +176,10 @@ export const UI_EN = {
   'suppressions.delete': 'Delete — the record of what it hid goes too',
   'suppressions.none': 'No suppression rules. Every finding the detectors raise is being stored.',
   'suppressions.kind': 'Finding kind',
+  'suppressions.kind_only_warning':
+    'This rule has no address and no port, so it discards every {kind} finding from anywhere on ' +
+    'the network — the detector stops reporting until the rule is removed. Add a source, a ' +
+    'target or a port to narrow it, or check it against recent alerts first.',
   'suppressions.kind_helper': 'Any kind, unless you pick one',
   'suppressions.source': 'Source address or range',
   'suppressions.source_helper': 'Where the traffic came from',
@@ -500,9 +504,14 @@ export const UI_EN = {
   'alerts.delete_failed': 'Could not delete the alert',
   'alerts.delete_finding': 'Delete finding {id}',
   'alerts.suppress_finding': 'Suppress findings like finding {id}',
+  // A suppression is applied when a finding is WRITTEN, so it changes what
+  // arrives from now on and nothing already stored. Saying "this list will get
+  // shorter" promised a table that cannot change, over a table that visibly did
+  // not.
   'alerts.suppressed_toast':
-    'Rule {id} is in force. Findings it covers are now discarded rather than hidden, so this list ' +
-    'will get shorter — see the Suppressions page for how much it is hiding.',
+    'Rule {id} is in force for findings from now on. Nothing already in this list changes — ' +
+    'suppression drops a finding as it is recorded, so what is stored stays. The Suppressions ' +
+    'page counts what it starts catching.',
   'alerts.this_sensor': ' (this one)',
   'alerts.empty_body':
     'No findings match these filters. An empty list during a capture means the detectors saw ' +

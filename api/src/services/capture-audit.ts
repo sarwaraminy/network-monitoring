@@ -99,10 +99,20 @@ async function append(
       actor: actor.name,
       actorId: actor.id,
       action,
-      // `subject` is NOT NULL-or-non-blank in the database, so an unknown
-      // interface is a null subject rather than an empty string. It should be
-      // unreachable for a stop that stopped something, which is the only stop
-      // that gets here.
+      /*
+       * `subject` is nullable but CHECKed non-blank, so an unknown interface is a
+       * null subject rather than an empty string.
+       *
+       * And it IS reachable, on the stop side: a second stop entering behind the
+       * first finds `wasCapturing` true with the session already detached, so
+       * `stopCapture` reports `{ interfaceName: null }` — something was stopped,
+       * by a call that cannot name which capture. An earlier version of this
+       * comment claimed the state was unreachable while `capture-lifecycle.test.ts`
+       * had a case asserting it; `stopCapture`'s docblock is the one that was
+       * right. Recording the event without a subject is the honest answer: the
+       * alternative is either no row for a stop that happened, or a row naming an
+       * interface this call guessed at.
+       */
       subject: interfaceName || null,
       detail: { ...detail },
     });

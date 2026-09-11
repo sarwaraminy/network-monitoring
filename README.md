@@ -690,6 +690,13 @@ feature. There is no "show suppressed" toggle, because nothing is stored: the fi
 reaches the alerts table, the webhook, the email digest or the SIEM feed. A rule broader than
 its author realised discards real findings and leaves nothing behind to notice.
 
+The converse is worth stating too, because it is the natural misreading: a rule applies where
+a finding is **written**, so saving one changes what arrives from now on and nothing that is
+already stored. `listAlerts` has no suppression filter. The findings that prompted the rule
+stay exactly where they were, and the alert list does not get shorter — which is what the
+"Suppress findings like this" confirmation now says, after a first version of it promised the
+opposite.
+
 Three things exist to make that visible rather than silent, and they are why the page looks the
 way it does:
 

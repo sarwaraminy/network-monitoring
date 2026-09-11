@@ -471,11 +471,18 @@ describe('AlertsPage', () => {
       expect(within(dialog).getByRole('button', { name: /create rule/i })).toBeEnabled();
     });
 
-    it('says what a saved rule will do to this list', async () => {
+    it('says a saved rule changes nothing already on this list', async () => {
       /*
-       * A suppressed finding is DROPPED, not hidden, and the rule is in force
-       * before the response arrives — so the table is about to get shorter for a
-       * reason nothing else on this page would explain.
+       * The correction. A suppression is applied where a finding is *written* —
+       * `AlertSink` checks the rules and drops it rather than storing it — and
+       * `listAlerts` has no suppression filter, so a new rule affects what
+       * arrives from now on and nothing already stored.
+       *
+       * The first version of this banner said the list "will get shorter", over a
+       * table that cannot change and visibly did not: the finding that prompted
+       * the rule stays at the top of it with the same count beside it. Pinned
+       * here because the message is the only thing on screen that can tell the
+       * operator what actually happened.
        */
       const user = userEvent.setup();
       await renderAlertsAs('ADMIN');
@@ -488,8 +495,63 @@ describe('AlertsPage', () => {
       );
       await user.click(within(dialog).getByRole('button', { name: /create rule/i }));
 
-      expect(await screen.findByText(/is in force/i)).toBeInTheDocument();
-      expect(screen.getByText(/discarded rather than hidden/i)).toBeInTheDocument();
+      const banner = await screen.findByText(/is in force for findings from now on/i);
+      expect(banner).toHaveTextContent(/nothing already in this list changes/i);
+      // And the finding it was written for is still there, which is the whole
+      // reason the wording matters.
+      expect(screen.getByText(/cleartext http credentials/i)).toBeInTheDocument();
+    });
+
+    it('warns when the prefilled rule would silence a whole detector', async () => {
+      /*
+       * ARP and device findings identify the actor by MAC and carry no source IP
+       * or port, so `draftFromAlert` prefills the detector and nothing else — and
+       * the form is then three characters of reason away from a rule that
+       * discards every finding of that kind from anywhere on the network.
+       *
+       * Not prevented: an operator who means it has no other way to write it, and
+       * the "at least one criterion" check passes because a kind IS a criterion.
+       * Said out loud instead, which is the sharpest edge the one-click path adds.
+       */
+      server.use(
+        http.get('/api/alerts', () =>
+          HttpResponse.json([
+            {
+              ...HIGH_ALERT,
+              id: 501,
+              kind: 'new_device',
+              sourceIp: null,
+              port: null,
+              title: 'New device on the network',
+            },
+          ]),
+        ),
+      );
+      const user = userEvent.setup();
+      renderApp(<AlertsPage />, { authenticated: true });
+
+      await user.click(
+        await screen.findByRole(
+          'button',
+          { name: /suppress findings like finding 501/i },
+          { timeout: 10_000 },
+        ),
+      );
+
+      const dialog = await screen.findByRole('dialog');
+      expect(await within(dialog).findByText(/finding from anywhere on the network/i)).toBeInTheDocument();
+    });
+
+    it('drops the warning once the rule is narrowed', async () => {
+      // The other half: the credential finding prefills a source and a port, so
+      // the warning must not be on screen for a rule that is already specific.
+      const user = userEvent.setup();
+      await renderAlertsAs('ADMIN');
+
+      await user.click(await screen.findByRole('button', { name: /suppress findings like finding 101/i }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).queryByText(/finding from anywhere on the network/i)).not.toBeInTheDocument();
     });
 
     it('closes without sending anything on cancel', async () => {
