@@ -282,6 +282,29 @@ export interface NetworkInterface {
   addresses: string[];
 }
 
+/**
+ * A capture the previous process was running and did not stop cleanly — see V18.
+ *
+ * Present on the status until this process starts a capture of its own. Without
+ * it the Capture screen can only say "Idle", which is equally true of a host that
+ * has never captured anything and one that was capturing until the service
+ * restarted at 03:14.
+ */
+export interface InterruptedCapture {
+  interfaceName: string;
+  filterIp: string | null;
+  snapshotLength: number;
+  timeoutMs: number;
+  startedAt: string;
+  /**
+   * Absent for a non-admin. The API strips it — it is an administrator's email
+   * address, and this endpoint is behind `requireAuth` rather than an admin gate.
+   * Everything else in the notice is shown to everyone, because "a capture
+   * stopped unexpectedly" is the point of it.
+   */
+  startedBy?: string;
+}
+
 export interface CaptureStatus {
   capturing: boolean;
   captureAvailable: boolean;
@@ -294,6 +317,18 @@ export interface CaptureStatus {
   /** Findings raised during this capture, before deduplication. */
   findingCount: number;
   startedAt: string | null;
+  /** What a restart interrupted, or `null` when nothing was left running. */
+  interrupted: InterruptedCapture | null;
+  /**
+   * True while the server still intends to resume that interruption by itself.
+   *
+   * The Capture page polls on it. `interrupted` alone does not say whether
+   * anything is going to happen: with `CAPTURE_RESUME_ON_START` on the server is
+   * about to start a capture, and with it off — the default — the notice waits on
+   * a person, so asking again changes nothing. False once the attempt has been
+   * made either way.
+   */
+  resumePending: boolean;
 }
 
 /** ip-api.com fields the UI surfaces. Everything else is passed through. */
@@ -494,3 +529,12 @@ export interface AuditActionOption {
   action: string;
   label: string;
 }
+
+/**
+ * What `startedBy` holds when the service resumed a capture by itself.
+ *
+ * Mirrors `api/src/services/capture-limits.ts`, like the DTOs above mirror
+ * `api/src/types/dto.ts`. It is a sentinel rather than a person, so the banner
+ * says the service did it instead of naming a user who does not exist.
+ */
+export const AUTO_RESUME_ACTOR = 'system:auto-resume';

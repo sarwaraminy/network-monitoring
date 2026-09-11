@@ -11,7 +11,11 @@ import { loadDeliverySettings, seedFromEnvironment } from './notify/settings.ser
 import { libraryVersion } from './packet/libpcap.js';
 import { startAdhoc, stopAdhoc } from './services/adhoc.service.js';
 import { loadAdhocSettings, seedAdhocSettingsFromEnvironment } from './services/adhoc-settings.service.js';
-import { stopAllCaptures } from './services/packet-capture.registry.js';
+import {
+  reportInterruptedCaptures,
+  resumeInterruptedCaptures,
+  stopAllCaptures,
+} from './services/packet-capture.registry.js';
 import { retentionIdle, startRetention, stopRetention } from './services/retention.service.js';
 import { flushSuppressionCounters, refreshSuppressions } from './services/suppression.service.js';
 
@@ -85,6 +89,21 @@ async function main(): Promise<void> {
   // will not exit.
   sensorScopeTimer.unref();
 
+  /*
+   * READING the record, which depends on nothing and so belongs early. Resuming
+   * is separate and happens after the feeds below — see `resumeInterruptedCaptures`.
+   *
+   * The first version did both here, and the comment claimed placing it before the
+   * suppression rules was what made resume safe. It was the opposite: a resumed
+   * capture decodes packets immediately, so it would have started against no rules
+   * and no indicator feeds.
+   *
+   * Reached whether or not `CAPTURE_RESUME_ON_START` is set: off, this is what
+   * lets the interface say a capture was interrupted rather than showing an "Idle"
+   * that is equally true of a host that never captured anything.
+   */
+  await reportInterruptedCaptures();
+
   // Before any capture can be started, so the first findings of the process are
   // filtered by the rules an operator already wrote. It fails open — see
   // services/suppression.service.ts — so a failure here costs noise, not alerts.
@@ -94,6 +113,17 @@ async function main(): Promise<void> {
   // Also after listen(): loading feeds can take seconds and may reach the
   // network, and neither should delay the API becoming available.
   await startIntel();
+
+  /*
+   * Only now, and only when `CAPTURE_RESUME_ON_START` is set.
+   *
+   * This is what the suppression comment above is protecting: a capture running
+   * before `refreshSuppressions()` and `startIntel()` matches its first findings
+   * against nothing an operator configured, so suppressed findings are stored
+   * *and* notified and intel matches are missed rather than deferred. The notice
+   * reached the screen long before this; only running the capture had to wait.
+   */
+  await resumeInterruptedCaptures();
 
   // Schedules the first sweep a minute out rather than running one now. Startup is
   // already doing migrations, feeds and sockets, and nothing expires in that minute

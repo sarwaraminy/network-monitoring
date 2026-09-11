@@ -9,6 +9,7 @@ import { WEBHOOK_FORMATS } from '../notify/types.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
 import { TREND_BUCKETS } from '../services/alert-buckets.js';
 import { AUDIT_ACTIONS, type AuditAction } from '../services/audit-types.js';
+import { MAX_CAPTURE_TIMEOUT_MS, MAX_SNAPSHOT_LENGTH } from '../services/capture-limits.js';
 import { hasSuppressionCriterion, NO_CRITERIA } from '../services/suppression-rules.js';
 
 /**
@@ -518,10 +519,40 @@ export const deliverySettingsPatchSchema = z
 
 // --- Packet capture ---
 
+/*
+ * Bounded at the top as well as the bottom, and the reason is the session row
+ * rather than pcap.
+ *
+ * `clampSnapshotLength` and `clampTimeout` already reduce anything absurd before
+ * it reaches libpcap, so a huge value used to capture perfectly well — but V18
+ * records what the operator *asked for*, not what the clamps left, and
+ * `capture_session` stores both as `INTEGER`. So `snaplength=3000000000` was
+ * accepted, captured fine, and failed the insert with Postgres 22003; the
+ * best-effort catch swallowed that, and the run existed with no session row at
+ * all. Not reported after a restart, not resumable, absent from the banner — the
+ * whole feature silently missing for exactly the capture nobody would think to
+ * check.
+ *
+ * The ceilings are the clamps' own rather than the column's maximum. They are the
+ * real limits — above them the extra is discarded — so a request beyond one is a
+ * mistake worth answering with a 400 that names the bound, instead of quietly
+ * reducing it by four orders of magnitude and recording the request as though it
+ * had been honoured.
+ */
 export const captureStartSchema = z.object({
   interfaceName: z.string().trim().min(1, 'interfaceName is required'),
-  snaplength: z.coerce.number().int().positive().default(65_536),
-  timeout: z.coerce.number().int().min(0).default(10),
+  snaplength: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(MAX_SNAPSHOT_LENGTH, `snaplength must be at most ${MAX_SNAPSHOT_LENGTH}`)
+    .default(65_536),
+  timeout: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_CAPTURE_TIMEOUT_MS, `timeout must be at most ${MAX_CAPTURE_TIMEOUT_MS}`)
+    .default(10),
   ipAddress: z.string().trim().min(1).optional(),
 });
 

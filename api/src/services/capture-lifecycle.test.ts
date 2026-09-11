@@ -1,0 +1,697 @@
+import assert from 'node:assert/strict';
+import { after, before, beforeEach, describe, it } from 'node:test';
+import { openTestDatabase } from '../test/database.js';
+import { AUTO_RESUME_ACTOR } from './capture-limits.js';
+
+/**
+ * The lifecycle of the session row, which is where this feature can go quiet.
+ *
+ * `capture-session.test.ts` covers what the row means. This covers what the
+ * *service* does with it, and every case here is one where the feature reports
+ * correctly in the ordinary run and says nothing in exactly the situation it was
+ * written for — a silence that looks identical to a host that has simply never
+ * captured anything.
+ *
+ * One thing deliberately NOT covered here: that `openCapture` does not await its
+ * own `sessionWrite`. Every case in this file reaches the service by replacing
+ * `openCapture`, since opening a pcap handle needs an interface CI does not have
+ * — and a test that replaces the function containing the line under test asserts
+ * nothing about it. The ordering that *is* observable, the stop waiting for the
+ * write it closes, is covered below.
+ *
+ * Resuming is switched ON for this file. It is the more dangerous half: with it
+ * off, a lost row costs one notice, and with it on it costs unattended capture
+ * permanently. The one case that needs it off mutates `env` in place and says so.
+ */
+
+process.env.SENSOR_ID = 'capture-lifecycle-sensor';
+process.env.CAPTURE_RESUME_ON_START = 'true';
+
+const database = await openTestDatabase({ id: 'capturelifecycle' });
+
+let sessions: typeof import('./capture-session.service.js');
+let env: typeof import('../config/env.js')['env'];
+let PacketCaptureService: typeof import('./packet-capture.service.js')['PacketCaptureService'];
+
+const SCOPE = 'interface';
+
+const STARTED = {
+  interfaceName: 'eth0',
+  snapshotLength: 65_535,
+  timeoutMs: 1000,
+  filterIp: null,
+  startedAt: new Date('2026-09-09T03:14:00.000Z'),
+  startedBy: 'alice',
+};
+
+/**
+ * The private state a running capture would have, without a pcap handle.
+ *
+ * `startCapture` is the honest way to reach it and needs an interface to capture
+ * from, which CI does not have and a developer machine does not have reliably.
+ * What is under test here is not pcap — it is what `stopCapture` and
+ * `reportInterruptedCapture` do about a session they believe is running — so the
+ * two fields that belief consists of are set directly.
+ */
+function pretendCapturing(service: InstanceType<typeof PacketCaptureService>): void {
+  const innards = service as unknown as {
+    capturing: boolean;
+    session: typeof STARTED;
+    startedAt: Date;
+  };
+  innards.capturing = true;
+  innards.session = STARTED;
+  innards.startedAt = STARTED.startedAt;
+}
+
+const openRow = () => sessions.recordCaptureStarted(SCOPE, STARTED);
+const isOpen = async () => (await sessions.findInterruptedCapture(SCOPE)) !== null;
+
+describe('what a process does with the session row', { skip: database.skip }, () => {
+  before(async () => {
+    sessions = await import('./capture-session.service.js');
+    ({ env } = await import('../config/env.js'));
+    ({ PacketCaptureService } = await import('./packet-capture.service.js'));
+    assert.equal(env.captureResumeOnStart, true, 'this file is written for resuming ON');
+  });
+
+  beforeEach(async () => {
+    await database.pool!.query('TRUNCATE capture_session');
+  });
+
+  after(async () => {
+    await database.pool?.end();
+    const { closeDb } = await import('../db/index.js');
+    await closeDb();
+  });
+
+  /*
+   * `index.ts` calls `reportInterruptedCapture` after `listen()`, so the API is
+   * already answering requests when it runs. An operator or a retrying client can
+   * start a capture in that window — and the row that capture just wrote is
+   * exactly what `findInterruptedCapture` returns.
+   *
+   * Without the guard the boot stamps the live row stopped. The capture goes on
+   * running with nothing open, so the interruption that ends it later leaves the
+   * next boot nothing to find, and the report never comes.
+   */
+  it('leaves the row alone when this process is already capturing', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+    pretendCapturing(service);
+
+    await service.reportInterruptedCapture();
+
+    assert.equal(await isOpen(), true, 'a live capture had its own session stamped stopped');
+    assert.equal(service.getStatus().interrupted, null, 'a live capture was reported as interrupted');
+  });
+
+  /*
+   * The guard before the read is not enough on its own, because the read yields.
+   *
+   * A capture starting while `findInterruptedCapture` is in flight is invisible to
+   * the first check, and its own live row is what comes back — so the sequence the
+   * guard exists to prevent runs anyway, one query's width later.
+   *
+   * Sitting in that window needs no stub. `reportInterruptedCapture` runs
+   * synchronously as far as the read and then yields, so anything done between
+   * the call and the `await` below happens while the query is in flight — which
+   * is precisely where an operator's capture would land.
+   */
+  it('re-checks after the read, which is where the window actually is', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+
+    const pending = service.reportInterruptedCapture();
+    pretendCapturing(service);
+    await pending;
+
+    assert.equal(service.getStatus().interrupted, null, 'a live capture was reported as interrupted');
+    assert.equal(await isOpen(), true, 'a live capture had its own session stamped stopped');
+  });
+
+  /*
+   * The row is the only durable record. Stamping it before the resume is tried
+   * makes the ordinary failure permanent: the host reboots, the interface is not
+   * up yet, the resume fails, and the notice that survives lives in the memory of
+   * a process nobody is watching. The next boot finds nothing and does not try
+   * again — unattended capture is off for good, through the switch that exists to
+   * prevent that.
+   */
+  it('leaves the row open while a resume is still to be attempted', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+
+    await service.reportInterruptedCapture();
+
+    assert.ok(service.getStatus().interrupted, 'the interruption was not reported');
+    assert.equal(await isOpen(), true, 'the row was stamped before the resume could be tried');
+  });
+
+  it('still has the session to retry after a resume fails', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+
+    await service.reportInterruptedCapture();
+    // No pcap here, so this is the failing resume the comment above describes.
+    await service.resumeInterruptedCapture();
+
+    assert.equal(await isOpen(), true, 'a failed resume discarded the only record of the session');
+  });
+
+  /*
+   * The guards cover the decision; this covers the write.
+   *
+   * A start that is mid-flight has already written its own open row while its
+   * `capturing` flag is still false, so every in-memory check passes and the
+   * unconditional `UPDATE … WHERE (sensor_id, scope)` stamps *that* row. The
+   * capture then runs with nothing open and the next boot has nothing to report —
+   * the same silence, reached through the one statement a process-memory guard
+   * cannot fence.
+   *
+   * Driven by replacing the row between the read and the write, which is what a
+   * concurrent start does: `reportInterruptedCapture` is left mid-flight while a
+   * newer session is recorded over the old one.
+   */
+  /*
+   * The guards cover the decision; the `WHERE` covers the write.
+   *
+   * A start that is mid-flight has already written its own open row while its
+   * `capturing` flag is still false, so every in-memory check passes and an
+   * unconditional `UPDATE … WHERE (sensor_id, scope)` stamps *that* row. The
+   * capture then runs with nothing open and the next boot has nothing to report —
+   * the same silence, reached through the one statement a process-memory guard
+   * cannot fence.
+   *
+   * Asserted on `recordCaptureStopped` directly rather than by racing
+   * `reportInterruptedCapture` against a concurrent start. Nothing orders a test's
+   * write between that function's read and its stamp, so the racing version
+   * passed whichever way the interleaving fell — it closed the *old* row about as
+   * often as the new one, and the assertion held for the wrong reason. What the
+   * fix actually promises is "stamp only the session you were given", and that is
+   * a statement about one call.
+   */
+  it('stamps only the session it was given', async () => {
+    const OLD = new Date('2026-09-09T03:14:00.000Z');
+    const NEW = new Date('2026-09-09T04:00:00.000Z');
+
+    await sessions.recordCaptureStarted(SCOPE, { ...STARTED, startedAt: OLD });
+    // The row is replaced, as a concurrent `POST /start` replaces it: same scope,
+    // its own `started_at`, and open.
+    await sessions.recordCaptureStarted(SCOPE, { ...STARTED, startedAt: NEW });
+
+    // A stop that believes it is closing the session it read a moment ago.
+    await sessions.recordCaptureStopped(SCOPE, { startedAt: OLD });
+
+    const still = await sessions.findInterruptedCapture(SCOPE);
+    assert.ok(still, 'a live session was stamped stopped by a call that never read it');
+    assert.equal(still.startedAt, NEW.toISOString(), 'the wrong row survived');
+  });
+
+  /*
+   * The other half: a stop that does name the current session still closes it.
+   * Without this the case above would pass with the update never running at all.
+   */
+  it('still stamps the session it did read', async () => {
+    const AT = new Date('2026-09-09T03:14:00.000Z');
+    await sessions.recordCaptureStarted(SCOPE, { ...STARTED, startedAt: AT });
+
+    await sessions.recordCaptureStopped(SCOPE, { startedAt: AT });
+
+    assert.equal(await isOpen(), false, 'the session it was given was left open');
+  });
+
+  /*
+   * Two callers, one instance.
+   *
+   * With resuming on, the banner and its Resume button go live early in boot while
+   * the auto-resume waits for `startIntel()`. An operator pressing Resume in that
+   * gap used to get through `startCapture`'s guard alongside the auto-resume,
+   * because `capturing` is only set several awaits in — leaving two pcap handles
+   * and two poll timers, the first of each never released.
+   *
+   * Asserted on the claim rather than on handles, since neither start can open one
+   * here: the second call must return without entering the body at all.
+   */
+  it('lets only one start claim the instance', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as { starting: boolean; openCapture: () => Promise<void> };
+
+    let entered = 0;
+    innards.openCapture = async () => {
+      entered += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    };
+
+    await Promise.all([
+      service.startCapture('eth0', 65_535, 1000, null, 'alice'),
+      service.startCapture('eth0', 65_535, 1000, null, 'the-auto-resume'),
+    ]);
+
+    assert.equal(entered, 1, 'two starts ran on one instance');
+    assert.equal(innards.starting, false, 'the claim was not released');
+  });
+
+  /*
+   * A stop can arrive before the start's own row has been written.
+   *
+   * The capture is live and stoppable as soon as the handle is open and the timer
+   * running, which is several lines before the insert. Scoping the stop's update
+   * to `started_at` — the right fix for the previous round — is what made this
+   * matter: the update matches nothing, returns, and then the insert lands
+   * unstamped. A capture the operator stopped cleanly is recorded as still
+   * running, so the next boot reports it as interrupted and, with resuming on,
+   * starts it again.
+   *
+   * Driven by holding the start mid-flight: `openCapture` is replaced with one
+   * that sets up the same state and leaves the write pending, which is the window.
+   */
+  it('closes the row even when the stop beats the start-record', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+      openCapture: () => Promise<void>;
+    };
+
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    innards.openCapture = async () => {
+      // Everything `openCapture` does before its insert: live, stoppable, and
+      // recorded only once the write it is holding completes.
+      innards.capturing = true;
+      innards.session = STARTED;
+      innards.startedAt = STARTED.startedAt;
+      innards.sessionWrite = held.then(() => sessions.recordCaptureStarted(SCOPE, STARTED));
+      await innards.sessionWrite;
+    };
+
+    const starting = service.startCapture('eth0', 65_535, 1000, null, 'alice');
+    const stopping = service.stopCapture('operator');
+
+    release();
+    await Promise.all([starting, stopping]);
+
+    assert.equal(await isOpen(), false, 'a capture the operator stopped was left recorded as running');
+  });
+
+  /*
+   * `startCapture` declines when another caller holds the instance, and the resume
+   * used to log success regardless — telling an unattended host's log that the
+   * interruption had been handled when it had not.
+   */
+  it('does not claim a resume it did not perform', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+    await service.reportInterruptedCapture();
+
+    // The operator's Resume, in the gap before the auto-resume fires.
+    const innards = service as unknown as { starting: boolean };
+    innards.starting = true;
+
+    const warnings: string[] = [];
+    const log = (service as unknown as { log: { warn: (...args: unknown[]) => void } }).log;
+    const realWarn = log.warn.bind(log);
+    log.warn = (...args: unknown[]) => {
+      warnings.push(JSON.stringify(args[1] ?? args[0]));
+    };
+
+    try {
+      await service.resumeInterruptedCapture();
+    } finally {
+      log.warn = realWarn;
+      innards.starting = false;
+    }
+
+    assert.equal(
+      warnings.some((line) => line.includes('Resumed the capture')),
+      false,
+      'a resume that never ran was logged as having succeeded',
+    );
+  });
+
+  /*
+   * The auto-resume is not a person.
+   *
+   * `started_by` is the record of who started a capture — redacted from non-admin
+   * `/status` because it names one — so carrying the previous session's value
+   * forward files an unattended machine action against somebody who was not
+   * there, and the better the resume works the more of them accumulate.
+   */
+  it('does not attribute an automatic resume to the operator it interrupted', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+    await service.reportInterruptedCapture();
+
+    // The resume itself cannot open a handle here, so the assertion is on what it
+    // passes down rather than on the row it would have written.
+    const passed: string[] = [];
+    const innards = service as unknown as {
+      startCapture: (...args: [string, number, number, string | null, string]) => Promise<string>;
+    };
+    innards.startCapture = async (...args) => {
+      passed.push(args[4]);
+      return 'started';
+    };
+
+    await service.resumeInterruptedCapture();
+
+    assert.deepEqual(passed, [AUTO_RESUME_ACTOR], 'the resumed session was filed under a person');
+    assert.notEqual(passed[0], STARTED.startedBy);
+  });
+
+  /*
+   * A stop that lands inside the start window has to wait for it.
+   *
+   * `starting` fenced a second *start*; the stop side never read it. So a stop
+   * arriving while `openCapture` was awaiting found `handle` and `pollTimer` null
+   * and `capturing` false, closed nothing, stamped nothing, and answered
+   * `capturing: false` — and then the start finished, opening a handle, starting
+   * a timer and writing an *open* row. The operator saw Idle while the interface
+   * was in promiscuous mode, the next boot reported an interruption that never
+   * happened, and with resuming on it restarted the capture they had just stopped.
+   */
+  it('stops a capture whose start had not finished yet', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+      openCapture: () => Promise<void>;
+    };
+
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    // A start that has claimed the instance and is still working: it becomes live
+    // only once released, which is the window the stop lands in.
+    innards.openCapture = async () => {
+      await held;
+      innards.capturing = true;
+      innards.session = STARTED;
+      innards.startedAt = STARTED.startedAt;
+      innards.sessionWrite = sessions.recordCaptureStarted(SCOPE, STARTED);
+      await innards.sessionWrite;
+    };
+
+    const starting = service.startCapture('eth0', 65_535, 1000, null, 'alice');
+    const stopping = service.stopCapture('operator');
+
+    release();
+    await Promise.all([starting, stopping]);
+
+    assert.equal(service.getStatus().capturing, false, 'the capture outlived the stop');
+    assert.equal(await isOpen(), false, 'a stopped capture was left recorded as running');
+  });
+
+  /*
+   * The two ways of declining are different answers.
+   *
+   * `running` means the caller already has what it asked for — a client retry, a
+   * second administrator on the screen, a script that starts idempotently — and
+   * telling it to wait for a start to settle is advice about something that
+   * settled already.
+   */
+  it('tells a start racing another apart from one that is simply late', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      starting: boolean;
+      openCapture: () => Promise<void>;
+    };
+    innards.openCapture = async () => {};
+
+    innards.starting = true;
+    assert.equal(await service.startCapture('eth0', 65_535, 1000, null, 'alice'), 'starting');
+
+    innards.starting = false;
+    innards.capturing = true;
+    assert.equal(await service.startCapture('eth0', 65_535, 1000, null, 'alice'), 'running');
+
+    innards.capturing = false;
+    assert.equal(await service.startCapture('eth0', 65_535, 1000, null, 'alice'), 'started');
+  });
+
+  /*
+   * A start landing inside a stop must keep its own detection.
+   *
+   * `stopCapture` clears `capturing` and then awaits twice with no claim held, so
+   * a `POST /stop` and a `POST /start` can interleave. Reading `this.sink` and
+   * `this.engine` after those awaits picked up the *new* capture's objects — the
+   * stop nulled them and closed the new sink, leaving a capture that is genuinely
+   * running, reports `capturing: true`, and feeds a live poll timer into a null
+   * engine. No findings, no alerts, no device recording, and nothing on screen to
+   * say so, because the packet count still climbs.
+   *
+   * Driven by holding the stop inside its own await and starting during it.
+   */
+  it('leaves a capture that started mid-stop with its detection attached', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+      sink: { close: () => Promise<void> } | null;
+      engine: object | null;
+      openCapture: () => Promise<void>;
+    };
+
+    // A capture already running, with detection attached.
+    innards.capturing = true;
+    innards.session = STARTED;
+    innards.startedAt = STARTED.startedAt;
+    innards.sink = { close: async () => {} };
+    innards.engine = { the: 'first engine' };
+
+    // The stop yields here, which is the window.
+    let release: () => void = () => {};
+    innards.sessionWrite = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const freshSink = { close: async () => {} };
+    const freshEngine = { the: 'second engine' };
+    innards.openCapture = async () => {
+      innards.capturing = true;
+      innards.session = STARTED;
+      innards.startedAt = STARTED.startedAt;
+      innards.sink = freshSink;
+      innards.engine = freshEngine;
+    };
+
+    const stopping = service.stopCapture('operator');
+
+    /*
+     * The window opens where `stopCapture` clears `capturing` — until then a
+     * start is refused as `'running'`. The stop is held at its first await, one
+     * line earlier than that, so the flag is cleared here to stand in for the
+     * line that clears it. Everything after is the real interleaving.
+     */
+    innards.capturing = false;
+    // The operator's new capture, started while the stop was mid-flight.
+    const starting = service.startCapture('eth0', 65_535, 1000, null, 'alice');
+
+    release();
+    await Promise.all([stopping, starting]);
+
+    assert.equal(innards.engine, freshEngine, 'the new capture was left with no detection engine');
+    assert.equal(innards.sink, freshSink, 'the new capture had its alert sink taken away');
+  });
+
+  /*
+   * A second stop entering mid-teardown must not close a row the first one meant
+   * to leave open.
+   *
+   * `session` was detached before the awaits and `capturing` cleared after them,
+   * so a stop landing in between read `wasCapturing === true` with `session`
+   * already null — and fell to the unscoped `recordCaptureStopped(label, {})`,
+   * which carries neither `started_at` nor `stopped_at IS NULL` and stamps
+   * whatever row is there. A `read-error` stop leaves its row open on purpose so
+   * the next boot can report it; an operator stop racing one closed it, and the
+   * interruption was then lost for good.
+   */
+  it('does not let a second stop close the row the first one left open', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+    };
+
+    await openRow();
+    innards.capturing = true;
+    innards.session = STARTED;
+    innards.startedAt = STARTED.startedAt;
+
+    // The first stop yields here, which is the window.
+    let release: () => void = () => {};
+    innards.sessionWrite = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    // A capture that died on its own: leaves the row open for the next boot.
+    const first = service.stopCapture('read-error');
+    // The operator's stop, arriving while that one is mid-flight.
+    const second = service.stopCapture('operator');
+
+    release();
+    await Promise.all([first, second]);
+
+    assert.equal(await isOpen(), true, 'the interruption was stamped away by a racing stop');
+  });
+
+  /*
+   * A start arriving mid-teardown must not be told a torn-down capture is running.
+   *
+   * The handle is closed and the poll timer cleared at the top of the stop, but
+   * `capturing` stayed true across both awaits — so a `POST /start` in that gap
+   * got `'running'` about a capture that no longer had a handle, was dropped, and
+   * was answered 200. A moment later the stop finished and the interface went
+   * Idle with no error and nothing to retry against.
+   */
+  it('does not report a torn-down capture as running to a start', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+      openCapture: () => Promise<void>;
+    };
+
+    innards.capturing = true;
+    innards.session = STARTED;
+    innards.startedAt = STARTED.startedAt;
+
+    let release: () => void = () => {};
+    innards.sessionWrite = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let opened = 0;
+    innards.openCapture = async () => {
+      opened += 1;
+      innards.capturing = true;
+    };
+
+    const stopping = service.stopCapture('operator');
+    const outcome = await service.startCapture('eth0', 65_535, 1000, null, 'alice');
+
+    release();
+    await stopping;
+
+    assert.notEqual(outcome, 'running', 'a start was told a torn-down capture was running');
+    assert.equal(opened, 1, 'the start was dropped rather than run');
+  });
+
+  /*
+   * A stop must not retire a write handle it never awaited.
+   *
+   * `capturing` is cleared synchronously now, so a start can pass every guard
+   * while the stop is awaiting `sessionWrite` — and that start assigns its own
+   * promise to the field. Nulling it unconditionally threw that one away, and the
+   * damage landed on the *next* stop: `sessionWrite === null`, so it skipped the
+   * wait and ran its scoped update before the start's insert had committed. The
+   * update matched nothing, the insert landed with `stopped_at` still null, and a
+   * cleanly stopped capture was reported as interrupted at the next boot.
+   */
+  it('keeps the write handle a start installed while it was waiting', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+      openCapture: () => Promise<void>;
+    };
+
+    innards.capturing = true;
+    innards.session = STARTED;
+    innards.startedAt = STARTED.startedAt;
+
+    let release: () => void = () => {};
+    innards.sessionWrite = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    // The start that lands during the stop's wait, installing its own handle.
+    const fresh = new Promise<void>(() => {});
+    innards.openCapture = async () => {
+      innards.capturing = true;
+      innards.sessionWrite = fresh;
+    };
+
+    const stopping = service.stopCapture('operator');
+    const starting = service.startCapture('eth0', 65_535, 1000, null, 'alice');
+
+    release();
+    await Promise.all([stopping, starting]);
+
+    assert.equal(innards.sessionWrite, fresh, "the start's write handle was discarded by the stop");
+  });
+
+  /*
+   * With resuming off nothing is going to bring it back, so the notice belongs to
+   * the process that found it and the row is closed behind it — otherwise every
+   * restart re-announces an interruption from a machine that has been fine since.
+   */
+  it('stamps the row when no resume will be attempted', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+
+    // Mutated rather than set through the environment: the pair of behaviours is
+    // the finding, and reading them apart in two files would hide that. `env` is
+    // readonly to everything that is not a test, which is why this needs the cast.
+    const mutable = env as { captureResumeOnStart: boolean };
+    mutable.captureResumeOnStart = false;
+    try {
+      await service.reportInterruptedCapture();
+    } finally {
+      mutable.captureResumeOnStart = true;
+    }
+
+    assert.ok(service.getStatus().interrupted, 'the interruption was not reported');
+    assert.equal(await isOpen(), false, 'the row was left open with nothing to reopen it');
+  });
+
+  /*
+   * A read error is the pcap handle failing under a capture that is still the
+   * current process's. It leaves the row open — which is what lets the next boot
+   * speak — but the process it happened in showed a bare "Idle", so an operator
+   * starting a new capture overwrote the row and erased the incident entirely.
+   */
+  it('reports a capture that died under it, in the process where it died', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+    pretendCapturing(service);
+
+    await service.stopCapture('read-error');
+
+    const status = service.getStatus();
+    assert.equal(status.capturing, false);
+    assert.equal(status.interrupted?.interfaceName, 'eth0');
+    assert.equal(status.interrupted?.startedBy, 'alice');
+    assert.equal(await isOpen(), true, 'a capture that died on its own was recorded as a clean stop');
+  });
+
+  it('says nothing when the operator was the one who stopped it', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    await openRow();
+    pretendCapturing(service);
+
+    await service.stopCapture('operator');
+
+    assert.equal(service.getStatus().interrupted, null, 'an operator stop was reported as an interruption');
+    assert.equal(await isOpen(), false);
+  });
+});

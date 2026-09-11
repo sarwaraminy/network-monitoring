@@ -62,6 +62,8 @@ export const ERRORS_EN = {
     '{mac} is known to more than one sensor ({sensors}). Add ?sensor= to say which one should ' +
     'forget it.',
   'error.last_administrator': 'This is the only administrator left; promote another account first.',
+  'error.capture_already_starting':
+    'A capture is already starting on this interface. Wait for it to settle, then check the capture status.',
   'error.email_in_use': 'Email is already in use.',
   'error.cannot_demote_self':
     'You cannot remove your own administrator role. Ask another administrator to do it.',

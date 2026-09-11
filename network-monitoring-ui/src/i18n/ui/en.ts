@@ -296,6 +296,17 @@ export const UI_EN = {
     'Would have hidden {matched, number} of the last {examined, number} alerts — {occurrences, number} observations in total.',
   'suppressions.preview_window': 'Examined {from} to {to}',
 
+  'capture.resume': 'Resume',
+  // The service resumed this one itself, so there is nobody to name. The
+  // operator who started the original capture stays on the notice about it.
+  'capture.interrupted_note_auto':
+    'Capture on {interface} stopped unexpectedly. The service had resumed it automatically at ' +
+    '{at}, and it is not running now.',
+  'capture.interrupted_note_anon':
+    'Capture on {interface} stopped unexpectedly. It was started at {at} and is not running now.',
+  'capture.interrupted_note':
+    'Capture on {interface} stopped unexpectedly. It was started by {by} at {at} and is not ' +
+    'running now.',
   'capture.unavailable_note':
     'Live capture is unavailable on the server: the packet capture library could not be loaded. ' +
     'Install Npcap (Windows) or libpcap (Linux/macOS) and restart the API. Everything else on this ' +

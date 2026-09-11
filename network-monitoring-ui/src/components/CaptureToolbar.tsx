@@ -15,8 +15,10 @@ import Typography from '@mui/material/Typography';
 import { type ReactNode, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import type { UsePacketCapture } from '../hooks/usePacketCapture';
+import { useFormatters } from '../i18n/format';
 import { useMessageText } from '../i18n/message-state';
 import { type Translate, useT } from '../i18n/ui';
+import { AUTO_RESUME_ACTOR, type CaptureStatus } from '../types';
 import { DisclosureCaret } from './DisclosureCaret';
 import SurfaceCard from './SurfaceCard';
 
@@ -61,6 +63,37 @@ function interfaceHelperText(loading: boolean, count: number, t: Translate): str
 }
 
 /** Replaces the row of Bootstrap form-groups at the top of both capture pages. */
+/**
+ * What the interruption banner says, given who started the capture it is about.
+ *
+ * Three cases rather than two, and the third is the reason this moved out of the
+ * JSX: `AUTO_RESUME_ACTOR` is not a person. It is what the server records when it
+ * resumed a capture by itself at boot, so rendering it through the `{by}` slot
+ * would read as "started by system:auto-resume", which names a user who does not
+ * exist. The sentence says the service did it instead.
+ *
+ * The anonymous case stays distinct from both: it is a reader the API withheld
+ * the name from, and an empty `{by}` renders as "started by  at 03:14", which
+ * looks like a rendering fault rather than a redaction.
+ */
+function interruptedNote(
+  t: Translate,
+  fmt: ReturnType<typeof useFormatters>,
+  interrupted: NonNullable<CaptureStatus['interrupted']>,
+): string {
+  const common = {
+    interface: interrupted.interfaceName,
+    at: fmt.dateTime(interrupted.startedAt),
+  };
+
+  if (interrupted.startedBy === AUTO_RESUME_ACTOR) {
+    return t('capture.interrupted_note_auto', common);
+  }
+  return interrupted.startedBy
+    ? t('capture.interrupted_note', { ...common, by: interrupted.startedBy })
+    : t('capture.interrupted_note_anon', common);
+}
+
 export default function CaptureToolbar({
   capture,
   showIpFilter = false,
@@ -89,6 +122,7 @@ export default function CaptureToolbar({
     setFilterIp,
     status,
     capturing,
+    resume,
     busy,
     loadingInterfaces,
     error,
@@ -100,6 +134,7 @@ export default function CaptureToolbar({
   } = capture;
 
   const errorText = useMessageText();
+  const fmt = useFormatters();
 
   const captureUnavailable = status?.captureAvailable === false;
 
@@ -143,6 +178,48 @@ export default function CaptureToolbar({
       {captureUnavailable && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           {t('capture.unavailable_note')}
+        </Alert>
+      )}
+      {/*
+        What a restart interrupted — see V18.
+        
+        Without it the chip below reads "Idle", which is equally true of a host
+        that has never captured anything and one that was capturing until the
+        service restarted at 03:14. For a monitoring product a gap in monitoring
+        that nothing reports is the worst state it can be in, because it looks
+        exactly like the good one.
+        
+        Shown until this process starts a capture of its own — on every visit
+        until then, which is deliberate: the notice is that monitoring stopped, and
+        that stays true until somebody acts on it.
+        
+        Whether it survives the run that reported it depends on whether anything
+        has acted on the interruption. With resuming off the server stamps the
+        session stopped as soon as it finds one, so a service restarted twice does
+        not report it twice. With `CAPTURE_RESUME_ON_START` on the row stays open
+        until a resume succeeds — so a failed resume is reported again at the next
+        restart, deliberately, because that row is what lets the next boot retry.
+        
+        `startedBy` is absent for a non-admin — the API strips it, since it is an
+        administrator's email and this endpoint is not admin-gated. The rest of the
+        notice is shown to everyone, because "monitoring stopped" is not privileged.
+      */}
+      {status?.interrupted && !capturing && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 2 }}
+          action={
+            <Button
+              size="small"
+              color="inherit"
+              disabled={busy || captureUnavailable}
+              onClick={() => resume(status.interrupted as NonNullable<typeof status.interrupted>)}
+            >
+              {t('capture.resume')}
+            </Button>
+          }
+        >
+          {interruptedNote(t, fmt, status.interrupted)}
         </Alert>
       )}
       {error && (
@@ -223,7 +300,7 @@ export default function CaptureToolbar({
               value={timeout}
               onChange={(event) => setTimeoutMs(Number(event.target.value))}
               disabled={capturing}
-              slotProps={{ htmlInput: { min: 0, step: 10 } }}
+              slotProps={{ htmlInput: { min: 0, max: 10_000, step: 10 } }}
               helperText={t('capture.timeout_helper')}
               fullWidth
             />

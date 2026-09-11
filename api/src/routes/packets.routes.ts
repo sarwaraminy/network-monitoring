@@ -6,6 +6,7 @@ import { getGeolocationData } from '../networkservices/ip-geolocation.service.js
 import { getDomainName } from '../networkservices/ip-info.service.js';
 import { getWhoisData } from '../networkservices/ip-whois.service.js';
 import { withoutPayload } from '../packet/mapping.js';
+import { actorOf } from '../services/audit.service.js';
 import type { PacketCaptureService } from '../services/packet-capture.service.js';
 import type { IpInfoResponse } from '../types/dto.js';
 import { captureStartSchema, ipAddressSchema } from './validation.js';
@@ -62,12 +63,35 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
         throw HttpError.of(400, 'error.ip_required');
       }
 
-      await capture.startCapture(
+      const started = await capture.startCapture(
         interfaceName,
         snaplength,
         timeout,
         options.requireIpFilter ? ipAddress : null,
+        // Recorded with the session so an interruption notice can say whose
+        // capture was cut short — see V18.
+        actorOf(req.user).name,
       );
+
+      /*
+       * Each outcome gets its own answer, and only one of the three is an error.
+       *
+       * `starting` is a race worth telling the caller about: with
+       * `CAPTURE_RESUME_ON_START=true` the banner and its Resume button go live
+       * before the auto-resume fires, so an operator pressing it can lose.
+       * Answering 200 with `capturing: false` sent the interface to Idle — and
+       * `usePacketCapture` only polls while capturing is true, so it stayed there,
+       * showing an interruption banner while a capture was in fact running.
+       *
+       * `running` is not an error at all. A client retry after a slow response, a
+       * second administrator on the Capture screen, or a script that starts
+       * idempotently all reach it, and the capture they asked for *is* running —
+       * so they get the live status, as they did before any of this. Telling them
+       * to wait for a start to settle would be advice about something that has
+       * already settled.
+       */
+      if (started === 'starting') throw HttpError.of(409, 'error.capture_already_starting');
+
       res.json(capture.getStatus());
     }),
   );
@@ -110,9 +134,30 @@ export function createPacketRouter(capture: PacketCaptureService, options: Packe
     res.json(capture.getNetworkInterfaces());
   });
 
-  /** GET /status — capture state, which the Java API had no way to report. */
-  router.get('/status', (_req, res) => {
-    res.json(capture.getStatus());
+  /**
+   * GET /status — capture state, which the Java API had no way to report.
+   *
+   * `interrupted.startedBy` is an administrator's email address, and this route is
+   * behind `requireAuth` rather than `requireRole('ADMIN')` — that gate covers only
+   * `/start`, `/stop` and `/clear`. So a USER polling status learned which
+   * administrator had started the capture. The same decision two routes up strips
+   * packet payloads for a non-admin; this is the same class and the same shape.
+   *
+   * The rest of the notice is kept: a USER seeing that capture stopped when the
+   * service restarted is the point of the feature, and *who* started it is the only
+   * part that is not theirs to know. `startCapture` is what records it — see V18 —
+   * and until capture actions reach the audit trail this column is the only place
+   * that answer exists at all, which is a further reason not to hand it out.
+   */
+  router.get('/status', (req, res) => {
+    const status = capture.getStatus();
+    const isAdmin = req.user?.role.toLowerCase() === 'admin';
+    if (isAdmin || !status.interrupted) {
+      res.json(status);
+      return;
+    }
+    const { startedBy: _startedBy, ...interrupted } = status.interrupted;
+    res.json({ ...status, interrupted });
   });
 
   /** GET /ip-info?ipAddress= — reverse DNS + WHOIS + geolocation. */
