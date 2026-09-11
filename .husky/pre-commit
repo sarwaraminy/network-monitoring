@@ -1,3 +1,9 @@
+# Refuse a staged credential, or a filename a quoting accident has mangled.
+# First, so a commit that should not happen is stopped before anything is
+# rewritten. See scripts/no-committed-secrets.mjs for what it does and does not
+# claim to be.
+node scripts/no-committed-secrets.mjs
+
 # Lint and format only what is staged. --no-errors-on-unmatched keeps commits that
 # touch nothing Biome handles (docs, SQL) from failing.
 npx biome check --staged --write --no-errors-on-unmatched
