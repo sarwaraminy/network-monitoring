@@ -583,6 +583,19 @@ const ROUTERS: RouterPosture[] = [
     file: 'logs.routes.ts',
     router: () => logsRouter,
     role: 'admin',
+    /*
+     * Two routes now, both the same read, and nothing that writes.
+     *
+     * The three legacy writes — `POST /log/add`, `PUT /log/:id`, `DELETE /log/:id`
+     * — are gone rather than guarded: rows in `logs` are a record of what was
+     * observed on the network, nothing in this application writes them, and an
+     * endpoint that can fabricate one exists only so that it can be protected.
+     *
+     * `readsAreOpen` is required because of that removal — see the posture check
+     * below. Reading the history stays open to any authenticated account,
+     * deliberately: it is the same class of data the alert list already shows.
+     */
+    readsAreOpen: true,
     // `POST /logs` is a read. It exists because the Java controller it replaces
     // exposed the list that way, and the GET beside it is the same data for new
     // callers; the method is legacy, not a mutation. Named with its verb, so a
@@ -689,12 +702,30 @@ describe('every router, declared', () => {
         const routes = routesOf(posture.router());
         assert.ok(routes.length > 0, `${posture.file} exposes no routes`);
 
-        if (routes.some((route) => MUTATING.has(route.method))) return;
+        /*
+         * An exempt route does not count towards "this posture can fail".
+         *
+         * `assertRouterGuards` skips anything named in `ungatedMutations` before it
+         * asserts a role, so a router whose only mutating routes are all exempt is
+         * in exactly the position a GET-only router is: `role` is applied to
+         * nothing. Asking merely whether a mutating route *exists* missed that, and
+         * `logs.routes.ts` walked straight into it when its three legacy write
+         * endpoints were deleted — one exempt `POST /logs` left behind, `role`
+         * asserting nothing, and the reads' posture never declared. A hole reached
+         * by removing routes rather than by forgetting a guard, which is the one
+         * direction this file had not considered.
+         */
+        const exempt = new Set(posture.ungatedMutations ?? []);
+        const asserted = routes.filter(
+          (route) => MUTATING.has(route.method) && !exempt.has(`${route.method.toUpperCase()} ${route.path}`),
+        );
+        if (asserted.length > 0) return;
 
         assert.ok(
           posture.readRole !== undefined || posture.readsAreOpen === true,
-          `${posture.file} has no mutating route, so \`role\` asserts nothing about it. Add ` +
-            '`readRole` if its reads are privileged, or `readsAreOpen: true` if they are not',
+          `${posture.file} has no mutating route that \`role\` is applied to, so it asserts ` +
+            'nothing about this router. Add `readRole` if its reads are privileged, or ' +
+            '`readsAreOpen: true` if they are not',
         );
       });
 

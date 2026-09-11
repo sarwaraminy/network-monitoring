@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, it } from 'node:test';
-import { openTestDatabase } from '../test/database.js';
+import { openTestDatabase, truncateAll } from '../test/database.js';
 import { AUTO_RESUME_ACTOR } from './capture-limits.js';
 
 /**
@@ -693,5 +693,109 @@ describe('what a process does with the session row', { skip: database.skip }, ()
 
     assert.equal(service.getStatus().interrupted, null, 'an operator stop was reported as an interruption');
     assert.equal(await isOpen(), false);
+  });
+
+  /**
+   * What reaches the audit trail, which is a different question from what reaches
+   * `capture_session`.
+   *
+   * The session row is bookkeeping for a banner; the trail is the record of who
+   * did it. Starting to read other people's traffic off an interface used to leave
+   * no entry at all — `POST /start` never called `recordAudit` — and
+   * `capture_session.started_by` was standing in for one.
+   *
+   * Two things have to hold, and both are about *not* recording:
+   *
+   *  - A stop that stopped nothing is not an event. `stopCapture` runs happily
+   *    against an idle service, so the route needs to be told whether there was a
+   *    capture to end, which is what its return value is for.
+   *  - An unattended resume is an event, and is not a person's. It is also the one
+   *    start nobody witnesses, which is what makes leaving it out of the trail the
+   *    expensive omission rather than the tidy one.
+   */
+  describe('what a capture puts in the audit trail', () => {
+    // `truncateAll` rather than a `TRUNCATE` of our own: `audit_events` carries a
+    // BEFORE TRUNCATE trigger, because an append-only record that can be
+    // truncated is not append-only, and the harness is the one place that
+    // suspends it — for exactly the length of its own statement.
+    beforeEach(() => truncateAll(database.pool!));
+
+    const captureRows = async () =>
+      (
+        await database.pool!.query<{
+          actor: string;
+          action: string;
+          subject: string | null;
+          detail: Record<string, unknown>;
+        }>(
+          "SELECT actor, action, subject, detail FROM audit_events WHERE action LIKE 'capture.%' ORDER BY id",
+        )
+      ).rows;
+
+    it('reports a stop that ended a running capture', async () => {
+      const service = new PacketCaptureService(SCOPE);
+      await openRow();
+      pretendCapturing(service);
+
+      assert.equal(await service.stopCapture('operator'), true);
+    });
+
+    it('reports that a stop on an idle service stopped nothing', async () => {
+      // The route records `capture.stop` off this, so a `true` here would file an
+      // entry every time somebody pressed Stop on an idle Capture screen.
+      const service = new PacketCaptureService(SCOPE);
+
+      assert.equal(await service.stopCapture('operator'), false);
+    });
+
+    it('records an unattended resume, and not against the operator it interrupted', async () => {
+      const service = new PacketCaptureService(SCOPE);
+      await openRow();
+      await service.reportInterruptedCapture();
+
+      // No pcap handle here, so the start is replaced — the audit write is what
+      // the resume does *after* a start it is told succeeded.
+      const innards = service as unknown as {
+        startCapture: (...args: [string, number, number, string | null, string]) => Promise<string>;
+      };
+      innards.startCapture = async () => 'started';
+
+      await service.resumeInterruptedCapture();
+
+      const rows = await captureRows();
+      assert.equal(rows.length, 1, 'the one start nobody witnessed was not recorded');
+      assert.equal(rows[0]!.action, 'capture.start');
+      assert.equal(rows[0]!.actor, AUTO_RESUME_ACTOR);
+      assert.notEqual(rows[0]!.actor, STARTED.startedBy);
+      assert.equal(rows[0]!.subject, STARTED.interfaceName, 'a start with no interface names nothing');
+      assert.deepEqual(rows[0]!.detail, {
+        scope: SCOPE,
+        snapshotLength: STARTED.snapshotLength,
+        timeoutMs: STARTED.timeoutMs,
+        filterIp: STARTED.filterIp,
+        // The actor already says so, but an operator reading the trail should not
+        // have to know the sentinel string to tell this from a deliberate start.
+        automatic: true,
+      });
+    });
+
+    it('records nothing when the resume was declined', async () => {
+      // `startCapture` declines when another caller holds the instance — an
+      // operator pressing Resume in the gap before this runs. That capture is
+      // theirs and the route records it; a second row here would show two starts
+      // for one capture.
+      const service = new PacketCaptureService(SCOPE);
+      await openRow();
+      await service.reportInterruptedCapture();
+
+      const innards = service as unknown as {
+        startCapture: (...args: [string, number, number, string | null, string]) => Promise<string>;
+      };
+      innards.startCapture = async () => 'running';
+
+      await service.resumeInterruptedCapture();
+
+      assert.deepEqual(await captureRows(), []);
+    });
   });
 });

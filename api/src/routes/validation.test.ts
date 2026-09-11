@@ -11,7 +11,6 @@ import {
   idSchema,
   ipAddressSchema,
   loginSchema,
-  logSchema,
   parseId,
   parseSince,
   signupSchema,
@@ -322,44 +321,6 @@ describe('signup', () => {
     // the account actually gets is decided by services/signup-policy.ts from the
     // caller's verified token. See the privilege-escalation fix.
     assert.equal(signupSchema.parse({ ...valid, role: 'ADMIN' }).role, 'ADMIN');
-  });
-});
-
-describe('log rows', () => {
-  const valid = {
-    sourceip: '10.0.0.1',
-    destinationip: '10.0.0.2',
-    protocol: 'TCP',
-    details: 'something happened',
-  };
-
-  it('accepts a minimal valid row', () => {
-    assert.equal(logSchema.safeParse(valid).success, true);
-  });
-
-  it('requires the non-nullable fields', () => {
-    for (const field of ['sourceip', 'destinationip', 'protocol', 'details'] as const) {
-      assert.equal(logSchema.safeParse({ ...valid, [field]: '' }).success, false, `${field} empty`);
-      const without = { ...valid };
-      delete (without as Record<string, unknown>)[field];
-      assert.equal(logSchema.safeParse(without).success, false, `${field} missing`);
-    }
-  });
-
-  it('allows the optional MAC fields to be null or absent', () => {
-    assert.equal(logSchema.safeParse({ ...valid, sourcemac: null }).success, true);
-    assert.equal(logSchema.safeParse({ ...valid, ipversion: null }).success, true);
-  });
-
-  it('coerces a timestamp and rejects an unparseable one', () => {
-    const parsed = logSchema.parse({ ...valid, timestamp: '2026-07-27T12:00:00Z' });
-    assert.ok(parsed.timestamp instanceof Date);
-    assert.equal(logSchema.safeParse({ ...valid, timestamp: 'not a date' }).success, false);
-  });
-
-  it('bounds the field lengths', () => {
-    assert.equal(logSchema.safeParse({ ...valid, sourceip: 'x'.repeat(201) }).success, false);
-    assert.equal(logSchema.safeParse({ ...valid, protocol: 'x'.repeat(101) }).success, false);
   });
 });
 

@@ -64,7 +64,10 @@ describe('the action vocabulary', () => {
   it('every action satisfies the constraint the database will apply', () => {
     const pattern = checkPattern();
 
-    for (const action of Object.keys(audit.AUDIT_ACTIONS)) {
+    // Retired actions included: their rows were written under the same constraint
+    // and the filter still validates against them, so a malformed one would be a
+    // value the filter offers and the column cannot hold.
+    for (const action of Object.keys(audit.AUDIT_ACTION_LABELS)) {
       assert.match(
         action,
         pattern,
@@ -95,9 +98,35 @@ describe('the action vocabulary', () => {
   it('gives every action a label a reader can understand', () => {
     // The UI filter is built from this map, so an action with a blank or
     // placeholder label would ship as an unexplained row in the trail.
-    for (const [action, label] of Object.entries(audit.AUDIT_ACTIONS)) {
+    for (const [action, label] of Object.entries(audit.AUDIT_ACTION_LABELS)) {
       assert.ok(label.trim().length > 3, `${action} has no usable label`);
       assert.doesNotMatch(label, /^[a-z_]+\.[a-z_]+$/, `${action}'s label is just the action again`);
+    }
+  });
+
+  it('keeps a retired action labelled and filterable', () => {
+    /*
+     * The trail cannot be pruned — V9 revokes UPDATE, DELETE and TRUNCATE — so an
+     * endpoint being removed does not remove the rows it wrote. Dropping its entry
+     * would have taken the label off those rows and, worse, dropped the value from
+     * the filter's enum, leaving them reachable only by paging past everything
+     * newer.
+     */
+    for (const action of Object.keys(audit.RETIRED_AUDIT_ACTIONS)) {
+      assert.ok(action in audit.AUDIT_ACTION_LABELS, `${action} is not offered to the filter`);
+    }
+  });
+
+  it('keeps the retired actions out of what code may write', () => {
+    // The other half: `AuditAction` is derived from `AUDIT_ACTIONS` alone, so a new
+    // `recordAudit` call naming a retired action does not compile. Asserted at
+    // runtime too, because a careless spread into `AUDIT_ACTIONS` would widen the
+    // type back without anything else noticing.
+    for (const action of Object.keys(audit.RETIRED_AUDIT_ACTIONS)) {
+      assert.ok(
+        !(action in audit.AUDIT_ACTIONS),
+        `${action} is retired but still writable — nothing stops a new caller recording one`,
+      );
     }
   });
 });

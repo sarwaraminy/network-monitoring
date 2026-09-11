@@ -31,6 +31,76 @@ function migrationsDir(): string {
   return found;
 }
 
+/** A migration identified by its filename alone, before its contents are read. */
+export interface MigrationFile {
+  version: string;
+  name: string;
+  file: string;
+}
+
+/**
+ * Filenames to versions, refusing two files that claim the same one.
+ *
+ * Exported and separate from `loadMigrations` so the collision check can be
+ * tested without a migrations directory, and so it runs **before the first file
+ * is read** — which is the whole point of where it sits.
+ *
+ * Two files sharing a version is a mistake someone makes once per project and
+ * cannot diagnose from what the runner used to say. `V14__Adhoc_settings.sql` and
+ * a second `V14__Something_else.sql` both parse as version `14`, and neither the
+ * sort nor the applied-set has any way to tell them apart. What happened then
+ * depended on the state of the database and was misleading in both directions:
+ *
+ *  - On a fresh database the first file applied and inserted row `14`; the second
+ *    tried to insert `14` again and failed the primary key, so the runner reported
+ *    `Migration V14 (V14__Something_else.sql) failed: duplicate key value` — a
+ *    Postgres error about `schema_migrations`, for a problem in a filename.
+ *  - On a database that already had `14`, the second file's checksum was compared
+ *    against the *first* file's recorded row, and the runner reported a
+ *    **changed migration** — "the file changed after it was applied" — which sends
+ *    you looking through git for an edit that never happened.
+ *
+ * Both are the same missing check, and neither mentions the second file's
+ * existence. This one names both files and the version they share.
+ *
+ * The collision is decided by the *comparable* version rather than by the
+ * filename, so `V1.2__a.sql` and `V1_2__b.sql` collide as well: `compareVersions`
+ * reads both as `1.2` and sorts them equal, which is exactly the property that
+ * makes two files indistinguishable to everything downstream.
+ */
+export function orderMigrationFiles(files: readonly string[]): MigrationFile[] {
+  const parsed: MigrationFile[] = [];
+  const byVersion = new Map<string, string[]>();
+
+  for (const file of files) {
+    const match = /^V(\d+(?:[._]\d+)*)__(.+)\.sql$/.exec(file);
+    if (!match) {
+      log.warn({ file }, 'Skipping file: not named V<version>__<name>.sql');
+      continue;
+    }
+    const version = match[1]!;
+    parsed.push({ version, name: match[2]!.replace(/_/g, ' '), file });
+    // Keyed on the *comparable* version, so `1.2` and `1_2` land together: they
+    // sort equal, which is the property that makes two files indistinguishable.
+    const key = version.split(/[._]/).map(Number).join('.');
+    byVersion.set(key, [...(byVersion.get(key) ?? []), file]);
+  }
+
+  const collisions = [...byVersion.entries()]
+    .filter(([, sharing]) => sharing.length > 1)
+    .map(([version, sharing]) => `V${version}: ${[...sharing].sort().join(', ')}`);
+
+  if (collisions.length > 0) {
+    throw new Error(
+      'Two migration files claim the same version, so neither can be applied or recorded ' +
+        'separately. Renumber all but one — and not to a version already applied ' +
+        `elsewhere, which cannot be reused either:\n  ${collisions.sort().join('\n  ')}`,
+    );
+  }
+
+  return parsed.sort((a, b) => compareVersions(a.version, b.version));
+}
+
 /**
  * Reads `V<version>__<name>.sql` files, matching the Flyway naming convention the
  * Spring Boot app used, and orders them by numeric version.
@@ -39,24 +109,21 @@ async function loadMigrations(): Promise<Migration[]> {
   const dir = migrationsDir();
   const files = (await readdir(dir)).filter((file) => file.endsWith('.sql'));
 
+  // Before any `readFile` below, which is what makes the collision message the
+  // first thing reported rather than a consequence of it.
+  const ordered = orderMigrationFiles(files);
+
   const migrations: Migration[] = [];
-  for (const file of files) {
-    const match = /^V(\d+(?:[._]\d+)*)__(.+)\.sql$/.exec(file);
-    if (!match) {
-      log.warn({ file }, 'Skipping file: not named V<version>__<name>.sql');
-      continue;
-    }
-    const sql = await readFile(join(dir, file), 'utf8');
+  for (const entry of ordered) {
+    const sql = await readFile(join(dir, entry.file), 'utf8');
     migrations.push({
-      version: match[1]!,
-      name: match[2]!.replace(/_/g, ' '),
-      file,
+      ...entry,
       sql,
       checksum: createHash('sha256').update(sql).digest('hex'),
     });
   }
 
-  return migrations.sort((a, b) => compareVersions(a.version, b.version));
+  return migrations;
 }
 
 function compareVersions(a: string, b: string): number {

@@ -18,6 +18,7 @@ import {
 import { toPacketDTO } from '../packet/mapping.js';
 import type { NetworkInterfaceDTO, PacketDTO } from '../types/dto.js';
 import { AlertSink } from './alert.service.js';
+import { auditCaptureStarted } from './capture-audit.js';
 import { AUTO_RESUME_ACTOR, MAX_CAPTURE_TIMEOUT_MS, MAX_SNAPSHOT_LENGTH } from './capture-limits.js';
 import {
   type CaptureSessionRecord,
@@ -196,6 +197,18 @@ export class PacketCaptureService {
     private readonly bufferSize: number = env.captureBufferSize,
   ) {
     this.log = componentLogger('capture').child({ session: label });
+  }
+
+  /**
+   * Which of the two captures this is, for a caller that has to name it.
+   *
+   * Read by the route when it records a start or a stop in the audit trail. Read
+   * from here rather than derived from `requireIpFilter`, so the word in an audit
+   * row and the word in `capture_session.scope` cannot come to disagree — they
+   * have to be the same string for the two records to be about the same capture.
+   */
+  get scope(): string {
+    return this.label;
   }
 
   /** Was Pcaps.findAllDevs(). */
@@ -417,7 +430,21 @@ export class PacketCaptureService {
     );
   }
 
-  async stopCapture(reason: CaptureStopReason = 'operator'): Promise<void> {
+  /**
+   * Ends the capture, and reports whether there was one to end.
+   *
+   * The return value exists for the audit trail. This runs happily against an
+   * idle service — nothing is open, nothing is stamped, and the caller gets back
+   * the same `capturing: false` either way — so a route that recorded a stop on
+   * every call would be filing entries for administrators who pressed Stop on an
+   * idle screen. `wasCapturing` is the answer the rest of this function already
+   * computes for its own decisions; handing it back is what lets the trail say
+   * only what happened.
+   *
+   * Not the whole `StartOutcome` treatment on this side: there is one way for a
+   * stop to do nothing, and the caller has nothing to retry.
+   */
+  async stopCapture(reason: CaptureStopReason = 'operator'): Promise<boolean> {
     /*
      * Wait for a start that has claimed the instance but not finished.
      *
@@ -599,6 +626,8 @@ export class PacketCaptureService {
         this.log.error({ err: error }, 'Could not flush alerts');
       }
     }
+
+    return wasCapturing;
   }
 
   getCapturedPackets(): PacketDTO[] {
@@ -772,6 +801,31 @@ export class PacketCaptureService {
         { interface: previous.interfaceName },
         'Resumed the capture that did not stop cleanly (CAPTURE_RESUME_ON_START)',
       );
+      /*
+       * Audited here rather than only in the route, and this is the start the
+       * trail most needs.
+       *
+       * `POST /start` records the ones a person asked for; this one happens at
+       * boot with nobody present, which is the whole argument for
+       * `CAPTURE_RESUME_ON_START` being env-only and off by default. Auditing the
+       * route alone would have left exactly the unwitnessed start unrecorded.
+       *
+       * Filed under `AUTO_RESUME_ACTOR` and flagged `automatic`, for the reason
+       * the `startedBy` argument above gives: nobody did this, and attributing it
+       * to the operator whose capture was interrupted would put a machine's action
+       * against a person who was not there.
+       *
+       * After the log line and inside the same `try`, so a database that cannot be
+       * written cannot turn a successful resume into a reported failure —
+       * `auditCaptureStarted` swallows its own errors anyway.
+       */
+      await auditCaptureStarted({ name: AUTO_RESUME_ACTOR, id: null }, previous.interfaceName, {
+        scope: this.label,
+        snapshotLength: previous.snapshotLength,
+        timeoutMs: previous.timeoutMs,
+        filterIp: previous.filterIp,
+        automatic: true,
+      });
     } catch (error) {
       /*
        * The interface may be gone — a renamed adapter, a container without the

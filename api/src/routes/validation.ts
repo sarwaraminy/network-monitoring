@@ -8,7 +8,7 @@ import { EMAIL_AUTH_METHODS } from '../notify/settings.js';
 import { WEBHOOK_FORMATS } from '../notify/types.js';
 import { ALERT_KINDS, SEVERITIES } from '../packet/detect/types.js';
 import { TREND_BUCKETS } from '../services/alert-buckets.js';
-import { AUDIT_ACTIONS, type AuditAction } from '../services/audit-types.js';
+import { AUDIT_ACTION_LABELS, type AuditActionFilter } from '../services/audit-types.js';
 import { MAX_CAPTURE_TIMEOUT_MS, MAX_SNAPSHOT_LENGTH } from '../services/capture-limits.js';
 import { hasSuppressionCriterion, NO_CRITERIA } from '../services/suppression-rules.js';
 
@@ -188,7 +188,13 @@ export const userRoleSchema = z
 
 export const auditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
-  action: z.enum(Object.keys(AUDIT_ACTIONS) as [AuditAction, ...AuditAction[]]).optional(),
+  /*
+   * Every label in the map, retired actions included. The filter answers a
+   * question about rows the table already holds, and refusing `log.delete`
+   * because nothing writes it any more would make the trail's own history the
+   * one thing it could not be filtered by — see `RETIRED_AUDIT_ACTIONS`.
+   */
+  action: z.enum(Object.keys(AUDIT_ACTION_LABELS) as [AuditActionFilter, ...AuditActionFilter[]]).optional(),
   /**
    * Keyset cursor: only events with an id below this one.
    *
