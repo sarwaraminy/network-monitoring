@@ -508,6 +508,93 @@ describe('what a process does with the session row', { skip: database.skip }, ()
   });
 
   /*
+   * A second stop entering mid-teardown must not close a row the first one meant
+   * to leave open.
+   *
+   * `session` was detached before the awaits and `capturing` cleared after them,
+   * so a stop landing in between read `wasCapturing === true` with `session`
+   * already null — and fell to the unscoped `recordCaptureStopped(label, {})`,
+   * which carries neither `started_at` nor `stopped_at IS NULL` and stamps
+   * whatever row is there. A `read-error` stop leaves its row open on purpose so
+   * the next boot can report it; an operator stop racing one closed it, and the
+   * interruption was then lost for good.
+   */
+  it('does not let a second stop close the row the first one left open', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+    };
+
+    await openRow();
+    innards.capturing = true;
+    innards.session = STARTED;
+    innards.startedAt = STARTED.startedAt;
+
+    // The first stop yields here, which is the window.
+    let release: () => void = () => {};
+    innards.sessionWrite = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    // A capture that died on its own: leaves the row open for the next boot.
+    const first = service.stopCapture('read-error');
+    // The operator's stop, arriving while that one is mid-flight.
+    const second = service.stopCapture('operator');
+
+    release();
+    await Promise.all([first, second]);
+
+    assert.equal(await isOpen(), true, 'the interruption was stamped away by a racing stop');
+  });
+
+  /*
+   * A start arriving mid-teardown must not be told a torn-down capture is running.
+   *
+   * The handle is closed and the poll timer cleared at the top of the stop, but
+   * `capturing` stayed true across both awaits — so a `POST /start` in that gap
+   * got `'running'` about a capture that no longer had a handle, was dropped, and
+   * was answered 200. A moment later the stop finished and the interface went
+   * Idle with no error and nothing to retry against.
+   */
+  it('does not report a torn-down capture as running to a start', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+      openCapture: () => Promise<void>;
+    };
+
+    innards.capturing = true;
+    innards.session = STARTED;
+    innards.startedAt = STARTED.startedAt;
+
+    let release: () => void = () => {};
+    innards.sessionWrite = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let opened = 0;
+    innards.openCapture = async () => {
+      opened += 1;
+      innards.capturing = true;
+    };
+
+    const stopping = service.stopCapture('operator');
+    const outcome = await service.startCapture('eth0', 65_535, 1000, null, 'alice');
+
+    release();
+    await stopping;
+
+    assert.notEqual(outcome, 'running', 'a start was told a torn-down capture was running');
+    assert.equal(opened, 1, 'the start was dropped rather than run');
+  });
+
+  /*
    * With resuming off nothing is going to bring it back, so the notice belongs to
    * the process that found it and the row is closed behind it — otherwise every
    * restart re-announces an interruption from a machine that has been fine since.

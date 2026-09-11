@@ -439,11 +439,35 @@ export class PacketCaptureService {
     const wasCapturing = this.capturing;
     const session = this.session;
     this.session = null;
+    /*
+     * Cleared here rather than after the awaits, with everything else this stop
+     * is giving up.
+     *
+     * It used to outlive the teardown it describes — the handle closed and the
+     * poll timer cleared above, `session` already detached, and `capturing` still
+     * true across both awaits. Two things went wrong in that gap, and both are
+     * this asymmetry rather than two bugs:
+     *
+     *  - A second stop entering read `wasCapturing === true` with `session` already
+     *    null, so it fell to the unscoped `recordCaptureStopped(label, {})` — no
+     *    `started_at` and no `stopped_at IS NULL` — and stamped whatever row was
+     *    there. A `read-error` stop deliberately leaves its row open so the next
+     *    boot can report it; an operator stop racing one closed it, and the next
+     *    boot then found nothing, reported nothing and never resumed. The capture
+     *    that died on its own, silently forgotten.
+     *  - A `POST /start` landing there was told `'running'` about a capture whose
+     *    handle was already closed, so the start was dropped and answered 200. A
+     *    moment later the stop finished and the interface went Idle with no error
+     *    and nothing to retry against — the mirror of the start-side race this
+     *    branch already fixed.
+     */
+    this.capturing = false;
+    this.startedAt = null;
 
     /*
      * Detaching everything this stop is responsible for, before it yields.
      *
-     * `this.capturing` goes false below and this function then awaits twice —
+     * `this.capturing` goes false above and this function then awaits twice —
      * `sessionWrite` and `recordCaptureStopped` — with no claim held. A
      * `POST /start` landing in that gap passes every guard and installs a fresh
      * handle, poll timer, sink and engine. Reading `this.sink` and `this.engine`
@@ -479,8 +503,6 @@ export class PacketCaptureService {
     if (wasCapturing) {
       this.log.info({ bufferedPackets: this.packets.length, findings: this.findingCount }, 'Capture stopped');
     }
-    this.capturing = false;
-    this.startedAt = null;
 
     /*
      * Only for a capture that was actually running, and only when the operator

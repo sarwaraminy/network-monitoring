@@ -11,7 +11,7 @@ import {
 } from '../api/packets.api';
 import { ALERTS_ROOT_KEY, queryKeys } from '../api/queryClient';
 import type { Message } from '../i18n/message-state';
-import type { InterruptedCapture, StartCaptureParams } from '../types';
+import type { CaptureStatus, InterruptedCapture, StartCaptureParams } from '../types';
 
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const POLL_INTERVAL_MS =
@@ -29,6 +29,17 @@ export const DEFAULT_TIMEOUT_MS = 10;
  * it will not stack overlapping requests, it pauses while the tab is hidden, and
  * it keeps showing the last good data instead of blanking on a transient failure.
  */
+/**
+ * Whether the capture status is still worth asking about.
+ *
+ * Exported and pure because the alternative is asserting a `refetchInterval`
+ * through React Query with fake timers, which tests the harness more than the
+ * rule — the same reason `boundaryBandIndex` is exported from the trend chart.
+ */
+export function keepPolling(status: CaptureStatus | undefined): boolean {
+  return Boolean(status?.capturing || status?.interrupted);
+}
+
 export function usePacketCapture(scope: CaptureScope) {
   const client = useQueryClient();
 
@@ -52,7 +63,22 @@ export function usePacketCapture(scope: CaptureScope) {
     queryFn: () => fetchCaptureStatus(scope),
     // Reading status on mount is what lets a page reload mid-capture show the real
     // state rather than resetting to idle.
-    refetchInterval: (query) => (query.state.data?.capturing ? POLL_INTERVAL_MS : false),
+    /*
+     * Polling follows an unresolved interruption as well as a running capture,
+     * because the server can now start one without being asked.
+     *
+     * With `CAPTURE_RESUME_ON_START=true` the first status after an API restart
+     * reports `capturing: false` with an `interrupted` notice — the report happens
+     * early in boot and the resume only after `startIntel()`, which can take
+     * seconds. Keyed on `capturing` alone the page stopped asking at exactly that
+     * moment and never asked again, leaving the operator on an interruption
+     * banner, an Idle chip and a frozen packet table while the capture was in fact
+     * running and recording findings.
+     *
+     * An interruption nobody has acted on means the state is still in motion, so
+     * it is worth asking about.
+     */
+    refetchInterval: (query) => (keepPolling(query.state.data) ? POLL_INTERVAL_MS : false),
   });
 
   const capturing = statusQuery.data?.capturing ?? false;
