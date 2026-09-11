@@ -26,6 +26,7 @@ const status = (over: Partial<CaptureStatus>): CaptureStatus =>
     findingCount: 0,
     startedAt: null,
     interrupted: null,
+    resumePending: false,
     ...over,
   }) as CaptureStatus;
 
@@ -48,8 +49,34 @@ describe('whether the capture status is still worth asking about', () => {
    * interruption and resuming it. Nothing is capturing yet, and the state is
    * still in motion.
    */
-  it('keeps asking while an interruption is unresolved', () => {
-    expect(keepPolling(status({ capturing: false, interrupted: INTERRUPTED }))).toBe(true);
+  it('keeps asking while the server still means to resume', () => {
+    expect(keepPolling(status({ capturing: false, interrupted: INTERRUPTED, resumePending: true }))).toBe(
+      true,
+    );
+  });
+
+  /*
+   * The other half, and the reason this is not keyed on `interrupted`: with
+   * `CAPTURE_RESUME_ON_START` off — the default — nothing will clear the notice
+   * until a person acts. Polling it would hold a request per second per open tab
+   * against a value the server has no path to change, on the screen an operator
+   * is most likely to leave open.
+   */
+  it('stops asking about an interruption only a person can clear', () => {
+    expect(keepPolling(status({ capturing: false, interrupted: INTERRUPTED, resumePending: false }))).toBe(
+      false,
+    );
+  });
+
+  /*
+   * A resume that has had its turn and failed leaves the notice standing and the
+   * row open for the next boot — but nothing further happens in this process, so
+   * there is nothing left to wait for.
+   */
+  it('stops asking once the resume has had its turn', () => {
+    expect(keepPolling(status({ capturing: false, interrupted: INTERRUPTED, resumePending: false }))).toBe(
+      false,
+    );
   });
 
   it('stops once nothing is running and nothing is outstanding', () => {

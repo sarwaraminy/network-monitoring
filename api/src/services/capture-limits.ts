@@ -1,12 +1,12 @@
 /**
- * The largest values a capture will honour.
+ * Facts about capture that other modules need without needing the service.
  *
- * A module of its own, holding nothing but two numbers, for the reason
+ * A module of its own, holding nothing but constants, for the reason
  * `audit-types.ts` exists: `routes/validation.ts` needs them, and importing them
  * from `packet-capture.service.ts` pulled `db/index.js` in behind them — which
  * constructs a `pg.Pool` at module load. Every importer of `validation.ts` then
  * opened a database pool as a side effect of importing a schema, including
- * `validation.test.ts`, which wants nothing but these two numbers.
+ * `validation.test.ts`, which wants nothing but the two bounds.
  *
  * Both the schema and the clamps read from here, so the bound and its
  * enforcement cannot drift.

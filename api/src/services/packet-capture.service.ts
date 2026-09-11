@@ -66,6 +66,22 @@ export interface CaptureStatus {
   findingCount: number;
   startedAt: string | null;
   /**
+   * True while this process still intends to resume the interruption below by
+   * itself.
+   *
+   * The interface polls on it, and needs it because `interrupted` alone does not
+   * say whether anything is going to happen: with `CAPTURE_RESUME_ON_START` on
+   * the server is about to start a capture and the page must keep asking to see
+   * it, and with the flag off — the default — nothing will clear the notice until
+   * a person acts, so asking again changes nothing.
+   *
+   * False once the attempt has been made, whether it worked or not. A resume that
+   * failed leaves the notice standing and the row open for the next boot, but
+   * nothing further will happen in *this* process, so there is nothing left to
+   * wait for.
+   */
+  resumePending: boolean;
+  /**
    * A capture the previous process was running and did not stop cleanly.
    *
    * Present until this process starts a capture of its own. Without it "Idle" is
@@ -129,6 +145,13 @@ export class PacketCaptureService {
    * before it. See `stopCapture`.
    */
   private startInFlight: Promise<void> | null = null;
+  /**
+   * Whether the automatic resume has already had its turn in this process.
+   *
+   * Set whether it started a capture or not: what it records is that nothing
+   * further is coming without a person, which is what `resumePending` reports.
+   */
+  private resumeAttempted = false;
   private interfaceName: string | null = null;
   private filter: string | null = null;
   private linkType: string | null = null;
@@ -496,9 +519,25 @@ export class PacketCaptureService {
      * this only ever costs the wait, and only when a stop lands inside the window
      * where a capture is running but its row is not yet written.
      */
-    if (this.sessionWrite) {
-      await this.sessionWrite;
-      this.sessionWrite = null;
+    /*
+     * Only retire the handle actually awaited.
+     *
+     * `capturing` is cleared synchronously above, which is what lets a
+     * `POST /start` pass every guard while this await is in flight — and that
+     * start assigns its own promise to `this.sessionWrite`. Nulling the field
+     * unconditionally threw that one away, and the damage landed on the *next*
+     * stop: it found `sessionWrite === null`, skipped the wait, and ran its
+     * scoped `recordCaptureStopped` before the start's insert had committed. The
+     * update matched nothing, the insert landed afterwards with `stopped_at`
+     * still null, and a capture the operator stopped cleanly was reported as
+     * interrupted at the next boot — and with resuming on, started again by
+     * itself. The same end state this branch has already closed twice by other
+     * routes.
+     */
+    const pending = this.sessionWrite;
+    if (pending) {
+      await pending;
+      if (this.sessionWrite === pending) this.sessionWrite = null;
     }
     if (wasCapturing) {
       this.log.info({ bufferedPackets: this.packets.length, findings: this.findingCount }, 'Capture stopped');
@@ -584,6 +623,7 @@ export class PacketCaptureService {
       findingCount: this.findingCount,
       startedAt: this.startedAt?.toISOString() ?? null,
       interrupted: this.interrupted,
+      resumePending: env.captureResumeOnStart && this.interrupted !== null && !this.resumeAttempted,
     };
   }
 
@@ -689,6 +729,10 @@ export class PacketCaptureService {
   async resumeInterruptedCapture(): Promise<void> {
     const previous = this.interrupted;
     if (!previous || !env.captureResumeOnStart || this.capturing) return;
+
+    // Its turn is taken from here, however it goes: `resumePending` is about
+    // whether anything more will happen on its own, not about success.
+    this.resumeAttempted = true;
 
     /*
      * The row is still open at this point — `reportInterruptedCapture` leaves it

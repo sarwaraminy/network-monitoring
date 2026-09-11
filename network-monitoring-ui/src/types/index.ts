@@ -319,6 +319,16 @@ export interface CaptureStatus {
   startedAt: string | null;
   /** What a restart interrupted, or `null` when nothing was left running. */
   interrupted: InterruptedCapture | null;
+  /**
+   * True while the server still intends to resume that interruption by itself.
+   *
+   * The Capture page polls on it. `interrupted` alone does not say whether
+   * anything is going to happen: with `CAPTURE_RESUME_ON_START` on the server is
+   * about to start a capture, and with it off — the default — the notice waits on
+   * a person, so asking again changes nothing. False once the attempt has been
+   * made either way.
+   */
+  resumePending: boolean;
 }
 
 /** ip-api.com fields the UI surfaces. Everything else is passed through. */

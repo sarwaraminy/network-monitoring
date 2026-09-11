@@ -35,9 +35,16 @@ export const DEFAULT_TIMEOUT_MS = 10;
  * Exported and pure because the alternative is asserting a `refetchInterval`
  * through React Query with fake timers, which tests the harness more than the
  * rule — the same reason `boundaryBandIndex` is exported from the trend chart.
+ *
+ * `resumePending` rather than `interrupted`, and the difference is a request per
+ * second per open tab. An interruption means the state is still in motion only
+ * when something is going to act on it: with `CAPTURE_RESUME_ON_START` on the
+ * server is about to start a capture, and with it off — the default — the notice
+ * waits on a person, and polling a value the server has no path to change would
+ * hold a 1 Hz loop open on the screen an operator is most likely to leave open.
  */
 export function keepPolling(status: CaptureStatus | undefined): boolean {
-  return Boolean(status?.capturing || status?.interrupted);
+  return Boolean(status?.capturing || status?.resumePending);
 }
 
 export function usePacketCapture(scope: CaptureScope) {

@@ -595,6 +595,52 @@ describe('what a process does with the session row', { skip: database.skip }, ()
   });
 
   /*
+   * A stop must not retire a write handle it never awaited.
+   *
+   * `capturing` is cleared synchronously now, so a start can pass every guard
+   * while the stop is awaiting `sessionWrite` — and that start assigns its own
+   * promise to the field. Nulling it unconditionally threw that one away, and the
+   * damage landed on the *next* stop: `sessionWrite === null`, so it skipped the
+   * wait and ran its scoped update before the start's insert had committed. The
+   * update matched nothing, the insert landed with `stopped_at` still null, and a
+   * cleanly stopped capture was reported as interrupted at the next boot.
+   */
+  it('keeps the write handle a start installed while it was waiting', async () => {
+    const service = new PacketCaptureService(SCOPE);
+    const innards = service as unknown as {
+      capturing: boolean;
+      session: typeof STARTED;
+      startedAt: Date;
+      sessionWrite: Promise<void> | null;
+      openCapture: () => Promise<void>;
+    };
+
+    innards.capturing = true;
+    innards.session = STARTED;
+    innards.startedAt = STARTED.startedAt;
+
+    let release: () => void = () => {};
+    innards.sessionWrite = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    // The start that lands during the stop's wait, installing its own handle.
+    const fresh = new Promise<void>(() => {});
+    innards.openCapture = async () => {
+      innards.capturing = true;
+      innards.sessionWrite = fresh;
+    };
+
+    const stopping = service.stopCapture('operator');
+    const starting = service.startCapture('eth0', 65_535, 1000, null, 'alice');
+
+    release();
+    await Promise.all([stopping, starting]);
+
+    assert.equal(innards.sessionWrite, fresh, "the start's write handle was discarded by the stop");
+  });
+
+  /*
    * With resuming off nothing is going to bring it back, so the notice belongs to
    * the process that found it and the row is closed behind it — otherwise every
    * restart re-announces an interruption from a machine that has been fine since.
