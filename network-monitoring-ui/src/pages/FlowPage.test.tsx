@@ -127,6 +127,72 @@ describe('FlowPage', () => {
     expect(screen.queryByText(/version not implemented/i)).not.toBeInTheDocument();
   });
 
+  it('does not call one stray refusal a rejected allowlist', async () => {
+    /*
+     * The branch used to fire on `notAllowed > 0 && records === 0`, which claims
+     * "all of it was refused" from evidence that says "some of it was" — and
+     * `records === 0` is the state somebody opens this page in, so the wrong
+     * answer appeared exactly when the right one mattered.
+     *
+     * Here: an exporter is behaving correctly and its templates have not arrived,
+     * plus one packet from an address nobody listed. The operator needs to be
+     * told about the templates, not sent to their allowlist.
+     */
+    status({
+      ...FLOW_STATUS,
+      datagrams: 501,
+      records: 0,
+      ignored: 1,
+      ignoredReasons: { notAllowed: 1, sflow: 0, unsupportedVersion: 0 },
+      exporters: [{ ...FLOW_STATUS.exporters[1]! }],
+    });
+    renderApp(<FlowPage />, { authenticated: true });
+
+    expect(await screen.findByText(/every record is waiting for a template/i)).toBeInTheDocument();
+    expect(screen.queryByText(/and nothing was accepted/i)).not.toBeInTheDocument();
+  });
+
+  it('does say so when every datagram really was refused', async () => {
+    // The other side, so the branch is not simply unreachable now.
+    status({
+      ...FLOW_STATUS,
+      datagrams: 7,
+      records: 0,
+      ignored: 7,
+      ignoredReasons: { notAllowed: 7, sflow: 0, unsupportedVersion: 0 },
+      exporters: [],
+    });
+    renderApp(<FlowPage />, { authenticated: true });
+
+    // The number interpolated, not the bare key — see the branch test below.
+    expect(await screen.findByText(/7 datagrams were refused/i)).toBeInTheDocument();
+  });
+
+  it('says so when nothing decoded and none of the usual causes fits', async () => {
+    /*
+     * The last branch, and it needs a test as much as the others: every one of
+     * these renders a message with parameters, and a `t()` call that omits one
+     * renders the raw key — which looks like a missing translation rather than a
+     * bug, and nothing in the catalogue guards can see it, because they check
+     * the catalogue against itself rather than against the call sites.
+     *
+     * Two of these branches shipped that way until a test reached them.
+     */
+    status({
+      ...FLOW_STATUS,
+      datagrams: 40,
+      records: 0,
+      ignored: 0,
+      ignoredReasons: { notAllowed: 0, sflow: 0, unsupportedVersion: 0 },
+      exporters: [{ ...FLOW_STATUS.exporters[0]!, records: 0, pendingTemplates: 0 }],
+    });
+    renderApp(<FlowPage />, { authenticated: true });
+
+    expect(await screen.findByText(/none of them decoded/i)).toBeInTheDocument();
+    // The count really interpolated, rather than the key rendering as itself.
+    expect(screen.getByText(/40 datagrams received/i)).toBeInTheDocument();
+  });
+
   it('prints the allowlist a refused sender was measured against', async () => {
     // "7 refused" names a problem and not its cause. Beside the permitted list,
     // comparing a device's address to it IS the diagnosis.

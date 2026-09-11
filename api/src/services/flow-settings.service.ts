@@ -6,6 +6,7 @@ import type { Actor, AuditWriter } from './audit.service.js';
 import { recordAudit } from './audit.service.js';
 import {
   effectiveFlowSettings,
+  exporterList,
   FLOW_FIELDS,
   type FlowField,
   type FlowResolution,
@@ -42,6 +43,19 @@ export function flowEnvironmentSource(): Record<string, string | undefined> {
 /** Resolved with an empty row until the first load, so a read before it is safe. */
 let resolution: FlowResolution = resolveFlowSettings(flowEnvironmentSource(), {});
 let settings: FlowSettings = effectiveFlowSettings(resolution);
+/**
+ * The allowlist, parsed once per settings change rather than per datagram.
+ *
+ * `isAllowed` runs on the hot path — NetFlow on a busy segment is thousands of
+ * datagrams a second — and it sits *ahead* of the cheap reject that is supposed
+ * to make an unlisted exporter free to ignore. Splitting and trimming a string
+ * there undoes that: the collector's whole reason for existing is volume.
+ *
+ * Cached here rather than captured at boot, because these settings change at
+ * runtime now; `loadFlowSettings` is the one place that re-resolves, so it is the
+ * one place this has to be refreshed.
+ */
+let allowed: string[] = exporterList(settings);
 
 export function currentFlowResolution(): FlowResolution {
   return resolution;
@@ -73,7 +87,20 @@ export async function loadFlowSettings(): Promise<FlowSettings> {
   }
 
   settings = effectiveFlowSettings(resolution);
+  allowed = exporterList(settings);
   return settings;
+}
+
+/**
+ * The permitted senders, already parsed.
+ *
+ * Returned as the live array rather than a copy: this is read per datagram, and
+ * allocating one there would be the cost this cache exists to remove. Nothing
+ * mutates it — `loadFlowSettings` replaces the binding instead — and the one
+ * caller only ever asks whether it contains an address.
+ */
+export function currentAllowedExporters(): readonly string[] {
+  return allowed;
 }
 
 /**
@@ -140,13 +167,51 @@ export interface FlowSaveResult {
 const REBIND_FIELDS: readonly FlowField[] = ['enabled', 'port', 'bindAddress'];
 
 /**
- * Writes the patch and re-resolves, recording what changed.
+ * The subset of `patch` whose value actually differs from the stored row.
+ *
+ * `Object.keys(patch).length > 0` is not this check: a `PUT` resubmitting values
+ * that already match — a form re-saved with nothing edited, or the retry the
+ * route allows when the collector is stalled — has a non-empty patch and no real
+ * change. `changedAdhocFields` draws the same distinction for the same reason.
+ *
+ * `current` is `undefined` before any row exists, so on the first save every
+ * field is new against nothing and the whole patch counts.
+ *
+ * Exported so a test can assert the diff without a database, rather than
+ * trusting the call site to have got it right.
+ */
+export function changedFlowFields(
+  current: FlowSettingsRow | undefined,
+  patch: Partial<NewFlowSettingsRow>,
+): Partial<NewFlowSettingsRow> {
+  if (!current) return patch;
+
+  const changed: Record<string, unknown> = {};
+  for (const key of Object.keys(patch)) {
+    const before = current[key as keyof FlowSettingsRow];
+    const after = patch[key as keyof NewFlowSettingsRow];
+    if (before !== after) changed[key] = after;
+  }
+
+  return changed as Partial<NewFlowSettingsRow>;
+}
+
+/**
+ * Writes the fields that actually changed, records them, and re-resolves.
  *
  * The audit row shares the transaction with the write, as everything else in this
  * codebase does. Values are recorded rather than just field names — unlike the
  * delivery and console settings, none of these is a credential, and *which* port
  * and *which* allowlist is the entire content of the event. "Somebody changed the
  * exporters" without saying to what records nothing worth reading a year later.
+ *
+ * **Nothing is written when nothing changed**, matching `saveAdhocSettings` and
+ * `saveDeliverySettings`. Without the diff a resubmitted form bumped
+ * `updated_at`, overwrote `updated_by` with whoever pressed Save, and appended an
+ * empty change to a table that is append-only by trigger and outside retention's
+ * reach — so a no-op reattributed the last real change to somebody who edited
+ * nothing. It matters more here than it did there, because the route deliberately
+ * accepts an empty patch as "try binding again".
  */
 export async function saveFlowSettings(patch: StoredFlowSettings, actor: Actor): Promise<FlowSaveResult> {
   const before = effectiveFlowSettings(resolution);
@@ -161,19 +226,23 @@ export async function saveFlowSettings(patch: StoredFlowSettings, actor: Actor):
       }
     }
 
+    const [current] = await tx.select().from(table).where(eq(table.id, ROW_ID)).limit(1);
+    const changed = changedFlowFields(current, values);
+    if (Object.keys(changed).length === 0) return;
+
+    const row = { ...changed, updatedAt: new Date(), updatedBy: actor.name.slice(0, 200) };
     await tx
       .insert(table)
-      .values({ id: ROW_ID, ...values, updatedAt: new Date(), updatedBy: actor.name })
-      .onConflictDoUpdate({
-        target: table.id,
-        set: { ...values, updatedAt: new Date(), updatedBy: actor.name },
-      });
+      .values({ id: ROW_ID, ...row })
+      .onConflictDoUpdate({ target: table.id, set: row });
 
+    // Only the fields that moved, not the whole patch — so a resubmitted form
+    // does not read as a change to everything it happened to contain.
     await recordAudit(tx as unknown as AuditWriter, {
       actor: actor.name,
       actorId: actor.id,
       action: 'flow_settings.update',
-      detail: { ...(patch as Record<string, unknown>) },
+      detail: { ...(changed as Record<string, unknown>) },
     });
   });
 

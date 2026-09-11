@@ -8,6 +8,7 @@ import {
   parseFlowField,
   resolveFlowSettings,
 } from './flow-settings.js';
+import { changedFlowFields } from './flow-settings.service.js';
 
 /**
  * The flow settings resolver, in the parts that decide what an operator can do.
@@ -123,5 +124,33 @@ describe('resolving the flow settings', () => {
     assert.equal(FLOW_DEFAULTS.port, 2055);
     assert.equal(FLOW_DEFAULTS.bindAddress, '0.0.0.0');
     assert.equal(FLOW_DEFAULTS.exporters, '');
+  });
+
+  it('reports no change when a form is resubmitted unedited', () => {
+    /*
+     * `Object.keys(patch).length > 0` is not this check, and the difference is
+     * what stops a no-op reattributing the last real change. It matters more here
+     * than for the console, because the route deliberately accepts an empty patch
+     * as "try binding again" — so a retry must not bump `updated_by` or append an
+     * empty row to a trail that cannot be pruned.
+     */
+    const current = {
+      id: 1,
+      enabled: true,
+      port: 2055,
+      bindAddress: '0.0.0.0',
+      exporters: '10.0.0.1',
+      updatedAt: new Date(),
+      updatedBy: 'someone@example.com',
+    };
+
+    assert.deepEqual(changedFlowFields(current, { port: 2055, exporters: '10.0.0.1' }), {});
+    assert.deepEqual(changedFlowFields(current, { port: 4739 }), { port: 4739 });
+  });
+
+  it('counts every field on the first save, when there is no row to compare', () => {
+    // `current` is undefined before anything is stored, so the whole patch is new
+    // against nothing rather than silently diffing to empty.
+    assert.deepEqual(changedFlowFields(undefined, { port: 2055 }), { port: 2055 });
   });
 });

@@ -78,18 +78,37 @@ flowRouter.put(
     const saved = await saveFlowSettings(patch, actorOf(req.user));
 
     /*
-     * The rebind is awaited, so the status this answers with is the truth about
-     * what happened rather than a guess made before the socket settled. It never
-     * rejects — a port that cannot be bound is reported as `listening: false`,
-     * which is a real outcome of a successful save rather than a failed request:
-     * the row was written and is what the next boot will use.
+     * Rebind when something that needs it moved, OR when the collector is meant
+     * to be running and is not.
+     *
+     * The second half is the retry, and without it the most common failure had
+     * no recovery inside this feature at all. `needsRebind` is true only when a
+     * socket field actually *changed*, and the form sends only what the
+     * administrator edited — so the operator whose port was in use at boot frees
+     * it, comes back, presses Save with the correct values already in place, and
+     * nothing is sent, nothing is rebound, and the page still says it is not
+     * listening. The only way out was restarting the API, which is the shell
+     * access this whole feature exists to stop needing.
+     *
+     * Not a rebind on every save: that would drop whatever is in flight because
+     * somebody edited an allowlist. It is specifically "should be listening and
+     * is not", which is a state worth acting on however the request got here.
+     *
+     * Awaited, so the status this answers with is the truth about what happened
+     * rather than a guess made before the socket settled. It never rejects — a
+     * port that cannot be bound is reported as `listening: false`, which is a
+     * real outcome of a successful save rather than a failed request: the row was
+     * written and is what the next boot will use.
      */
-    if (saved.needsRebind) await restartFlowCollector();
+    const shouldBeListening = currentFlowResolution().enabled.value === true;
+    const stalled = shouldBeListening && !flowCollector().getStatus().listening;
+    const rebound = saved.needsRebind || stalled;
+    if (rebound) await restartFlowCollector();
 
     res.json({
       settings: flowForApi(currentFlowResolution()),
       pinned: flowPinnedFields(currentFlowResolution()),
-      rebound: saved.needsRebind,
+      rebound,
       status: flowCollector().getStatus(),
     });
   }),

@@ -124,7 +124,19 @@ export default function FlowStatusPanel({ embedded = false }: Readonly<FlowStatu
   const status = useQuery({
     queryKey: ['flow', 'status'],
     queryFn: fetchFlowStatus,
-    refetchInterval: (query) => (query.state.data?.listening ? POLL_MS : false),
+    /*
+     * While the collector is MEANT to be running, not while it happens to be.
+     *
+     * Keying on `listening` froze the page on the one state somebody sits and
+     * watches: the bind failed, they are freeing the port, and they want to be
+     * told when it takes. Instead it held a stale error — including the copy
+     * embedded under the settings form, which then described a failure that had
+     * already been fixed, until a manual reload.
+     *
+     * Switched off is genuinely not worth asking about, which is the other half
+     * and the reason this is not simply always on.
+     */
+    refetchInterval: (query) => (query.state.data?.enabled ? POLL_MS : false),
   });
 
   const columns = useMemo<MRT_ColumnDef<FlowExporter>[]>(
@@ -325,10 +337,21 @@ function Diagnosis({ status }: Readonly<{ status: FlowStatus }>) {
   // Ordered by how specific the fix is. A sender being refused is one line of
   // configuration; templates are a device's export settings; malformed is a bug
   // report. The first one that applies is the one shown.
-  if (status.ignoredReasons.notAllowed > 0 && status.records === 0) {
+  /*
+   * Every datagram, not merely one.
+   *
+   * This used to read `notAllowed > 0 && records === 0`, which claims "all of it
+   * was refused" from evidence that says "some of it was" — and `records === 0`
+   * is the state somebody opens this page in, so the wrong branch fired exactly
+   * when the right one mattered. A correctly configured exporter whose templates
+   * had not arrived yet, plus one stray packet from a decommissioned device,
+   * told the operator their allowlist was rejecting everything and never reached
+   * the branch that explains the templates.
+   */
+  if (status.datagrams > 0 && status.ignoredReasons.notAllowed === status.datagrams) {
     return (
       <Alert severity="warning" icon={<BlockOutlinedIcon />}>
-        <AlertTitle>{t('flow.all_refused')}</AlertTitle>
+        <AlertTitle>{t('flow.all_refused', { count: status.ignoredReasons.notAllowed })}</AlertTitle>
         {t('flow.all_refused_note', { count: status.ignoredReasons.notAllowed })}
       </Alert>
     );
@@ -373,7 +396,7 @@ function Diagnosis({ status }: Readonly<{ status: FlowStatus }>) {
   return (
     <Alert severity="warning" icon={<ErrorOutlineIcon />}>
       <AlertTitle>{t('flow.nothing_decoded')}</AlertTitle>
-      {t('flow.nothing_decoded_note', { datagrams: status.datagrams })}
+      {t('flow.nothing_decoded_note', { count: status.datagrams })}
     </Alert>
   );
 }

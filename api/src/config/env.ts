@@ -191,13 +191,6 @@ function arpTrustedMappings(): ReadonlyMap<string, string> {
 }
 
 /** Parses `10.0.0.1,10.0.0.2` into the flow exporter allow-list. */
-function flowExporters(): string[] {
-  return optional('FLOW_EXPORTERS', '')
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry !== '');
-}
-
 export const env = {
   nodeEnv: optional('NODE_ENV', 'development'),
   isProduction: optional('NODE_ENV', 'development') === 'production',
@@ -318,28 +311,23 @@ export const env = {
     maxIndicators: int('INTEL_MAX_INDICATORS', 500_000),
   },
 
-  /**
-   * NetFlow/IPFIX collector. Off by default because it opens a UDP port, and a
-   * listening port nobody asked for is not something a deployment should acquire
-   * by upgrading.
+  /*
+   * No `flow` block here, and that is deliberate rather than an omission.
+   *
+   * The NetFlow/IPFIX collector's four settings became three-layer in V19 —
+   * environment → stored row → default — so reading them here would have been a
+   * second answer to a question `services/flow-settings.ts` already answers, and
+   * the wrong one: this module cannot see the stored row, so anything it returned
+   * would ignore whatever an administrator had chosen in the interface.
+   *
+   * The environment layer is still honoured, and `FLOW_ENABLED`, `FLOW_PORT`,
+   * `FLOW_BIND_ADDRESS` and `FLOW_EXPORTERS` still win over the row when set.
+   * That resolution simply happens in the resolver, which is the only place that
+   * can weigh all three layers. The defaults live there too and are asserted
+   * against the ones this file used to apply, because the seed's promise —
+   * remove an environment line and the behaviour does not change — is only true
+   * while the two agree.
    */
-  flow: {
-    enabled: bool('FLOW_ENABLED', false),
-    /** 2055 is the de facto NetFlow port; 4739 is IANA's for IPFIX. */
-    port: int('FLOW_PORT', 2055),
-    /**
-     * Defaults to all interfaces so a first run works without knowing the
-     * container's address. Narrow this to a management interface in production:
-     * the protocol has no authentication, so reachability is the access control.
-     */
-    bindAddress: optional('FLOW_BIND_ADDRESS', '0.0.0.0'),
-    /**
-     * Addresses permitted to send flow data. Empty accepts any source, which is
-     * needed for discovery but should be filled in once the exporters are known —
-     * NetFlow source addresses are spoofable, so this is the only filter available.
-     */
-    allowedExporters: flowExporters(),
-  },
 
   /** Requests allowed per minute per client IP, by endpoint group. */
   rateLimit: {

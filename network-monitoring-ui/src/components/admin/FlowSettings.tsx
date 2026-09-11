@@ -130,7 +130,18 @@ export default function FlowSettings() {
   const submit = () => {
     const patch: FlowSettingsPatch = {};
     if (!pinned('enabled') && shown.enabled !== live.enabled) patch.enabled = shown.enabled;
-    if (!pinned('port') && shown.port !== live.port) patch.port = Number(shown.port);
+    /*
+     * An emptied field clears the setting; it does not send zero.
+     *
+     * `Number('')` is `0`, not `NaN`, so the first version posted a
+     * valid-looking port that failed validation server-side and came back as an
+     * unexplained save failure — for an action whose intent is obvious. It also
+     * made the API's `null` path unreachable from here, which is the spelling
+     * that clears a field back to the environment and then the default.
+     */
+    if (!pinned('port') && shown.port !== live.port) {
+      patch.port = shown.port.trim() === '' ? null : Number(shown.port);
+    }
     if (!pinned('bindAddress') && shown.bindAddress !== live.bindAddress) {
       patch.bindAddress = shown.bindAddress;
     }

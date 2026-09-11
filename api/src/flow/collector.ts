@@ -1,8 +1,7 @@
 import { createSocket, type Socket } from 'node:dgram';
 import { componentLogger } from '../logger.js';
 import { AlertSink } from '../services/alert.service.js';
-import { exporterList } from '../services/flow-settings.js';
-import { currentFlowSettings } from '../services/flow-settings.service.js';
+import { currentAllowedExporters, currentFlowSettings } from '../services/flow-settings.service.js';
 import { FlowDetectionEngine } from './detect.js';
 import { FLOW_VERSION, looksLikeSflow, parseFlowDatagram } from './parse.js';
 import { TemplateCache } from './templates.js';
@@ -185,7 +184,7 @@ export class FlowCollector {
       {
         address: address.address,
         port: address.port,
-        allowedExporters: this.allowedExporters().length > 0 ? this.allowedExporters() : 'any',
+        allowedExporters: this.allowedExporters().length > 0 ? [...this.allowedExporters()] : 'any',
         receiveBufferBytes: safeRecvBufferSize(socket),
       },
       `Flow collector listening on ${address.address}:${address.port} (NetFlow v5/v9, IPFIX)`,
@@ -283,19 +282,23 @@ export class FlowCollector {
    * step, and it is the only defence the format permits.
    */
   /**
-   * The permitted senders, from the live settings.
+   * The permitted senders, from the live settings, already parsed.
    *
    * Read per datagram rather than captured at bind time, and that is the point of
    * the whole feature: the allowlist is the one flow setting that changes in
    * ordinary operation, as devices are added, and it applies the moment it is
    * saved. Nothing is rebound and nothing in flight is lost.
    *
-   * `currentFlowSettings` is a cached value, not a query — see
-   * `flow-settings.service.ts`, which explains why a database round trip per
-   * datagram would be the wrong shape entirely.
+   * **Parsed once per settings change, not once per datagram.** The first version
+   * of this called `exporterList(currentFlowSettings())` here, which split and
+   * trimmed a string on the hot path — ahead of the cheap reject that is supposed
+   * to make an unlisted exporter free to ignore, on the one code path whose
+   * reason for existing is volume. `flow-settings.service.ts` caches the array
+   * and refreshes it in `loadFlowSettings`, which is the only place that
+   * re-resolves.
    */
-  private allowedExporters(): string[] {
-    return exporterList(currentFlowSettings());
+  private allowedExporters(): readonly string[] {
+    return currentAllowedExporters();
   }
 
   private isAllowed(exporter: string): boolean {
@@ -354,7 +357,7 @@ export class FlowCollector {
       ignored:
         this.ignoredReasons.notAllowed + this.ignoredReasons.sflow + this.ignoredReasons.unsupportedVersion,
       ignoredReasons: { ...this.ignoredReasons },
-      allowedExporters: this.allowedExporters(),
+      allowedExporters: [...this.allowedExporters()],
       templatesCached: this.templates.size,
       detection: this.engine.stats(),
       // Busiest first: on a real network one exporter dominates and that is the
