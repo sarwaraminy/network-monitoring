@@ -276,6 +276,36 @@ export interface SensorSummary {
   self: boolean;
 }
 
+/**
+ * A sensor that could be retired, and what would be lost with it.
+ *
+ * Deliberately a different shape from `SensorSummary`, because it answers a
+ * different question. That one is the filter's identity list and includes this
+ * installation; this one is what a destructive action is chosen from, so the
+ * server leaves the live sensor out and carries the counts instead — the dialog
+ * has to be able to say what a decommission would remove before anybody presses
+ * the button.
+ */
+export interface RetirableSensor {
+  sensorId: string;
+  alerts: number;
+  devices: number;
+  rollupBuckets: number;
+  /** The most recent activity under this name, across findings and rollups. */
+  lastSeen: string | null;
+}
+
+/** What a decommission actually removed, per table. */
+export interface DecommissionResult {
+  sensorId: string;
+  removed: {
+    alerts: number;
+    devices: number;
+    rollupBuckets: number;
+    captureSessions: number;
+  };
+}
+
 export interface NetworkInterface {
   name: string;
   description: string | null;

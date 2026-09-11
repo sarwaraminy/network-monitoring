@@ -538,6 +538,10 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'admin.tool.console_settings_desc': 'روشن یا خاموش کردن آن و تعیین حدودش، بدون راه‌اندازی دوباره.',
   'admin.tool.delivery': 'تنظیمات تحویل',
   'admin.tool.delivery_desc': 'اینکه یافته‌ها کجا می‌روند و هر چند وقت. با ذخیره در اثر می‌آید.',
+  'admin.group.sensors': 'سنسورها',
+  'admin.tool.decommission': 'از رده خارج کردن سنسور',
+  'admin.tool.decommission_desc':
+    'هر چه یک سنسور بازنشسته ثبت کرده است پاک می‌شود. بازگشت‌ناپذیر و ثبت‌شده در رد حسابرسی.',
   'admin.tool.users': 'کاربران و نقش‌ها',
   'admin.tool.users_desc': 'اینکه چه کسی مدیر است. در رد حسابرسی ثبت می‌شود.',
 
@@ -742,6 +746,37 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'users.audit_note':
     'هر تغییر در رد حسابرسی ثبت می‌شود، همراه با اینکه چه کسی آن را انجام داده و نقش به کدام سو ' +
     'تغییر کرده است.',
+
+  // --- از رده خارج کردن سنسور ---
+
+  'sensors.loading': 'در حال پرسش از سرور…',
+  'sensors.load_failed': 'سنسورها خوانده نشدند',
+  'sensors.retire_failed': 'سنسور از رده خارج نشد',
+  'sensors.none':
+    'هیچ سنسور دیگری چیزی در این پایگاه داده نوشته است. این نصب در فهرست نیست، چون هنوز ' +
+    'می‌نویسد — از رده خارج کردن آن جدول‌هایی را خالی می‌کند که بی‌درنگ دوباره پر می‌شوند.',
+  'sensors.col_sensor': 'سنسور',
+  'sensors.col_findings': 'یافته‌ها',
+  'sensors.col_devices': 'دستگاه‌ها',
+  'sensors.col_history': 'روزهای تجمیع‌شده',
+  'sensors.col_last_seen': 'آخرین مشاهده',
+  'sensors.last_seen_never': 'هرگز',
+  'sensors.retire': 'از رده خارج کردن',
+  'sensors.retire_sensor': 'از رده خارج کردن سنسور {sensor}',
+  'sensors.confirm_retire': 'بله، همه را پاک کن',
+  'sensors.confirm_body':
+    'این کار {alerts, plural, one {# یافته} other {# یافته}}، ' +
+    '{devices, plural, one {# دستگاه} other {# دستگاه}} و ' +
+    '{buckets, plural, one {# روز تجمیع‌شده} other {# روز تجمیع‌شده}} ثبت‌شده زیر {sensor} را ' +
+    'همراه با نشست ضبط آن برای همیشه پاک می‌کند. راهی برای بازگرداندن نیست: تنها رکورد حسابرسی ' +
+    'باقی می‌ماند.',
+  'sensors.retired_toast':
+    '{sensor} از رده خارج شد: {alerts, plural, one {# یافته} other {# یافته}}، ' +
+    '{devices, plural, one {# دستگاه} other {# دستگاه}} و ' +
+    '{buckets, plural, one {# روز تجمیع‌شده} other {# روز تجمیع‌شده}} حذف شد.',
+  'sensors.audit_note':
+    'در رد حسابرسی ثبت می‌شود، با نام انجام‌دهنده و مقدار حذف‌شده. پس از این کار، همان رکورد ' +
+    'تنها نشانهٔ وجود آن سنسور است و رد حسابرسی پاک‌شدنی نیست.',
 
   // --- کنسول پرس‌وجو: تشخیص ---
 

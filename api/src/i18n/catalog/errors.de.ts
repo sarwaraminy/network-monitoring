@@ -27,10 +27,12 @@ export const ERRORS_DE: PartialErrorCatalog = {
   // --- Nicht gefunden ---
 
   'error.alert_not_found': 'Kein Fund mit der id {id}',
-  'error.log_not_found': 'Kein Protokolleintrag mit der id {id}',
   'error.suppression_not_found': 'Keine Unterdrückungsregel mit der id {id}',
   'error.account_not_found': 'Kein solches Konto.',
   'error.device_not_found': 'Kein bekanntes Gerät {mac}',
+  'error.sensor_not_found':
+    'Unter Sensor {sensor} ist nichts erfasst: keine Funde, keine Geräte und keine ' +
+    'aggregierte Historie. Es gibt nichts außer Betrieb zu nehmen.',
   'error.device_not_on_sensor':
     'Kein bekanntes Gerät {mac} auf Sensor {sensor}. Bekannt ist es auf: {sensors}.',
   'error.interface_not_found': 'Keine solche Schnittstelle gefunden: {name}',
@@ -42,6 +44,11 @@ export const ERRORS_DE: PartialErrorCatalog = {
     'vergessen soll.',
   'error.last_administrator':
     'Dies ist die letzte administrierende Person; ernennen Sie zuerst ein anderes Konto.',
+  'error.sensor_is_self':
+    '{sensor} ist diese Installation; sie schreibt weiterhin Funde und Geräte. Eine ' +
+    'Außerbetriebnahme würde Tabellen leeren, die sich sofort wieder füllen — und eine ' +
+    'geleerte Geräteliste meldet jedes Gerät im Netz erneut als neu. Nehmen Sie einen ' +
+    'stillgelegten Sensor außer Betrieb, oder löschen Sie stattdessen die Funde.',
   'error.capture_already_starting':
     'Auf dieser Schnittstelle startet bereits ein Mitschnitt. Warten Sie, bis er läuft, und prüfen Sie dann den Status.',
   'error.email_in_use': 'Die E-Mail-Adresse wird bereits verwendet.',

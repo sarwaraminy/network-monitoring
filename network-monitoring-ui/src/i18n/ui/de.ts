@@ -575,6 +575,10 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'admin.tool.console_settings_desc': 'Ein- oder ausschalten und ihre Grenzen setzen, ohne Neustart.',
   'admin.tool.delivery': 'Zustellungseinstellungen',
   'admin.tool.delivery_desc': 'Wohin Funde gehen und wie oft. Beim Speichern in Kraft.',
+  'admin.group.sensors': 'Sensoren',
+  'admin.tool.decommission': 'Sensor außer Betrieb nehmen',
+  'admin.tool.decommission_desc':
+    'Alles löschen, was ein stillgelegter Sensor erfasst hat. Unumkehrbar und protokolliert.',
   'admin.tool.users': 'Benutzer und Rollen',
   'admin.tool.users_desc': 'Wer Administrator ist. Im Prüfprotokoll festgehalten.',
 
@@ -786,6 +790,39 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'users.audit_note':
     'Jede Änderung wird im Prüfprotokoll festgehalten — wer sie vorgenommen hat und in welche ' +
     'Richtung die Rolle geändert wurde.',
+
+  // --- Sensor außer Betrieb nehmen ---
+
+  'sensors.loading': 'Server wird abgefragt…',
+  'sensors.load_failed': 'Die Sensoren konnten nicht gelesen werden',
+  'sensors.retire_failed': 'Der Sensor konnte nicht außer Betrieb genommen werden',
+  'sensors.none':
+    'Kein anderer Sensor hat etwas in diese Datenbank geschrieben. Diese Installation steht nicht ' +
+    'in der Liste, weil sie weiterhin schreibt — eine Außerbetriebnahme würde Tabellen leeren, ' +
+    'die sich sofort wieder füllen.',
+  'sensors.col_sensor': 'Sensor',
+  'sensors.col_findings': 'Funde',
+  'sensors.col_devices': 'Geräte',
+  'sensors.col_history': 'Aggregierte Tage',
+  'sensors.col_last_seen': 'Zuletzt gesehen',
+  'sensors.last_seen_never': 'nie',
+  'sensors.retire': 'Außer Betrieb nehmen',
+  'sensors.retire_sensor': 'Sensor {sensor} außer Betrieb nehmen',
+  'sensors.confirm_retire': 'Ja, alles löschen',
+  'sensors.confirm_body':
+    'Dies löscht dauerhaft {alerts, plural, one {# Fund} other {# Funde}}, ' +
+    '{devices, plural, one {# Gerät} other {# Geräte}} und ' +
+    '{buckets, plural, one {# aggregierten Tag} other {# aggregierte Tage}}, die unter {sensor} ' +
+    'erfasst wurden, samt seiner Mitschnitt-Sitzung. Es gibt kein Zurück: der Protokolleintrag ' +
+    'ist, was bleibt.',
+  'sensors.retired_toast':
+    '{sensor} ist außer Betrieb: {alerts, plural, one {# Fund} other {# Funde}}, ' +
+    '{devices, plural, one {# Gerät} other {# Geräte}} und ' +
+    '{buckets, plural, one {# aggregierter Tag} other {# aggregierte Tage}} entfernt.',
+  'sensors.audit_note':
+    'Im Prüfprotokoll erfasst, mit der ausführenden Person und der entfernten Menge. Dieser ' +
+    'Eintrag ist danach der einzige Nachweis, dass der Sensor existiert hat, und das Protokoll ' +
+    'lässt sich nicht bereinigen.',
 
   // --- Abfragekonsole: Diagnose ---
 

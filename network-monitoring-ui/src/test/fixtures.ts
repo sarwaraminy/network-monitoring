@@ -417,6 +417,28 @@ export const PACKET: Packet = {
 };
 
 /**
+ * Sensors that could be retired, and what is under each.
+ *
+ * Two of them, and neither is `default` — the fixture `GET /api/alerts/sensors`
+ * returns as `self`. That asymmetry is the endpoint's whole behaviour: the live
+ * sensor is excluded by the server, so a panel offering it would be a panel
+ * ignoring the list it was given.
+ *
+ * The second one has only rollup buckets left, which is retention's end state and
+ * the most likely state of a sensor somebody wants to retire.
+ */
+export const RETIRABLE_SENSORS = [
+  {
+    sensorId: 'branch-2',
+    alerts: 4812,
+    devices: 260,
+    rollupBuckets: 190,
+    lastSeen: '2026-08-30T22:05:00.000Z',
+  },
+  { sensorId: 'old-laptop', alerts: 0, devices: 0, rollupBuckets: 12, lastSeen: null },
+];
+
+/**
  * Audit entries.
  *
  * One of each interesting shape: a deletion carrying what was deleted, a settings

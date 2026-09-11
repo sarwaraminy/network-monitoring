@@ -14,6 +14,7 @@ import {
 import { trendBucketFor } from '../services/alert-buckets.js';
 import { actorOf } from '../services/audit.service.js';
 import { forgetDevice, listKnownDevices } from '../services/device.service.js';
+import { decommissionSensor, listRetirableSensors } from '../services/sensor.service.js';
 import {
   alertDashboardQuerySchema,
   alertListQuerySchema,
@@ -82,6 +83,70 @@ alertsRouter.get(
   '/sensors',
   asyncHandler(async (_req, res) => {
     res.json(await listSensors());
+  }),
+);
+
+/**
+ * GET /api/alerts/sensors/retirable — sensors that could be decommissioned.
+ *
+ * ADMIN, unlike `GET /sensors` above, and the difference is what the list is
+ * *for*. That one explains a column every account can already see; this one is
+ * the menu a destructive action is chosen from, and it carries per-sensor counts
+ * — how many findings, devices and rollup buckets would be lost — which is
+ * inventory detail rather than an identity list.
+ *
+ * It also excludes this installation, so the live sensor is never offered. See
+ * `listRetirableSensors`.
+ */
+alertsRouter.get(
+  '/sensors/retirable',
+  requireRole('ADMIN'),
+  asyncHandler(async (_req, res) => {
+    res.json(await listRetirableSensors());
+  }),
+);
+
+/**
+ * DELETE /api/alerts/sensors/:sensorId — retires a sensor.
+ *
+ * Drops its findings, its devices, its rollup buckets and its capture session in
+ * one audited transaction. There was no way to do this at all before: a sensor
+ * retired after a hardware swap left its rows behind for ever, and retention
+ * cannot reclaim the newest of them because each sensor's staleness cutoff is
+ * derived from its own last sighting and that stops advancing with it.
+ *
+ * Registered above `DELETE /:id`, though nothing depends on that: `/:id` matches
+ * one path segment and this is two. Kept adjacent to the device delete because
+ * they are the same kind of act at two scales.
+ */
+alertsRouter.delete(
+  '/sensors/:sensorId',
+  requireRole('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const sensor = sensorIdSchema.safeParse(req.params.sensorId);
+    if (!sensor.success) {
+      throw HttpError.of(400, 'error.validation', {
+        detail: sensor.error.issues.map((issue) => issue.message).join('; '),
+      });
+    }
+
+    const result = await decommissionSensor(sensor.data, actorOf(req.user));
+
+    if (result.outcome === 'not-found') {
+      throw HttpError.of(404, 'error.sensor_not_found', { sensor: sensor.data });
+    }
+    if (result.outcome === 'self') {
+      /*
+       * 409 rather than 400: the request is well formed and the sensor exists —
+       * what makes it impossible is the state of this process, which is the
+       * distinction a conflict is for. The message explains the refusal rather
+       * than reporting it, because "you cannot do that to this one" invites the
+       * reader to try the other sensor without saying why.
+       */
+      throw HttpError.of(409, 'error.sensor_is_self', { sensor: result.sensorId });
+    }
+
+    res.json({ sensorId: sensor.data, removed: result.removed });
   }),
 );
 

@@ -559,6 +559,9 @@ export const UI_EN = {
   'admin.tool.console_settings_desc': 'Switch it on or off, and set its limits, without a restart.',
   'admin.tool.delivery': 'Delivery settings',
   'admin.tool.delivery_desc': 'Where findings go, and how often. In force on save.',
+  'admin.group.sensors': 'Sensors',
+  'admin.tool.decommission': 'Decommission a sensor',
+  'admin.tool.decommission_desc': 'Drop everything a retired sensor recorded. Irreversible, and audited.',
   'admin.tool.users': 'Users and roles',
   'admin.tool.users_desc': 'Who is an administrator. Recorded in the audit trail.',
 
@@ -767,6 +770,37 @@ export const UI_EN = {
   'users.role_for': 'Role for {account}',
   'users.audit_note':
     'Every change is recorded in the audit trail, with who made it and which way the role moved.',
+
+  // --- Decommissioning a sensor ---
+
+  'sensors.loading': 'Asking the server…',
+  'sensors.load_failed': 'Could not read the sensors',
+  'sensors.retire_failed': 'Could not decommission the sensor',
+  'sensors.none':
+    'No other sensor has written anything to this database. This installation is not listed, ' +
+    'because it is still writing — decommissioning it would empty tables that immediately refill.',
+  'sensors.col_sensor': 'Sensor',
+  'sensors.col_findings': 'Findings',
+  'sensors.col_devices': 'Devices',
+  'sensors.col_history': 'Aggregated days',
+  'sensors.col_last_seen': 'Last seen',
+  'sensors.last_seen_never': 'never',
+  'sensors.retire': 'Decommission',
+  'sensors.retire_sensor': 'Decommission sensor {sensor}',
+  'sensors.confirm_retire': 'Yes, delete it all',
+  'sensors.confirm_body':
+    'This permanently deletes {alerts, plural, one {# finding} other {# findings}}, ' +
+    '{devices, plural, one {# device} other {# devices}} and ' +
+    '{buckets, plural, one {# aggregated day} other {# aggregated days}} recorded under {sensor}, ' +
+    'along with its capture session. There is nothing to undo it: the audit entry is what will be ' +
+    'left.',
+  'sensors.retired_toast':
+    '{sensor} is decommissioned: {alerts, plural, one {# finding} other {# findings}}, ' +
+    '{devices, plural, one {# device} other {# devices}} and ' +
+    '{buckets, plural, one {# aggregated day} other {# aggregated days}} removed.',
+  'sensors.audit_note':
+    'Recorded in the audit trail with who did it and how much was removed. That entry is the only ' +
+    'record that the sensor existed once this is done, and the trail cannot be pruned.',
 
   // --- Query console: diagnosis ---
 
