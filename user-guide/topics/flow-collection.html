@@ -136,6 +136,19 @@ disabled there, with the variable named, for the reason every setting in this pr
 follows that rule: a deployment that keeps its configuration in a file is meant to keep that
 guarantee.</p>
 
+<div class="note">
+  <span class="label">Switching it off again on Docker</span>
+  <p>On Docker, collection is on because you started the stack with the flow override file.
+  Stop starting it with that file and collection stops &mdash; the switch goes back to off,
+  and the published port goes with it. That is the intended way to turn the feature off on
+  a Compose deployment.</p>
+  <p>The port, the bind address and the permitted senders behave the other way round: the
+  first start copies them into the settings so that removing the file later keeps the
+  configuration you had, ready for you to switch collection back on from the form. The
+  on/off switch is deliberately not copied, so that removing the file cannot leave a
+  collector running on a setting from a file you deleted.</p>
+</div>
+
 <h2>The four settings are not equal</h2>
 
 <p>Only one of them is purely this application's business, and the form separates them for

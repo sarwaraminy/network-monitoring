@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { type FlowSettingsRow, type NewFlowSettingsRow, flowSettings as table } from '../db/schema.js';
 import { componentLogger } from '../logger.js';
+import { HttpError } from '../middleware/error-handler.js';
 import type { Actor, AuditWriter } from './audit.service.js';
 import { recordAudit } from './audit.service.js';
 import {
@@ -70,23 +71,14 @@ export function currentFlowSettings(): FlowSettings {
 const storedFrom = (row: FlowSettingsRow | undefined): StoredFlowSettings =>
   row ? { enabled: row.enabled, port: row.port, bindAddress: row.bindAddress, exporters: row.exporters } : {};
 
-/** Reads the row and re-resolves. Falls back to environment-and-defaults if it cannot. */
-export async function loadFlowSettings(): Promise<FlowSettings> {
-  try {
-    const [row] = await db.select().from(table).where(eq(table.id, ROW_ID)).limit(1);
-    resolution = resolveFlowSettings(flowEnvironmentSource(), storedFrom(row));
-  } catch (error) {
-    /*
-     * Warn and keep whatever was resolved before, which on a first load is the
-     * environment and the defaults.
-     *
-     * Not fatal, because the alternative is worse: a database that cannot be read
-     * at boot would stop the collector binding, so an installation would lose
-     * flow telemetry over a settings table it could run perfectly well without.
-     */
-    log.warn({ err: error }, 'Could not read the flow settings; using the environment and defaults');
-  }
+/** Reads the row and re-resolves. Throws if it cannot — see the two callers below. */
+async function readAndResolve(): Promise<void> {
+  const [row] = await db.select().from(table).where(eq(table.id, ROW_ID)).limit(1);
+  resolution = resolveFlowSettings(flowEnvironmentSource(), storedFrom(row));
+}
 
+/** Publishes whatever is in `resolution` to the caches the hot path reads. */
+function applyResolution(): FlowSettings {
   settings = effectiveFlowSettings(resolution);
   allowed = exporterList(settings);
 
@@ -108,6 +100,51 @@ export async function loadFlowSettings(): Promise<FlowSettings> {
 }
 
 /**
+ * Reads the row and re-resolves, falling back to environment-and-defaults if it
+ * cannot. **For boot, and only for boot.**
+ *
+ * Tolerant because the alternative is worse there: a database that cannot be read
+ * at boot would stop the collector binding, so an installation would lose flow
+ * telemetry over a settings table it could run perfectly well without.
+ *
+ * That argument does not survive being reused after a write, which is what
+ * `refreshFlowSettings` is for. Keeping the previous resolution on a read failure
+ * is "carry on with what we had" at boot and "silently claim the save took
+ * effect" after one — same code, opposite meanings, because after a write the
+ * stale value is precisely the one the caller is about to compare against.
+ */
+export async function loadFlowSettings(): Promise<FlowSettings> {
+  try {
+    await readAndResolve();
+  } catch (error) {
+    // Warn and keep whatever was resolved before, which on a first load is the
+    // environment and the defaults.
+    log.warn({ err: error }, 'Could not read the flow settings; using the environment and defaults');
+  }
+
+  return applyResolution();
+}
+
+/**
+ * The same read, propagating the failure. For the path after a write.
+ *
+ * `saveFlowSettings` decides `needsRebind` by diffing the resolution before the
+ * write against the one after it, and the route decides whether the collector is
+ * stalled from the same place. Swallowing the read left both comparing the old
+ * resolution against itself: nothing differs, so nothing needs rebinding, the
+ * response says "Saved, and in force", and the collector goes on serving the old
+ * port and the old allowlist out of a cache until somebody restarts the API.
+ *
+ * Every piece of evidence available to the administrator agrees with the lie. The
+ * write committed, the form confirmed it, and reopening the settings shows the
+ * new values, because that reads the row rather than the cache.
+ */
+async function refreshFlowSettings(): Promise<FlowSettings> {
+  await readAndResolve();
+  return applyResolution();
+}
+
+/**
  * The permitted senders, already parsed.
  *
  * Returned as the live array rather than a copy: this is read per datagram, and
@@ -120,6 +157,39 @@ export function currentAllowedExporters(): readonly string[] {
 }
 
 /**
+ * Fields the seed will not copy, and why there is exactly one.
+ *
+ * `docker-compose.flow.yml` hard-pins `FLOW_ENABLED: 'true'` — not passed through
+ * like the others, but written into the overlay, because switching collection on
+ * *is* what that file is for. It publishes the UDP port in the same breath, and
+ * its own header says the two "belong together, in here".
+ *
+ * Seeding that value would quietly take the off switch away from the deployment
+ * that has the overlay. The first boot writes `enabled = true` into the row, and
+ * from then on the row carries it independently of the file. An operator who
+ * removes the overlay to stop collecting — which is what removing it is *for* —
+ * gets a collector that keeps its socket open on a value from a file they
+ * deleted, shown in the form as an ordinary editable setting with nothing
+ * anywhere connecting the two. The published port is gone, so nothing arrives
+ * either: a listening collector receiving nothing, which is the exact symptom
+ * this feature's whole diagnosis panel exists to explain.
+ *
+ * The other three are settings an administrator should inherit and then own. A
+ * port or a bind address or an allowlist is a preference; `enabled` is a
+ * deployment decision, and the deployment is entitled to take it back by removing
+ * the file that made it.
+ *
+ * Not applied to `seedAdhocSettingsFromEnvironment`, which has the same shape and
+ * an `enabled` of its own. Nothing shipped pins `ADHOC_ENABLED` — `docker-compose.yml`
+ * passes it through blank — so the only way its seed fires is an operator setting
+ * the variable in their own `api/.env`, and deleting your own line is a different
+ * act from deleting an overlay that pins four things at once. The argument still
+ * half applies there and is worth a look on its own; changing it from a branch
+ * about flow would be a behaviour change nobody reviewed.
+ */
+const NEVER_SEEDED: readonly FlowField[] = ['enabled'];
+
+/**
  * Copies the environment into the row, once, per field it has nothing for.
  *
  * Without this, an installation that configured flow entirely through environment
@@ -130,13 +200,16 @@ export function currentAllowedExporters(): readonly string[] {
  *
  * Only where the row has nothing: a value an administrator has already chosen is
  * never overwritten by an environment variable that has since appeared. Same rule
- * and same reasoning as `seedAdhocSettingsFromEnvironment`.
+ * and same reasoning as `seedAdhocSettingsFromEnvironment` — except for
+ * `NEVER_SEEDED` above, where keeping the behaviour is the bug rather than the
+ * point.
  */
 export async function seedFlowSettingsFromEnvironment(): Promise<FlowField[]> {
   const fresh = resolveFlowSettings(flowEnvironmentSource(), {});
   const seeded: FlowField[] = [];
 
   for (const field of Object.keys(FLOW_FIELDS) as FlowField[]) {
+    if (NEVER_SEEDED.includes(field)) continue;
     if (fresh[field].source !== 'environment') continue;
 
     const column = table[field];
@@ -187,6 +260,15 @@ export interface FlowSaveResult {
    * cost nobody asked for.
    */
   needsRebind: boolean;
+  /**
+   * Whether the allowlist itself moved.
+   *
+   * Separate from `needsRebind` because it is the field that deliberately does
+   * *not* reopen the socket — but the refusal counter was counted against the
+   * list that has just been replaced, and a counter nobody resets goes on being
+   * attributed to a list it never saw. See `resetRefusals` on the collector.
+   */
+  allowlistChanged: boolean;
 }
 
 /** Which fields cannot be applied to a socket that is already bound. */
@@ -275,12 +357,29 @@ export async function saveFlowSettings(patch: StoredFlowSettings, actor: Actor):
     });
   });
 
-  await loadFlowSettings();
+  /*
+   * The strict read, so a settings table that went unreadable between the commit
+   * and here cannot be reported as a save that took effect.
+   *
+   * Raised as a 500 rather than left to the generic handler, because the generic
+   * message ("something went wrong") would send the administrator to undo a
+   * change that is in fact stored. What is true is narrower and worth saying: the
+   * row was written and is what the next boot will use; what is running now is
+   * whatever was running before. Restarting the API applies it.
+   */
+  try {
+    await refreshFlowSettings();
+  } catch (error) {
+    log.error({ err: error }, 'Flow settings were written but could not be read back; nothing was applied');
+    throw HttpError.of(500, 'error.flow_saved_not_applied');
+  }
+
   const after = effectiveFlowSettings(resolution);
 
   return {
     settings: after,
     changed: wrote,
     needsRebind: REBIND_FIELDS.some((field) => before[field] !== after[field]),
+    allowlistChanged: before.exporters !== after.exporters,
   };
 }

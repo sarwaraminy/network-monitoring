@@ -123,7 +123,22 @@ flowRouter.put(
     const shouldBeListening = currentFlowResolution().enabled.value === true;
     const stalled = shouldBeListening && !flowCollector().getStatus().listening;
     const rebound = saved.needsRebind || stalled;
-    if (rebound) await restartFlowCollector();
+    if (rebound) {
+      await restartFlowCollector();
+    } else if (saved.allowlistChanged) {
+      /*
+       * The allowlist moved without the socket moving, which is the point of
+       * treating it separately — but the refusals on the status were counted
+       * against the list that has just been replaced. Left alone they are
+       * attributed to the new one, so an administrator who has just fixed a
+       * mistyped address sees the count stand still and reads it as a fix that
+       * did not take.
+       *
+       * Not needed when we rebound: `resetForRebind` clears the whole set,
+       * because there the binding is new rather than the filter.
+       */
+      flowCollector().resetRefusals();
+    }
 
     res.json({
       settings: flowForApi(currentFlowResolution()),

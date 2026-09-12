@@ -350,8 +350,21 @@ export const flowSettingsPatchSchema = z
      * enumerate portably, and a regex that accepted `0.0.0.0` and `::` while
      * rejecting something legitimate would be a rule nobody could predict. A bad
      * value fails the bind and the status says so, which is the honest answer.
+     *
+     * `min(1)` is not part of that, and it is the one shape worth refusing. An
+     * empty string is written to the row verbatim and then read back as absent —
+     * `parseFlowField` treats a blank as "nobody decided" — so the effective
+     * value falls to the default while the column holds `''`, and the API reports
+     * `source: 'default'` over a stored value nobody can see. Provenance is the
+     * whole point of the three layers; a row and a `source` that disagree is the
+     * one failure this design is supposed to make impossible.
+     *
+     * `null` still means clear, which is how the field is emptied — the form
+     * already maps an emptied box to it for exactly this reason, so the only way
+     * to reach the blank is a direct API call. That is the surface this schema is
+     * for.
      */
-    bindAddress: z.string().trim().max(64).nullish(),
+    bindAddress: z.string().trim().min(1).max(64).nullish(),
     /*
      * The allowlist, as the comma-separated string the environment carries. An
      * empty string is a real choice — accept any sender — and is distinct from

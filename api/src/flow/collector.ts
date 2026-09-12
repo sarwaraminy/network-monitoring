@@ -273,6 +273,33 @@ export class FlowCollector {
     this.warnedAboutSflow = false;
   }
 
+  /**
+   * Forgets the refusals, for an allowlist change that does not rebind.
+   *
+   * `exporters` is the one setting that deliberately leaves the socket alone — it
+   * is a filter test per datagram, so reopening a binding for it would drop what
+   * is in flight for nothing. But `notAllowed` was counted against the list that
+   * has just been replaced, and a counter nobody resets goes on being attributed
+   * to a list it never saw.
+   *
+   * Two things follow, and the second is the sharper. An administrator who has
+   * just corrected a mistyped address watches the refusal count stand still and
+   * concludes the fix did not take — the number is frozen rather than wrong, and
+   * nothing on the panel distinguishes those. And clearing the allowlist
+   * altogether left `allowedExporterCount === 0` beside `notAllowed > 0`, which
+   * `IgnoredPanel` renders as "nothing should have been refused, this is worth
+   * reporting" — a state its own comment calls unreachable, reached by a routine
+   * edit.
+   *
+   * Only the refusals. `datagrams` counts what arrived on this binding and that
+   * is still true; the sFlow and unsupported-version tallies are properties of
+   * the senders rather than of the filter. `resetForRebind` is the one that
+   * clears everything, because there the binding itself is new.
+   */
+  resetRefusals(): void {
+    this.ignoredReasons.notAllowed = 0;
+  }
+
   async stop(): Promise<void> {
     const socket = this.socket;
     this.socket = null;

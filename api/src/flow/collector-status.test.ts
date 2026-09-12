@@ -219,4 +219,44 @@ describe('what the flow status reports about dropped datagrams', () => {
     assert.deepEqual(status.exporters, []);
     assert.equal(status.detection.findings, 0);
   });
+
+  it('forgets the refusals when the allowlist changes, and nothing else', () => {
+    /*
+     * The counter that outlived the list it was counted against.
+     *
+     * `exporters` deliberately does not rebind — it is a filter test per
+     * datagram, so reopening the socket for it would drop what is in flight for
+     * nothing. That left `notAllowed` on screen beside an allowlist it was never
+     * measured against: an administrator who has just corrected a mistyped
+     * address watches the refusal count stand still and reads it as a fix that
+     * did not take.
+     *
+     * Sharper still, clearing the allowlist entirely left `allowedExporterCount`
+     * at zero with `notAllowed` above it, which the panel renders as "nothing
+     * should have been refused, this is worth reporting" — a state its own
+     * comment calls unreachable, reached by a routine edit.
+     */
+    const collector = new FlowCollector();
+    const receiver = collector as unknown as Receiver;
+    receiver.handleDatagram(netflowV5(), '192.168.5.5');
+    receiver.handleDatagram(buildSflowHeader(), '10.0.0.1');
+    receiver.handleDatagram(netflowV5(), '10.0.0.1');
+
+    assert.equal(collector.getStatus().ignoredReasons.notAllowed, 1);
+
+    collector.resetRefusals();
+
+    const status = collector.getStatus();
+    assert.equal(status.ignoredReasons.notAllowed, 0);
+    /*
+     * Only the refusals. `datagrams` counts what arrived on this binding and
+     * that is still true — zeroing it would put the panel back into "nothing
+     * has arrived", which is a different wrong answer. The sFlow tally is a
+     * property of the sender rather than of the filter, and the accepted
+     * exporter is still one.
+     */
+    assert.equal(status.datagrams, 3);
+    assert.equal(status.ignoredReasons.sflow, 1);
+    assert.equal(status.exporters.length, 1);
+  });
 });
