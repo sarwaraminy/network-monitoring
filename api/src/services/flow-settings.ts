@@ -43,8 +43,8 @@ interface FlowFieldSpec {
   /** Inclusive bounds for `integer`, matching V19's CHECK constraints. */
   min?: number;
   max?: number;
-  /** See `exporters` below, and `FieldSpec` in the resolver. */
-  blankStoredIsValue?: boolean;
+  /** What clearing this field means. See `exporters` below and `FieldSpec`. */
+  clearedValue?: unknown;
 }
 
 export const FLOW_FIELDS = {
@@ -67,7 +67,7 @@ export const FLOW_FIELDS = {
    * the value, so the form, the row and the variable cannot disagree about what
    * an empty one means.
    */
-  exporters: { env: 'FLOW_EXPORTERS', kind: 'string', blankStoredIsValue: true },
+  exporters: { env: 'FLOW_EXPORTERS', kind: 'string', clearedValue: '' },
 } as const satisfies Record<string, FlowFieldSpec>;
 
 export type FlowField = keyof typeof FLOW_FIELDS;
@@ -97,7 +97,7 @@ export type FlowResolution = Resolution<FlowSettings>;
 export type StoredFlowSettings = StoredSettings<FlowSettings>;
 
 /** The shared three-layer walk, bound to this domain's table and parser. */
-const resolver = createResolver<FlowSettings>({
+const resolver = createResolver({
   fields: FLOW_FIELDS,
   defaults: FLOW_DEFAULTS,
   parse: (field, raw) => parseFlowField(field, raw),

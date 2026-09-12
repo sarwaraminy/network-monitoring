@@ -30,7 +30,7 @@ const FIELDS: Record<keyof Demo, FieldSpec> = {
   port: { env: 'DEMO_PORT' },
   label: { env: 'DEMO_LABEL' },
   // The exception, and the only one: a cleared list means "no filter".
-  list: { env: 'DEMO_LIST', blankStoredIsValue: true },
+  list: { env: 'DEMO_LIST', clearedValue: '' },
   secret: { env: 'DEMO_SECRET', secret: true },
 };
 
@@ -56,7 +56,7 @@ const parse = (field: keyof Demo & string, raw: unknown): unknown => {
   return String(raw).trim();
 };
 
-const resolver = createResolver<Demo>({ fields: FIELDS, defaults: DEFAULTS, parse });
+const resolver = createResolver({ fields: FIELDS, defaults: DEFAULTS, parse });
 
 describe('the three-layer settings walk', () => {
   it('falls through to the code defaults when nothing is configured', () => {
@@ -122,8 +122,8 @@ describe('the three-layer settings walk', () => {
   it('keeps a cleared value where blank is a decision, and only there', () => {
     /*
      * The asymmetry, and the one genuinely fiddly rule. An empty value in the
-     * ROW is a choice for a field marked `blankStoredIsValue`; an empty one in
-     * the ENVIRONMENT is an unset Compose variable, for every field including
+     * ROW is a choice for a field that declares a `clearedValue`; an empty one
+     * in the ENVIRONMENT is an unset Compose variable, for every field including
      * that one. Same characters, opposite meanings.
      */
     const cleared = resolver.resolve({}, { list: '', label: '' });
@@ -154,6 +154,54 @@ describe('the three-layer settings walk', () => {
     assert.deepEqual(resolver.conflicts(resolution, { label: 'x' }), []);
   });
 
+  it('still parses a NON-blank value on a field that can be cleared', () => {
+    /*
+     * The trap in the first version, which tested the flag rather than the value:
+     * every stored string on such a field bypassed the parser, not just a blank
+     * one. Harmless for a field whose parser only trims — which is why it did no
+     * damage — and waiting for the obvious next adopter, a comma-separated list,
+     * whose stored value would have resolved to the raw string instead of the
+     * array. The length of that string then reads as the number of entries.
+     *
+     * Asserted through the spy, because the bug is about whether the parser RAN
+     * rather than about what came out of it: for this demo's parser the two
+     * results are identical, which is exactly the condition that hid it.
+     */
+    const seen: unknown[] = [];
+    const spy = createResolver({
+      fields: FIELDS,
+      defaults: DEFAULTS,
+      parse: (field, raw) => {
+        if (field === 'list') seen.push(raw);
+        return parse(field, raw);
+      },
+    });
+
+    const resolution = spy.resolve({}, { list: ' a , b ' });
+
+    assert.deepEqual(seen, [' a , b '], 'a non-blank stored value skipped the parser');
+    assert.equal(resolution.list.value, 'a , b');
+    assert.equal(resolution.list.source, 'database');
+  });
+
+  it('does not consult the parser for a cleared value', () => {
+    // The other half: a blank is the declared cleared value, and the parser is
+    // not asked — it would answer `undefined`, which is what falling through to
+    // the environment looks like, and is the thing being prevented.
+    const seen: unknown[] = [];
+    const spy = createResolver({
+      fields: FIELDS,
+      defaults: DEFAULTS,
+      parse: (field, raw) => {
+        if (field === 'list') seen.push(raw);
+        return parse(field, raw);
+      },
+    });
+
+    assert.equal(spy.resolve({}, { list: '   ' }).list.value, '');
+    assert.deepEqual(seen, []);
+  });
+
   it('reports which fields are credentials', () => {
     assert.equal(resolver.isSecret('secret'), true);
     assert.equal(resolver.isSecret('label'), false);
@@ -168,7 +216,7 @@ describe('the three-layer settings walk', () => {
      * a field could be storable and unpinnable with the same characters.
      */
     const seen: { field: string; raw: unknown }[] = [];
-    const spy = createResolver<Demo>({
+    const spy = createResolver({
       fields: FIELDS,
       defaults: DEFAULTS,
       parse: (field, raw) => {
@@ -188,4 +236,25 @@ describe('the three-layer settings walk', () => {
       'the stored layer was not parsed',
     );
   });
+});
+
+/*
+ * A field with no counterpart in the settings type must not compile.
+ *
+ * `@ts-expect-error` rather than a runtime assertion, because the failure this
+ * guards is a type that quietly stops constraining: if `ExactFields` is ever
+ * loosened, this line stops erroring and `@ts-expect-error` becomes an error
+ * itself, so the repository's existing `tsc --noEmit` step fails. A runtime
+ * check could not see it at all.
+ *
+ * `Record<keyof S, FieldSpec>` was the original spelling and accepted this
+ * silently — a stray entry then resolves to `{ value: undefined }` and reaches
+ * the admin form as an empty control that saves nothing. The mapped form
+ * `{ [K in keyof S]: FieldSpec }` accepts it too; they are the same type.
+ */
+createResolver({
+  // @ts-expect-error - `ghost` is not a key of Demo
+  fields: { ...FIELDS, ghost: { env: 'DEMO_GHOST' } },
+  defaults: DEFAULTS,
+  parse,
 });

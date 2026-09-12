@@ -68,19 +68,33 @@ export interface FieldSpec {
    */
   secret?: boolean;
   /**
-   * A blank value in the STORED ROW is a decision rather than a gap.
+   * What a CLEARED stored value resolves to, for a field where clearing is a
+   * decision rather than a gap.
    *
-   * Off for almost everything, and the exception is exact: flow's `exporters`,
-   * where an administrator who clears the allowlist means "accept any sender".
-   * Treating that as "nobody has decided" would silently reinstate whatever the
-   * environment said, undoing a list somebody had deliberately emptied.
+   * Present on flow's `exporters` and nothing else so far: an administrator who
+   * empties the allowlist means "accept any sender", and treating that as
+   * "nobody has decided" would silently reinstate whatever the environment said,
+   * undoing a list somebody had deliberately emptied.
    *
    * A blank in the ENVIRONMENT still means unset, for every field including this
    * one, because that is how an unset Compose variable arrives — see `resolve`.
    * The two blanks look identical and mean opposite things, which is why this is
-   * a named flag on one field rather than a condition inside a parser.
+   * declared on the field rather than hidden inside a parser: a parser is not
+   * told which layer it is reading.
+   *
+   * **A value rather than a boolean, and that is the point.** As a flag this read
+   * `blankStoredIsValue`, and `resolve` tested the flag instead of the value —
+   * so every stored string on such a field bypassed the parser, not just a blank
+   * one. Harmless for `exporters`, whose parser only trims, and a trap for the
+   * obvious next adopter: a comma-separated list field would resolve to the raw
+   * string instead of the array, and the string's length would be reported as
+   * the recipient count. Naming the cleared value also settles what "empty" means
+   * for a field whose values are not strings — `''` here, `[]` for a list — which
+   * a boolean could not express at all.
+   *
+   * Tested with `in`, so a field may legitimately declare `undefined`.
    */
-  blankStoredIsValue?: boolean;
+  clearedValue?: unknown;
 }
 
 /** A resolution: every field of `S`, with the layer that decided it. */
@@ -92,8 +106,28 @@ export type StoredSettings<S> = Partial<Record<keyof S, unknown>>;
 /** The variables, as `process.env` hands them over. */
 export type EnvironmentSource = Record<string, string | undefined>;
 
-export interface ResolverOptions<S extends object> {
-  fields: Record<keyof S, FieldSpec>;
+/**
+ * A field table with no keys the settings type does not have.
+ *
+ * `Record<keyof S, FieldSpec>` is the obvious spelling and it only constrains
+ * which keys must be PRESENT — extras pass, and the excess-property check does
+ * not save it either, because every call site passes a table by name rather than
+ * as a fresh literal. A stray entry then resolves to
+ * `{ value: undefined, source: 'default' }` and reaches the admin form as an
+ * empty control that saves nothing and reads back nothing.
+ *
+ * The per-domain versions could not reach that: each indexed its own `DEFAULTS`
+ * directly, so a missing counterpart was a type error at the table. Centralising
+ * the walk is what loosened it, and this is what puts it back.
+ *
+ * The mapped form `{ [K in keyof S]: FieldSpec }` does NOT fix it — it is the
+ * same type as `Record` and accepts extras identically, which I checked rather
+ * than assumed.
+ */
+type ExactFields<F, S> = F & Record<Exclude<keyof F, keyof S>, never>;
+
+export interface ResolverOptions<S extends object, F> {
+  fields: ExactFields<F, S>;
   /** The last layer. Must match what `env.ts` applies, or removing a line changes behaviour. */
   defaults: S;
   /**
@@ -117,8 +151,11 @@ export interface Resolver<S extends object> {
   isSecret(field: keyof S & string): boolean;
 }
 
-export function createResolver<S extends object>(options: ResolverOptions<S>): Resolver<S> {
-  const { fields, defaults, parse } = options;
+export function createResolver<S extends object, F extends Record<keyof S, FieldSpec>>(
+  options: ResolverOptions<S, F>,
+): Resolver<S> {
+  const { defaults, parse } = options;
+  const fields = options.fields as Record<keyof S, FieldSpec>;
   const names = () => Object.keys(fields) as (keyof S & string)[];
 
   return {
@@ -153,10 +190,20 @@ export function createResolver<S extends object>(options: ResolverOptions<S>): R
         }
 
         const rawStored = stored[field];
-        const fromStored =
-          spec.blankStoredIsValue && typeof rawStored === 'string'
-            ? rawStored.trim()
-            : parse(field, rawStored);
+
+        /*
+         * A cleared value, for a field that says what clearing means.
+         *
+         * Tested against the VALUE, not merely the field: anything non-blank
+         * goes to the parser like every other stored value, so a field whose
+         * parser builds a list still gets a list.
+         */
+        if ('clearedValue' in spec && typeof rawStored === 'string' && rawStored.trim() === '') {
+          resolution[field] = { value: spec.clearedValue, source: 'database' } as never;
+          continue;
+        }
+
+        const fromStored = parse(field, rawStored);
 
         if (fromStored !== undefined) {
           resolution[field] = { value: fromStored, source: 'database' } as never;

@@ -231,7 +231,7 @@ export type DeliveryResolution = Resolution<DeliverySettings>;
 export type StoredDeliverySettings = StoredSettings<DeliverySettings>;
 
 /** The shared three-layer walk, bound to this domain's table and parser. */
-const resolver = createResolver<DeliverySettings>({
+const resolver = createResolver({
   fields: DELIVERY_FIELDS,
   defaults: DELIVERY_DEFAULTS,
   parse: (field, raw) => parseFieldValue(field, raw),
@@ -382,7 +382,7 @@ export function pinnedConflicts(
 }
 
 export function isSecretField(field: DeliveryField): boolean {
-  return 'secret' in DELIVERY_FIELDS[field];
+  return resolver.isSecret(field);
 }
 
 /**

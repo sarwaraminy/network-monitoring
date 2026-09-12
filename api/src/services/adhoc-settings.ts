@@ -89,7 +89,7 @@ export const ADHOC_FIELDS = {
 
 /** Fields that are credentials, so nothing returns them by accident. */
 export function isAdhocSecretField(field: AdhocField): boolean {
-  return 'secret' in ADHOC_FIELDS[field] && ADHOC_FIELDS[field].secret === true;
+  return resolver.isSecret(field);
 }
 
 export type AdhocField = keyof typeof ADHOC_FIELDS;
@@ -132,7 +132,7 @@ export const ADHOC_DEFAULTS: AdhocSettings = {
 };
 
 /** The shared three-layer walk, bound to this domain's table and parser. */
-const resolver = createResolver<AdhocSettings>({
+const resolver = createResolver({
   fields: ADHOC_FIELDS,
   defaults: ADHOC_DEFAULTS,
   parse: (field, raw) => parseFieldValue(field, raw),
@@ -282,9 +282,7 @@ export function auditableAdhocPatch(patch: StoredAdhocSettings): Record<string, 
 
 /** Fields the environment has pinned, which the interface must not offer to edit. */
 export function adhocPinnedFields(resolution: AdhocResolution): AdhocField[] {
-  return (Object.keys(ADHOC_FIELDS) as AdhocField[]).filter(
-    (field) => resolution[field].source === 'environment',
-  );
+  return resolver.pinned(resolution);
 }
 
 /**
@@ -295,10 +293,7 @@ export function adhocPinnedFields(resolution: AdhocResolution): AdhocField[] {
  * settings' own 409, which named the internal key and helped nobody.
  */
 export function adhocPinnedConflicts(resolution: AdhocResolution, patch: StoredAdhocSettings): string[] {
-  const pinned = new Set(adhocPinnedFields(resolution));
-  return (Object.keys(patch) as AdhocField[])
-    .filter((field) => pinned.has(field))
-    .map((field) => ADHOC_FIELDS[field].env);
+  return resolver.conflicts(resolution, patch);
 }
 
 /** The process environment, as the resolver wants it. */
@@ -331,17 +326,6 @@ export function adhocEnvironmentSource(): Record<string, string | undefined> {
  * The variable name is reported rather than the field, because that is what an
  * operator edits.
  */
-export function invalidAdhocEnvironmentVariables(
-  environmentSource: Record<string, string | undefined>,
-): string[] {
-  const invalid: string[] = [];
-
-  for (const field of Object.keys(ADHOC_FIELDS) as AdhocField[]) {
-    const spec = ADHOC_FIELDS[field];
-    const raw = environmentSource[spec.env];
-    if (raw === undefined || raw.trim() === '') continue;
-    if (parseFieldValue(field, raw) === undefined) invalid.push(spec.env);
-  }
-
-  return invalid;
+export function invalidAdhocEnvironmentVariables(environmentSource: EnvironmentSource): string[] {
+  return resolver.invalidEnvironment(environmentSource);
 }
