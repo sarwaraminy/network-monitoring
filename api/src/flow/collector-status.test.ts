@@ -259,4 +259,93 @@ describe('what the flow status reports about dropped datagrams', () => {
     assert.equal(status.ignoredReasons.sflow, 1);
     assert.equal(status.exporters.length, 1);
   });
+
+  it('keeps "every datagram refused" reachable after an allowlist edit', () => {
+    /*
+     * The trap in resetting one half of a ratio.
+     *
+     * The panel says "every datagram was refused" by testing `notAllowed`
+     * against the datagram total — the diagnosis for a mistyped allowlist,
+     * which is the commonest way to configure this wrong. Zeroing the refusals
+     * while `datagrams` kept the binding's history made those two permanently
+     * unequal, so the branch that names the problem could never fire again
+     * after exactly the edit that caused it: an admin narrows the list, gets one
+     * address wrong, every datagram is refused, and the page says nothing was.
+     *
+     * `datagramsUnderAllowlist` is the span both halves are measured over.
+     */
+    const collector = new FlowCollector();
+    const receiver = collector as unknown as Receiver;
+
+    receiver.handleDatagram(netflowV5(), '10.0.0.1');
+    receiver.handleDatagram(netflowV5(), '10.0.0.1');
+    assert.equal(collector.getStatus().datagramsUnderAllowlist, 2);
+
+    // The edit, then two refusals under the new list.
+    collector.resetRefusals();
+    receiver.handleDatagram(netflowV5(), '192.168.5.5');
+    receiver.handleDatagram(netflowV5(), '192.168.5.5');
+
+    const status = collector.getStatus();
+    assert.equal(status.ignoredReasons.notAllowed, 2);
+    assert.equal(
+      status.datagramsUnderAllowlist,
+      2,
+      'the span has to restart with the counter, or the ratio can never be equal again',
+    );
+    assert.equal(
+      status.ignoredReasons.notAllowed === status.datagramsUnderAllowlist,
+      true,
+      'an allowlist refusing everything must still be reportable as such',
+    );
+
+    // And the honest total is untouched: four really did arrive on this binding.
+    assert.equal(status.datagrams, 4);
+  });
+
+  it('measures the span over the whole binding until an allowlist is edited', () => {
+    // The ordinary case, which must not change: with no edit, the span IS the
+    // total and the branch behaves exactly as it did before the span existed.
+    const collector = new FlowCollector();
+    (collector as unknown as Receiver).handleDatagram(netflowV5(), '192.168.5.5');
+
+    const status = collector.getStatus();
+    assert.equal(status.datagramsUnderAllowlist, status.datagrams);
+    assert.equal(status.ignoredReasons.notAllowed, 1);
+  });
+
+  it('starts the span again with the counters on a rebind', () => {
+    const collector = new FlowCollector();
+    const receiver = collector as unknown as Receiver;
+    receiver.handleDatagram(netflowV5(), '10.0.0.1');
+    collector.resetRefusals();
+    receiver.handleDatagram(netflowV5(), '10.0.0.1');
+
+    collector.resetForRebind();
+    receiver.handleDatagram(netflowV5(), '192.168.5.5');
+
+    const status = collector.getStatus();
+    assert.equal(status.datagrams, 1);
+    assert.equal(status.datagramsUnderAllowlist, 1);
+    assert.equal(status.ignoredReasons.notAllowed, 1);
+  });
+
+  it('reports the configured port even with no socket to read one from', () => {
+    /*
+     * `port` is the port actually bound and is null when nothing is — which is
+     * the right answer for the state chip, since "2055 in the settings" and
+     * "2055 on a socket" are different claims.
+     *
+     * It is the wrong source for the sentence telling an operator where to point
+     * their device. `port ?? 0` rendered "point your switch at port 0" in
+     * precisely the state that hint exists for, because a failed bind is one of
+     * the main reasons nothing has arrived yet.
+     */
+    const status = new FlowCollector().getStatus();
+
+    assert.equal(status.listening, false);
+    assert.equal(status.port, null);
+    assert.equal(typeof status.configuredPort, 'number');
+    assert.ok(status.configuredPort > 0, 'a port to aim a device at is never 0');
+  });
 });

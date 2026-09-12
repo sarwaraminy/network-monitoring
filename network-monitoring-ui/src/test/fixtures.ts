@@ -452,7 +452,10 @@ export const FLOW_STATUS: FlowStatus = {
   listening: true,
   address: '0.0.0.0',
   port: 2055,
+  configuredPort: 2055,
   datagrams: 5120,
+  // Equal to `datagrams`, which is what it is until somebody edits the allowlist.
+  datagramsUnderAllowlist: 5120,
   records: 48210,
   malformed: 3,
   ignored: 9,
@@ -502,8 +505,12 @@ export const FLOW_OFF: FlowStatus = {
   enabled: false,
   listening: false,
   address: null,
+  // Not listening, so no bound port — but still configured for one, which is the
+  // number every "point your device here" sentence has to use.
   port: null,
+  configuredPort: 2055,
   datagrams: 0,
+  datagramsUnderAllowlist: 0,
   records: 0,
   malformed: 0,
   ignored: 0,

@@ -361,8 +361,24 @@ export interface FlowStatus {
    */
   listening: boolean;
   address: string | null;
+  /** The port actually bound, null when the socket is not open. */
   port: number | null;
+  /**
+   * The port it is configured to use, which is never null.
+   *
+   * For telling an operator where to point a device — the same instruction
+   * whether or not the socket is open, and the reason `port ?? 0` is not good
+   * enough for that sentence.
+   */
+  configuredPort: number;
   datagrams: number;
+  /**
+   * Datagrams since the allowlist last changed; equals `datagrams` until one is
+   * edited. The denominator for "every datagram was refused", because
+   * `ignoredReasons.notAllowed` restarts when the list it was counted against is
+   * replaced.
+   */
+  datagramsUnderAllowlist: number;
   records: number;
   malformed: number;
   ignored: number;

@@ -25,8 +25,21 @@ import FlowPage from './FlowPage';
  * Typed as `FlowStatus` rather than as the fixture's own shape, so a case that
  * drifts from the API contract fails here instead of rendering a panel the server
  * could never produce.
+ *
+ * `datagramsUnderAllowlist` is forced to equal `datagrams` here, because that is
+ * the collector's own invariant on a binding nobody has edited the allowlist on,
+ * and every case using this helper is describing one. Pinned rather than left to
+ * the caller: a case that overrode `datagrams` and inherited the fixture's span
+ * would silently lose the "everything was refused" branch, which is the exact
+ * failure this pair of fields exists to prevent. The cases that need the two to
+ * differ — the state after an allowlist edit — build their own handler and say so.
  */
-const status = (body: FlowStatus) => server.use(http.get('/api/flow/status', () => HttpResponse.json(body)));
+const status = (body: FlowStatus) =>
+  server.use(
+    http.get('/api/flow/status', () =>
+      HttpResponse.json({ ...body, datagramsUnderAllowlist: body.datagrams }),
+    ),
+  );
 
 describe('FlowPage', () => {
   it('says what it is bound to, not just that it is on', async () => {
@@ -315,5 +328,77 @@ describe('FlowPage', () => {
     const panel = await screen.findByText(/listening on 0\.0\.0\.0:2055/i);
     expect(panel).toBeInTheDocument();
     expect(within(document.body).queryByText(/not authorised/i)).not.toBeInTheDocument();
+  });
+
+  it('still reports an allowlist refusing everything after it was edited', async () => {
+    /*
+     * The diagnosis for a mistyped allowlist, which is the commonest way to
+     * configure this wrong — and it was measured against the binding's whole
+     * datagram history. The refusal counter restarts when the allowlist changes,
+     * because it was counted against a list that no longer exists, so the two
+     * could never be equal again after exactly the edit that caused the problem.
+     *
+     * This is the shape the server sends afterwards: datagrams carrying their
+     * history, the span and the refusals restarted together.
+     */
+    server.use(
+      http.get('/api/flow/status', () =>
+        HttpResponse.json({
+          ...FLOW_STATUS,
+          datagrams: 5120,
+          datagramsUnderAllowlist: 40,
+          records: 0,
+          ignored: 40,
+          ignoredReasons: { notAllowed: 40, sflow: 0, unsupportedVersion: 0 },
+        }),
+      ),
+    );
+    renderApp(<FlowPage />, { authenticated: true });
+
+    expect(await screen.findByText(/40 datagrams were refused/i)).toBeInTheDocument();
+  });
+
+  it('does not claim everything was refused when only some of it was', async () => {
+    // The other half, and the reason the branch is a ratio rather than a
+    // non-zero test: one stray packet from a decommissioned device must not read
+    // as an allowlist rejecting the estate.
+    server.use(
+      http.get('/api/flow/status', () =>
+        HttpResponse.json({
+          ...FLOW_STATUS,
+          datagramsUnderAllowlist: 40,
+          ignoredReasons: { notAllowed: 1, sflow: 0, unsupportedVersion: 0 },
+        }),
+      ),
+    );
+    renderApp(<FlowPage />, { authenticated: true });
+
+    await screen.findByText(/listening on/i);
+    expect(screen.queryByText(/datagram was refused/i)).not.toBeInTheDocument();
+  });
+
+  it('points the operator at the configured port when nothing is bound', async () => {
+    /*
+     * `port` is null with no socket open, and `?? 0` turned the one sentence
+     * that tells an operator where to aim a device into "export to this host on
+     * port 0". The overlap is what made it bad: this hint shows when nothing has
+     * arrived, and a failed bind is one of the main reasons nothing has.
+     */
+    server.use(
+      http.get('/api/flow/status', () =>
+        HttpResponse.json({
+          ...FLOW_STATUS,
+          listening: false,
+          address: null,
+          port: null,
+          configuredPort: 4739,
+          exporters: [],
+        }),
+      ),
+    );
+    renderApp(<FlowPage />, { authenticated: true });
+
+    expect(await screen.findByText(/on port 4739/i)).toBeInTheDocument();
+    expect(screen.queryByText(/on port 0([^0-9]|$)/i)).not.toBeInTheDocument();
   });
 });

@@ -251,7 +251,15 @@ export default function FlowStatusPanel() {
                       variant="body2"
                       sx={{ color: 'text.secondary', maxWidth: 520, mx: 'auto', mt: 0.5 }}
                     >
-                      {t('flow.no_exporters_note', { port: data.port ?? 0 })}
+                      {/*
+                        The CONFIGURED port, not the bound one. This sentence
+                        says where to point a device, which is the same answer
+                        whether or not the socket is open — and `port ?? 0` read
+                        "point your switch at port 0" in exactly the state it is
+                        written for, since a failed bind is one of the main
+                        reasons nothing has arrived.
+                      */}
+                      {t('flow.no_exporters_note', { port: data.configuredPort })}
                     </Typography>
                   </Box>
                 ),
@@ -326,8 +334,19 @@ function Diagnosis({ status }: Readonly<{ status: FlowStatus }>) {
    * had not arrived yet, plus one stray packet from a decommissioned device,
    * told the operator their allowlist was rejecting everything and never reached
    * the branch that explains the templates.
+   *
+   * Measured over the span since the allowlist last changed rather than over the
+   * whole binding, and the two differ the moment somebody edits the list. The
+   * refusal counter restarts then — it was counted against a list that no longer
+   * exists — so against the binding's own total the two could never be equal
+   * again, and this branch would go silent for the rest of the session starting
+   * from the edit that caused the problem it names. Both halves of a ratio have
+   * to cover the same span.
    */
-  if (status.datagrams > 0 && status.ignoredReasons.notAllowed === status.datagrams) {
+  if (
+    status.datagramsUnderAllowlist > 0 &&
+    status.ignoredReasons.notAllowed === status.datagramsUnderAllowlist
+  ) {
     return (
       <Alert severity="warning" icon={<BlockOutlinedIcon />}>
         <AlertTitle>{t('flow.all_refused', { count: status.ignoredReasons.notAllowed })}</AlertTitle>

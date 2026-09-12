@@ -5,6 +5,7 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { DELIVERY_DEFAULTS, DELIVERY_FIELDS, type DeliveryField } from '../notify/settings.js';
 import { ADHOC_FIELDS, type AdhocField } from '../services/adhoc-settings.js';
+import { FLOW_FIELDS, type FlowField } from '../services/flow-settings.js';
 
 /**
  * The example files and Compose must not contradict the code's own defaults.
@@ -463,10 +464,27 @@ describe('deployment defaults match the code', () => {
      * Blank is the intended shape: it counts as unset, so the code default
      * applies and the field stays editable, with the value recorded in a comment
      * above it so the example still documents itself.
+     *
+     * **Three times, not twice.** `FLOW_FIELDS` was not in this set when the flow
+     * form shipped, so `FLOW_PORT=2055`, `FLOW_ENABLED=false` and
+     * `FLOW_BIND_ADDRESS=0.0.0.0` sat in both examples pinning three of the four
+     * fields — on the install path the README documents, `cp .env.docker.example
+     * .env`. The form rendered inert for exactly the deployment that has no shell
+     * to fix it with, which is the failure it exists to remove. `FLOW_EXPORTERS=`
+     * was already blank and shows what the rest should have looked like.
+     *
+     * `compose-unpinned.test.ts` did not cover it either, and is not meant to: it
+     * reads the Compose files, one layer further out. The two guards are the same
+     * property checked on the two files a deployment is actually built from, and
+     * a settings feature needs adding to both.
+     *
+     * So: derived from the field tables rather than listed, so the next resolver
+     * joins by being written. If you add one, add it here.
      */
     const managed = new Set<string>([
       ...(Object.keys(DELIVERY_FIELDS) as DeliveryField[]).map((field) => DELIVERY_FIELDS[field].env),
       ...(Object.keys(ADHOC_FIELDS) as AdhocField[]).map((field) => ADHOC_FIELDS[field].env),
+      ...(Object.keys(FLOW_FIELDS) as FlowField[]).map((field) => FLOW_FIELDS[field].env),
     ]);
     assert.ok(managed.size > 20, `derived only ${managed.size} interface-managed variables`);
 

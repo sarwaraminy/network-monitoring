@@ -75,8 +75,36 @@ export interface FlowCollectorStatus {
   enabled: boolean;
   listening: boolean;
   address: string | null;
+  /**
+   * The port the socket actually bound, or null when it is not open.
+   *
+   * Null rather than the configured value, deliberately: "2055 in the settings"
+   * and "2055 on a socket" are different claims, and only the second one means a
+   * datagram can arrive. The state chip says which by reporting this one.
+   */
   port: number | null;
+  /**
+   * The port it is configured to use, which is never null.
+   *
+   * For the sentences that tell an operator where to point a device. That
+   * instruction is the same whether or not the socket is currently open — and
+   * `port ?? 0` put "point your switch at port 0" on screen in precisely the
+   * state the sentence exists for, since a failed bind is one of the main reasons
+   * nothing has arrived yet.
+   */
+  configuredPort: number;
   datagrams: number;
+  /**
+   * Datagrams seen since the allowlist last changed, which equals `datagrams`
+   * until one is edited.
+   *
+   * The denominator for "every datagram was refused". `notAllowed` restarts when
+   * the allowlist is replaced — it was counted against a list that no longer
+   * exists — so comparing it against the binding's whole history would silence
+   * that diagnosis for the rest of the session. Both halves of a ratio have to
+   * cover the same span.
+   */
+  datagramsUnderAllowlist: number;
   records: number;
   malformed: number;
   /** Total of `ignoredReasons`, kept because it is the headline number. */
@@ -143,6 +171,23 @@ export class FlowCollector {
   };
   private readonly exporters = new Map<string, ExporterStats>();
   private warnedAboutSflow = false;
+  /**
+   * `datagrams` as it stood when the allowlist last changed. See `resetRefusals`.
+   *
+   * The span marker, and it exists because clearing one of a pair breaks the
+   * ratio the interface reads them as. `notAllowed === datagrams` is how the
+   * panel says "every datagram was refused" — the diagnosis for a mistyped
+   * allowlist, which is the commonest way to configure this wrong. Zeroing the
+   * refusals while `datagrams` kept its history made those two permanently
+   * unequal on a binding, so the one branch that names the problem could never
+   * fire again after the very edit that caused it.
+   *
+   * Resetting `datagrams` alongside would have been the other way out, and is
+   * worse: it puts the panel into "nothing has arrived", which is a different
+   * false statement made to the same person, and it would have to drag `records`
+   * and the per-exporter rows with it to stay coherent.
+   */
+  private allowlistChangedAt = 0;
 
   /** Starts listening. Resolves once bound, rejects if the port is unusable. */
   async start(): Promise<void> {
@@ -271,6 +316,10 @@ export class FlowCollector {
     this.exporters.clear();
     this.engine.reset();
     this.warnedAboutSflow = false;
+    // Back to zero rather than to `this.datagrams`, which is also zero now: the
+    // span and the total start together on a new binding, so the ratio means
+    // what it meant before any allowlist was edited.
+    this.allowlistChangedAt = 0;
   }
 
   /**
@@ -298,6 +347,7 @@ export class FlowCollector {
    */
   resetRefusals(): void {
     this.ignoredReasons.notAllowed = 0;
+    this.allowlistChangedAt = this.datagrams;
   }
 
   async stop(): Promise<void> {
@@ -458,7 +508,9 @@ export class FlowCollector {
       listening: this.socket !== null,
       address: address?.address ?? null,
       port: address?.port ?? null,
+      configuredPort: currentFlowSettings().port,
       datagrams: this.datagrams,
+      datagramsUnderAllowlist: this.datagrams - this.allowlistChangedAt,
       records: this.records,
       malformed: this.malformed,
       // Summed rather than counted separately, so the total and the breakdown
