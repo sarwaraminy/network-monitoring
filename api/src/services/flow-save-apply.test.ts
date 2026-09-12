@@ -44,6 +44,7 @@ const database = await openTestDatabase({ id: 'flowsaveapply' });
 let db: typeof import('../db/index.js').db;
 let saveFlowSettings: typeof import('./flow-settings.service.js').saveFlowSettings;
 let loadFlowSettings: typeof import('./flow-settings.service.js').loadFlowSettings;
+let flowResolutionWithRecovery: typeof import('./flow-settings.service.js').flowResolutionWithRecovery;
 let HttpError: typeof import('../middleware/error-handler.js').HttpError;
 
 const ACTOR = { name: 'admin@example.test', id: 1 };
@@ -58,7 +59,9 @@ function breakTheReadBack(): void {
 describe('a flow save whose read-back fails', { skip: database.skip }, () => {
   before(async () => {
     ({ db } = await import('../db/index.js'));
-    ({ saveFlowSettings, loadFlowSettings } = await import('./flow-settings.service.js'));
+    ({ saveFlowSettings, loadFlowSettings, flowResolutionWithRecovery } = await import(
+      './flow-settings.service.js'
+    ));
     ({ HttpError } = await import('../middleware/error-handler.js'));
   });
 
@@ -157,5 +160,95 @@ describe('a flow save whose read-back fails', { skip: database.skip }, () => {
 
     assert.equal(again.allowlistChanged, false);
     assert.equal(again.needsRebind, true);
+  });
+
+  it('does not claim a save for a retry that wrote nothing', async () => {
+    /*
+     * The empty patch is the retry button, and it is how that button reaches the
+     * server at all — a form whose values are already correct produces no diff,
+     * so there is nothing else to send.
+     *
+     * Throwing on this path told an administrator "the setting was saved and
+     * will be used the next time the API starts" about a request that saved
+     * nothing. The worse half is that the throw returns before the route's
+     * `restartFlowCollector()`, so the one control provided for recovering a bad
+     * bind failed to rebind and reported its failure as a successful save.
+     */
+    breakTheReadBack();
+
+    const saved = await saveFlowSettings({}, ACTOR);
+
+    assert.equal(saved.changed, false);
+    // Unchanged before and after, so the route falls through to its stalled
+    // check — which is the branch the retry exists to reach.
+    assert.equal(saved.needsRebind, false);
+    assert.equal(saved.allowlistChanged, false);
+  });
+
+  it('still refuses to report a real write it could not read back', async () => {
+    // The distinction, from the other side: guarding on `wrote` must not turn
+    // the case above into an excuse for the one that matters.
+    breakTheReadBack();
+
+    await assert.rejects(
+      () => saveFlowSettings({ port: 4739 }, ACTOR),
+      (error: unknown) => (error as { code?: string }).code === 'error.flow_saved_not_applied',
+    );
+  });
+
+  it('re-reads for the settings form after a boot that could not', async () => {
+    /*
+     * A failed read at boot used to be permanent. Nothing tried again, and
+     * `GET /settings` answers from the same in-memory cache — so an API that
+     * started a few seconds ahead of Postgres reported every field as
+     * `source: 'default'` over stored values anyone could see in the database,
+     * for the life of the process, with a restart as the only way out.
+     *
+     * That row-versus-`source` disagreement is the one failure the three-layer
+     * design exists to make impossible, and opening the form is exactly when
+     * somebody is asking for the truth.
+     */
+    await database.pool!.query('INSERT INTO flow_settings (id, port, updated_by) VALUES (1, 9995, $1)', [
+      'someone@example.test',
+    ]);
+
+    breakTheReadBack();
+    await loadFlowSettings();
+
+    // The stale cache: nothing was read, so the row's 9995 is nowhere in it.
+    const { currentFlowResolution } = await import('./flow-settings.service.js');
+    assert.equal(currentFlowResolution().port.source, 'default');
+
+    // The database comes back, and the next read of the form recovers.
+    mock.restoreAll();
+    const recovered = await flowResolutionWithRecovery();
+
+    assert.equal(recovered.port.value, 9995);
+    assert.equal(recovered.port.source, 'database');
+  });
+
+  it('serves what it has when the retry fails too', async () => {
+    // A settings form that will not open is worse than one reporting the layer
+    // it fell back to — and the caller has no better answer to offer.
+    breakTheReadBack();
+    await loadFlowSettings();
+
+    const resolution = await flowResolutionWithRecovery();
+    assert.equal(resolution.port.source, 'default');
+  });
+
+  it('does not re-read when the cache is known to be good', async () => {
+    /*
+     * The other half of the flag, and the reason it is a flag rather than an
+     * unconditional read: `GET /settings` is opened by a form, not by a hot
+     * path, but a re-read on every call would still be a query per keystroke on
+     * a refetching client for no gain.
+     */
+    await loadFlowSettings();
+
+    const reads = mock.method(db, 'select');
+    await flowResolutionWithRecovery();
+
+    assert.equal(reads.mock.callCount(), 0);
   });
 });

@@ -71,10 +71,28 @@ export function currentFlowSettings(): FlowSettings {
 const storedFrom = (row: FlowSettingsRow | undefined): StoredFlowSettings =>
   row ? { enabled: row.enabled, port: row.port, bindAddress: row.bindAddress, exporters: row.exporters } : {};
 
-/** Reads the row and re-resolves. Throws if it cannot — see the two callers below. */
+/**
+ * Whether the cached resolution is known not to reflect the row.
+ *
+ * Set when a read fails and cleared when one succeeds. Without it a failure at
+ * boot was permanent: nothing re-read, so an API that started a few seconds ahead
+ * of Postgres — an ordinary ordering, and the normal one with
+ * `DB_AUTO_MIGRATE=false` — held environment-and-defaults for its whole lifetime.
+ * The collector stayed off while the row said `enabled = true`, and the settings
+ * form reported every field as `source: 'default'` over stored values anyone
+ * could see in the database.
+ *
+ * That last part is the reason this is worth a flag rather than a log line. A row
+ * and a `source` that disagree is the one failure `flow-settings.ts` says the
+ * three layers exist to make impossible.
+ */
+let stale = false;
+
+/** Reads the row and re-resolves. Throws if it cannot — see the callers below. */
 async function readAndResolve(): Promise<void> {
   const [row] = await db.select().from(table).where(eq(table.id, ROW_ID)).limit(1);
   resolution = resolveFlowSettings(flowEnvironmentSource(), storedFrom(row));
+  stale = false;
 }
 
 /** Publishes whatever is in `resolution` to the caches the hot path reads. */
@@ -118,11 +136,47 @@ export async function loadFlowSettings(): Promise<FlowSettings> {
     await readAndResolve();
   } catch (error) {
     // Warn and keep whatever was resolved before, which on a first load is the
-    // environment and the defaults.
+    // environment and the defaults. Marked stale so the next reader retries
+    // rather than serving this for the lifetime of the process.
+    stale = true;
     log.warn({ err: error }, 'Could not read the flow settings; using the environment and defaults');
   }
 
   return applyResolution();
+}
+
+/**
+ * The resolution, having retried first if the last read failed.
+ *
+ * For `GET /settings`, which is the one place a person is explicitly asking what
+ * this installation is configured to do — so it is also the natural place to
+ * notice that the answer in memory was never actually read from anywhere. A boot
+ * that could not reach the database used to be permanent: the form showed
+ * `source: 'default'` over stored values, and the only way out was a restart,
+ * which is the shell access this whole feature exists to stop needing.
+ *
+ * Retried here rather than on a timer because this is where it matters and where
+ * somebody is waiting for the answer; a background retry would also work and is
+ * more machinery for the same result. A retry that fails again serves what we
+ * have, since a settings form that will not open is worse than one reporting the
+ * layer it fell back to.
+ *
+ * Recovery is more than cosmetic: `applyResolution` republishes `currentFlowSettings`,
+ * so a collector that stayed off because its row was unreadable now reads as
+ * "should be listening and is not" — which is what makes the retry button appear.
+ */
+export async function flowResolutionWithRecovery(): Promise<FlowResolution> {
+  if (!stale) return resolution;
+
+  try {
+    await readAndResolve();
+    applyResolution();
+    log.info('Re-read the flow settings after an earlier failure; the cached values were stale');
+  } catch (error) {
+    log.warn({ err: error }, 'Flow settings are still unreadable; serving the environment and defaults');
+  }
+
+  return resolution;
 }
 
 /**
@@ -370,8 +424,29 @@ export async function saveFlowSettings(patch: StoredFlowSettings, actor: Actor):
   try {
     await refreshFlowSettings();
   } catch (error) {
-    log.error({ err: error }, 'Flow settings were written but could not be read back; nothing was applied');
-    throw HttpError.of(500, 'error.flow_saved_not_applied');
+    if (wrote) {
+      log.error({ err: error }, 'Flow settings were written but could not be read back; nothing was applied');
+      throw HttpError.of(500, 'error.flow_saved_not_applied');
+    }
+
+    /*
+     * Nothing was written, so there is nothing to misreport — and throwing here
+     * broke the one control that recovers a bad bind.
+     *
+     * The retry button sends an EMPTY patch deliberately: that is how it reaches
+     * the server at all, since a form whose values are already correct produces
+     * no diff. On that path `wrote` is false, and raising "the setting was saved
+     * and will be used the next time the API starts" describes a request that
+     * saved nothing. Worse, the throw returns before the route's
+     * `restartFlowCollector()`, so pressing the button to fix a failed bind
+     * failed to rebind and reported it as a successful save.
+     *
+     * Carrying on with the resolution we have makes `after` equal `before`, so
+     * `needsRebind` is false and the route falls through to its stalled check —
+     * which is exactly the branch the retry is meant to reach.
+     */
+    stale = true;
+    log.warn({ err: error }, 'Could not re-read the flow settings; nothing was written, so continuing');
   }
 
   const after = effectiveFlowSettings(resolution);

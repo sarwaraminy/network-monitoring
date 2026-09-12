@@ -289,10 +289,14 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'Flussdaten liefern die Verbindungen über Ihre Router, ohne SPAN-Port und ohne ' +
     'Mitschnitt-Treiber — die vorhandenen Geräte beobachten und senden Zusammenfassungen hierher. ' +
     'Pro Verbindung sieht das weniger als ein Mitschnitt und vom Netz sehr viel mehr.',
-  'flow.enable_hint': 'Zum Einschalten dies hier ergänzen in',
-  'flow.off_restart_note':
-    'Eine administrierende Person kann es auch ohne Datei einschalten, unter ' +
-    'Administrationseinstellungen → Einstellungen der Flusserfassung.',
+  'flow.enable_here':
+    'Eine administrierende Person schaltet es unter Administrationseinstellungen → ' +
+    'Einstellungen der Flusserfassung ein. Keine Datei, kein Neustart.',
+  'flow.enable_hint': 'Eine Installation, die ihre Konfiguration in Dateien hält, kann dies hier setzen in',
+  'flow.enable_env_pins':
+    'Ein hier gesetzter Wert hat Vorrang vor dem Formular und deaktiviert das Feld darin — ' +
+    'ändern lässt sich die Einstellung dann nur noch in der Datei. Weglassen, sofern diese ' +
+    'Installation nicht über Dateien verwaltet wird.',
   'flow.compose': 'Unter Docker Compose braucht der Port eine zweite Datei',
   'flow.compose_note':
     'Der UDP-Port wird von docker-compose.flow.yml veröffentlicht, nicht von der Hauptdatei — ' +

@@ -75,10 +75,43 @@ describe('FlowPage', () => {
     renderApp(<FlowPage />, { authenticated: true });
 
     expect(await screen.findByText(/flow collection is off/i)).toBeInTheDocument();
-    expect(screen.getByText(/FLOW_ENABLED=true/)).toBeInTheDocument();
-    // And points at the form, since an administrator no longer needs the file at
-    // all — the variables are one of three layers now, not the only one.
     expect(screen.getByText(/Administration settings/i)).toBeInTheDocument();
+  });
+
+  it('offers the form first and the file second, because the file pins the form', async () => {
+    /*
+     * This panel used to lead with a block to paste into `api/.env` and mention
+     * the administration form as a trailing "can also" — so the empty state a
+     * first-time operator is most likely to be looking at recommended the one
+     * route that costs them the form.
+     *
+     * Setting `FLOW_ENABLED` or `FLOW_PORT` in a file is precisely what makes the
+     * resolver treat them as pinned: three of the four controls render disabled,
+     * permanently, with editing the file again as the only way back. It is the
+     * state `env-defaults.test.ts` fails the build over, printed as an
+     * instruction.
+     */
+    status(FLOW_OFF);
+    renderApp(<FlowPage />, { authenticated: true });
+
+    const form = await screen.findByText(/Administration settings/i);
+    const file = screen.getByText(/FLOW_ENABLED=true/);
+
+    // Ordering, not merely presence: the recommendation is which one comes first.
+    expect(form.compareDocumentPosition(file) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // And the file route says what it costs, which nothing did before.
+    expect(screen.getByText(/wins over the form and disables that field/i)).toBeInTheDocument();
+  });
+
+  it('keeps the allowlist out of the block it tells people to paste', async () => {
+    // The field an operator revises most often after the first run, as devices
+    // are added — so pinning that one is the most expensive of the four.
+    status(FLOW_OFF);
+    renderApp(<FlowPage />, { authenticated: true });
+
+    await screen.findByText(/flow collection is off/i);
+    expect(screen.queryByText(/FLOW_EXPORTERS=/)).not.toBeInTheDocument();
   });
 
   it('names templates as the cause when nothing decodes', async () => {

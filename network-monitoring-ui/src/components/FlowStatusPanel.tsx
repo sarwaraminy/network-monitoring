@@ -514,7 +514,31 @@ function IgnoredPanel({ status }: Readonly<{ status: FlowStatus }>) {
   );
 }
 
-/** Off, with the two variables that turn it on. */
+/**
+ * Off, and how to turn it on — in the order that does not cost the reader the
+ * form.
+ *
+ * This used to lead with a block to paste into `api/.env`, with the
+ * administration route as a trailing "can also". That is the wrong way round now,
+ * and was actively harmful: setting `FLOW_ENABLED`, `FLOW_PORT` or
+ * `FLOW_BIND_ADDRESS` in a file is exactly what makes the resolver treat them as
+ * pinned, so following the instruction disabled three of the four controls in the
+ * settings form, permanently, with editing the file again as the only way back.
+ *
+ * It is the same state this branch removed from `docker-compose.yml` and both
+ * `.env` examples, and that `env-defaults.test.ts` now fails the build over — so
+ * the product shipped a guard against it and then printed the instructions for
+ * reaching it, in the empty state a first-time operator is most likely to be
+ * looking at.
+ *
+ * The environment route is still offered, because a deployment that keeps its
+ * configuration in files is entitled to it and that is the point of the three
+ * layers. It is offered second, and it says what it costs.
+ *
+ * `FLOW_EXPORTERS` is deliberately not in the block. The allowlist is the field
+ * an operator revises most often after the first run, as devices are added, and
+ * pinning that one is the most expensive of the four.
+ */
 function DisabledNotice() {
   const t = useT();
   return (
@@ -528,7 +552,12 @@ function DisabledNotice() {
           <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
             {t('flow.off_note')}
           </Typography>
+          {/* The way that keeps the form usable, first and in the reader's weight. */}
           <Typography variant="body2" sx={{ mt: 2, fontWeight: 600 }}>
+            {t('flow.enable_here')}
+          </Typography>
+
+          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 2 }}>
             {t('flow.enable_hint')} <Box component="code">api/.env</Box>:
           </Typography>
           <Box
@@ -542,10 +571,10 @@ function DisabledNotice() {
               overflowX: 'auto',
             }}
           >
-            {'FLOW_ENABLED=true\nFLOW_PORT=2055\nFLOW_EXPORTERS=10.0.0.1,10.0.0.2'}
+            {'FLOW_ENABLED=true\nFLOW_PORT=2055'}
           </Box>
           <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
-            {t('flow.off_restart_note')}
+            {t('flow.enable_env_pins')}
           </Typography>
         </Box>
       </Stack>

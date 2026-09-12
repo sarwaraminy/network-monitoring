@@ -288,10 +288,14 @@ export const UI_EN = {
     'Flow gives you the conversations crossing your routers without a SPAN port or a capture ' +
     'driver — the devices you already own do the observing and send summaries here. It sees less ' +
     'per connection than packet capture and vastly more of the network.',
-  'flow.enable_hint': 'To switch it on, add these to',
-  'flow.off_restart_note':
-    'An administrator can also switch it on without touching a file, from Administration ' +
-    'settings → Flow collection settings.',
+  'flow.enable_here':
+    'An administrator switches it on under Administration settings → Flow collection ' +
+    'settings. No file to edit, and no restart.',
+  'flow.enable_hint': 'A deployment that keeps its configuration in files can set these in',
+  'flow.enable_env_pins':
+    'A value set here wins over the form and disables that field in it, so changing the ' +
+    'setting afterwards means editing the file again. Leave them out unless this ' +
+    'installation is managed from files.',
   'flow.compose': 'On Docker Compose, the port needs a second file',
   'flow.compose_note':
     'The UDP port is published by docker-compose.flow.yml, not by the main file — putting it ' +

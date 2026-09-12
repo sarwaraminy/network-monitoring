@@ -4,7 +4,11 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler, HttpError } from '../middleware/error-handler.js';
 import { actorOf } from '../services/audit.service.js';
 import { flowForApi, flowPinnedFields } from '../services/flow-settings.js';
-import { currentFlowResolution, saveFlowSettings } from '../services/flow-settings.service.js';
+import {
+  currentFlowResolution,
+  flowResolutionWithRecovery,
+  saveFlowSettings,
+} from '../services/flow-settings.service.js';
 import { flowSettingsPatchSchema, parseOrThrow } from './validation.js';
 
 /**
@@ -65,10 +69,27 @@ flowRouter.get('/status', (req, res) => {
  * The only thing that reads this is the form under the administration gear,
  * which nobody else can open.
  */
-flowRouter.get('/settings', requireRole('ADMIN'), (_req, res) => {
-  const resolution = currentFlowResolution();
-  res.json({ settings: flowForApi(resolution), pinned: flowPinnedFields(resolution) });
-});
+flowRouter.get(
+  '/settings',
+  requireRole('ADMIN'),
+  asyncHandler(async (_req, res) => {
+    /*
+     * Read through a cache that is known to be stale, rather than serving it.
+     *
+     * A boot that could not reach the database keeps environment-and-defaults, on
+     * purpose — losing flow telemetry over an unreadable settings table would be
+     * the worse failure. What was missing is that nothing ever tried again, so an
+     * API that started a few seconds ahead of Postgres reported every field as
+     * `source: 'default'` over stored values, for the life of the process, with a
+     * restart as the only way out.
+     *
+     * Here is where it is worth retrying: this endpoint exists because somebody
+     * opened the form to ask what this installation is configured to do.
+     */
+    const resolution = await flowResolutionWithRecovery();
+    res.json({ settings: flowForApi(resolution), pinned: flowPinnedFields(resolution) });
+  }),
+);
 
 /**
  * PUT /api/flow/settings — changes them, and rebinds if it has to.

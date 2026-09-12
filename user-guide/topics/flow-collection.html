@@ -125,9 +125,20 @@ above.</p>
 
 <h2>Switching it on</h2>
 
-<p>Flow collection is off until somebody asks for it. When it is off, this screen shows the
-settings that switch it on rather than an empty set of counters &mdash; a page reading
+<p>Flow collection is off until somebody asks for it. When it is off, this screen tells you
+how to switch it on rather than showing an empty set of counters &mdash; a page reading
 "0 datagrams" is indistinguishable from a broken one.</p>
+
+<div class="note">
+  <span class="label">Use the form, not the file</span>
+  <p>That panel offers two routes and puts them in this order deliberately. The settings form
+  is the one to use. Setting these in <code>api/.env</code> also works &mdash; a deployment
+  that keeps its configuration in files is entitled to that, and a value there wins &mdash;
+  but it then <em>disables</em> that field in the form, and the only way to change the setting
+  afterwards is to edit the file again and restart.</p>
+  <p>That is worth knowing before you paste anything: the file route quietly costs you the
+  browser route for every field you use it on.</p>
+</div>
 
 <p>An administrator changes these from <a href="administration-settings.html">Administration
 settings</a> &rarr; <span class="ui">Flow collection settings</span>, with no file to edit
