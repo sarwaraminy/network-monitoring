@@ -184,12 +184,25 @@ describe('FlowSettings', () => {
     expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
   });
 
-  it('shows the live collector state under the form', async () => {
-    // Watching the socket come back is how an operator tells a save took effect,
-    // which is why the status panel is embedded here rather than only on its page.
+  it('is a form and not a report', async () => {
+    /*
+     * The whole status panel was rendered under these fields for a while — the
+     * counters, the exporter table, the diagnosis — on the argument that watching
+     * the socket come back is how you tell a save took effect. That made a
+     * settings window into a monitoring screen, which is the thing the query
+     * console's diagnostics were taken out of the gear for.
+     *
+     * The two useful halves of that argument are kept without it: a save that
+     * could not bind says so in the banner, and a collector that was already
+     * stalled surfaces as the retry button below. Both read the status; neither
+     * renders it.
+     */
     renderApp(<FlowSettings />, { authenticated: true });
 
-    expect(await screen.findByText(/listening on 0\.0\.0\.0:2055/i)).toBeInTheDocument();
+    await screen.findByDisplayValue('2055');
+    expect(screen.queryByText(/listening on 0\.0\.0\.0:2055/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Datagrams')).not.toBeInTheDocument();
+    expect(screen.queryByText('Exporters')).not.toBeInTheDocument();
   });
 
   it('clears the bind address rather than storing an empty string', async () => {

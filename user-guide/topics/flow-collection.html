@@ -155,8 +155,14 @@ that reason:</p>
   <span class="label">A save can succeed and still not take effect</span>
   <p>If the new port is already in use, or the bind address is not an address on this
   machine, the socket cannot be reopened. The setting <em>is</em> saved &mdash; it is what
-  the next restart will use &mdash; but nothing is being collected right now, and the panel
-  says so rather than showing a tick. The state underneath the form is the live answer.</p>
+  the next restart will use &mdash; but nothing is being collected right now, and the form
+  says so rather than showing a tick. This screen is the live answer: it is one click away
+  under <span class="ui">Capture</span>, and it is where the collector's state is reported.
+  The settings window is for changing things, not for reading them.</p>
+  <p>If the collector was already stalled when you opened the settings &mdash; a port that
+  was busy when the server started, freed since &mdash; every value in the form is already
+  correct, so there is nothing to save. A <span class="ui">Try binding again</span> button
+  appears in that case and reopens the socket without changing anything.</p>
 </div>
 
 <div class="note">

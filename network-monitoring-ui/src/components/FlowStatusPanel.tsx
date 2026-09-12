@@ -57,9 +57,8 @@ import SurfaceCard from './SurfaceCard';
  * start/stop button on a monitoring screen would invite switching security
  * telemetry off for an afternoon and forgetting. Changing the port or the
  * exporters is a *setting* rather than a toggle, so it lives under the
- * administration gear — see `admin/FlowSettings.tsx`, which embeds this panel
- * underneath itself, because watching the socket come back is how an operator
- * tells a save took effect.
+ * administration gear — see `admin/FlowSettings.tsx`. The division is strict in
+ * both directions: no controls on this screen, and no report inside that form.
  */
 
 /**
@@ -89,35 +88,21 @@ const PROTOCOL_LABEL: Record<string, UiMessageKey> = {
   ipfix: 'flow.protocol.ipfix',
 };
 
-export interface FlowStatusPanelProps {
-  /**
-   * Render without the page's own title band, for use inside another panel.
-   *
-   * The same flag and the same reason as `DeliverySettingsForm`: a title band
-   * inside a dialog that already has one is a heading under a heading. The state
-   * chip and the refresh move into the body rather than disappearing — they are
-   * the two things a diagnostic panel is read for.
-   */
-  embedded?: boolean;
-}
-
 /**
- * The panel itself, shared by the Flow page and the administration gear.
+ * The panel itself, reached from Flow collection under Capture.
  *
  * Named `FlowStatusPanel` and not `FlowStatus`, which is the type this file
  * already imports for the endpoint's shape. TypeScript keeps types and values in
  * separate namespaces so both compiled, and a reader would still have had to work
  * out which `FlowStatus` any given line meant. The contract keeps the plain name.
  *
- * Two entry points because two people want it for different reasons. An operator
- * reaches it from the navigation while watching the network; whoever is setting
- * flow up reaches it from the administration panel, next to the query console's
- * diagnostics, because at that moment it is a configuration question. One
- * component rather than two views over one endpoint — see `AdminSettingsMenu`,
- * which makes the same argument about embedding the delivery form rather than
- * writing a second.
+ * It briefly took an `embedded` flag and rendered a second time under the
+ * settings form, on the argument that watching the socket come back is how you
+ * tell a save took effect. That made a settings window into a monitoring screen.
+ * The gear is for changing things — see `admin/FlowSettings.tsx`, which now reads
+ * this endpoint for its retry and renders none of it. Screen and form, one each.
  */
-export default function FlowStatusPanel({ embedded = false }: Readonly<FlowStatusPanelProps>) {
+export default function FlowStatusPanel() {
   const t = useT();
   const fmt = useFormatters();
 
@@ -129,9 +114,8 @@ export default function FlowStatusPanel({ embedded = false }: Readonly<FlowStatu
      *
      * Keying on `listening` froze the page on the one state somebody sits and
      * watches: the bind failed, they are freeing the port, and they want to be
-     * told when it takes. Instead it held a stale error — including the copy
-     * embedded under the settings form, which then described a failure that had
-     * already been fixed, until a manual reload.
+     * told when it takes. Instead it held a stale error describing a failure that
+     * had already been fixed, until a manual reload.
      *
      * Switched off is genuinely not worth asking about, which is the other half
      * and the reason this is not simply always on.
@@ -176,11 +160,7 @@ export default function FlowStatusPanel({ embedded = false }: Readonly<FlowStatu
     [t, fmt],
   );
 
-  /*
-   * The state chip and the refresh, which sit in the title band on the page and
-   * above the body when embedded. Built once here so the two placements cannot
-   * come to show different controls.
-   */
+  /* The state chip and the refresh, which sit in the page's title band. */
   const controls = (data: FlowStatus) => (
     <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
       <StateChip status={data} />
@@ -195,7 +175,7 @@ export default function FlowStatusPanel({ embedded = false }: Readonly<FlowStatu
     </Stack>
   );
 
-  const band = embedded ? null : (
+  const band = (
     <SurfaceCard
       title={t('flow.title')}
       titleComponent="h1"
@@ -229,7 +209,6 @@ export default function FlowStatusPanel({ embedded = false }: Readonly<FlowStatu
   return (
     <Stack spacing={2}>
       {band}
-      {embedded && <Box>{controls(data)}</Box>}
 
       {!data.enabled && <DisabledNotice />}
 

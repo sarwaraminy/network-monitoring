@@ -20,7 +20,6 @@ import {
 import { type Message, useMessageText } from '../../i18n/message-state';
 import { useT } from '../../i18n/ui';
 import { monoSx } from '../../theme';
-import FlowStatusPanel from '../FlowStatusPanel';
 
 /**
  * Flow collection settings, for an administrator with no shell on the server.
@@ -51,10 +50,26 @@ import FlowStatusPanel from '../FlowStatusPanel';
  * beside the field. On the flow overlay the field is pinned anyway, which is the
  * belt to that braces: an operator on Compose cannot reach the mistake.
  *
- * The live state is rendered underneath, because watching the socket come back is
- * how you tell a save took effect — and a failed rebind is reported as
- * `listening: false` rather than as a failed request, since the row really was
- * written and is what the next boot will use.
+ * **This dialog edits; it does not report.** The counters, the exporter table and
+ * the diagnosis were rendered underneath here for a while, on the argument that
+ * watching the socket come back is how you tell a save took effect. That put a
+ * whole monitoring screen inside a settings window — the same thing the query
+ * console's diagnostics were removed from the gear for. Every entry under the
+ * administration gear is a form, and a reader who opens one is asking to change
+ * something, not to be shown a report they can reach from the navigation.
+ *
+ * What that argument was actually about survives without the panel, because it
+ * was never about the counters:
+ *
+ *  - **A save that could not bind** says so in the banner above the fields
+ *    (`flow_settings.saved_not_listening`), from the status the route returns
+ *    with the save. A failed rebind is not a failed request — the row was
+ *    written and is what the next boot will use — so it is reported as the
+ *    outcome of a successful save rather than as an error.
+ *  - **A collector that was already stalled** surfaces as the retry button,
+ *    which reads `GET /api/flow/status` without rendering it.
+ *
+ * The full picture stays one click away, on Flow collection under Capture.
  */
 
 /** What the form holds while it is being edited. */
@@ -70,11 +85,17 @@ export default function FlowSettings() {
   const queryClient = useQueryClient();
   const current = useQuery({ queryKey: ['flow', 'settings'], queryFn: fetchFlowSettings });
   /*
-   * The collector's live state, for the retry below.
+   * The collector's live state — read, not rendered.
    *
-   * The same query key the embedded panel uses, so React Query serves both from
-   * one request and one cache entry — this costs nothing and cannot disagree with
-   * what the reader sees underneath the form.
+   * The one thing this form needs from the status is whether a collector that is
+   * meant to be listening is: that is what decides the retry below, and it is the
+   * case the form cannot learn from its own last save, because the bind may have
+   * failed at boot long before the dialog was opened.
+   *
+   * The same query key `FlowStatusPanel` uses, so a reader who has the Flow page
+   * open in another tab shares one cache entry rather than doubling the requests.
+   * No poll here: this is answered once when the dialog opens and again after
+   * every save, via the `['flow']` invalidation below.
    */
   const status = useQuery({ queryKey: ['flow', 'status'], queryFn: fetchFlowStatus });
   // The message, not its words — see i18n/message-state.ts.
@@ -193,10 +214,9 @@ export default function FlowSettings() {
   /**
    * Meant to be collecting, and not.
    *
-   * Read from the status the panel below already polls rather than from the last
-   * save's response, so it reflects the collector now — including a bind that
-   * failed at boot, long before this dialog was opened, which is the case the
-   * retry exists for.
+   * Read from `GET /api/flow/status` rather than from the last save's response,
+   * so it reflects the collector now — including a bind that failed at boot, long
+   * before this dialog was opened, which is the case the retry exists for.
    */
   const needsRetry = fields.enabled?.value === true && status.data?.listening === false;
 
@@ -337,16 +357,6 @@ export default function FlowSettings() {
           </Button>
         )}
       </Stack>
-
-      <Divider />
-
-      {/*
-        The live state, under the form that changes it. Watching the socket come
-        back is how an operator tells a save took effect, and a rebind that failed
-        shows here as "not listening" with the reason — which is the honest report
-        of a save that was written and could not be applied.
-      */}
-      <FlowStatusPanel embedded />
     </Stack>
   );
 }
