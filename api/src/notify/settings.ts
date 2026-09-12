@@ -1,3 +1,10 @@
+import {
+  createResolver,
+  type EnvironmentSource,
+  type Resolution,
+  type SettingSource,
+  type StoredSettings,
+} from '../config/settings-resolver.js';
 import { SEVERITIES, type Severity } from '../packet/detect/types.js';
 import { WEBHOOK_FORMATS, type WebhookFormat } from './types.js';
 
@@ -34,13 +41,21 @@ import { WEBHOOK_FORMATS, type WebhookFormat } from './types.js';
  * the settings service both read this module instead.
  */
 
-/** Where a resolved value came from. */
-export type SettingSource = 'environment' | 'database' | 'default';
+/*
+ * Re-exported for the modules that import it from here. It was declared in this
+ * file first, before the other two copied it and before the walk was shared.
+ */
+export type { SettingSource };
 
 /** The shape a field's value can take. */
 type FieldKind = 'boolean' | 'integer' | 'string' | 'string-list' | 'enum';
 
-interface FieldSpec {
+/**
+ * This domain's spec: the shared `env` and `secret`, plus what only
+ * `parseFieldValue` reads. Structural typing means it satisfies the resolver's
+ * `FieldSpec` without a declaration saying so.
+ */
+interface DeliveryFieldSpec {
   /** The environment variable that pins this field. */
   env: string;
   kind: FieldKind;
@@ -129,7 +144,7 @@ export const DELIVERY_FIELDS = {
   emailOauthRefreshToken: { env: 'SMTP_OAUTH_REFRESH_TOKEN', kind: 'string', secret: true },
   emailOauthTokenUrl: { env: 'SMTP_OAUTH_TOKEN_URL', kind: 'string', httpsOnly: true },
   emailOauthScope: { env: 'SMTP_OAUTH_SCOPE', kind: 'string' },
-} as const satisfies Record<string, FieldSpec>;
+} as const satisfies Record<string, DeliveryFieldSpec>;
 
 export type DeliveryField = keyof typeof DELIVERY_FIELDS;
 
@@ -216,18 +231,17 @@ export const DELIVERY_DEFAULTS: DeliverySettings = {
   emailOauthScope: '',
 };
 
-/** A field's resolved value with its provenance. */
-export interface ResolvedField<T = unknown> {
-  value: T;
-  source: SettingSource;
-}
-
-export type DeliveryResolution = {
-  [K in DeliveryField]: ResolvedField<DeliverySettings[K]>;
-};
+export type DeliveryResolution = Resolution<DeliverySettings>;
 
 /** The stored row, as far as this module cares: any subset, nulls meaning "unset". */
-export type StoredDeliverySettings = Partial<Record<DeliveryField, unknown>>;
+export type StoredDeliverySettings = StoredSettings<DeliverySettings>;
+
+/** The shared three-layer walk, bound to this domain's table and parser. */
+const resolver = createResolver<DeliverySettings>({
+  fields: DELIVERY_FIELDS,
+  defaults: DELIVERY_DEFAULTS,
+  parse: (field, raw) => parseFieldValue(field, raw),
+});
 
 /**
  * Parses one raw value against a field's kind.
@@ -244,7 +258,7 @@ export type StoredDeliverySettings = Partial<Record<DeliveryField, unknown>>;
  */
 export function parseFieldValue(field: DeliveryField, raw: unknown): unknown {
   if (raw === null || raw === undefined) return undefined;
-  const spec: FieldSpec = DELIVERY_FIELDS[field];
+  const spec: DeliveryFieldSpec = DELIVERY_FIELDS[field];
 
   switch (spec.kind) {
     case 'boolean': {
@@ -324,55 +338,20 @@ function isHttpsUrl(value: string): boolean {
  * would need something this model does not offer — a deny list rather than a default.
  */
 export function resolveDeliverySettings(
-  environmentSource: Record<string, string | undefined>,
+  environmentSource: EnvironmentSource,
   stored: StoredDeliverySettings = {},
 ): DeliveryResolution {
-  const resolution = {} as DeliveryResolution;
-
-  for (const field of Object.keys(DELIVERY_FIELDS) as DeliveryField[]) {
-    const spec: FieldSpec = DELIVERY_FIELDS[field];
-    const rawEnv = environmentSource[spec.env];
-    // Blank is unset, matching env.ts. See the docblock.
-    const envIsSet = rawEnv !== undefined && rawEnv.trim() !== '';
-
-    if (envIsSet) {
-      const parsed = parseFieldValue(field, rawEnv);
-      if (parsed !== undefined) {
-        resolution[field] = { value: parsed, source: 'environment' } as never;
-        continue;
-      }
-      // A set-but-unparseable variable falls through rather than pinning nonsense.
-    }
-
-    const rawStored = stored[field];
-    if (rawStored !== null && rawStored !== undefined) {
-      const parsed = parseFieldValue(field, rawStored);
-      if (parsed !== undefined) {
-        resolution[field] = { value: parsed, source: 'database' } as never;
-        continue;
-      }
-    }
-
-    resolution[field] = { value: DELIVERY_DEFAULTS[field], source: 'default' } as never;
-  }
-
-  return resolution;
+  return resolver.resolve(environmentSource, stored);
 }
 
 /** The effective settings alone, for the code that only needs values. */
 export function effectiveSettings(resolution: DeliveryResolution): DeliverySettings {
-  const settings = {} as Record<string, unknown>;
-  for (const field of Object.keys(DELIVERY_FIELDS) as DeliveryField[]) {
-    settings[field] = resolution[field].value;
-  }
-  return settings as unknown as DeliverySettings;
+  return resolver.effective(resolution);
 }
 
 /** Fields the environment has pinned, which the UI must render as uneditable. */
 export function environmentPinnedFields(resolution: DeliveryResolution): DeliveryField[] {
-  return (Object.keys(DELIVERY_FIELDS) as DeliveryField[]).filter(
-    (field) => resolution[field].source === 'environment',
-  );
+  return resolver.pinned(resolution);
 }
 
 /**
@@ -388,17 +367,8 @@ export function environmentPinnedFields(resolution: DeliveryResolution): Deliver
  * so a legacy or mistyped variable like `NOTIFY_MIN_SEVERITY=critial` leaves a
  * trace instead of silently doing nothing.
  */
-export function invalidEnvironmentVariables(environmentSource: Record<string, string | undefined>): string[] {
-  const invalid: string[] = [];
-
-  for (const field of Object.keys(DELIVERY_FIELDS) as DeliveryField[]) {
-    const spec = DELIVERY_FIELDS[field];
-    const raw = environmentSource[spec.env];
-    if (raw === undefined || raw.trim() === '') continue;
-    if (parseFieldValue(field, raw) === undefined) invalid.push(spec.env);
-  }
-
-  return invalid;
+export function invalidEnvironmentVariables(environmentSource: EnvironmentSource): string[] {
+  return resolver.invalidEnvironment(environmentSource);
 }
 
 /**
