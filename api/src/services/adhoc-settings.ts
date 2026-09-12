@@ -1,8 +1,25 @@
+import {
+  createResolver,
+  type EnvironmentSource,
+  type Resolution,
+  type SettingSource,
+  type StoredSettings,
+} from '../config/settings-resolver.js';
+
+/*
+ * Re-exported because several modules import `SettingSource` from here — it was
+ * declared in this file before the resolver existed, and flow-settings.ts even
+ * imported it across, which is what made the coupling visible. Kept rather than
+ * chased through every call site in the same commit that moves the walk.
+ */
+export type { SettingSource };
+
 /**
  * The query console's settings, resolved from three layers.
  *
- * The same rule as delivery settings, for the same reason: **environment →
- * stored row → code default, and the environment wins.** A deployment that pins
+ * The walk itself is `config/settings-resolver.ts`, shared with delivery and
+ * flow. The rule is the same and the reason is the same: **environment → stored
+ * row → code default, and the environment wins.** A deployment that pins
  * `ADHOC_ENABLED=false` in its Compose file cannot be contradicted from a
  * browser, and a field that is pinned renders disabled rather than accepting an
  * edit that changes nothing — this codebase's recurring bug, in a place where it
@@ -31,11 +48,14 @@
  * route; and the audit trail records `[set]`/`[cleared]`, never a value.
  */
 
-export type SettingSource = 'environment' | 'database' | 'default';
-
 type FieldKind = 'boolean' | 'integer' | 'enum' | 'string';
 
-interface FieldSpec {
+/**
+ * This domain's spec: the shared `env` and `secret`, plus what only
+ * `parseFieldValue` below reads. Structural typing means it satisfies the
+ * resolver's `FieldSpec` without a declaration saying so.
+ */
+interface AdhocFieldSpec {
   /** The environment variable that pins this field. */
   env: string;
   kind: FieldKind;
@@ -44,14 +64,7 @@ interface FieldSpec {
   /** Inclusive bounds for `integer`, matching V14's CHECK constraints. */
   min?: number;
   max?: number;
-  /**
-   * A credential: reported as configured-or-not, never returned.
-   *
-   * Same marker and same meaning as `notify/settings.ts`, deliberately — the
-   * webhook URL and the SMTP password already needed exactly this, and a second
-   * vocabulary for "do not send this to a browser" is how one of them
-   * eventually gets it wrong.
-   */
+  /** A credential: reported as configured-or-not, never returned. */
   secret?: boolean;
 }
 
@@ -80,7 +93,7 @@ export const ADHOC_FIELDS = {
    * would only teach somebody to work around this form.
    */
   dbPassword: { env: 'ADHOC_DB_PASSWORD', kind: 'string', secret: true },
-} as const satisfies Record<string, FieldSpec>;
+} as const satisfies Record<string, AdhocFieldSpec>;
 
 /** Fields that are credentials, so nothing returns them by accident. */
 export function isAdhocSecretField(field: AdhocField): boolean {
@@ -126,13 +139,15 @@ export const ADHOC_DEFAULTS: AdhocSettings = {
   dbPassword: '',
 };
 
-export interface ResolvedField<T = unknown> {
-  value: T;
-  source: SettingSource;
-}
+/** The shared three-layer walk, bound to this domain's table and parser. */
+const resolver = createResolver<AdhocSettings>({
+  fields: ADHOC_FIELDS,
+  defaults: ADHOC_DEFAULTS,
+  parse: (field, raw) => parseFieldValue(field, raw),
+});
 
-export type AdhocResolution = { [K in AdhocField]: ResolvedField<AdhocSettings[K]> };
-export type StoredAdhocSettings = Partial<Record<AdhocField, unknown>>;
+export type AdhocResolution = Resolution<AdhocSettings>;
+export type StoredAdhocSettings = StoredSettings<AdhocSettings>;
 
 /**
  * One value out of whatever a layer offered, or `undefined` if it offered nothing.
@@ -142,7 +157,7 @@ export type StoredAdhocSettings = Partial<Record<AdhocField, unknown>>;
  * somebody who chose false.
  */
 export function parseFieldValue(field: AdhocField, raw: unknown): unknown {
-  const spec: FieldSpec = ADHOC_FIELDS[field];
+  const spec: AdhocFieldSpec = ADHOC_FIELDS[field];
   if (raw === undefined || raw === null) return undefined;
   if (typeof raw === 'string' && raw.trim() === '') return undefined;
 
@@ -189,28 +204,10 @@ export function parseFieldValue(field: AdhocField, raw: unknown): unknown {
 }
 
 export function resolveAdhocSettings(
-  environmentSource: Record<string, string | undefined>,
+  environmentSource: EnvironmentSource,
   stored: StoredAdhocSettings = {},
 ): AdhocResolution {
-  const resolution = {} as AdhocResolution;
-
-  for (const field of Object.keys(ADHOC_FIELDS) as AdhocField[]) {
-    const fromEnv = parseFieldValue(field, environmentSource[ADHOC_FIELDS[field].env]);
-    if (fromEnv !== undefined) {
-      resolution[field] = { value: fromEnv, source: 'environment' } as never;
-      continue;
-    }
-
-    const fromRow = parseFieldValue(field, stored[field]);
-    if (fromRow !== undefined) {
-      resolution[field] = { value: fromRow, source: 'database' } as never;
-      continue;
-    }
-
-    resolution[field] = { value: ADHOC_DEFAULTS[field], source: 'default' } as never;
-  }
-
-  return resolution;
+  return resolver.resolve(environmentSource, stored);
 }
 
 /**
