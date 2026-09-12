@@ -72,13 +72,36 @@ import { monoSx } from '../../theme';
  * The full picture stays one click away, on Flow collection under Capture.
  */
 
-/** What the form holds while it is being edited. */
-interface Draft {
+/** Every field, as the controls hold them — numbers as the text that was typed. */
+interface Fields {
   enabled: boolean;
   port: string;
   bindAddress: string;
   exporters: string;
 }
+
+/**
+ * What has actually been typed into, and nothing else.
+ *
+ * **Sparse, deliberately, and that is the whole of it.** This used to be a full
+ * `Fields` snapshot taken on the first keystroke (`draft ?? live`), which froze
+ * all four values at that moment while `live` went on moving underneath — and it
+ * does move: the global query defaults are `staleTime: 2000` with
+ * `refetchOnWindowFocus: true`, so a refetch behind an open dialog is ordinary
+ * rather than exotic.
+ *
+ * What followed was a silent revert. An administrator starts editing the
+ * allowlist and leaves the dialog open; somebody else changes the port; the
+ * refetch updates `live` and the frozen snapshot does not. On save the patch
+ * carries `port` at its pre-change value — it differs from the `live` the diff is
+ * computed against — so another person's change is undone by an edit nobody made,
+ * and since `port` is a rebind field the socket reopens for it.
+ *
+ * Keyed per field, an untouched field is simply absent and can never enter the
+ * patch, whatever `live` does. That removes the class rather than the instance.
+ * `QueryConsoleSettings` holds its draft this way for the same reason.
+ */
+type Draft = Partial<Fields>;
 
 export default function FlowSettings() {
   const t = useT();
@@ -103,12 +126,12 @@ export default function FlowSettings() {
     null,
   );
   const messageText = useMessageText();
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [draft, setDraft] = useState<Draft>({});
 
   const save = useMutation({
     mutationFn: (patch: FlowSettingsPatch) => saveFlowSettings(patch),
     onSuccess: (saved) => {
-      setDraft(null);
+      setDraft({});
       /*
        * Three outcomes, and they are not the same thing to an operator. A save
        * that rebound and came back listening is done; one that rebound and did
@@ -149,17 +172,38 @@ export default function FlowSettings() {
   const pinnedNote = (field: string) =>
     pinned(field) ? t('flow_settings.pinned_note', { variable: envOf(field) }) : undefined;
 
-  const live: Draft = {
+  /** What the server says is in force, recomputed every render. */
+  const live: Fields = {
     enabled: fields.enabled?.value === true,
     port: String(fields.port?.value ?? ''),
     bindAddress: String(fields.bindAddress?.value ?? ''),
     exporters: String(fields.exporters?.value ?? ''),
   };
-  const shown = draft ?? live;
-  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
+
+  /** The drafted value if this field was touched, otherwise what is stored. */
+  const valueFor = <K extends keyof Fields>(key: K): Fields[K] =>
+    key in draft ? (draft[key] as Fields[K]) : live[key];
+
+  const set = <K extends keyof Fields>(key: K, value: Fields[K]) => {
     setMessage(null);
-    setDraft({ ...shown, [key]: value });
+    // Functional update, so two edits in one tick cannot drop the first.
+    setDraft((now) => ({ ...now, [key]: value }));
   };
+
+  /**
+   * Whether a touched field actually differs from what is stored.
+   *
+   * Membership in `draft` is not this check. Typing into a field and retyping
+   * what was already there leaves a key behind that names no change, and letting
+   * it reach the patch would rebind the socket for an edit that undid itself.
+   * Compared as text because a number control's draft holds what was typed —
+   * `'2055'` against a stored `2055` is not a change. The same distinction
+   * `differsFromStored` draws in `QueryConsoleSettings`.
+   */
+  const differsFromStored = (key: keyof Fields) =>
+    key in draft && String(draft[key] ?? '') !== String(live[key] ?? '');
+
+  const changed = (Object.keys(draft) as (keyof Fields)[]).filter(differsFromStored);
 
   /**
    * Only what moved, and never a pinned field.
@@ -171,36 +215,41 @@ export default function FlowSettings() {
    */
   const submit = () => {
     const patch: FlowSettingsPatch = {};
-    if (!pinned('enabled') && shown.enabled !== live.enabled) patch.enabled = shown.enabled;
-    /*
-     * An emptied field clears the setting; it does not send zero.
-     *
-     * `Number('')` is `0`, not `NaN`, so the first version posted a
-     * valid-looking port that failed validation server-side and came back as an
-     * unexplained save failure — for an action whose intent is obvious. It also
-     * made the API's `null` path unreachable from here, which is the spelling
-     * that clears a field back to the environment and then the default.
-     */
-    if (!pinned('port') && shown.port !== live.port) {
-      patch.port = shown.port.trim() === '' ? null : Number(shown.port);
-    }
-    if (!pinned('bindAddress') && shown.bindAddress !== live.bindAddress) {
+
+    for (const key of changed) {
+      if (pinned(key)) continue;
+
+      if (key === 'enabled') patch.enabled = draft.enabled;
+      /*
+       * An emptied field clears the setting; it does not send zero.
+       *
+       * `Number('')` is `0`, not `NaN`, so the first version posted a
+       * valid-looking port that failed validation server-side and came back as
+       * an unexplained save failure — for an action whose intent is obvious. It
+       * also made the API's `null` path unreachable from here, which is the
+       * spelling that clears a field back to the environment and then the
+       * default.
+       */
+      if (key === 'port') patch.port = draft.port?.trim() === '' ? null : Number(draft.port);
       // Emptied means cleared, as with the port above. Sending `''` stored an
       // empty string that reads back as unset, so the field reverted to the
       // default and a second clear produced a patch the server saw as no change
       // — nothing written, nothing audited, and the form saying "Saved" twice.
-      patch.bindAddress = shown.bindAddress.trim() === '' ? null : shown.bindAddress;
+      if (key === 'bindAddress') {
+        patch.bindAddress = draft.bindAddress?.trim() === '' ? null : draft.bindAddress;
+      }
+      /*
+       * `exporters` is deliberately NOT given the same treatment.
+       *
+       * An empty allowlist is a real choice — accept any sender — so clearing
+       * the field means it, and mapping that to `null` would fall back to
+       * whatever the environment said and silently reinstate a list somebody had
+       * emptied on purpose. `resolveFlowSettings` reads a blank stored
+       * `exporters` as a value for exactly this reason; the two ends have to
+       * agree.
+       */
+      if (key === 'exporters') patch.exporters = draft.exporters;
     }
-    /*
-     * `exporters` is deliberately NOT given the same treatment.
-     *
-     * An empty allowlist is a real choice — accept any sender — so clearing the
-     * field means it, and mapping that to `null` would fall back to whatever the
-     * environment said and silently reinstate a list somebody had emptied on
-     * purpose. `resolveFlowSettings` reads a blank stored `exporters` as a value
-     * for exactly this reason; the two ends have to agree.
-     */
-    if (!pinned('exporters') && shown.exporters !== live.exporters) patch.exporters = shown.exporters;
 
     if (Object.keys(patch).length === 0) {
       setMessage({ severity: 'error', body: { key: 'flow_settings.nothing_to_save' } });
@@ -246,7 +295,7 @@ export default function FlowSettings() {
         fullWidth
         multiline
         minRows={2}
-        value={shown.exporters}
+        value={valueFor('exporters')}
         disabled={pinned('exporters') || save.isPending}
         onChange={(event) => set('exporters', event.target.value)}
         placeholder="10.0.0.1, 10.0.0.2"
@@ -266,7 +315,7 @@ export default function FlowSettings() {
       <FormControlLabel
         control={
           <Switch
-            checked={shown.enabled}
+            checked={valueFor('enabled')}
             disabled={pinned('enabled') || save.isPending}
             onChange={(event) => set('enabled', event.target.checked)}
             slotProps={{ input: { 'aria-label': t('flow_settings.enabled') } }}
@@ -286,7 +335,7 @@ export default function FlowSettings() {
           size="small"
           fullWidth
           type="number"
-          value={shown.port}
+          value={valueFor('port')}
           disabled={pinned('port') || save.isPending}
           onChange={(event) => set('port', event.target.value)}
           helperText={pinnedNote('port') ?? t('flow_settings.port_help')}
@@ -295,7 +344,7 @@ export default function FlowSettings() {
           label={t('flow_settings.bind_address')}
           size="small"
           fullWidth
-          value={shown.bindAddress}
+          value={valueFor('bindAddress')}
           disabled={pinned('bindAddress') || save.isPending}
           onChange={(event) => set('bindAddress', event.target.value)}
           slotProps={{ input: { sx: monoSx } }}
@@ -319,11 +368,11 @@ export default function FlowSettings() {
         <Button
           variant="contained"
           onClick={submit}
-          disabled={save.isPending || everythingPinned || draft === null}
+          disabled={save.isPending || everythingPinned || changed.length === 0}
         >
           {save.isPending ? t('flow_settings.saving') : t('flow_settings.save')}
         </Button>
-        <Button disabled={save.isPending || draft === null} onClick={() => setDraft(null)}>
+        <Button disabled={save.isPending || changed.length === 0} onClick={() => setDraft({})}>
           {t('common.cancel')}
         </Button>
 

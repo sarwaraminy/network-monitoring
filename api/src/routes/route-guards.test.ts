@@ -595,9 +595,15 @@ const ROUTERS: RouterPosture[] = [
      * `flow-status-privacy.test.ts` rather than here, because this file reads the
      * routing table and cannot see inside a response.
      *
-     * `GET /settings` is ADMIN, and is not declared here because `role` already
-     * covers it: the posture check below only needs `readsAreOpen` when nothing
-     * mutating is asserted, and `PUT /settings` is.
+     * `GET /settings` is ADMIN too, and this file does not assert that — `role`
+     * is checked against mutating routes only, so it says nothing about a GET.
+     * What keeps `readsAreOpen` off this entry is that `PUT /settings` mutates,
+     * which is a different claim from the reads being covered.
+     *
+     * The gating is asserted in `flow-status-privacy.test.ts`, which drives both
+     * reads over real HTTP with real tokens: 200 for an ADMIN, 403 for a USER.
+     * That is the right place for it, because the point of the endpoint is the
+     * allowlist inside the response and this file reads the routing table.
      */
   },
   { file: 'intel.routes.ts', router: () => intelRouter, role: 'admin' },

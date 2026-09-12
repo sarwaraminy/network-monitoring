@@ -185,6 +185,28 @@ describe('a flow save whose read-back fails', { skip: database.skip }, () => {
     assert.equal(saved.allowlistChanged, false);
   });
 
+  it('recovers for the next reader after a write it could not read back', async () => {
+    /*
+     * The path the flag was missed on, and the one where recovery matters most.
+     *
+     * The message this throw raises tells the administrator the row was written
+     * and the next boot will use it — which is an invitation to reopen the form
+     * and check. Without marking the cache, `flowResolutionWithRecovery`
+     * short-circuits and serves the PRE-write values for the life of the
+     * process, so the one error that sends somebody back to look is the one that
+     * guarantees they see the wrong thing.
+     */
+    breakTheReadBack();
+    await saveFlowSettings({ port: 4739 }, ACTOR).catch(() => undefined);
+
+    // The database comes back; the next form read must not short-circuit.
+    mock.restoreAll();
+    const recovered = await flowResolutionWithRecovery();
+
+    assert.equal(recovered.port.value, 4739);
+    assert.equal(recovered.port.source, 'database');
+  });
+
   it('still refuses to report a real write it could not read back', async () => {
     // The distinction, from the other side: guarding on `wrote` must not turn
     // the case above into an excuse for the one that matters.

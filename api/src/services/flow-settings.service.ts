@@ -425,6 +425,18 @@ export async function saveFlowSettings(patch: StoredFlowSettings, actor: Actor):
     await refreshFlowSettings();
   } catch (error) {
     if (wrote) {
+      /*
+       * Stale before the throw, and this is the path where it matters most.
+       *
+       * The administrator has just been told the row was written and the next
+       * boot will use it, so they have every reason to reopen the form and check
+       * — and `flowResolutionWithRecovery` short-circuits on a cache nobody
+       * marked, so what they would get is the PRE-write values for the life of
+       * the process. That is the row-versus-`source` disagreement this flag
+       * exists to prevent, reached by the one error message that invites a
+       * second look.
+       */
+      stale = true;
       log.error({ err: error }, 'Flow settings were written but could not be read back; nothing was applied');
       throw HttpError.of(500, 'error.flow_saved_not_applied');
     }

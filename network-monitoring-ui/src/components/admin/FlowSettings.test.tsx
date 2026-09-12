@@ -329,6 +329,79 @@ describe('FlowSettings', () => {
     expect(await screen.findByText(/Nothing needed changing/i)).toBeInTheDocument();
   });
 
+  it('does not carry a field the administrator never touched', async () => {
+    /*
+     * The silent revert, and the reason the draft is keyed per field.
+     *
+     * The draft used to snapshot all four values on the first keystroke and diff
+     * that frozen object against a `live` that keeps moving — and it moves in
+     * ordinary use, since the query defaults are `staleTime: 2000` with
+     * `refetchOnWindowFocus: true`.
+     *
+     * So: an administrator starts editing the allowlist and leaves the dialog
+     * open. Someone else changes the port to 4739. The refetch updates `live`,
+     * the snapshot still holds 2055, and on save the patch carries `port: 2055`
+     * — undoing a change nobody in this dialog made, and rebinding the socket to
+     * do it, because `port` is a rebind field.
+     */
+    let reads = 0;
+    server.use(
+      http.get('/api/flow/settings', () => {
+        reads += 1;
+        // The second read is the concurrent change landing underneath the form.
+        if (reads === 1) return HttpResponse.json(FLOW_SETTINGS);
+        return HttpResponse.json({
+          ...FLOW_SETTINGS,
+          settings: {
+            ...FLOW_SETTINGS.settings,
+            port: { source: 'database', env: 'FLOW_PORT', value: 4739 },
+          },
+        });
+      }),
+    );
+
+    let sent: Record<string, unknown> | null = null;
+    server.use(
+      http.put('/api/flow/settings', async ({ request }) => {
+        sent = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...FLOW_SETTINGS, changed: true, rebound: false, status: FLOW_STATUS });
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { client } = renderApp(<FlowSettings />, { authenticated: true });
+
+    // Touch one field, and only one.
+    const exporters = await screen.findByDisplayValue('10.0.0.1, 10.0.0.2');
+    await user.clear(exporters);
+    await user.type(exporters, '10.0.0.9');
+
+    // The port changes underneath, exactly as a background refetch would deliver it.
+    await client.invalidateQueries({ queryKey: ['flow', 'settings'] });
+    await screen.findByDisplayValue('4739');
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(sent).not.toBeNull());
+
+    expect(sent).toEqual({ exporters: '10.0.0.9' });
+    // Said explicitly, because this is the whole failure: an untouched rebind
+    // field in the patch reverts somebody else's change and reopens the socket.
+    expect(sent).not.toHaveProperty('port');
+  });
+
+  it('ignores a field typed into and put back', async () => {
+    // Membership in the draft is not a change. Letting it reach the patch would
+    // rebind the socket for an edit that undid itself.
+    const user = userEvent.setup();
+    renderApp(<FlowSettings />, { authenticated: true });
+
+    const port = await screen.findByDisplayValue('2055');
+    await user.clear(port);
+    await user.type(port, '2055');
+
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+  });
+
   it('reports a failure to read the settings', async () => {
     server.use(http.get('/api/flow/settings', () => HttpResponse.json({ message: 'nope' }, { status: 500 })));
     renderApp(<FlowSettings />, { authenticated: true });
