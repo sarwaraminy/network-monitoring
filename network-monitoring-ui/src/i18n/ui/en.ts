@@ -277,6 +277,9 @@ export const UI_EN = {
   'flow.ignored.unsupported': 'Version not implemented',
   'flow.ignored.unsupported_hint': 'The version word is one this collector has no parser for.',
   'flow.allowlist': 'Permitted senders:',
+  'flow.allowlist_count':
+    '{count, plural, one {# sender is permitted} other {# senders are permitted}}. An administrator ' +
+    'can see which.',
   'flow.allowlist_empty':
     'FLOW_EXPORTERS is empty, which accepts any sender — so nothing should have been refused. ' +
     'Worth reporting.',

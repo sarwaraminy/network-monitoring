@@ -11,6 +11,7 @@ import {
   type FlowField,
   type FlowResolution,
   type FlowSettings,
+  invalidFlowEnvironmentVariables,
   resolveFlowSettings,
   type StoredFlowSettings,
 } from './flow-settings.js';
@@ -88,6 +89,21 @@ export async function loadFlowSettings(): Promise<FlowSettings> {
 
   settings = effectiveFlowSettings(resolution);
   allowed = exporterList(settings);
+
+  /*
+   * Logged after the resolve, so it reports what was actually ignored rather than
+   * what merely looked wrong. Not fatal, for the reason `parseFlowField` gives —
+   * but not silent either, which is the half that was missing. Same shape as the
+   * adhoc and delivery warnings.
+   */
+  const invalid = invalidFlowEnvironmentVariables(flowEnvironmentSource());
+  if (invalid.length > 0) {
+    log.warn(
+      { variables: invalid },
+      'These environment variables do not parse and are being ignored; using the stored or default value instead',
+    );
+  }
+
   return settings;
 }
 

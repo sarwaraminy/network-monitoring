@@ -175,10 +175,23 @@ export function effectiveFlowSettings(resolution: FlowResolution): FlowSettings 
   };
 }
 
-/** The allowlist as the collector wants it: trimmed, blanks dropped. */
+/**
+ * The allowlist as the collector wants it: trimmed, blanks dropped.
+ *
+ * Splits on newlines as well as commas, because the form's field is a two-row
+ * textarea and the shape of a control is a promise about its format — it says
+ * "list them down the page". Splitting on commas alone turned three addresses
+ * entered one per line into a single entry containing the whole block: not
+ * empty, so the "blank accepts any sender" escape did not apply, just one
+ * unmatchable address refusing every datagram. The form said "Saved, and in
+ * force", and the operator collected nothing.
+ *
+ * Semicolons too, since a list of addresses is the one place somebody reaches
+ * for one when commas feel ambiguous.
+ */
 export function exporterList(settings: FlowSettings): string[] {
   return settings.exporters
-    .split(',')
+    .split(/[,;\r\n]+/)
     .map((entry) => entry.trim())
     .filter((entry) => entry !== '');
 }
@@ -211,4 +224,39 @@ export function flowPinnedFields(resolution: FlowResolution): FlowField[] {
   return (Object.keys(FLOW_FIELDS) as FlowField[]).filter(
     (field) => resolution[field].source === 'environment',
   );
+}
+
+/**
+ * `FLOW_*` variables that are set to something this cannot use.
+ *
+ * An unusable value falls through to the next layer, which is right — pinning a
+ * field to a value that can never apply would disable the control and change
+ * nothing, the worst of both. What was missing is that it happened in silence.
+ *
+ * Every piece of evidence then points the wrong way: the variable is there in the
+ * operator's Compose file, the collector is running, and the admin form shows the
+ * field as editable rather than pinned, because a rejected value does not pin.
+ * The one thing that would explain it is the line nobody wrote. `FLOW_PORT=514`
+ * leaves the collector on 2055 with nothing anywhere connecting the two.
+ *
+ * It matters more here than in most places: these are edited by people who
+ * cannot easily see the application log, so the log line is what a support
+ * conversation ends up turning on.
+ *
+ * Same shape as `invalidAdhocEnvironmentVariables`, which is where the convention
+ * comes from.
+ */
+export function invalidFlowEnvironmentVariables(
+  environmentSource: Record<string, string | undefined>,
+): string[] {
+  const invalid: string[] = [];
+
+  for (const field of Object.keys(FLOW_FIELDS) as FlowField[]) {
+    const spec = FLOW_FIELDS[field];
+    const raw = environmentSource[spec.env];
+    if (raw === undefined || raw.trim() === '') continue;
+    if (parseFlowField(field, raw) === undefined) invalid.push(spec.env);
+  }
+
+  return invalid;
 }

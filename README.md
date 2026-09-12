@@ -1852,8 +1852,9 @@ it. **`enabled` and `listening` are separate** — the first is what `FLOW_ENABL
 second whether the socket actually opened, and they differ exactly when the bind failed.
 **`ignoredReasons` breaks `ignored` into three** — allowlist, sFlow, unimplemented version —
 each fixed on a different box, which is the same complaint this route's docblock makes about
-record totals one level up. And **`allowedExporters` is reported** so a refusal can be acted on:
-"412 datagrams refused" names a problem, and the permitted list beside it names the cause.
+record totals one level up. And **the permitted senders are reported** so a refusal can be acted
+on: "412 datagrams refused" names a problem, and the list beside it names the cause — to an
+administrator; see the redaction above.
 
 ### Threat intelligence — `/api/intel`
 

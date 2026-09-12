@@ -87,11 +87,13 @@ if all you have is a count. This screen names whichever one applies instead:</p>
 because each is fixed somewhere else:</p>
 
 <ul>
-  <li><strong>Sender not permitted.</strong> The address is not in
-    <code>FLOW_EXPORTERS</code>, so nothing from it is read. The permitted list is printed
-    underneath &mdash; comparing your device's address against it is usually the whole
-    diagnosis. Note that flow has no authentication at all, so this list is the only access
-    control there is.</li>
+  <li><strong>Sender not permitted.</strong> The address is not in the permitted list, so
+    nothing from it is read. <strong>Administrators</strong> see the list printed underneath
+    &mdash; comparing your device's address against it is usually the whole diagnosis
+    &mdash; and everyone else sees how many senders are permitted, which is enough to read
+    the refusal count. Flow has no authentication at all, so this list is the only access
+    control there is, which is why the addresses themselves are not shown to everyone: they
+    are a precise description of what somebody would have to impersonate.</li>
   <li><strong>sFlow.</strong> A different protocol that happens to share the port and the
     version number. It is recognised and refused rather than mis-read as NetFlow.
     Reconfigure the device for NetFlow or IPFIX.</li>
@@ -174,6 +176,8 @@ that reason:</p>
   information, and this screen changes nothing &mdash; the operator watching the network is
   usually not the administrator. Changing the settings is an administrator's job and lives
   under the gear.</p>
+  <p>One detail on the page is administrator-only: the <em>addresses</em> in the permitted
+  list. Everyone sees how many there are.</p>
 </div>
   </main>
 </div>

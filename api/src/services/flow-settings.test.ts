@@ -5,6 +5,7 @@ import {
   exporterList,
   FLOW_DEFAULTS,
   flowPinnedFields,
+  invalidFlowEnvironmentVariables,
   parseFlowField,
   resolveFlowSettings,
 } from './flow-settings.js';
@@ -111,6 +112,51 @@ describe('resolving the flow settings', () => {
       '10.0.0.2',
     ]);
     assert.deepEqual(exporterList({ ...FLOW_DEFAULTS, exporters: '' }), []);
+  });
+
+  it('accepts one address per line, which is what the field asks for', () => {
+    /*
+     * The form's control is a two-row textarea, and the shape of a control is a
+     * promise about its format. Splitting on commas alone turned three addresses
+     * entered down the page into a single entry holding the whole block — not
+     * empty, so the "blank accepts any sender" escape did not apply, just one
+     * unmatchable address refusing every datagram while the form reported
+     * "Saved, and in force".
+     */
+    const perLine = ['10.0.0.1', '10.0.0.2', '10.0.0.3'].join('\n');
+    assert.deepEqual(exporterList({ ...FLOW_DEFAULTS, exporters: perLine }), [
+      '10.0.0.1',
+      '10.0.0.2',
+      '10.0.0.3',
+    ]);
+
+    // Mixed, because a list somebody has edited twice ends up that way.
+    const mixed = `10.0.0.1,\r\n 10.0.0.2 ;10.0.0.3`;
+    assert.deepEqual(exporterList({ ...FLOW_DEFAULTS, exporters: mixed }), [
+      '10.0.0.1',
+      '10.0.0.2',
+      '10.0.0.3',
+    ]);
+  });
+
+  it('names an environment variable it had to ignore', () => {
+    /*
+     * An unusable value falls through to the next layer, which is right. What was
+     * missing is that it happened in silence: the variable is in the operator's
+     * Compose file, the collector is running on a different port, and the form
+     * shows the field as editable rather than pinned — because a rejected value
+     * does not pin. The one thing that would explain it is the line nobody wrote.
+     */
+    assert.deepEqual(invalidFlowEnvironmentVariables({ FLOW_PORT: '514', FLOW_ENABLED: 'maybe' }).sort(), [
+      'FLOW_ENABLED',
+      'FLOW_PORT',
+    ]);
+  });
+
+  it('says nothing about a variable that is simply unset', () => {
+    // Absent and blank are "nobody decided", not "this is wrong" — warning about
+    // them would make the log noise on every deployment that uses the form.
+    assert.deepEqual(invalidFlowEnvironmentVariables({ FLOW_PORT: '', FLOW_ENABLED: undefined }), []);
   });
 
   it('matches the defaults env.ts applies, so removing a line changes nothing', () => {

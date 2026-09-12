@@ -83,18 +83,32 @@ export interface FlowCollectorStatus {
   ignored: number;
   ignoredReasons: IgnoredDatagrams;
   /**
-   * The senders `FLOW_EXPORTERS` permits. Empty accepts any.
+   * How many senders `FLOW_EXPORTERS` permits. Zero accepts any.
+   *
+   * The count is for everyone; the addresses are not — see `allowedExporters`.
+   */
+  allowedExporterCount: number;
+  /**
+   * The senders themselves, for an administrator only.
    *
    * Reported so `ignoredReasons.notAllowed` can be acted on: "412 datagrams
-   * refused" is only useful beside the list they were refused against, and an
-   * operator comparing a device's address to that list is the whole diagnosis.
+   * refused" is only useful beside the list they were refused against, and
+   * comparing a device's address to that list is the whole diagnosis.
    *
-   * Not privileged. This router's reads are open to any authenticated account by
-   * a deliberate decision recorded in `route-guards.test.ts` — whether the
-   * collector is listening is not a secret — and the per-exporter breakdown
-   * beside this already names the addresses actually sending.
+   * **Absent for a non-admin**, and that is a deliberate narrowing of an earlier
+   * decision rather than a rule this router always had. This allowlist is the
+   * collector's only access control — NetFlow authenticates nothing, so
+   * reachability plus this list is all of it — which makes the addresses a
+   * precise answer to "what would I have to spoof for forged flow records to be
+   * accepted and turned into findings". Handing that to every account that can
+   * sign in is a different thing from telling them whether the collector is
+   * listening.
+   *
+   * The same shape `GET /api/packets/status` uses for `interrupted.startedBy`,
+   * and `GET /api/packets` for frame payloads: the response stays open, one field
+   * inside it does not.
    */
-  allowedExporters: string[];
+  allowedExporters?: string[];
   templatesCached: number;
   detection: ReturnType<FlowDetectionEngine['stats']>;
   exporters: ExporterStats[];
@@ -157,13 +171,38 @@ export class FlowCollector {
       });
     });
 
-    await new Promise<void>((resolve, reject) => {
-      socket.once('error', reject);
-      socket.bind(port, bindAddress, () => {
-        socket.removeListener('error', reject);
-        resolve();
+    /*
+     * A failed bind closes its own socket before the error leaves here.
+     *
+     * `this.socket` is only assigned below, so a rejection escapes `start()` with
+     * the handle above referenced by nothing — and the persistent `error`
+     * listener's `this.stop()` finds `this.socket` still null and closes nothing.
+     * The descriptor stays open for the life of the process.
+     *
+     * That cost one handle on a boot that was already failing, until this branch
+     * made binding something an operator does repeatedly: every settings save
+     * rebinds, and there is a Try binding again button on the screen designed for
+     * somebody working through a port conflict. The leak now scales with how hard
+     * they are trying to fix it.
+     */
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once('error', reject);
+        socket.bind(port, bindAddress, () => {
+          socket.removeListener('error', reject);
+          resolve();
+        });
       });
-    });
+    } catch (error) {
+      socket.removeAllListeners();
+      try {
+        socket.close();
+      } catch {
+        // Never bound, so there may be nothing to close. The throw below is the
+        // outcome that matters.
+      }
+      throw error;
+    }
 
     try {
       socket.setRecvBufferSize(RECEIVE_BUFFER_BYTES);
@@ -189,6 +228,49 @@ export class FlowCollector {
       },
       `Flow collector listening on ${address.address}:${address.port} (NetFlow v5/v9, IPFIX)`,
     );
+  }
+
+  /**
+   * Clears everything the status reports as "since this binding started".
+   *
+   * Public because `rebind()` calls it between the stop and the start, which is
+   * the only moment the counters and the socket are both known to be idle.
+   *
+   * A rebind is a new collection session, and the counters have to say so. They
+   * used to survive one, which broke the page in the situation it exists for:
+   * `Diagnosis` branches on `datagrams === 0` and on every datagram having been
+   * refused, and neither can be true again once a working binding has banked
+   * some counts. So an administrator who mistyped the port or the allowlist and
+   * saved went on seeing the green "Collecting — N records from M exporters",
+   * with figures from a binding that no longer existed and nothing on screen
+   * suggesting they were historical. The operator's own edit is what made the
+   * display stale.
+   *
+   * `startedAt` moves with them, because it is what the panel uses to say how
+   * long this has been running, and a count from 14:02 under a stamp from 09:00
+   * is a different lie.
+   *
+   * The detection engine is reset too. Its windows — ports per target, hosts per
+   * port — span time, and the socket was closed in the middle of them, so what
+   * they hold is a window with a hole in it rather than evidence. Losing a
+   * part-built scan detection is the smaller error.
+   *
+   * The template cache is deliberately kept. Templates are a property of the
+   * exporter rather than of our socket, they are re-sent on the device's own
+   * interval, and dropping them would put every v9 and IPFIX record back into
+   * "awaiting template" for minutes after a save — the exact state the panel
+   * treats as a fault.
+   */
+  resetForRebind(): void {
+    this.datagrams = 0;
+    this.records = 0;
+    this.malformed = 0;
+    this.ignoredReasons.notAllowed = 0;
+    this.ignoredReasons.sflow = 0;
+    this.ignoredReasons.unsupportedVersion = 0;
+    this.exporters.clear();
+    this.engine.reset();
+    this.warnedAboutSflow = false;
   }
 
   async stop(): Promise<void> {
@@ -357,6 +439,7 @@ export class FlowCollector {
       ignored:
         this.ignoredReasons.notAllowed + this.ignoredReasons.sflow + this.ignoredReasons.unsupportedVersion,
       ignoredReasons: { ...this.ignoredReasons },
+      allowedExporterCount: this.allowedExporters().length,
       allowedExporters: [...this.allowedExporters()],
       templatesCached: this.templates.size,
       detection: this.engine.stats(),
@@ -471,6 +554,13 @@ export function restartFlowCollector(): Promise<void> {
 
 async function rebind(): Promise<void> {
   await stopFlowCollector();
+
+  /*
+   * Counters belong to a binding, not to the process — see `resetCounters`. Done
+   * here rather than in `stop()` so the shutdown path can still log what the
+   * session handled on its way out.
+   */
+  collector?.resetForRebind();
 
   const settings = currentFlowSettings();
   if (!settings.enabled) {

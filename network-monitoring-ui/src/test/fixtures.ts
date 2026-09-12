@@ -457,6 +457,7 @@ export const FLOW_STATUS: FlowStatus = {
   malformed: 3,
   ignored: 9,
   ignoredReasons: { notAllowed: 7, sflow: 2, unsupportedVersion: 0 },
+  allowedExporterCount: 2,
   allowedExporters: ['10.0.0.1', '10.0.0.2'],
   templatesCached: 4,
   detection: { flowsInspected: 48210, unansweredFlows: 112, findings: 6, intelMatches: 1 },

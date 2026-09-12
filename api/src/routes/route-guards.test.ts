@@ -586,13 +586,19 @@ const ROUTERS: RouterPosture[] = [
      */
     role: 'admin',
     /*
-     * Both reads are open to any authenticated account, deliberately. Whether the
-     * collector is listening is not privileged information, and neither is how it
-     * is configured: there is no credential among these fields, which is itself a
-     * fact about the protocol rather than an oversight. The operator watching the
-     * network is usually not the administrator.
+     * `GET /status` is open to any authenticated account, deliberately: whether
+     * the collector is listening is not privileged information, and the operator
+     * watching the network is usually not the administrator. One field inside it
+     * IS stripped for a non-admin — the permitted-sender list, which is the
+     * collector's only access control — the same shape `GET /api/packets/status`
+     * uses for `interrupted.startedBy`, and asserted in
+     * `flow-status-privacy.test.ts` rather than here, because this file reads the
+     * routing table and cannot see inside a response.
+     *
+     * `GET /settings` is ADMIN, and is not declared here because `role` already
+     * covers it: the posture check below only needs `readsAreOpen` when nothing
+     * mutating is asserted, and `PUT /settings` is.
      */
-    readsAreOpen: true,
   },
   { file: 'intel.routes.ts', router: () => intelRouter, role: 'admin' },
   {

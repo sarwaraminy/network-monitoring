@@ -278,6 +278,9 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'flow.ignored.unsupported': 'Version nicht implementiert',
   'flow.ignored.unsupported_hint': 'Für dieses Versionswort hat dieser Kollektor keinen Parser.',
   'flow.allowlist': 'Erlaubte Absender:',
+  'flow.allowlist_count':
+    '{count, plural, one {# Absender ist erlaubt} other {# Absender sind erlaubt}}. Eine ' +
+    'administrierende Person kann sehen, welche.',
   'flow.allowlist_empty':
     'FLOW_EXPORTERS ist leer und nimmt damit jeden Absender an — es hätte also nichts abgewiesen ' +
     'werden dürfen. Das ist einen Fehlerbericht wert.',

@@ -33,19 +33,39 @@ flowRouter.use(requireAuth);
  * "receiving but every record is awaiting a template" are the two failure modes
  * during setup, and they are indistinguishable from a single total.
  */
-flowRouter.get('/status', (_req, res) => {
-  res.json(flowCollector().getStatus());
+flowRouter.get('/status', (req, res) => {
+  const status = flowCollector().getStatus();
+  const isAdmin = req.user?.role.toLowerCase() === 'admin';
+  if (isAdmin) {
+    res.json(status);
+    return;
+  }
+
+  /*
+   * The permitted senders are stripped for a non-admin; the count stays.
+   *
+   * This allowlist is the collector's only access control — NetFlow
+   * authenticates nothing — so the addresses are a precise answer to "what would
+   * I have to spoof for forged flow records to be accepted". Whether the
+   * collector is listening, and how much it is refusing, are not that.
+   *
+   * Same decision and same shape as `interrupted.startedBy` two routers along.
+   */
+  const { allowedExporters: _addresses, ...rest } = status;
+  res.json(rest);
 });
 
 /**
  * GET /api/flow/settings — every field with its provenance.
  *
- * Not admin-only, matching `/status` above and this router's declared posture:
- * how the collector is configured is not privileged, and there is no credential
- * among these — flow is unauthenticated, which is why the allowlist exists at
- * all. The write below is the gated half.
+ * ADMIN, unlike `/status` above, and the difference is what the two answer.
+ * Status says whether collection is working, which is every operator's business.
+ * This returns the configuration, `FLOW_EXPORTERS` among it — the allowlist that
+ * is the collector's only access control, since NetFlow authenticates nothing.
+ * The only thing that reads this is the form under the administration gear,
+ * which nobody else can open.
  */
-flowRouter.get('/settings', (_req, res) => {
+flowRouter.get('/settings', requireRole('ADMIN'), (_req, res) => {
   const resolution = currentFlowResolution();
   res.json({ settings: flowForApi(resolution), pinned: flowPinnedFields(resolution) });
 });

@@ -270,6 +270,8 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'flow.ignored.unsupported': 'نسخه پیاده‌سازی نشده',
   'flow.ignored.unsupported_hint': 'این گردآورنده برای این واژهٔ نسخه تجزیه‌گری ندارد.',
   'flow.allowlist': 'فرستندگان مجاز:',
+  'flow.allowlist_count':
+    '{count, plural, one {# فرستنده مجاز است} other {# فرستنده مجاز است}}. مدیر می‌تواند ببیند ' + 'کدام‌ها.',
   'flow.allowlist_empty':
     'FLOW_EXPORTERS خالی است و هر فرستنده‌ای را می‌پذیرد — پس نباید چیزی رد شده باشد. ارزش گزارش ' +
     'کردن دارد.',

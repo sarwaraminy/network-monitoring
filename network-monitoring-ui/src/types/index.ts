@@ -367,8 +367,17 @@ export interface FlowStatus {
   malformed: number;
   ignored: number;
   ignoredReasons: IgnoredDatagrams;
-  /** The senders `FLOW_EXPORTERS` permits. Empty accepts any. */
-  allowedExporters: string[];
+  /** How many senders `FLOW_EXPORTERS` permits. Zero accepts any. */
+  allowedExporterCount: number;
+  /**
+   * The senders themselves — administrators only.
+   *
+   * Absent for anyone else: this allowlist is the collector's only access
+   * control, since NetFlow authenticates nothing, so the addresses answer "what
+   * would I have to spoof to have forged records accepted". The same redaction
+   * `interrupted.startedBy` gets on the capture status.
+   */
+  allowedExporters?: string[];
   templatesCached: number;
   detection: {
     flowsInspected: number;

@@ -490,15 +490,24 @@ function IgnoredPanel({ status }: Readonly<{ status: FlowStatus }>) {
         */}
         {notAllowed > 0 && (
           <Alert severity="info" icon={<BlockOutlinedIcon />}>
-            {status.allowedExporters.length === 0 ? (
+            {status.allowedExporterCount === 0 ? (
               // Unreachable in practice — an empty allowlist accepts everything,
               // so nothing can be refused by it — and rendered anyway rather
               // than left as a confident assumption in a diagnostic panel.
               t('flow.allowlist_empty')
-            ) : (
+            ) : status.allowedExporters ? (
               <>
                 {t('flow.allowlist')} <Identifier>{status.allowedExporters.join(', ')}</Identifier>
               </>
+            ) : (
+              /*
+               * A non-admin gets the count, not the addresses — the server
+               * strips them, because this allowlist is the collector's only
+               * access control. The count still makes the refusals legible
+               * ("7 refused, 2 senders permitted"); comparing a device's address
+               * against the list is an administrator's step.
+               */
+              t('flow.allowlist_count', { count: status.allowedExporterCount })
             )}
           </Alert>
         )}
