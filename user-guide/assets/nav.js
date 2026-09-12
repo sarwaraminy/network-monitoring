@@ -37,6 +37,7 @@
         { href: 'suppressions.html', title: 'Suppression rules' },
         { href: 'threat-intel.html', title: 'Threat intelligence' },
         { href: 'packet-capture.html', title: 'Packet capture' },
+        { href: 'flow-collection.html', title: 'Flow collection' },
       ],
     },
     {

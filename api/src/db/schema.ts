@@ -347,6 +347,24 @@ export const adhocSettings = pgTable('adhoc_settings', {
 });
 
 /**
+ * The flow collector's settings — see V19__Flow_settings.sql.
+ *
+ * One row, every column nullable, and NULL means "fall through to the
+ * environment, then the code default". The same shape as `deliverySettings` and
+ * `adhocSettings`, and the same rule: the environment wins over a value here.
+ */
+export const flowSettings = pgTable('flow_settings', {
+  id: smallint('id').primaryKey().default(1),
+  enabled: boolean('enabled'),
+  port: integer('port'),
+  bindAddress: varchar('bind_address', { length: 64 }),
+  /** Comma-separated; empty accepts any sender. The only access control flow has. */
+  exporters: text('exporters'),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  updatedBy: varchar('updated_by', { length: 200 }),
+});
+
+/**
  * What this sensor was last asked to capture — see V18__Capture_session.sql.
  *
  * A record, not configuration. Capture otherwise lives entirely in process
@@ -376,6 +394,8 @@ export const captureSession = pgTable(
 
 export type CaptureSessionRow = typeof captureSession.$inferSelect;
 export type NewCaptureSessionRow = typeof captureSession.$inferInsert;
+export type FlowSettingsRow = typeof flowSettings.$inferSelect;
+export type NewFlowSettingsRow = typeof flowSettings.$inferInsert;
 export type AdhocSettingsRow = typeof adhocSettings.$inferSelect;
 export type NewAdhocSettingsRow = typeof adhocSettings.$inferInsert;
 export type UserRow = typeof users.$inferSelect;

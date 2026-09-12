@@ -1,7 +1,7 @@
 import { createSocket, type Socket } from 'node:dgram';
-import { env } from '../config/env.js';
 import { componentLogger } from '../logger.js';
 import { AlertSink } from '../services/alert.service.js';
+import { currentAllowedExporters, currentFlowSettings } from '../services/flow-settings.service.js';
 import { FlowDetectionEngine } from './detect.js';
 import { FLOW_VERSION, looksLikeSflow, parseFlowDatagram } from './parse.js';
 import { TemplateCache } from './templates.js';
@@ -45,15 +45,117 @@ export interface ExporterStats {
   lastSeen: string;
 }
 
+/**
+ * Why datagrams were dropped before anything was read out of them.
+ *
+ * A single `ignored` total counted three unrelated causes, which is the same
+ * complaint `flow.routes.ts` makes about a single record total one level up:
+ * "configured but receiving nothing" and "receiving but nothing decodes" are
+ * different problems and a sum cannot tell them apart. Here the three are an
+ * allowlist that does not include the device, a device configured for sFlow,
+ * and a NetFlow version this collector does not implement — and every one of
+ * them has a different fix, on a different box.
+ *
+ * Worth splitting because none of the three is visible any other way: an
+ * exporter rejected by the allowlist never reaches `statsFor`, so it does not
+ * appear in the per-exporter list at all. Before this, the whole of what the
+ * interface could say about a mistyped `FLOW_EXPORTERS` entry was that the
+ * datagram count was climbing and the record count was not.
+ */
+export interface IgnoredDatagrams {
+  /** Sender not in `FLOW_EXPORTERS`. */
+  notAllowed: number;
+  /** sFlow, which this collector does not implement — see `looksLikeSflow`. */
+  sflow: number;
+  /** A version word we have no parser for. */
+  unsupportedVersion: number;
+}
+
 export interface FlowCollectorStatus {
   enabled: boolean;
   listening: boolean;
   address: string | null;
+  /**
+   * The port the socket actually bound, or null when it is not open.
+   *
+   * Null rather than the configured value, deliberately: "2055 in the settings"
+   * and "2055 on a socket" are different claims, and only the second one means a
+   * datagram can arrive. The state chip says which by reporting this one.
+   */
   port: number | null;
+  /**
+   * The port it is configured to use, which is never null.
+   *
+   * For the sentences that tell an operator where to point a device. That
+   * instruction is the same whether or not the socket is currently open — and
+   * `port ?? 0` put "point your switch at port 0" on screen in precisely the
+   * state the sentence exists for, since a failed bind is one of the main reasons
+   * nothing has arrived yet.
+   */
+  configuredPort: number;
+  /**
+   * Listening, but on a binding the current settings would not produce.
+   *
+   * `enabled` and `listening` differ when a bind failed, which the page has said
+   * since it was written. This is the third state neither covers: the socket is
+   * open and healthy on a port or address that is no longer what is configured.
+   *
+   * It is reachable without anybody doing anything odd. A boot that could not
+   * read the settings row binds from the environment and the defaults and comes
+   * up `listening: true`; the first `GET /settings` recovers the row and
+   * republishes it, so the form and `configuredPort` move to the stored values
+   * while the socket stays where boot left it. Nothing else can see that:
+   * `stalled` and the retry button both key on `listening` being false, and it is
+   * true.
+   *
+   * Without this the form showed a port that was not in effect, with no
+   * indication anywhere, until somebody restarted the API.
+   */
+  bindingOutOfDate: boolean;
   datagrams: number;
+  /**
+   * Datagrams seen since the allowlist last changed, which equals `datagrams`
+   * until one is edited.
+   *
+   * The denominator for "every datagram was refused". `notAllowed` restarts when
+   * the allowlist is replaced — it was counted against a list that no longer
+   * exists — so comparing it against the binding's whole history would silence
+   * that diagnosis for the rest of the session. Both halves of a ratio have to
+   * cover the same span.
+   */
+  datagramsUnderAllowlist: number;
   records: number;
   malformed: number;
+  /** Total of `ignoredReasons`, kept because it is the headline number. */
   ignored: number;
+  ignoredReasons: IgnoredDatagrams;
+  /**
+   * How many senders `FLOW_EXPORTERS` permits. Zero accepts any.
+   *
+   * The count is for everyone; the addresses are not — see `allowedExporters`.
+   */
+  allowedExporterCount: number;
+  /**
+   * The senders themselves, for an administrator only.
+   *
+   * Reported so `ignoredReasons.notAllowed` can be acted on: "412 datagrams
+   * refused" is only useful beside the list they were refused against, and
+   * comparing a device's address to that list is the whole diagnosis.
+   *
+   * **Absent for a non-admin**, and that is a deliberate narrowing of an earlier
+   * decision rather than a rule this router always had. This allowlist is the
+   * collector's only access control — NetFlow authenticates nothing, so
+   * reachability plus this list is all of it — which makes the addresses a
+   * precise answer to "what would I have to spoof for forged flow records to be
+   * accepted and turned into findings". Handing that to every account that can
+   * sign in is a different thing from telling them whether the collector is
+   * listening.
+   *
+   * The same shape `GET /api/packets/status` uses for `interrupted.startedBy`,
+   * and `GET /api/packets` for frame payloads: the response stays open, one field
+   * inside it does not.
+   */
+  allowedExporters?: string[];
   templatesCached: number;
   detection: ReturnType<FlowDetectionEngine['stats']>;
   exporters: ExporterStats[];
@@ -81,15 +183,56 @@ export class FlowCollector {
   private datagrams = 0;
   private records = 0;
   private malformed = 0;
-  private ignored = 0;
+  private readonly ignoredReasons: IgnoredDatagrams = {
+    notAllowed: 0,
+    sflow: 0,
+    unsupportedVersion: 0,
+  };
   private readonly exporters = new Map<string, ExporterStats>();
   private warnedAboutSflow = false;
+  /**
+   * `datagrams` as it stood when the allowlist last changed. See `resetRefusals`.
+   *
+   * The span marker, and it exists because clearing one of a pair breaks the
+   * ratio the interface reads them as. `notAllowed === datagrams` is how the
+   * panel says "every datagram was refused" — the diagnosis for a mistyped
+   * allowlist, which is the commonest way to configure this wrong. Zeroing the
+   * refusals while `datagrams` kept its history made those two permanently
+   * unequal on a binding, so the one branch that names the problem could never
+   * fire again after the very edit that caused it.
+   *
+   * Resetting `datagrams` alongside would have been the other way out, and is
+   * worse: it puts the panel into "nothing has arrived", which is a different
+   * false statement made to the same person, and it would have to drag `records`
+   * and the per-exporter rows with it to stay coherent.
+   */
+  private allowlistChangedAt = 0;
+  /**
+   * The settings this socket was actually bound with.
+   *
+   * Recorded rather than read back off `socket.address()`, because the question
+   * is whether the binding still matches the settings in force — and comparing
+   * what we asked for against what we would ask for now answers that exactly,
+   * while comparing against the OS's rendering of an address invites a
+   * normalisation mismatch reading as drift.
+   *
+   * Null while nothing is bound.
+   */
+  private boundTo: { port: number; bindAddress: string } | null = null;
 
   /** Starts listening. Resolves once bound, rejects if the port is unusable. */
   async start(): Promise<void> {
     if (this.socket) return;
 
-    const { port, bindAddress } = env.flow;
+    /*
+     * The resolved settings, not `env.flow`.
+     *
+     * These are three-layer since V19 — environment → stored row → default — so
+     * an administrator can change them from the browser. Read at bind time
+     * rather than held, because `restart()` below reopens the socket after a
+     * save and has to pick up what was just written.
+     */
+    const { port, bindAddress } = currentFlowSettings();
     // reuseAddr so a restart does not fail while the old socket lingers.
     const socket = createSocket({ type: 'udp4', reuseAddr: true });
 
@@ -99,18 +242,68 @@ export class FlowCollector {
 
     socket.on('error', (error) => {
       log.error({ err: error }, 'Flow socket error; closing');
+
+      /*
+       * Only if this is still the live socket.
+       *
+       * The handler closes over `this` rather than over its own socket, so
+       * without the guard `stop()` acts on whatever is current. A late error on
+       * a socket that has already been retired — one queued in the OS, an ICMP
+       * port-unreachable arriving after the close — then shut down the socket
+       * that replaced it. The process reported itself correctly as not
+       * listening, so nothing looked broken except that flow data stopped, and
+       * the cause was a socket that no longer existed.
+       *
+       * It mattered more once rebinding stopped being a once-per-process event:
+       * every settings save reopens the socket now, and there is a button on
+       * screen for somebody working through a port conflict.
+       *
+       * Guarded rather than fixed with `removeAllListeners()` in `stop()`, which
+       * is the obvious alternative and is worse: an `error` event with no
+       * listener is thrown rather than delivered, so stripping the handler would
+       * turn a stray error on a retired socket into a dead process. That is a
+       * worse failure than the one being fixed, and it is the same event this
+       * finding says can arrive.
+       */
+      if (this.socket !== socket) return;
+
       this.stop().catch(() => {
         /* already tearing down */
       });
     });
 
-    await new Promise<void>((resolve, reject) => {
-      socket.once('error', reject);
-      socket.bind(port, bindAddress, () => {
-        socket.removeListener('error', reject);
-        resolve();
+    /*
+     * A failed bind closes its own socket before the error leaves here.
+     *
+     * `this.socket` is only assigned below, so a rejection escapes `start()` with
+     * the handle above referenced by nothing — and the persistent `error`
+     * listener's `this.stop()` finds `this.socket` still null and closes nothing.
+     * The descriptor stays open for the life of the process.
+     *
+     * That cost one handle on a boot that was already failing, until this branch
+     * made binding something an operator does repeatedly: every settings save
+     * rebinds, and there is a Try binding again button on the screen designed for
+     * somebody working through a port conflict. The leak now scales with how hard
+     * they are trying to fix it.
+     */
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once('error', reject);
+        socket.bind(port, bindAddress, () => {
+          socket.removeListener('error', reject);
+          resolve();
+        });
       });
-    });
+    } catch (error) {
+      socket.removeAllListeners();
+      try {
+        socket.close();
+      } catch {
+        // Never bound, so there may be nothing to close. The throw below is the
+        // outcome that matters.
+      }
+      throw error;
+    }
 
     try {
       socket.setRecvBufferSize(RECEIVE_BUFFER_BYTES);
@@ -125,17 +318,108 @@ export class FlowCollector {
     this.socket = socket;
     this.sink = new AlertSink();
     this.startedAt = new Date();
+    this.boundTo = { port, bindAddress };
 
     const address = socket.address();
     log.info(
       {
         address: address.address,
         port: address.port,
-        allowedExporters: env.flow.allowedExporters.length > 0 ? env.flow.allowedExporters : 'any',
+        allowedExporters: this.allowedExporters().length > 0 ? [...this.allowedExporters()] : 'any',
         receiveBufferBytes: safeRecvBufferSize(socket),
       },
       `Flow collector listening on ${address.address}:${address.port} (NetFlow v5/v9, IPFIX)`,
     );
+  }
+
+  /**
+   * Clears everything the status reports as "since this binding started".
+   *
+   * Public because `rebind()` calls it between the stop and the start, which is
+   * the only moment the counters and the socket are both known to be idle.
+   *
+   * A rebind is a new collection session, and the counters have to say so. They
+   * used to survive one, which broke the page in the situation it exists for:
+   * `Diagnosis` branches on `datagrams === 0` and on every datagram having been
+   * refused, and neither can be true again once a working binding has banked
+   * some counts. So an administrator who mistyped the port or the allowlist and
+   * saved went on seeing the green "Collecting — N records from M exporters",
+   * with figures from a binding that no longer existed and nothing on screen
+   * suggesting they were historical. The operator's own edit is what made the
+   * display stale.
+   *
+   * `startedAt` moves with them, because it is what the panel uses to say how
+   * long this has been running, and a count from 14:02 under a stamp from 09:00
+   * is a different lie.
+   *
+   * The detection engine is reset too. Its windows — ports per target, hosts per
+   * port — span time, and the socket was closed in the middle of them, so what
+   * they hold is a window with a hole in it rather than evidence. Losing a
+   * part-built scan detection is the smaller error.
+   *
+   * The template cache is deliberately kept. Templates are a property of the
+   * exporter rather than of our socket, they are re-sent on the device's own
+   * interval, and dropping them would put every v9 and IPFIX record back into
+   * "awaiting template" for minutes after a save — the exact state the panel
+   * treats as a fault.
+   */
+  resetForRebind(): void {
+    this.datagrams = 0;
+    this.records = 0;
+    this.malformed = 0;
+    this.ignoredReasons.notAllowed = 0;
+    this.ignoredReasons.sflow = 0;
+    this.ignoredReasons.unsupportedVersion = 0;
+    this.exporters.clear();
+    this.engine.reset();
+    this.warnedAboutSflow = false;
+    // Back to zero rather than to `this.datagrams`, which is also zero now: the
+    // span and the total start together on a new binding, so the ratio means
+    // what it meant before any allowlist was edited.
+    this.allowlistChangedAt = 0;
+  }
+
+  /**
+   * Whether the open socket was bound from settings that have since changed.
+   *
+   * False when nothing is bound: a closed socket is not out of date, it is shut,
+   * and `enabled`/`listening` already say so. Compared against the settings the
+   * bind was made with rather than against the socket's own address — see
+   * `boundTo`.
+   */
+  private bindingIsOutOfDate(): boolean {
+    if (this.socket === null || this.boundTo === null) return false;
+
+    const { port, bindAddress } = currentFlowSettings();
+    return this.boundTo.port !== port || this.boundTo.bindAddress !== bindAddress;
+  }
+
+  /**
+   * Forgets the refusals, for an allowlist change that does not rebind.
+   *
+   * `exporters` is the one setting that deliberately leaves the socket alone — it
+   * is a filter test per datagram, so reopening a binding for it would drop what
+   * is in flight for nothing. But `notAllowed` was counted against the list that
+   * has just been replaced, and a counter nobody resets goes on being attributed
+   * to a list it never saw.
+   *
+   * Two things follow, and the second is the sharper. An administrator who has
+   * just corrected a mistyped address watches the refusal count stand still and
+   * concludes the fix did not take — the number is frozen rather than wrong, and
+   * nothing on the panel distinguishes those. And clearing the allowlist
+   * altogether left `allowedExporterCount === 0` beside `notAllowed > 0`, which
+   * `IgnoredPanel` renders as "nothing should have been refused, this is worth
+   * reporting" — a state its own comment calls unreachable, reached by a routine
+   * edit.
+   *
+   * Only the refusals. `datagrams` counts what arrived on this binding and that
+   * is still true; the sFlow and unsupported-version tallies are properties of
+   * the senders rather than of the filter. `resetForRebind` is the one that
+   * clears everything, because there the binding itself is new.
+   */
+  resetRefusals(): void {
+    this.ignoredReasons.notAllowed = 0;
+    this.allowlistChangedAt = this.datagrams;
   }
 
   async stop(): Promise<void> {
@@ -148,6 +432,7 @@ export class FlowCollector {
     }
 
     this.startedAt = null;
+    this.boundTo = null;
 
     // Flush before dropping the sink, or the last window of findings is lost.
     const sink = this.sink;
@@ -171,12 +456,12 @@ export class FlowCollector {
       this.datagrams += 1;
 
       if (!this.isAllowed(exporter)) {
-        this.ignored += 1;
+        this.ignoredReasons.notAllowed += 1;
         return;
       }
 
       if (looksLikeSflow(datagram)) {
-        this.ignored += 1;
+        this.ignoredReasons.sflow += 1;
         if (!this.warnedAboutSflow) {
           this.warnedAboutSflow = true;
           log.warn(
@@ -203,7 +488,7 @@ export class FlowCollector {
       this.malformed += result.malformed;
 
       if (result.unsupported) {
-        this.ignored += 1;
+        this.ignoredReasons.unsupportedVersion += 1;
         log.warn({ exporter, version: result.unsupported }, 'Unsupported flow version');
         return;
       }
@@ -228,8 +513,28 @@ export class FlowCollector {
    * address. Setting FLOW_EXPORTERS once the devices are known is the hardening
    * step, and it is the only defence the format permits.
    */
+  /**
+   * The permitted senders, from the live settings, already parsed.
+   *
+   * Read per datagram rather than captured at bind time, and that is the point of
+   * the whole feature: the allowlist is the one flow setting that changes in
+   * ordinary operation, as devices are added, and it applies the moment it is
+   * saved. Nothing is rebound and nothing in flight is lost.
+   *
+   * **Parsed once per settings change, not once per datagram.** The first version
+   * of this called `exporterList(currentFlowSettings())` here, which split and
+   * trimmed a string on the hot path — ahead of the cheap reject that is supposed
+   * to make an unlisted exporter free to ignore, on the one code path whose
+   * reason for existing is volume. `flow-settings.service.ts` caches the array
+   * and refreshes it in `loadFlowSettings`, which is the only place that
+   * re-resolves.
+   */
+  private allowedExporters(): readonly string[] {
+    return currentAllowedExporters();
+  }
+
   private isAllowed(exporter: string): boolean {
-    const allowed = env.flow.allowedExporters;
+    const allowed = this.allowedExporters();
     return allowed.length === 0 || allowed.includes(exporter);
   }
 
@@ -272,14 +577,23 @@ export class FlowCollector {
   getStatus(): FlowCollectorStatus {
     const address = this.socket?.address();
     return {
-      enabled: env.flow.enabled,
+      enabled: currentFlowSettings().enabled,
       listening: this.socket !== null,
       address: address?.address ?? null,
       port: address?.port ?? null,
+      configuredPort: currentFlowSettings().port,
+      bindingOutOfDate: this.bindingIsOutOfDate(),
       datagrams: this.datagrams,
+      datagramsUnderAllowlist: this.datagrams - this.allowlistChangedAt,
       records: this.records,
       malformed: this.malformed,
-      ignored: this.ignored,
+      // Summed rather than counted separately, so the total and the breakdown
+      // cannot drift — the failure a second counter would eventually produce.
+      ignored:
+        this.ignoredReasons.notAllowed + this.ignoredReasons.sflow + this.ignoredReasons.unsupportedVersion,
+      ignoredReasons: { ...this.ignoredReasons },
+      allowedExporterCount: this.allowedExporters().length,
+      allowedExporters: [...this.allowedExporters()],
       templatesCached: this.templates.size,
       detection: this.engine.stats(),
       // Busiest first: on a real network one exporter dominates and that is the
@@ -327,18 +641,93 @@ export function flowCollector(): FlowCollector {
 
 /** Starts the collector when configured. Never rejects: the API must still boot. */
 export async function startFlowCollector(): Promise<void> {
-  if (!env.flow.enabled) {
-    log.info('Flow collector disabled (set FLOW_ENABLED=true to receive NetFlow/IPFIX)');
+  const settings = currentFlowSettings();
+  if (!settings.enabled) {
+    log.info('Flow collector disabled (switch it on in Administration settings, or set FLOW_ENABLED)');
     return;
   }
   try {
     await flowCollector().start();
   } catch (error) {
     // A busy port or a bad bind address should not stop the HTTP API from serving.
-    log.error({ err: error, port: env.flow.port }, 'Could not start the flow collector');
+    log.error({ err: error, port: settings.port }, 'Could not start the flow collector');
   }
 }
 
 export async function stopFlowCollector(): Promise<void> {
   if (collector) await collector.stop();
+}
+
+/**
+ * Closes the socket and opens it again on whatever the settings now say.
+ *
+ * For the three fields that are properties of a bound socket — `enabled`, `port`,
+ * `bindAddress` — which cannot be changed on one. `exporters` never comes here:
+ * it is a filter test per datagram and applies as soon as the cache is refreshed,
+ * so rebinding for it would drop whatever is in flight to no purpose.
+ *
+ * **Stop first, unconditionally, and only then decide whether to start.** The
+ * ordering hazards `PUT /api/adhoc/settings` took three review rounds to get
+ * right are the same ones here, and this is the shape that avoids most of them:
+ * there is one socket, the stop is idempotent, and switching off is simply the
+ * case where nothing follows the stop.
+ *
+ * **Serialised, because within one call is not the same as between two.** The
+ * stop and the start are ordered by the `await` between them, and that says
+ * nothing about a second restart arriving in the middle. Two administrators
+ * saving at once — or one double-submitting — interleave like this: A stops and
+ * begins its start; B's stop runs before A has assigned `this.socket`, so it
+ * finds nothing to close; A's assignment lands; B's start hits the
+ * `if (this.socket) return` guard and returns without binding. The socket is
+ * left on A's port while B is told it is listening on theirs.
+ *
+ * Each restart therefore chains onto the one before it. Low likelihood — it needs
+ * two savers inside one bind — but the previous comment claimed the stronger
+ * property, and the next person to add a caller would have read it as covering
+ * them.
+ *
+ * Never throws. A save that leaves the collector unable to bind — the port is
+ * taken, or the address is not on this host — is a real outcome an operator has
+ * to be told about, and the way they are told is `listening: false` on the status
+ * the form shows straight afterwards. Turning it into a failed request would say
+ * the *save* failed, which is untrue: the row was written and is what the next
+ * boot will use.
+ */
+let restartInFlight: Promise<void> = Promise.resolve();
+
+export function restartFlowCollector(): Promise<void> {
+  /*
+   * Queued behind whatever restart is already running, and `catch` on the tail so
+   * one failure does not poison every restart after it — `rebind` never rejects
+   * anyway, and a chain that could is a chain that stops working silently.
+   */
+  restartInFlight = restartInFlight.then(rebind, rebind);
+  return restartInFlight;
+}
+
+async function rebind(): Promise<void> {
+  await stopFlowCollector();
+
+  /*
+   * Counters belong to a binding, not to the process — see `resetCounters`. Done
+   * here rather than in `stop()` so the shutdown path can still log what the
+   * session handled on its way out.
+   */
+  collector?.resetForRebind();
+
+  const settings = currentFlowSettings();
+  if (!settings.enabled) {
+    log.info('Flow collector switched off; the socket is closed');
+    return;
+  }
+
+  try {
+    await flowCollector().start();
+    log.info({ port: settings.port, bindAddress: settings.bindAddress }, 'Flow collector rebound');
+  } catch (error) {
+    log.error(
+      { err: error, port: settings.port, bindAddress: settings.bindAddress },
+      'Could not rebind the flow collector after a settings change; it is not listening',
+    );
+  }
 }

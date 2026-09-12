@@ -8,6 +8,7 @@ import {
   alertListQuerySchema,
   captureStartSchema,
   deliverySettingsPatchSchema,
+  flowSettingsPatchSchema,
   idSchema,
   ipAddressSchema,
   loginSchema,
@@ -687,5 +688,62 @@ describe('webhook URL shape', () => {
       deliverySettingsPatchSchema.parse({ webhookUrl: '  https://x.test/hook  ' }).webhookUrl,
       'https://x.test/hook',
     );
+  });
+});
+
+describe('flow settings patch', () => {
+  it('refuses a blank bind address, which would store what it reads back as unset', () => {
+    /*
+     * The two blanks that look identical and are not. `parseFlowField` treats a
+     * blank stored value as "nobody decided", so an empty string written to the
+     * column resolves to the `0.0.0.0` default while the column holds `''` — and
+     * the API reports `source: 'default'` over a stored value nobody can see.
+     *
+     * Provenance is the entire point of resolving through three layers. A row and
+     * a `source` that disagree is the one outcome the design is supposed to make
+     * unreachable, and an administrator reading "default" has no way to find the
+     * value sitting underneath it.
+     */
+    assert.equal(flowSettingsPatchSchema.safeParse({ bindAddress: '' }).success, false);
+    assert.equal(flowSettingsPatchSchema.safeParse({ bindAddress: '   ' }).success, false);
+  });
+
+  it('still clears it with null, which is how the field is emptied', () => {
+    // The shipped form already maps an emptied box to `null` — refusing the blank
+    // must not take away the spelling that actually works.
+    const parsed = flowSettingsPatchSchema.parse({ bindAddress: null });
+    assert.equal('bindAddress' in parsed, true);
+    assert.equal(parsed.bindAddress, null);
+  });
+
+  it('keeps an empty allowlist, where empty is a decision rather than a gap', () => {
+    /*
+     * The deliberate asymmetry, asserted next to the rule it looks like it
+     * contradicts. An empty `exporters` means "accept any sender" — a real
+     * choice an administrator makes — so `min(1)` here would refuse the one way
+     * of expressing it. An empty `bindAddress` means nothing at all.
+     */
+    assert.equal(flowSettingsPatchSchema.parse({ exporters: '' }).exporters, '');
+  });
+
+  it('does not validate the address beyond its length', () => {
+    // What is bindable depends on the host's interfaces. Refusing a blank is not
+    // the same as predicting which addresses exist.
+    assert.equal(flowSettingsPatchSchema.safeParse({ bindAddress: '::' }).success, true);
+    assert.equal(flowSettingsPatchSchema.safeParse({ bindAddress: 'eth0.local' }).success, true);
+    assert.equal(flowSettingsPatchSchema.safeParse({ bindAddress: 'x'.repeat(65) }).success, false);
+  });
+
+  it('refuses a port the container could not bind rather than clamping it', () => {
+    assert.equal(flowSettingsPatchSchema.safeParse({ port: 80 }).success, false);
+    assert.equal(flowSettingsPatchSchema.safeParse({ port: 70_000 }).success, false);
+    assert.equal(flowSettingsPatchSchema.parse({ port: 2055 }).port, 2055);
+  });
+
+  it('accepts the empty patch, because it is the retry', () => {
+    // Unlike the delivery patch above. `PUT /api/flow/settings` with nothing in
+    // it means "try binding again": the route rebinds on the collector's state
+    // rather than on the contents, and nothing is written or audited.
+    assert.equal(flowSettingsPatchSchema.safeParse({}).success, true);
   });
 });

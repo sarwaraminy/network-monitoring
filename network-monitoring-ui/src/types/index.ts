@@ -314,6 +314,112 @@ export interface DecommissionResult {
   };
 }
 
+/** A NetFlow/IPFIX version this collector implements. */
+export type FlowProtocol = 'netflow5' | 'netflow9' | 'ipfix';
+
+/** One device sending flow records here, busiest first in the status. */
+export interface FlowExporter {
+  /**
+   * The source address the datagrams arrived from — administrators only.
+   *
+   * Absent for everyone else, because a row exists here only by passing the
+   * allowlist, which makes this column the allowlist under another name. See the
+   * redaction in `flow.routes.ts`; the counters beside it are not privileged.
+   */
+  exporter?: string;
+  /** The version word off the wire, whether or not we implement it. */
+  version: number;
+  /** Null for a version with no parser — which is what makes it worth showing. */
+  protocolVersion: FlowProtocol | null;
+  datagrams: number;
+  records: number;
+  /**
+   * Records that arrived before the template describing them.
+   *
+   * The sharp number on this page: a v9 or IPFIX exporter that sends data
+   * records before its templates is counted in `datagrams`, decodes nothing, and
+   * looks identical to a working device from any total.
+   */
+  pendingTemplates: number;
+  malformed: number;
+  lastSeen: string;
+}
+
+/** Why datagrams were dropped before anything was read out of them. */
+export interface IgnoredDatagrams {
+  /** Sender not in `FLOW_EXPORTERS`. */
+  notAllowed: number;
+  /** sFlow, which this collector does not implement. */
+  sflow: number;
+  /** A version word with no parser. */
+  unsupportedVersion: number;
+}
+
+export interface FlowStatus {
+  /** What `FLOW_ENABLED` says. */
+  enabled: boolean;
+  /**
+   * Whether the socket is actually open.
+   *
+   * Separate from `enabled`, and they differ exactly when the bind failed — the
+   * port is taken, or the address is not on this host. A single on/off would hide
+   * the second most likely setup failure, so the page renders them as two facts.
+   */
+  listening: boolean;
+  address: string | null;
+  /** The port actually bound, null when the socket is not open. */
+  port: number | null;
+  /**
+   * The port it is configured to use, which is never null.
+   *
+   * For telling an operator where to point a device — the same instruction
+   * whether or not the socket is open, and the reason `port ?? 0` is not good
+   * enough for that sentence.
+   */
+  configuredPort: number;
+  /**
+   * Listening, but on a binding the current settings would not produce.
+   *
+   * The third state beyond `enabled` and `listening`: the socket is open and
+   * healthy on a port or address that is no longer configured — reachable when a
+   * boot that could not read the settings row binds from the environment and the
+   * row is recovered later.
+   */
+  bindingOutOfDate: boolean;
+  datagrams: number;
+  /**
+   * Datagrams since the allowlist last changed; equals `datagrams` until one is
+   * edited. The denominator for "every datagram was refused", because
+   * `ignoredReasons.notAllowed` restarts when the list it was counted against is
+   * replaced.
+   */
+  datagramsUnderAllowlist: number;
+  records: number;
+  malformed: number;
+  ignored: number;
+  ignoredReasons: IgnoredDatagrams;
+  /** How many senders `FLOW_EXPORTERS` permits. Zero accepts any. */
+  allowedExporterCount: number;
+  /**
+   * The senders themselves — administrators only.
+   *
+   * Absent for anyone else: this allowlist is the collector's only access
+   * control, since NetFlow authenticates nothing, so the addresses answer "what
+   * would I have to spoof to have forged records accepted". The same redaction
+   * `interrupted.startedBy` gets on the capture status.
+   */
+  allowedExporters?: string[];
+  templatesCached: number;
+  detection: {
+    flowsInspected: number;
+    unansweredFlows: number;
+    findings: number;
+    intelMatches: number;
+  };
+  exporters: FlowExporter[];
+  startedAt: string | null;
+}
+
 export interface NetworkInterface {
   name: string;
   description: string | null;

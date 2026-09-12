@@ -85,6 +85,19 @@ export const ERRORS_EN = {
     'You cannot remove your own administrator role. Ask another administrator to do it.',
   // The variable names are the useful half of this 409, so they are the parameter
   // rather than being summarised away.
+  /*
+   * The save committed and could not be read back, so nothing was applied.
+   *
+   * Specific rather than a generic 500, because the generic one would send an
+   * administrator to undo a change that is in fact stored. Both halves matter:
+   * the setting will be used, and it is not in use yet.
+   */
+  'error.flow_saved_not_applied':
+    'The setting was saved and will be used the next time the API starts, but it could not be ' +
+    'applied to the running collector. Collection is continuing with the previous settings.',
+  'error.flow_pinned':
+    'Set in the environment and cannot be changed here: {variables}. Remove the variable and ' +
+    'restart the API to manage it from this page.',
   'error.adhoc_pinned':
     'Set in the environment and cannot be changed here: {variables}. Remove the variable and ' +
     'restart the API to manage it from this page.',

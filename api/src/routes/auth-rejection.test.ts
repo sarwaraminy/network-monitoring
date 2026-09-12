@@ -374,6 +374,7 @@ const EXPECTED: readonly string[] = [
   'GET /api/alerts/summary',
   'GET /api/audit',
   'GET /api/audit/actions',
+  'GET /api/flow/settings',
   'GET /api/flow/status',
   'GET /api/intel/status',
   'GET /api/ip/packets',
@@ -409,6 +410,7 @@ const EXPECTED: readonly string[] = [
   'POST /api/suppressions/preview',
   'POST /api/user-guide/session',
   'PUT /api/adhoc/settings',
+  'PUT /api/flow/settings',
   'PUT /api/notify/settings',
 ];
 

@@ -575,9 +575,37 @@ const ROUTERS: RouterPosture[] = [
     anonymous: ['GET /signup-allowed', 'POST /login', 'POST /signup'],
     ungatedMutations: ['POST /login', 'POST /signup'],
   },
-  // One route, `GET /status`, and it is a read every account should see: whether the
-  // collector is listening is not privileged information.
-  { file: 'flow.routes.ts', router: () => flowRouter, role: 'admin', readsAreOpen: true },
+  {
+    file: 'flow.routes.ts',
+    router: () => flowRouter,
+    /*
+     * `PUT /settings` is the only thing here that changes state, and it is ADMIN:
+     * it decides whether this installation collects flow at all, on which port,
+     * and which senders are accepted — and that allowlist is the collector's only
+     * access control, since NetFlow has no authentication.
+     */
+    role: 'admin',
+    /*
+     * `GET /status` is open to any authenticated account, deliberately: whether
+     * the collector is listening is not privileged information, and the operator
+     * watching the network is usually not the administrator. One field inside it
+     * IS stripped for a non-admin — the permitted-sender list, which is the
+     * collector's only access control — the same shape `GET /api/packets/status`
+     * uses for `interrupted.startedBy`, and asserted in
+     * `flow-status-privacy.test.ts` rather than here, because this file reads the
+     * routing table and cannot see inside a response.
+     *
+     * `GET /settings` is ADMIN too, and this file does not assert that — `role`
+     * is checked against mutating routes only, so it says nothing about a GET.
+     * What keeps `readsAreOpen` off this entry is that `PUT /settings` mutates,
+     * which is a different claim from the reads being covered.
+     *
+     * The gating is asserted in `flow-status-privacy.test.ts`, which drives both
+     * reads over real HTTP with real tokens: 200 for an ADMIN, 403 for a USER.
+     * That is the right place for it, because the point of the endpoint is the
+     * allowlist inside the response and this file reads the routing table.
+     */
+  },
   { file: 'intel.routes.ts', router: () => intelRouter, role: 'admin' },
   {
     file: 'logs.routes.ts',

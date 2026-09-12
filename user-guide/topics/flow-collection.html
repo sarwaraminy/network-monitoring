@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flow collection &mdash; Network Monitoring User Guide</title>
+<link rel="stylesheet" href="../assets/guide.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="brand"><span class="mark">&#9670;</span>Network Monitoring<span class="ver">1.0</span></div>
+  <div class="masthead-sub">User Guide</div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Contents"></nav>
+  <main class="topic">
+<h1>Flow collection</h1>
+<p class="lede">What your routers and switches are telling you, and whether any of it can
+be read.</p>
+
+<p>Flow collection is the other way this tool sees the network, and for most installations
+it is the more useful one. <a href="packet-capture.html">Packet capture</a> needs a driver
+on this host and a mirror port on a managed switch to see anything beyond its own traffic;
+flow needs neither. The devices you already own do the observing and send summaries here
+&mdash; one record per conversation, with the addresses, ports, byte counts and TCP flags,
+but not the contents.</p>
+
+<p>Less detail per connection, then, and vastly more of the network.</p>
+
+<h2>What this screen is for</h2>
+
+<p>Setting flow up goes wrong in a small number of specific ways, and they look identical
+if all you have is a count. This screen names whichever one applies instead:</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>What it says</th><th>What it means</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="ui">Listening, and nothing has arrived yet</span></td>
+      <td>The socket is open and no datagram has reached it. Either the device is not
+        sending, it cannot reach this host, or it is sending somewhere else. Check the
+        exporter's destination address and anything between it and here that filters
+        UDP.</td>
+    </tr>
+    <tr>
+      <td><span class="ui">Every record is waiting for a template</span></td>
+      <td>The sharp one, and the reason this screen exists. NetFlow v9 and IPFIX do not
+        describe their own records &mdash; the layout arrives separately, on its own
+        interval &mdash; so records that turn up first are counted and cannot be read. The
+        device looks busy and contributes nothing. It usually clears within a few minutes;
+        if it does not, shorten the template refresh interval on the exporter.</td>
+    </tr>
+    <tr>
+      <td><span class="ui">The socket is not open</span></td>
+      <td>Collection is switched on and the bind failed. Either another process holds the
+        port, or <code>FLOW_BIND_ADDRESS</code> names an address that is not on this host.
+        Nothing is being received. The API log says which.</td>
+    </tr>
+    <tr>
+      <td><span class="ui">Datagrams discarded</span></td>
+      <td>Arrived and were dropped before being read, broken down by cause &mdash; see
+        below.</td>
+    </tr>
+    <tr>
+      <td><span class="ui">Collecting</span></td>
+      <td>Records are being decoded and inspected. The counters are the detail.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note">
+  <span class="label">On and listening are two different things</span>
+  <p>The chip at the top right says <span class="ui">Listening on 0.0.0.0:2055</span> rather
+  than just "on", and that is deliberate: being configured to listen and having actually
+  opened the socket are separate facts, and they come apart exactly when the bind fails. A
+  single on/off would hide the second most likely setup failure behind the most likely
+  one.</p>
+</div>
+
+<div class="note">
+  <span class="label">Listening, but not where you think</span>
+  <p>There is a third state beyond "on" and "listening". If the server could not read its
+  settings when it started &mdash; a database that was a few seconds behind it, say &mdash;
+  the collector opens a socket from whatever the environment and the defaults said, and
+  carries on reporting itself as listening. When the settings are read later, the screen
+  starts showing the stored port while the socket is still on the other one.</p>
+  <p>The page says so rather than leaving you to compare two numbers: it names the port it is
+  bound to and the port it is configured for. <span class="ui">Try binding again</span> in
+  <a href="administration-settings.html">Administration settings</a> &rarr;
+  <span class="ui">Flow collection settings</span> reopens it on the configured port, and so
+  does any save.</p>
+</div>
+
+<h2>Why a datagram was discarded</h2>
+
+<p>Three unrelated things used to be counted under one number. They are listed separately
+because each is fixed somewhere else:</p>
+
+<ul>
+  <li><strong>Sender not permitted.</strong> The address is not in the permitted list, so
+    nothing from it is read. <strong>Administrators</strong> see the list printed underneath
+    &mdash; comparing your device's address against it is usually the whole diagnosis
+    &mdash; and everyone else sees how many senders are permitted, which is enough to read
+    the refusal count. Flow has no authentication at all, so this list is the only access
+    control there is, which is why the addresses themselves are not shown to everyone: they
+    are a precise description of what somebody would have to impersonate.</li>
+  <li><strong>sFlow.</strong> A different protocol that happens to share the port and the
+    version number. It is recognised and refused rather than mis-read as NetFlow.
+    Reconfigure the device for NetFlow or IPFIX.</li>
+  <li><strong>Version not implemented.</strong> NetFlow v5, NetFlow v9 and IPFIX are the
+    three this tool reads. The version number is shown so you can take it to the device's
+    configuration.</li>
+</ul>
+
+<h2>Reading the exporter table</h2>
+
+<div class="access">
+  <span class="label">Addresses are for administrators</span>
+  <p>Everyone who can sign in sees this table and its counters. The sender addresses in it
+  are shown only to administrators, and the reason is the same one the permitted-senders list
+  has: a device appears here only because the allowlist accepted it, so the column is that
+  list under another name &mdash; and since NetFlow has no authentication, knowing which
+  addresses are accepted is knowing what to forge. The counts, versions and timestamps are
+  the diagnosis and are not withheld.</p>
+</div>
+
+<p>One row per device, busiest first &mdash; on a real network one device dominates, and
+that is the one worth looking at. <span class="ui">Awaiting template</span> is the column to
+watch: any number other than zero there means that device is sending records this tool
+cannot yet read, and a device with records at zero and this climbing is the case described
+above.</p>
+
+<div class="note">
+  <span class="label">On Docker Compose, the port needs a second file</span>
+  <p>The UDP port is published by <code>docker-compose.flow.yml</code>, not by the main
+  Compose file &mdash; putting it there would open it on every deployment, including ones
+  that never wanted flow. Without that override the collector binds <em>inside</em> the
+  container, reports itself listening quite correctly, and receives nothing, because nothing
+  forwards the port to it.</p>
+  <p><strong>Every counter on this screen then reads exactly like a device that is not
+  sending</strong>, which is why the warning is on the page rather than only in the
+  documentation. Start the stack with both files:</p>
+  <pre><code>docker compose -f docker-compose.yml -f docker-compose.flow.yml up -d</code></pre>
+</div>
+
+<h2>Switching it on</h2>
+
+<p>Flow collection is off until somebody asks for it. When it is off, this screen tells you
+how to switch it on rather than showing an empty set of counters &mdash; a page reading
+"0 datagrams" is indistinguishable from a broken one.</p>
+
+<div class="note">
+  <span class="label">Use the form, not the file</span>
+  <p>That panel offers two routes and puts them in this order deliberately. The settings form
+  is the one to use. Setting these in <code>api/.env</code> also works &mdash; a deployment
+  that keeps its configuration in files is entitled to that, and a value there wins &mdash;
+  but it then <em>disables</em> that field in the form, and the only way to change the setting
+  afterwards is to edit the file again and restart.</p>
+  <p>That is worth knowing before you paste anything: the file route quietly costs you the
+  browser route for every field you use it on.</p>
+</div>
+
+<p>An administrator changes these from <a href="administration-settings.html">Administration
+settings</a> &rarr; <span class="ui">Flow collection settings</span>, with no file to edit
+and no restart. A setting present in the server's own configuration wins and is shown
+disabled there, with the variable named, for the reason every setting in this product
+follows that rule: a deployment that keeps its configuration in a file is meant to keep that
+guarantee.</p>
+
+<div class="note">
+  <span class="label">Switching it off again on Docker</span>
+  <p>On Docker, collection is on because you started the stack with the flow override file.
+  Stop starting it with that file and collection stops &mdash; the switch goes back to off,
+  and the published port goes with it. That is the intended way to turn the feature off on
+  a Compose deployment.</p>
+  <p>The port, the bind address and the permitted senders behave the other way round: the
+  first start copies them into the settings so that removing the file later keeps the
+  configuration you had, ready for you to switch collection back on from the form. The
+  on/off switch is deliberately not copied, so that removing the file cannot leave a
+  collector running on a setting from a file you deleted.</p>
+</div>
+
+<h2>The four settings are not equal</h2>
+
+<p>Only one of them is purely this application's business, and the form separates them for
+that reason:</p>
+
+<ul>
+  <li><strong>Permitted senders</strong> is checked against each arriving datagram, so it
+    takes effect the moment you save it. Nothing is interrupted. This is the one that
+    changes in ordinary use, as devices are added &mdash; and since NetFlow has no
+    authentication at all, it is the only access control there is.</li>
+  <li><strong>The switch, the port and the bind address</strong> describe a socket that is
+    already open, so saving any of them closes it and opens a new one. A few seconds of
+    traffic is not collected. The form says which group you are editing.</li>
+</ul>
+
+<div class="note">
+  <span class="label">A save can succeed and still not take effect</span>
+  <p>If the new port is already in use, or the bind address is not an address on this
+  machine, the socket cannot be reopened. The setting <em>is</em> saved &mdash; it is what
+  the next restart will use &mdash; but nothing is being collected right now, and the form
+  says so rather than showing a tick. This screen is the live answer: it is one click away
+  under <span class="ui">Capture</span>, and it is where the collector's state is reported.
+  The settings window is for changing things, not for reading them.</p>
+  <p>If the collector was already stalled when you opened the settings &mdash; a port that
+  was busy when the server started, freed since &mdash; every value in the form is already
+  correct, so there is nothing to save. A <span class="ui">Try binding again</span> button
+  appears in that case and reopens the socket without changing anything.</p>
+</div>
+
+<div class="note">
+  <span class="label">On Docker, the port is not this form's to change</span>
+  <p>The port your devices send to is published by the Compose file, which this application
+  cannot see. Changing the port here moves the socket <em>inside</em> the container while
+  Docker goes on forwarding the old one, so collection stops &mdash; and every counter then
+  reads exactly like a device that has stopped sending. Change it for the whole stack and
+  redeploy instead.</p>
+  <p>On the flow Compose override the port and the bind address are fixed for you, so the
+  field is disabled and the mistake is out of reach.</p>
+</div>
+
+<div class="access">
+  <span class="label">Who can use this</span>
+  <p>Everyone who can sign in. Whether the collector is listening is not privileged
+  information, and this screen changes nothing &mdash; the operator watching the network is
+  usually not the administrator. Changing the settings is an administrator's job and lives
+  under the gear.</p>
+  <p>One detail on the page is administrator-only: the <em>addresses</em> in the permitted
+  list. Everyone sees how many there are.</p>
+</div>
+  </main>
+</div>
+<script src="../assets/guard.js"></script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

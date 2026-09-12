@@ -10,6 +10,8 @@ import {
   AUDIT_EVENTS,
   DASHBOARD,
   DELIVERY_SETTINGS,
+  FLOW_SETTINGS,
+  FLOW_STATUS,
   IDLE_STATUS,
   INTEL_STATUS,
   INTERFACES,
@@ -167,6 +169,29 @@ export const handlers = [
   // this default keeps every other test on this page describing the single-sensor
   // interface. A test about two sensors overrides it.
   http.get('/api/alerts/sensors', () => HttpResponse.json([{ sensorId: 'default', self: true }])),
+  http.get('/api/flow/status', () => HttpResponse.json(FLOW_STATUS)),
+  http.get('/api/flow/settings', () => HttpResponse.json(FLOW_SETTINGS)),
+  // Echoes the patch back over the current settings, which is what the real
+  // endpoint does: it re-resolves and returns the whole resolution. `rebound`
+  // follows the same rule the server applies — only the three socket fields.
+  http.put('/api/flow/settings', async ({ request }) => {
+    const patch = (await request.json()) as Record<string, unknown>;
+    const settings: Record<string, { source: string; env: string; value: unknown }> = {
+      ...FLOW_SETTINGS.settings,
+    };
+    for (const [field, value] of Object.entries(patch)) {
+      const known = settings[field];
+      if (known) settings[field] = { ...known, value, source: 'database' };
+    }
+    const rebound = ['enabled', 'port', 'bindAddress'].some((field) => field in patch);
+    return HttpResponse.json({
+      settings,
+      pinned: [],
+      changed: Object.keys(patch).length > 0,
+      rebound,
+      status: FLOW_STATUS,
+    });
+  }),
   http.get('/api/alerts/sensors/retirable', () => HttpResponse.json(RETIRABLE_SENSORS)),
   // Echoes back what the fixture says is under the name, which is what the real
   // endpoint returns: the counts of what it actually deleted, not of what the

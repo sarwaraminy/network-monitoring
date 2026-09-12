@@ -323,6 +323,57 @@ export const suppressionPreviewSchema = z
   })
   .refine(hasSuppressionCriterion, { message: NO_CRITERIA });
 
+/**
+ * A patch to the stored flow settings.
+ *
+ * Every field optional and nullable, and the two mean different things: absent
+ * leaves the stored value alone, `null` clears it so the field falls back to the
+ * environment and then the code default. Same contract as the delivery and
+ * console patches.
+ *
+ * Bounds mirror V19's CHECK constraints rather than restating a different set —
+ * a value this layer accepted and the database refused would surface as a
+ * constraint error to somebody editing a form.
+ */
+export const flowSettingsPatchSchema = z
+  .object({
+    enabled: z.boolean().nullish(),
+    /*
+     * Floor of 1024, matching the column. The API runs unprivileged in a
+     * container, so a privileged port cannot be bound at all and would report
+     * itself as "not listening" — indistinguishable from a port already in use.
+     */
+    port: z.coerce.number().int().min(1024).max(65_535).nullish(),
+    /*
+     * Not validated as an address beyond a length bound, deliberately. What is
+     * bindable depends on the host's interfaces, which this process cannot
+     * enumerate portably, and a regex that accepted `0.0.0.0` and `::` while
+     * rejecting something legitimate would be a rule nobody could predict. A bad
+     * value fails the bind and the status says so, which is the honest answer.
+     *
+     * `min(1)` is not part of that, and it is the one shape worth refusing. An
+     * empty string is written to the row verbatim and then read back as absent —
+     * `parseFlowField` treats a blank as "nobody decided" — so the effective
+     * value falls to the default while the column holds `''`, and the API reports
+     * `source: 'default'` over a stored value nobody can see. Provenance is the
+     * whole point of the three layers; a row and a `source` that disagree is the
+     * one failure this design is supposed to make impossible.
+     *
+     * `null` still means clear, which is how the field is emptied — the form
+     * already maps an emptied box to it for exactly this reason, so the only way
+     * to reach the blank is a direct API call. That is the surface this schema is
+     * for.
+     */
+    bindAddress: z.string().trim().min(1).max(64).nullish(),
+    /*
+     * The allowlist, as the comma-separated string the environment carries. An
+     * empty string is a real choice — accept any sender — and is distinct from
+     * `null`, which clears the row and falls back to the environment.
+     */
+    exporters: z.string().trim().max(2000).nullish(),
+  })
+  .strict();
+
 // --- Delivery settings ---
 
 /**

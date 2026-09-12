@@ -1,0 +1,459 @@
+import Alert from '@mui/material/Alert';
+import AlertTitle from '@mui/material/AlertTitle';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Divider from '@mui/material/Divider';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { describeError } from '../../api/client';
+import {
+  type FlowSettingsPatch,
+  fetchFlowSettings,
+  fetchFlowStatus,
+  saveFlowSettings,
+} from '../../api/flow.api';
+import { type Message, useMessageText } from '../../i18n/message-state';
+import { useT } from '../../i18n/ui';
+import { monoSx } from '../../theme';
+
+/**
+ * Flow collection settings, for an administrator with no shell on the server.
+ *
+ * The three-layer rule delivery (#39) and the query console (#53) both use —
+ * environment → stored row → default, and the environment wins — applied to the
+ * four variables that were read once at boot and changeable no other way. A
+ * restart on a monitoring server drops a live packet capture, so "edit a file and
+ * restart" is a real cost; and a customer who bought this product has no file to
+ * edit at all.
+ *
+ * **The four fields are not equal, and the form says so.** Only one of them is
+ * purely an application concern:
+ *
+ *  - **Permitted senders** is a filter test per datagram. It applies the moment
+ *    it is saved, nothing is rebound, nothing in flight is lost — and it is the
+ *    one that changes in ordinary operation, as devices are added. This is the
+ *    everyday control.
+ *  - **On/off, port and bind address** are properties of a bound socket, so
+ *    saving one closes and reopens it. That is a few seconds of not collecting,
+ *    which is why they are separated below rather than sitting in the same group.
+ *
+ * **And the port is a deployment fact as much as a setting.** Under Docker the
+ * host port is published by `docker-compose.flow.yml`, which this application
+ * cannot see or change — so a port changed here rebinds inside the container
+ * while Docker goes on forwarding the old one, and collection stops with every
+ * counter reading exactly like a device that is not sending. The warning is
+ * beside the field. On the flow overlay the field is pinned anyway, which is the
+ * belt to that braces: an operator on Compose cannot reach the mistake.
+ *
+ * **This dialog edits; it does not report.** The counters, the exporter table and
+ * the diagnosis were rendered underneath here for a while, on the argument that
+ * watching the socket come back is how you tell a save took effect. That put a
+ * whole monitoring screen inside a settings window — the same thing the query
+ * console's diagnostics were removed from the gear for. Every entry under the
+ * administration gear is a form, and a reader who opens one is asking to change
+ * something, not to be shown a report they can reach from the navigation.
+ *
+ * What that argument was actually about survives without the panel, because it
+ * was never about the counters:
+ *
+ *  - **A save that could not bind** says so in the banner above the fields
+ *    (`flow_settings.saved_not_listening`), from the status the route returns
+ *    with the save. A failed rebind is not a failed request — the row was
+ *    written and is what the next boot will use — so it is reported as the
+ *    outcome of a successful save rather than as an error.
+ *  - **A collector that was already stalled** surfaces as the retry button,
+ *    which reads `GET /api/flow/status` without rendering it.
+ *
+ * The full picture stays one click away, on Flow collection under Capture.
+ */
+
+/** Every field, as the controls hold them — numbers as the text that was typed. */
+interface Fields {
+  enabled: boolean;
+  port: string;
+  bindAddress: string;
+  exporters: string;
+}
+
+/**
+ * What has actually been typed into, and nothing else.
+ *
+ * **Sparse, deliberately, and that is the whole of it.** This used to be a full
+ * `Fields` snapshot taken on the first keystroke (`draft ?? live`), which froze
+ * all four values at that moment while `live` went on moving underneath — and it
+ * does move: the global query defaults are `staleTime: 2000` with
+ * `refetchOnWindowFocus: true`, so a refetch behind an open dialog is ordinary
+ * rather than exotic.
+ *
+ * What followed was a silent revert. An administrator starts editing the
+ * allowlist and leaves the dialog open; somebody else changes the port; the
+ * refetch updates `live` and the frozen snapshot does not. On save the patch
+ * carries `port` at its pre-change value — it differs from the `live` the diff is
+ * computed against — so another person's change is undone by an edit nobody made,
+ * and since `port` is a rebind field the socket reopens for it.
+ *
+ * Keyed per field, an untouched field is simply absent and can never enter the
+ * patch, whatever `live` does. That removes the class rather than the instance.
+ * `QueryConsoleSettings` holds its draft this way for the same reason.
+ */
+type Draft = Partial<Fields>;
+
+export default function FlowSettings() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const current = useQuery({ queryKey: ['flow', 'settings'], queryFn: fetchFlowSettings });
+  /*
+   * The collector's live state — read, not rendered.
+   *
+   * The one thing this form needs from the status is whether a collector that is
+   * meant to be listening is: that is what decides the retry below, and it is the
+   * case the form cannot learn from its own last save, because the bind may have
+   * failed at boot long before the dialog was opened.
+   *
+   * The same query key `FlowStatusPanel` uses, so a reader who has the Flow page
+   * open in another tab shares one cache entry rather than doubling the requests.
+   * No poll here: this is answered once when the dialog opens and again after
+   * every save, via the `['flow']` invalidation below.
+   */
+  const status = useQuery({ queryKey: ['flow', 'status'], queryFn: fetchFlowStatus });
+  // The message, not its words — see i18n/message-state.ts.
+  const [message, setMessage] = useState<{ severity: 'success' | 'error' | 'info'; body: Message } | null>(
+    null,
+  );
+  const messageText = useMessageText();
+  const [draft, setDraft] = useState<Draft>({});
+
+  const save = useMutation({
+    mutationFn: (patch: FlowSettingsPatch) => saveFlowSettings(patch),
+    onSuccess: (saved) => {
+      setDraft({});
+      /*
+       * Four outcomes, and the fourth is the one this ordering used to swallow.
+       *
+       * A save that rebound and came back listening is done; one that rebound and
+       * did not is a real failure of a successful save — the port is taken, or
+       * the address is not on this host — and the form has to say so rather than
+       * show a tick. A save that needed no rebind is simply in force.
+       *
+       * **A failed RETRY is not a failed save.** The retry sends an empty patch,
+       * so `changed` is false and nothing was written or audited — and this
+       * branch caught it first, telling the operator "the setting is stored and
+       * will be used at the next restart" about a request that stored nothing.
+       * That is the worst place to say it: a failing retry is the case somebody
+       * repeats, and being told the value is safely stored suggests the fix is a
+       * restart when in fact the port is still taken.
+       */
+      if (saved.rebound && saved.settings.enabled?.value === true && !saved.status.listening) {
+        setMessage({
+          severity: 'error',
+          body: { key: saved.changed ? 'flow_settings.saved_not_listening' : 'flow_settings.retry_failed' },
+        });
+      } else if (!saved.changed && saved.rebound) {
+        // The retry: nothing was written, and the socket came back. Saying
+        // "Saved" would credit a change that did not happen.
+        setMessage({ severity: 'success', body: { key: 'flow_settings.rebound_only' } });
+      } else if (!saved.changed) {
+        setMessage({ severity: 'info', body: { key: 'flow_settings.nothing_changed' } });
+      } else {
+        setMessage({
+          severity: 'success',
+          body: { key: saved.rebound ? 'flow_settings.saved_rebound' : 'flow_settings.saved' },
+        });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['flow'] });
+    },
+    // The server's message names the environment variable that pinned a field,
+    // which is the one thing somebody could go and remove.
+    onError: (error) =>
+      setMessage({ severity: 'error', body: { error, fallbackKey: 'flow_settings.save_failed' } }),
+  });
+
+  if (current.isPending) return <Typography variant="body2">{t('flow_settings.loading')}</Typography>;
+  if (current.isError) {
+    return <Alert severity="error">{describeError(current.error, t('flow_settings.read_failed'))}</Alert>;
+  }
+
+  const fields = current.data.settings;
+  const pinned = (field: string) => current.data.pinned.includes(field);
+  const envOf = (field: string) => fields[field]?.env ?? field;
+  const pinnedNote = (field: string) =>
+    pinned(field) ? t('flow_settings.pinned_note', { variable: envOf(field) }) : undefined;
+
+  /** What the server says is in force, recomputed every render. */
+  const live: Fields = {
+    enabled: fields.enabled?.value === true,
+    port: String(fields.port?.value ?? ''),
+    bindAddress: String(fields.bindAddress?.value ?? ''),
+    exporters: String(fields.exporters?.value ?? ''),
+  };
+
+  /** The drafted value if this field was touched, otherwise what is stored. */
+  const valueFor = <K extends keyof Fields>(key: K): Fields[K] =>
+    key in draft ? (draft[key] as Fields[K]) : live[key];
+
+  const set = <K extends keyof Fields>(key: K, value: Fields[K]) => {
+    setMessage(null);
+
+    setDraft((now) => {
+      const next = { ...now, [key]: value };
+
+      /*
+       * A field put back the way it was stops being an edit.
+       *
+       * Filtering at render was not enough on its own. A key once added stayed
+       * forever, only ignored while its value matched — so typing into the port
+       * and restoring it left `port` in the draft with `changed` empty, Cancel
+       * disabled because it keys off `changed`, and no way to discard it. Then
+       * `live` moves, which it does on its own (`staleTime: 2000`,
+       * `refetchOnWindowFocus: true`): the retained value differs again, rejoins
+       * `changed`, and ships in the patch. Somebody else's change reverted by an
+       * edit that had been undone.
+       *
+       * Keying per field removed that for fields never touched; this removes it
+       * for a field touched and put back. `draft` now means outstanding edits
+       * throughout, which is what the rest of this component reads it as.
+       */
+      if (String(value ?? '') === String(live[key] ?? '')) delete next[key];
+
+      return next;
+    });
+  };
+
+  /**
+   * Whether a touched field actually differs from what is stored.
+   *
+   * Membership in `draft` is not this check. Typing into a field and retyping
+   * what was already there leaves a key behind that names no change, and letting
+   * it reach the patch would rebind the socket for an edit that undid itself.
+   * Compared as text because a number control's draft holds what was typed —
+   * `'2055'` against a stored `2055` is not a change. The same distinction
+   * `differsFromStored` draws in `QueryConsoleSettings`.
+   */
+  const differsFromStored = (key: keyof Fields) =>
+    key in draft && String(draft[key] ?? '') !== String(live[key] ?? '');
+
+  const changed = (Object.keys(draft) as (keyof Fields)[]).filter(differsFromStored);
+
+  /**
+   * Only what moved, and never a pinned field.
+   *
+   * A pinned field is disabled so it should not differ at all — filtered anyway,
+   * because a background refetch can pin one between an edit and the Save, and
+   * sending it would earn a 409 for something the reader did nothing wrong to
+   * cause. The same guard `QueryConsoleSettings` keeps for the same reason.
+   */
+  const submit = () => {
+    const patch: FlowSettingsPatch = {};
+
+    for (const key of changed) {
+      if (pinned(key)) continue;
+
+      if (key === 'enabled') patch.enabled = draft.enabled;
+      /*
+       * An emptied field clears the setting; it does not send zero.
+       *
+       * `Number('')` is `0`, not `NaN`, so the first version posted a
+       * valid-looking port that failed validation server-side and came back as
+       * an unexplained save failure — for an action whose intent is obvious. It
+       * also made the API's `null` path unreachable from here, which is the
+       * spelling that clears a field back to the environment and then the
+       * default.
+       */
+      if (key === 'port') patch.port = draft.port?.trim() === '' ? null : Number(draft.port);
+      // Emptied means cleared, as with the port above. Sending `''` stored an
+      // empty string that reads back as unset, so the field reverted to the
+      // default and a second clear produced a patch the server saw as no change
+      // — nothing written, nothing audited, and the form saying "Saved" twice.
+      if (key === 'bindAddress') {
+        patch.bindAddress = draft.bindAddress?.trim() === '' ? null : draft.bindAddress;
+      }
+      /*
+       * `exporters` is deliberately NOT given the same treatment.
+       *
+       * An empty allowlist is a real choice — accept any sender — so clearing
+       * the field means it, and mapping that to `null` would fall back to
+       * whatever the environment said and silently reinstate a list somebody had
+       * emptied on purpose. `resolveFlowSettings` reads a blank stored
+       * `exporters` as a value for exactly this reason; the two ends have to
+       * agree.
+       */
+      if (key === 'exporters') patch.exporters = draft.exporters;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      setMessage({ severity: 'error', body: { key: 'flow_settings.nothing_to_save' } });
+      return;
+    }
+    setMessage(null);
+    save.mutate(patch);
+  };
+
+  const everythingPinned = ['enabled', 'port', 'bindAddress', 'exporters'].every(pinned);
+  /**
+   * Meant to be collecting, and not.
+   *
+   * Read from `GET /api/flow/status` rather than from the last save's response,
+   * so it reflects the collector now — including a bind that failed at boot, long
+   * before this dialog was opened, which is the case the retry exists for.
+   *
+   * Two states, not one. `listening === false` is the bind that failed;
+   * `bindingOutOfDate` is the socket that is open on settings that have since
+   * changed underneath it — which a boot that could not read the settings row
+   * produces, and which nothing else can surface because `listening` is true.
+   * The same button fixes both, and it is the same sentence: try binding again.
+   */
+  const needsRetry =
+    fields.enabled?.value === true &&
+    (status.data?.listening === false || status.data?.bindingOutOfDate === true);
+
+  return (
+    <Stack spacing={2}>
+      {message && <Alert severity={message.severity}>{messageText(message.body)}</Alert>}
+
+      {/*
+        Said once at the top when the whole form is inert, rather than left to be
+        inferred from four disabled controls. That state is reachable — a
+        deployment driven by config management is entitled to it — and a panel
+        that looks broken without explaining itself is the thing somebody files a
+        bug about.
+      */}
+      {everythingPinned && (
+        <Alert severity="info">
+          <AlertTitle>{t('flow_settings.all_pinned')}</AlertTitle>
+          {t('flow_settings.all_pinned_note')}
+        </Alert>
+      )}
+
+      <Typography variant="subtitle2">{t('flow_settings.group.everyday')}</Typography>
+
+      <TextField
+        label={t('flow_settings.exporters')}
+        size="small"
+        fullWidth
+        multiline
+        minRows={2}
+        value={valueFor('exporters')}
+        disabled={pinned('exporters') || save.isPending}
+        onChange={(event) => set('exporters', event.target.value)}
+        placeholder="10.0.0.1, 10.0.0.2"
+        slotProps={{ input: { sx: monoSx } }}
+        helperText={pinnedNote('exporters') ?? t('flow_settings.exporters_help')}
+      />
+
+      <Divider />
+
+      <Box>
+        <Typography variant="subtitle2">{t('flow_settings.group.socket')}</Typography>
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          {t('flow_settings.group.socket_note')}
+        </Typography>
+      </Box>
+
+      <FormControlLabel
+        control={
+          <Switch
+            checked={valueFor('enabled')}
+            disabled={pinned('enabled') || save.isPending}
+            onChange={(event) => set('enabled', event.target.checked)}
+            slotProps={{ input: { 'aria-label': t('flow_settings.enabled') } }}
+          />
+        }
+        label={t('flow_settings.enabled')}
+      />
+      {pinnedNote('enabled') && (
+        <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
+          {pinnedNote('enabled')}
+        </Typography>
+      )}
+
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <TextField
+          label={t('flow_settings.port')}
+          size="small"
+          fullWidth
+          type="number"
+          value={valueFor('port')}
+          disabled={pinned('port') || save.isPending}
+          onChange={(event) => set('port', event.target.value)}
+          helperText={pinnedNote('port') ?? t('flow_settings.port_help')}
+        />
+        <TextField
+          label={t('flow_settings.bind_address')}
+          size="small"
+          fullWidth
+          value={valueFor('bindAddress')}
+          disabled={pinned('bindAddress') || save.isPending}
+          onChange={(event) => set('bindAddress', event.target.value)}
+          slotProps={{ input: { sx: monoSx } }}
+          helperText={pinnedNote('bindAddress') ?? t('flow_settings.bind_address_help')}
+        />
+      </Stack>
+
+      {/*
+        The published-port trap, beside the field that springs it. Shown whenever
+        the port is editable here, because this application cannot tell whether it
+        is running under Compose — and the consequence of being wrong is silent.
+      */}
+      {!pinned('port') && (
+        <Alert severity="warning">
+          <AlertTitle>{t('flow_settings.port_published')}</AlertTitle>
+          {t('flow_settings.port_published_note')}
+        </Alert>
+      )}
+
+      <Stack direction="row" spacing={1}>
+        <Button
+          variant="contained"
+          onClick={submit}
+          disabled={save.isPending || everythingPinned || changed.length === 0}
+        >
+          {save.isPending ? t('flow_settings.saving') : t('flow_settings.save')}
+        </Button>
+        {/*
+          Enabled whenever anything is drafted, not only when something differs.
+          `live` can catch up with an edit — another administrator making the same
+          change — which leaves a key that is real but currently a no-op, and a
+          Cancel that keys off `changed` would offer no way to clear it.
+        */}
+        <Button disabled={save.isPending || Object.keys(draft).length === 0} onClick={() => setDraft({})}>
+          {t('common.cancel')}
+        </Button>
+
+        {/*
+          The retry, and the only way the server's rebind-when-stalled branch can
+          be reached.
+
+          An operator whose port was busy at boot frees it and comes back to a
+          form where every value is already correct — so nothing differs, the
+          patch is empty, and Save refuses before a request is sent. Without this
+          the recovery was an API restart, which is the shell access this whole
+          feature exists to remove the need for.
+
+          Shown only while the collector is meant to be listening and is not, so
+          it is absent on a working installation rather than an always-present
+          button whose effect nobody can predict. It deliberately sends an empty
+          patch: `saveFlowSettings` writes and audits nothing for one, and the
+          route rebinds on the state rather than on the contents.
+        */}
+        {needsRetry && (
+          <Button
+            color="warning"
+            variant="outlined"
+            disabled={save.isPending}
+            onClick={() => {
+              setMessage(null);
+              save.mutate({});
+            }}
+          >
+            {t('flow_settings.retry_bind')}
+          </Button>
+        )}
+      </Stack>
+    </Stack>
+  );
+}

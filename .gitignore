@@ -23,3 +23,19 @@ api/.cache/
 # reads this file too, so ignoring it here also keeps `npm run lint` from
 # failing on a half-finished recording.
 user-guide/video/.raw/
+
+# Throwaway probe scripts, which have no business at the repository root.
+#
+# A five-line `pg.Pool` script written to check a column list was committed once
+# — under a filename a shell quoting accident had mangled into non-ASCII, so it
+# read as garbage in `git status` and slid past a glance. It carried a full
+# connection string. Anything scratch belongs in the system temp directory; if it
+# has to be here, these patterns keep it out of a commit.
+/*.tmp.mjs
+/*.tmp.js
+/*.tmp.ts
+/*.tmp.py
+/*.tmp.txt
+/probe*.mjs
+/chk*.mjs
+/check*.mjs

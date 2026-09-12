@@ -67,6 +67,13 @@ export const ERRORS_DE: PartialErrorCatalog = {
   'error.cannot_demote_self':
     'Sie können sich Ihre eigene Administratorrolle nicht entziehen. Bitten Sie eine andere ' +
     'administrierende Person darum.',
+  'error.flow_saved_not_applied':
+    'Die Einstellung wurde gespeichert und wird beim nächsten Start der API verwendet, konnte ' +
+    'aber nicht auf den laufenden Kollektor angewendet werden. Die Erfassung läuft mit den ' +
+    'bisherigen Einstellungen weiter.',
+  'error.flow_pinned':
+    'In der Umgebung gesetzt und hier nicht änderbar: {variables}. Entfernen Sie die Variable ' +
+    'und starten Sie die API neu, um dies hier zu verwalten.',
   'error.adhoc_pinned':
     'In der Umgebung gesetzt und hier nicht änderbar: {variables}. Entfernen Sie die Variable und ' +
     'starten Sie die API neu, um sie auf dieser Seite zu verwalten.',

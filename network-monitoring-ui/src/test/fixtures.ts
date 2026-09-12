@@ -4,6 +4,7 @@ import type {
   AlertDashboard,
   CaptureStatus,
   DeliverySettingsResponse,
+  FlowStatus,
   IntelStatus,
   NetworkInterface,
   NotifyStatus,
@@ -414,6 +415,112 @@ export const PACKET: Packet = {
   destinationIpAddress: '52.98.50.18',
   frameLength: 60,
   payloadRedacted: false,
+};
+
+/**
+ * Flow settings as a deployment that manages them from the browser reports them.
+ *
+ * Nothing pinned, which is the shipped state since the Compose file stopped
+ * baking its defaults in — see `compose-unpinned.test.ts`. A test that needs a
+ * pinned field overrides one, because that is the interesting case rather than
+ * the default one.
+ */
+export const FLOW_SETTINGS = {
+  settings: {
+    enabled: { source: 'database', env: 'FLOW_ENABLED', value: true },
+    port: { source: 'default', env: 'FLOW_PORT', value: 2055 },
+    bindAddress: { source: 'default', env: 'FLOW_BIND_ADDRESS', value: '0.0.0.0' },
+    exporters: { source: 'database', env: 'FLOW_EXPORTERS', value: '10.0.0.1, 10.0.0.2' },
+  },
+  pinned: [] as string[],
+};
+
+/**
+ * A flow collector that is working, with one exporter of each interesting shape.
+ *
+ * Not three healthy rows, for the same reason `SUPPRESSION_RULES` is not four: the
+ * page exists to tell working from broken, so the default fixture contains one
+ * exporter decoding normally, one whose records are all awaiting a template —
+ * counted, unread, and indistinguishable from a working device in any total — and
+ * one sending a version there is no parser for.
+ *
+ * `ignoredReasons` is non-zero so the discard panel renders by default. On a
+ * healthy installation it is hidden entirely, which is asserted separately.
+ */
+export const FLOW_STATUS: FlowStatus = {
+  enabled: true,
+  listening: true,
+  address: '0.0.0.0',
+  port: 2055,
+  configuredPort: 2055,
+  // Bound from the settings that are in force, which is the ordinary case.
+  bindingOutOfDate: false,
+  datagrams: 5120,
+  // Equal to `datagrams`, which is what it is until somebody edits the allowlist.
+  datagramsUnderAllowlist: 5120,
+  records: 48210,
+  malformed: 3,
+  ignored: 9,
+  ignoredReasons: { notAllowed: 7, sflow: 2, unsupportedVersion: 0 },
+  allowedExporterCount: 2,
+  allowedExporters: ['10.0.0.1', '10.0.0.2'],
+  templatesCached: 4,
+  detection: { flowsInspected: 48210, unansweredFlows: 112, findings: 6, intelMatches: 1 },
+  exporters: [
+    {
+      exporter: '10.0.0.1',
+      version: 10,
+      protocolVersion: 'ipfix',
+      datagrams: 4000,
+      records: 48210,
+      pendingTemplates: 0,
+      malformed: 3,
+      lastSeen: '2026-09-11T09:30:00.000Z',
+    },
+    {
+      exporter: '10.0.0.2',
+      version: 9,
+      protocolVersion: 'netflow9',
+      datagrams: 1000,
+      records: 0,
+      pendingTemplates: 640,
+      malformed: 0,
+      lastSeen: '2026-09-11T09:29:00.000Z',
+    },
+    {
+      exporter: '10.0.0.3',
+      version: 7,
+      protocolVersion: null,
+      datagrams: 120,
+      records: 0,
+      pendingTemplates: 0,
+      malformed: 0,
+      lastSeen: '2026-09-11T09:20:00.000Z',
+    },
+  ],
+  startedAt: '2026-09-11T08:00:00.000Z',
+};
+
+/** Off, which is the default an installation starts from. */
+export const FLOW_OFF: FlowStatus = {
+  ...FLOW_STATUS,
+  enabled: false,
+  listening: false,
+  address: null,
+  // Not listening, so no bound port — but still configured for one, which is the
+  // number every "point your device here" sentence has to use.
+  port: null,
+  configuredPort: 2055,
+  datagrams: 0,
+  datagramsUnderAllowlist: 0,
+  records: 0,
+  malformed: 0,
+  ignored: 0,
+  ignoredReasons: { notAllowed: 0, sflow: 0, unsupportedVersion: 0 },
+  templatesCached: 0,
+  detection: { flowsInspected: 0, unansweredFlows: 0, findings: 0, intelMatches: 0 },
+  exporters: [],
+  startedAt: null,
 };
 
 /**
