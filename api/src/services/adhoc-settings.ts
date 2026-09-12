@@ -6,14 +6,6 @@ import {
   type StoredSettings,
 } from '../config/settings-resolver.js';
 
-/*
- * Re-exported because several modules import `SettingSource` from here — it was
- * declared in this file before the resolver existed, and flow-settings.ts even
- * imported it across, which is what made the coupling visible. Kept rather than
- * chased through every call site in the same commit that moves the walk.
- */
-export type { SettingSource };
-
 /**
  * The query console's settings, resolved from three layers.
  *

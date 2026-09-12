@@ -41,12 +41,6 @@ import { WEBHOOK_FORMATS, type WebhookFormat } from './types.js';
  * the settings service both read this module instead.
  */
 
-/*
- * Re-exported for the modules that import it from here. It was declared in this
- * file first, before the other two copied it and before the walk was shared.
- */
-export type { SettingSource };
-
 /** The shape a field's value can take. */
 type FieldKind = 'boolean' | 'integer' | 'string' | 'string-list' | 'enum';
 
