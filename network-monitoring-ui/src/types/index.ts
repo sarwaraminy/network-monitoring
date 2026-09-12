@@ -319,8 +319,14 @@ export type FlowProtocol = 'netflow5' | 'netflow9' | 'ipfix';
 
 /** One device sending flow records here, busiest first in the status. */
 export interface FlowExporter {
-  /** The source address the datagrams arrived from. */
-  exporter: string;
+  /**
+   * The source address the datagrams arrived from — administrators only.
+   *
+   * Absent for everyone else, because a row exists here only by passing the
+   * allowlist, which makes this column the allowlist under another name. See the
+   * redaction in `flow.routes.ts`; the counters beside it are not privileged.
+   */
+  exporter?: string;
   /** The version word off the wire, whether or not we implement it. */
   version: number;
   /** Null for a version with no parser — which is what makes it worth showing. */

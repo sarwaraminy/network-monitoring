@@ -226,6 +226,10 @@ export const UI_EN = {
     'and it has not been sent yet — devices usually resend it on an interval, so this often ' +
     'clears on its own. If it does not, shorten the template refresh on the exporter.',
   'flow.unreadable_version': 'An exporter is sending a version this collector cannot read',
+  'flow.unreadable_version_note_count':
+    'NetFlow v5, NetFlow v9 and IPFIX are implemented; sFlow and the rest are not. ' +
+    '{count, plural, one {# exporter is} other {# exporters are}} sending something else. An ' +
+    'administrator can see which.',
   'flow.unreadable_version_note':
     'From {exporters}. NetFlow v5, NetFlow v9 and IPFIX are implemented; sFlow and the rest are ' +
     'not. Reconfigure the device to export one of the three.',
@@ -255,6 +259,7 @@ export const UI_EN = {
     'Configure a router or switch to export NetFlow or IPFIX to this host on port {port}. The ' +
     'protocol is one-way and unauthenticated: nothing here reaches out to a device.',
   'flow.column.exporter': 'Exporter',
+  'flow.column.exporter_hidden': 'Not shown',
   'flow.column.protocol': 'Protocol',
   'flow.column.datagrams': 'Datagrams',
   'flow.column.records': 'Records',

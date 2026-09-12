@@ -118,6 +118,16 @@ because each is fixed somewhere else:</p>
 
 <h2>Reading the exporter table</h2>
 
+<div class="access">
+  <span class="label">Addresses are for administrators</span>
+  <p>Everyone who can sign in sees this table and its counters. The sender addresses in it
+  are shown only to administrators, and the reason is the same one the permitted-senders list
+  has: a device appears here only because the allowlist accepted it, so the column is that
+  list under another name &mdash; and since NetFlow has no authentication, knowing which
+  addresses are accepted is knowing what to forge. The counts, versions and timestamps are
+  the diagnosis and are not withheld.</p>
+</div>
+
 <p>One row per device, busiest first &mdash; on a real network one device dominates, and
 that is the one worth looking at. <span class="ui">Awaiting template</span> is the column to
 watch: any number other than zero there means that device is sending records this tool

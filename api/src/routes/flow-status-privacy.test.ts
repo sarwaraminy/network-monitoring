@@ -62,6 +62,7 @@ interface StatusBody {
   listening: boolean;
   allowedExporterCount: number;
   allowedExporters?: string[];
+  exporters: { exporter?: string; datagrams: number; records: number }[];
 }
 
 describe('what the flow status tells a non-admin', { skip: database.skip }, () => {
@@ -122,6 +123,49 @@ describe('what the flow status tells a non-admin', { skip: database.skip }, () =
     assert.equal(body.allowedExporterCount, 2);
     // And the rest of the status is untouched.
     assert.equal(typeof body.listening, 'boolean');
+  });
+
+  it('does not leak the same addresses through the exporter table', async () => {
+    /*
+     * The half that defeated the redaction, because it is the same secret under
+     * a different name.
+     *
+     * A sender reaches `statsFor` only by passing `isAllowed`, so every row in
+     * `exporters[]` is a permitted address by construction. Stripping
+     * `allowedExporters` while leaving that table handed the allowlist to every
+     * authenticated account on any installation that was actually receiving —
+     * which is the installation that matters.
+     *
+     * Driven with a real datagram rather than asserted against an empty table,
+     * because an empty array passes a redaction check for the wrong reason.
+     */
+    const { flowCollector } = await import('../flow/collector.js');
+    type Receiver = { handleDatagram: (datagram: Buffer, exporter: string) => void };
+    const { buildNetflowV5 } = await import('../flow/test-datagrams.js');
+    (flowCollector() as unknown as Receiver).handleDatagram(
+      buildNetflowV5([{ srcIp: '1.1.1.1', dstIp: '2.2.2.2', srcPort: 1, dstPort: 2 }]),
+      '10.0.0.1',
+    );
+
+    const admin = await seedUser('flow-admin-3@example.test', 'ADMIN');
+    const user = await seedUser('flow-user-4@example.test', 'USER');
+
+    const asAdmin = (await (await fetch(`${origin}${STATUS}`, authorised(admin))).json()) as StatusBody;
+    const asUser = (await (await fetch(`${origin}${STATUS}`, authorised(user))).json()) as StatusBody;
+
+    assert.equal(asAdmin.exporters.length, 1, 'the datagram should have produced a row');
+    assert.equal(asAdmin.exporters[0]?.exporter, '10.0.0.1');
+
+    assert.equal(asUser.exporters.length, 1, 'the row itself is not privileged');
+    assert.equal(
+      asUser.exporters[0]?.exporter,
+      undefined,
+      'a USER read a permitted sender address out of the statistics table',
+    );
+
+    // And what the table is actually for survives the redaction.
+    assert.equal(asUser.exporters[0]?.datagrams, asAdmin.exporters[0]?.datagrams);
+    assert.equal(asUser.exporters[0]?.records, asAdmin.exporters[0]?.records);
   });
 
   it('keeps the settings read for administrators', async () => {

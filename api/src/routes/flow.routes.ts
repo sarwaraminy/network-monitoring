@@ -46,17 +46,33 @@ flowRouter.get('/status', (req, res) => {
   }
 
   /*
-   * The permitted senders are stripped for a non-admin; the count stays.
+   * The permitted senders are stripped for a non-admin; every count stays.
    *
    * This allowlist is the collector's only access control — NetFlow
    * authenticates nothing — so the addresses are a precise answer to "what would
    * I have to spoof for forged flow records to be accepted". Whether the
    * collector is listening, and how much it is refusing, are not that.
    *
-   * Same decision and same shape as `interrupted.startedBy` two routers along.
+   * **Two fields carry the secret, not one.** Removing `allowedExporters` alone
+   * left the same information in `exporters[]` under a different name: a sender
+   * reaches `statsFor` only by passing `isAllowed`, so every row in that table is
+   * a permitted address by construction. On an installation that is actually
+   * receiving — the one that matters — the two sets are the same, and the
+   * redaction was defeated by the field beside it.
+   *
+   * The counters are what the table is read for, and they are not privileged:
+   * "four exporters, 12,908 records, one awaiting templates" is the whole
+   * diagnosis for everyone except the person who has to go and reconfigure a
+   * device, and that person is an administrator.
+   *
+   * Same decision and same shape as `interrupted.startedBy` two routers along,
+   * applied to both fields that carry it.
    */
-  const { allowedExporters: _addresses, ...rest } = status;
-  res.json(rest);
+  const { allowedExporters: _permitted, exporters, ...rest } = status;
+  res.json({
+    ...rest,
+    exporters: exporters.map(({ exporter: _sender, ...counters }) => counters),
+  });
 });
 
 /**

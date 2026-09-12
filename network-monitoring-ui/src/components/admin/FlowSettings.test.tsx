@@ -404,6 +404,63 @@ describe('FlowSettings', () => {
     await user.type(port, '2055');
 
     expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+    // And it is gone rather than merely ignored, so Cancel has nothing to clear.
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled();
+  });
+
+  it('forgets a restored field, so a later refetch cannot resurrect it', async () => {
+    /*
+     * Filtering at render was not enough. A key once added stayed forever, only
+     * ignored while its value matched — so a port typed into and put back left
+     * `port` in the draft, and then `live` moved on its own (`staleTime: 2000`,
+     * `refetchOnWindowFocus: true`). The retained value differed again, rejoined
+     * the patch, and reverted somebody else's change with an edit that had been
+     * undone.
+     */
+    let reads = 0;
+    server.use(
+      http.get('/api/flow/settings', () => {
+        reads += 1;
+        if (reads === 1) return HttpResponse.json(FLOW_SETTINGS);
+        return HttpResponse.json({
+          ...FLOW_SETTINGS,
+          settings: {
+            ...FLOW_SETTINGS.settings,
+            port: { source: 'database', env: 'FLOW_PORT', value: 4739 },
+          },
+        });
+      }),
+    );
+
+    let sent: Record<string, unknown> | null = null;
+    server.use(
+      http.put('/api/flow/settings', async ({ request }) => {
+        sent = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...FLOW_SETTINGS, changed: true, rebound: false, status: FLOW_STATUS });
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { client } = renderApp(<FlowSettings />, { authenticated: true });
+
+    // Type into the port and put it back, then edit something else entirely.
+    const port = await screen.findByDisplayValue('2055');
+    await user.clear(port);
+    await user.type(port, '2055');
+
+    const exporters = screen.getByDisplayValue('10.0.0.1, 10.0.0.2');
+    await user.clear(exporters);
+    await user.type(exporters, '10.0.0.9');
+
+    // Somebody else changes the port while this dialog sits open.
+    await client.invalidateQueries({ queryKey: ['flow', 'settings'] });
+    await screen.findByDisplayValue('4739');
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(sent).not.toBeNull());
+
+    expect(sent).toEqual({ exporters: '10.0.0.9' });
+    expect(sent).not.toHaveProperty('port');
   });
 
   it('does not credit a save to a retry that failed to bind', async () => {

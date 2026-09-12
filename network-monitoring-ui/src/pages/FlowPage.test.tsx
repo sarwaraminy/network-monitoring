@@ -458,6 +458,44 @@ describe('FlowPage', () => {
     expect(screen.queryByText(/nothing has arrived yet/i)).not.toBeInTheDocument();
   });
 
+  it('keeps the exporter row when its address is withheld', async () => {
+    /*
+     * A row exists in this table only by passing the allowlist, so the column is
+     * the allowlist under another name — and the server strips it for anybody
+     * who is not an administrator. The row has to stay: the counters beside it
+     * are what the table is read for, and they are not privileged.
+     */
+    status({
+      ...FLOW_STATUS,
+      exporters: [{ ...FLOW_STATUS.exporters[0]!, exporter: undefined }],
+    });
+    renderApp(<FlowPage />, { authenticated: true });
+
+    expect(await screen.findByText(/not shown/i)).toBeInTheDocument();
+    // The numbers survived, which is the point of redacting rather than dropping.
+    expect(screen.getByText('4,000')).toBeInTheDocument();
+  });
+
+  it('counts unreadable exporters it is not allowed to name', async () => {
+    /*
+     * The diagnosis joined the addresses into its sentence, which rendered
+     * "From , ." once they were withheld. The count still says what is wrong and
+     * how widely; which device it is, is a question only somebody who can go and
+     * reconfigure it needs answered.
+     */
+    status({
+      ...FLOW_STATUS,
+      records: 0,
+      exporters: [
+        { ...FLOW_STATUS.exporters[0]!, exporter: undefined, protocolVersion: null, pendingTemplates: 0 },
+      ],
+    });
+    renderApp(<FlowPage />, { authenticated: true });
+
+    expect(await screen.findByText(/1 exporter is sending something else/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^From\s*[,.]/)).not.toBeInTheDocument();
+  });
+
   it('points the operator at the configured port when nothing is bound', async () => {
     /*
      * `port` is null with no socket open, and `?? 0` turned the one sentence

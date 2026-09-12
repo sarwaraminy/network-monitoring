@@ -129,7 +129,7 @@ export default function FlowStatusPanel() {
         accessorKey: 'exporter',
         header: t('flow.column.exporter'),
         size: 170,
-        Cell: ({ cell }) => <Identifier>{cell.getValue<string>()}</Identifier>,
+        Cell: ExporterCell,
       },
       {
         accessorKey: 'protocolVersion',
@@ -382,12 +382,23 @@ function Diagnosis({ status }: Readonly<{ status: FlowStatus }>) {
   }
 
   if (unreadable.length > 0) {
+    /*
+     * Named for an administrator, counted for everybody else.
+     *
+     * The addresses are stripped from `exporters[]` for a non-admin — every row
+     * there is a permitted sender by construction, which makes the column the
+     * allowlist under another name. Joining them anyway rendered "From , , ."
+     * The count still says what is wrong and how widely; which device it is, is
+     * a question only somebody who can reconfigure it needs answered.
+     */
+    const named = unreadable.map((exporter) => exporter.exporter).filter((name) => name !== undefined);
+
     return (
       <Alert severity="warning" icon={<ErrorOutlineIcon />}>
         <AlertTitle>{t('flow.unreadable_version')}</AlertTitle>
-        {t('flow.unreadable_version_note', {
-          exporters: unreadable.map((exporter) => exporter.exporter).join(', '),
-        })}
+        {named.length > 0
+          ? t('flow.unreadable_version_note', { exporters: named.join(', ') })
+          : t('flow.unreadable_version_note_count', { count: unreadable.length })}
       </Alert>
     );
   }
@@ -627,6 +638,25 @@ function ComposeNotice() {
  * is a render prop that is analysed as a component, and defining them inside the
  * page rebuilds an identity per render for no benefit.
  */
+
+/**
+ * The sender's address, or a note that it is not shown.
+ *
+ * Absent for a non-admin — a row is in this table only by passing the allowlist,
+ * so the column is the allowlist under another name, and that list is the
+ * collector's only access control. The row stays, because the counters beside it
+ * are the diagnosis and they are not privileged.
+ */
+const ExporterCell: MRT_ColumnDef<FlowExporter>['Cell'] = ({ cell }) => {
+  const t = useT();
+  const address = cell.getValue<string | undefined>();
+
+  if (address === undefined) {
+    return <Box sx={{ color: 'text.disabled' }}>{t('flow.column.exporter_hidden')}</Box>;
+  }
+
+  return <Identifier>{address}</Identifier>;
+};
 
 const ProtocolCell: MRT_ColumnDef<FlowExporter>['Cell'] = ({ row, cell }) => {
   const t = useT();

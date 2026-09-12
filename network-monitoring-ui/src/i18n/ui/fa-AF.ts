@@ -219,6 +219,10 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'نفرستاده‌اند — دستگاه‌ها معمولاً آن را در فواصل زمانی باز می‌فرستند، پس این اغلب خودش ' +
     'برطرف می‌شود. اگر نشد، فاصلهٔ بازفرست قالب را در صادرکننده کوتاه کنید.',
   'flow.unreadable_version': 'یک صادرکننده نسخه‌ای می‌فرستد که این گردآورنده نمی‌تواند بخواند',
+  'flow.unreadable_version_note_count':
+    'NetFlow v5، NetFlow v9 و IPFIX پیاده شده‌اند؛ sFlow و دیگران نه. ' +
+    '{count, plural, one {# فرستنده} other {# فرستنده}} چیز دیگری می‌فرستد. مدیر ' +
+    'می‌تواند ببیند کدام‌ها.',
   'flow.unreadable_version_note':
     'از {exporters}. NetFlow v5، NetFlow v9 و IPFIX پیاده‌سازی شده‌اند؛ sFlow و بقیه نه. دستگاه ' +
     'را بر یکی از این سه تنظیم کنید.',
@@ -248,6 +252,7 @@ export const UI_FA_AF: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'یک روتر یا سویچ را تنظیم کنید تا NetFlow یا IPFIX را به این میزبان روی بندر {port} صادر ' +
     'کند. این پروتکل یک‌طرفه و بدون احراز هویت است: از اینجا هیچ دستگاهی فراخوانده نمی‌شود.',
   'flow.column.exporter': 'صادرکننده',
+  'flow.column.exporter_hidden': 'نمایش داده نمی‌شود',
   'flow.column.protocol': 'پروتکل',
   'flow.column.datagrams': 'دیتاگرام‌ها',
   'flow.column.records': 'رکوردها',

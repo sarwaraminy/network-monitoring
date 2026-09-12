@@ -224,6 +224,10 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'ist noch nicht gekommen — Geräte senden sie meist in Intervallen erneut, das klärt sich also ' +
     'oft von selbst. Wenn nicht, verkürzen Sie das Vorlagen-Intervall am Exporter.',
   'flow.unreadable_version': 'Ein Exporter sendet eine Version, die dieser Kollektor nicht lesen kann',
+  'flow.unreadable_version_note_count':
+    'NetFlow v5, NetFlow v9 und IPFIX sind implementiert; sFlow und der Rest nicht. ' +
+    '{count, plural, one {# Exporter sendet} other {# Exporter senden}} etwas anderes. Eine ' +
+    'administrierende Person kann sehen, welche.',
   'flow.unreadable_version_note':
     'Von {exporters}. Implementiert sind NetFlow v5, NetFlow v9 und IPFIX; sFlow und der Rest ' +
     'nicht. Stellen Sie das Gerät auf eine der drei um.',
@@ -254,6 +258,7 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
     'Port {port} exportiert. Das Protokoll ist einseitig und ohne Authentifizierung: von hier aus ' +
     'wird kein Gerät angesprochen.',
   'flow.column.exporter': 'Exporter',
+  'flow.column.exporter_hidden': 'Nicht angezeigt',
   'flow.column.protocol': 'Protokoll',
   'flow.column.datagrams': 'Datagramme',
   'flow.column.records': 'Datensätze',

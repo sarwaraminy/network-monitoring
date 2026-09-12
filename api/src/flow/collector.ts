@@ -242,6 +242,31 @@ export class FlowCollector {
 
     socket.on('error', (error) => {
       log.error({ err: error }, 'Flow socket error; closing');
+
+      /*
+       * Only if this is still the live socket.
+       *
+       * The handler closes over `this` rather than over its own socket, so
+       * without the guard `stop()` acts on whatever is current. A late error on
+       * a socket that has already been retired — one queued in the OS, an ICMP
+       * port-unreachable arriving after the close — then shut down the socket
+       * that replaced it. The process reported itself correctly as not
+       * listening, so nothing looked broken except that flow data stopped, and
+       * the cause was a socket that no longer existed.
+       *
+       * It mattered more once rebinding stopped being a once-per-process event:
+       * every settings save reopens the socket now, and there is a button on
+       * screen for somebody working through a port conflict.
+       *
+       * Guarded rather than fixed with `removeAllListeners()` in `stop()`, which
+       * is the obvious alternative and is worse: an `error` event with no
+       * listener is thrown rather than delivered, so stripping the handler would
+       * turn a stray error on a retired socket into a dead process. That is a
+       * worse failure than the one being fixed, and it is the same event this
+       * finding says can arrive.
+       */
+      if (this.socket !== socket) return;
+
       this.stop().catch(() => {
         /* already tearing down */
       });
@@ -355,6 +380,21 @@ export class FlowCollector {
   }
 
   /**
+   * Whether the open socket was bound from settings that have since changed.
+   *
+   * False when nothing is bound: a closed socket is not out of date, it is shut,
+   * and `enabled`/`listening` already say so. Compared against the settings the
+   * bind was made with rather than against the socket's own address — see
+   * `boundTo`.
+   */
+  private bindingIsOutOfDate(): boolean {
+    if (this.socket === null || this.boundTo === null) return false;
+
+    const { port, bindAddress } = currentFlowSettings();
+    return this.boundTo.port !== port || this.boundTo.bindAddress !== bindAddress;
+  }
+
+  /**
    * Forgets the refusals, for an allowlist change that does not rebind.
    *
    * `exporters` is the one setting that deliberately leaves the socket alone — it
@@ -377,21 +417,6 @@ export class FlowCollector {
    * the senders rather than of the filter. `resetForRebind` is the one that
    * clears everything, because there the binding itself is new.
    */
-  /**
-   * Whether the open socket was bound from settings that have since changed.
-   *
-   * False when nothing is bound: a closed socket is not out of date, it is shut,
-   * and `enabled`/`listening` already say so. Compared against the settings the
-   * bind was made with rather than against the socket's own address — see
-   * `boundTo`.
-   */
-  private bindingIsOutOfDate(): boolean {
-    if (this.socket === null || this.boundTo === null) return false;
-
-    const { port, bindAddress } = currentFlowSettings();
-    return this.boundTo.port !== port || this.boundTo.bindAddress !== bindAddress;
-  }
-
   resetRefusals(): void {
     this.ignoredReasons.notAllowed = 0;
     this.allowlistChangedAt = this.datagrams;

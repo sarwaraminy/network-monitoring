@@ -198,8 +198,30 @@ export default function FlowSettings() {
 
   const set = <K extends keyof Fields>(key: K, value: Fields[K]) => {
     setMessage(null);
-    // Functional update, so two edits in one tick cannot drop the first.
-    setDraft((now) => ({ ...now, [key]: value }));
+
+    setDraft((now) => {
+      const next = { ...now, [key]: value };
+
+      /*
+       * A field put back the way it was stops being an edit.
+       *
+       * Filtering at render was not enough on its own. A key once added stayed
+       * forever, only ignored while its value matched — so typing into the port
+       * and restoring it left `port` in the draft with `changed` empty, Cancel
+       * disabled because it keys off `changed`, and no way to discard it. Then
+       * `live` moves, which it does on its own (`staleTime: 2000`,
+       * `refetchOnWindowFocus: true`): the retained value differs again, rejoins
+       * `changed`, and ships in the patch. Somebody else's change reverted by an
+       * edit that had been undone.
+       *
+       * Keying per field removed that for fields never touched; this removes it
+       * for a field touched and put back. `draft` now means outstanding edits
+       * throughout, which is what the rest of this component reads it as.
+       */
+      if (String(value ?? '') === String(live[key] ?? '')) delete next[key];
+
+      return next;
+    });
   };
 
   /**
@@ -392,7 +414,13 @@ export default function FlowSettings() {
         >
           {save.isPending ? t('flow_settings.saving') : t('flow_settings.save')}
         </Button>
-        <Button disabled={save.isPending || changed.length === 0} onClick={() => setDraft({})}>
+        {/*
+          Enabled whenever anything is drafted, not only when something differs.
+          `live` can catch up with an edit — another administrator making the same
+          change — which leaves a key that is real but currently a no-op, and a
+          Cancel that keys off `changed` would offer no way to clear it.
+        */}
+        <Button disabled={save.isPending || Object.keys(draft).length === 0} onClick={() => setDraft({})}>
           {t('common.cancel')}
         </Button>
 
