@@ -133,14 +133,26 @@ export default function FlowSettings() {
     onSuccess: (saved) => {
       setDraft({});
       /*
-       * Three outcomes, and they are not the same thing to an operator. A save
-       * that rebound and came back listening is done; one that rebound and did
-       * not is a real failure of a successful save — the port is taken, or the
-       * address is not on this host — and the form has to say so rather than
+       * Four outcomes, and the fourth is the one this ordering used to swallow.
+       *
+       * A save that rebound and came back listening is done; one that rebound and
+       * did not is a real failure of a successful save — the port is taken, or
+       * the address is not on this host — and the form has to say so rather than
        * show a tick. A save that needed no rebind is simply in force.
+       *
+       * **A failed RETRY is not a failed save.** The retry sends an empty patch,
+       * so `changed` is false and nothing was written or audited — and this
+       * branch caught it first, telling the operator "the setting is stored and
+       * will be used at the next restart" about a request that stored nothing.
+       * That is the worst place to say it: a failing retry is the case somebody
+       * repeats, and being told the value is safely stored suggests the fix is a
+       * restart when in fact the port is still taken.
        */
       if (saved.rebound && saved.settings.enabled?.value === true && !saved.status.listening) {
-        setMessage({ severity: 'error', body: { key: 'flow_settings.saved_not_listening' } });
+        setMessage({
+          severity: 'error',
+          body: { key: saved.changed ? 'flow_settings.saved_not_listening' : 'flow_settings.retry_failed' },
+        });
       } else if (!saved.changed && saved.rebound) {
         // The retry: nothing was written, and the socket came back. Saying
         // "Saved" would credit a change that did not happen.
@@ -266,8 +278,16 @@ export default function FlowSettings() {
    * Read from `GET /api/flow/status` rather than from the last save's response,
    * so it reflects the collector now — including a bind that failed at boot, long
    * before this dialog was opened, which is the case the retry exists for.
+   *
+   * Two states, not one. `listening === false` is the bind that failed;
+   * `bindingOutOfDate` is the socket that is open on settings that have since
+   * changed underneath it — which a boot that could not read the settings row
+   * produces, and which nothing else can surface because `listening` is true.
+   * The same button fixes both, and it is the same sentence: try binding again.
    */
-  const needsRetry = fields.enabled?.value === true && status.data?.listening === false;
+  const needsRetry =
+    fields.enabled?.value === true &&
+    (status.data?.listening === false || status.data?.bindingOutOfDate === true);
 
   return (
     <Stack spacing={2}>

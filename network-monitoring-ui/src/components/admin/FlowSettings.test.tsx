@@ -133,6 +133,10 @@ describe('FlowSettings', () => {
             port: { source: 'database', env: 'FLOW_PORT', value: 4739 },
           },
           pinned: [],
+          // The server always reports what it wrote, and the form now reads it:
+          // a failed bind after a real write is a different message from a failed
+          // bind after a retry that wrote nothing.
+          changed: true,
           rebound: true,
           status: { ...FLOW_STATUS, listening: false, address: null, port: null },
         }),
@@ -400,6 +404,61 @@ describe('FlowSettings', () => {
     await user.type(port, '2055');
 
     expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+  });
+
+  it('does not credit a save to a retry that failed to bind', async () => {
+    /*
+     * The branch order that swallowed the fourth outcome.
+     *
+     * A retry sends an empty patch, so `changed` is false and nothing is written
+     * or audited. When the rebind then fails, the not-listening branch caught it
+     * first and reported `saved_not_listening` — "the setting is stored and will
+     * be used at the next restart" — about a request that stored nothing.
+     *
+     * It is the worst place to say it. A failing retry is the case an operator
+     * repeats, and being told the value is safely stored points them at a
+     * restart when the port is in fact still taken.
+     */
+    server.use(
+      http.get('/api/flow/status', () =>
+        HttpResponse.json({ ...FLOW_STATUS, listening: false, address: null, port: null }),
+      ),
+      http.put('/api/flow/settings', () =>
+        HttpResponse.json({
+          ...FLOW_SETTINGS,
+          changed: false,
+          rebound: true,
+          status: { ...FLOW_STATUS, listening: false, address: null, port: null },
+        }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderApp(<FlowSettings />, { authenticated: true });
+
+    await user.click(await screen.findByRole('button', { name: /try binding again/i }));
+
+    expect(await screen.findByText(/still could not bind/i)).toBeInTheDocument();
+    // The half that was the lie: nothing was saved, so nothing may claim to be
+    // waiting for the next restart.
+    expect(screen.queryByText(/will be used at the next restart/i)).not.toBeInTheDocument();
+  });
+
+  it('offers the retry when the socket is open on settings that have moved', async () => {
+    /*
+     * The third state. `enabled` and `listening` are both true, so every existing
+     * check reads the collector as healthy — while it is bound to a port the
+     * settings no longer name, which a boot that could not read the settings row
+     * produces and nothing else can surface.
+     */
+    server.use(
+      http.get('/api/flow/status', () =>
+        HttpResponse.json({ ...FLOW_STATUS, listening: true, port: 2055, bindingOutOfDate: true }),
+      ),
+    );
+    renderApp(<FlowSettings />, { authenticated: true });
+
+    expect(await screen.findByRole('button', { name: /try binding again/i })).toBeInTheDocument();
   });
 
   it('reports a failure to read the settings', async () => {

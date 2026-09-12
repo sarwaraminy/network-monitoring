@@ -199,6 +199,9 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'flow.state.off': 'Aus',
   'flow.state.not_listening': 'Hört nicht zu',
   'flow.state.listening': 'Hört auf {address}:{port}',
+  'flow.binding_stale': 'Lauscht, aber nicht auf dem konfigurierten Port',
+  'flow.binding_stale_note':
+    'Der Socket wurde geöffnet, bevor die aktuellen Einstellungen gelesen wurden, und liegt daher auf {bound}, während die Einstellungen {configured} nennen. Flüsse an den konfigurierten Port kommen nicht an. Eine administrierende Person kann ihn unter Administrationseinstellungen → Einstellungen der Flusserfassung neu öffnen.',
   'flow.bind_failed': 'Die Flusserfassung ist an, aber der Socket ist nicht offen',
   'flow.bind_failed_note':
     'Der Kollektor sollte zuhören und konnte sich nicht binden. Entweder belegt ein anderer ' +
@@ -313,7 +316,11 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'flow_settings.retry_bind': 'Erneut binden',
   'flow_settings.rebound_only':
     'Es war nichts zu ändern — die Einstellungen waren bereits richtig. Der Socket wurde neu ' +
-    'geöffnet; ob es geklappt hat, sagt der Zustand unten.',
+    'geöffnet und lauscht.',
+  'flow_settings.retry_failed':
+    'Der Socket wurde neu geöffnet und konnte sich weiterhin nicht binden, es wird also nichts ' +
+    'erfasst. Der Port ist womöglich weiterhin belegt, oder die Bindeadresse gibt es auf diesem ' +
+    'Host nicht. Gespeichert wurde nichts — diese Werte waren bereits abgelegt.',
   'flow_settings.nothing_changed': 'Nichts geändert — diese Werte waren bereits gespeichert.',
   'flow_settings.saving': 'Wird gespeichert…',
   'flow_settings.saved': 'Gespeichert und in Kraft.',
@@ -323,7 +330,8 @@ export const UI_DE: Readonly<Partial<Record<UiMessageKey, string>>> = {
   'flow_settings.saved_not_listening':
     'Gespeichert, aber der Kollektor konnte sich nicht binden und hört NICHT zu. Der Port ist ' +
     'womöglich belegt, oder die Bindeadresse gibt es auf diesem Host nicht. Die Einstellung ist ' +
-    'gespeichert und gilt beim nächsten Start; der Zustand unten ist der aktuelle.',
+    'gespeichert und gilt beim nächsten Start; den aktuellen Zustand zeigt die Seite ' +
+    'Flusserfassung.',
   'flow_settings.nothing_to_save': 'Es hat sich nichts geändert.',
   'flow_settings.pinned_note':
     'Durch {variable} in der Umgebung gesetzt. Entfernen Sie die Zeile und starten Sie die API ' +

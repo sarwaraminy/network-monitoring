@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createSocket } from 'node:dgram';
-import { before, describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import { buildNetflowV5, buildSflowHeader } from './test-datagrams.js';
 
 /**
@@ -39,6 +39,26 @@ let FlowCollector: typeof import('./collector.js').FlowCollector;
 /** The private entry point a bound socket would call. */
 type Receiver = { handleDatagram: (datagram: Buffer, exporter: string) => void };
 
+/**
+ * The private state a successful `start()` leaves behind.
+ *
+ * Set directly for the drift cases below. Same reasoning as `Receiver`: what is
+ * under test is the comparison the collector makes, not `dgram`.
+ */
+type Bound = { socket: unknown; boundTo: { port: number; bindAddress: string } | null };
+
+/**
+ * Enough of a socket for `getStatus`, which asks it for its address.
+ *
+ * A real one would make this a test of `dgram` and of whichever port CI has
+ * free, and `start()` also opens an `AlertSink` — neither is what drift is about.
+ */
+const fakeSocket = (port: number, address = '0.0.0.0') =>
+  ({ address: () => ({ address, port, family: 'IPv4' }) }) as never;
+
+/** The port currently in force, so the address cases do not also assert a port. */
+const currentPort = () => new FlowCollector().getStatus().configuredPort;
+
 const netflowV5 = () => buildNetflowV5([{ srcIp: '1.1.1.1', dstIp: '2.2.2.2', srcPort: 1, dstPort: 2 }]);
 
 /** A version word nothing here implements, in an otherwise plausible header. */
@@ -52,6 +72,18 @@ function unsupportedVersion(): Buffer {
 describe('what the flow status reports about dropped datagrams', () => {
   before(async () => {
     ({ FlowCollector } = await import('./collector.js'));
+  });
+
+  /*
+   * The drift cases call `loadFlowSettings`, which is the only thing in this file
+   * that reaches for a database — it tolerates the failure and still republishes,
+   * which is all they need. The pool it opens on the way is a live handle, and
+   * node waits on it: without this the file took thirty seconds to exit having
+   * spent one second testing.
+   */
+  after(async () => {
+    const { closeDb } = await import('../db/index.js');
+    await closeDb();
   });
 
   const receive = (datagrams: [Buffer, string][]) => {
@@ -328,6 +360,89 @@ describe('what the flow status reports about dropped datagrams', () => {
     assert.equal(status.datagrams, 1);
     assert.equal(status.datagramsUnderAllowlist, 1);
     assert.equal(status.ignoredReasons.notAllowed, 1);
+  });
+
+  it('reports a binding that no longer matches the settings', async () => {
+    /*
+     * The third state, and neither `enabled` nor `listening` can express it:
+     * both are true while the socket sits on a port the settings no longer name.
+     *
+     * It is reachable without anybody doing anything odd. A boot that cannot read
+     * the settings row binds from the environment and the defaults and comes up
+     * listening; the first `GET /settings` recovers the row and republishes it,
+     * so everything displayed moves to the stored values while the socket stays
+     * where boot left it. Nothing else surfaces that, because every check for a
+     * broken collector keys on `listening` being false.
+     *
+     * Driven through the private state rather than a real bind, for the reason
+     * this file gives about `handleDatagram`: binding would make it a test of
+     * `dgram` and of whichever port CI has free, and `start()` also opens an
+     * `AlertSink` whose teardown dominated the file. What is under test is the
+     * comparison — the settings the bind was MADE with against the settings now,
+     * rather than against the socket's own address, so the OS's rendering of an
+     * address cannot read as drift.
+     */
+    const { loadFlowSettings } = await import('../services/flow-settings.service.js');
+
+    process.env.FLOW_PORT = '';
+    await loadFlowSettings();
+
+    const collector = new FlowCollector();
+    const bound = collector as unknown as Bound;
+    // What a successful `start()` records: a live socket and the settings it was
+    // opened with. `getStatus` reads `socket !== null` for `listening`.
+    bound.socket = fakeSocket(2055);
+    bound.boundTo = { port: 2055, bindAddress: '0.0.0.0' };
+
+    try {
+      assert.equal(collector.getStatus().listening, true);
+      assert.equal(collector.getStatus().bindingOutOfDate, false, 'a fresh bind is never out of date');
+
+      // The settings move underneath the open socket, as a recovered read does.
+      process.env.FLOW_PORT = '24955';
+      await loadFlowSettings();
+
+      const status = collector.getStatus();
+      assert.equal(status.listening, true, 'the socket is still perfectly healthy');
+      assert.equal(status.bindingOutOfDate, true);
+      // And the two numbers that disagree are both reportable.
+      assert.notEqual(status.port ?? 2055, status.configuredPort);
+    } finally {
+      bound.socket = null;
+      process.env.FLOW_PORT = '';
+      await loadFlowSettings();
+    }
+  });
+
+  it('notices a bind address that moved, not only a port', async () => {
+    const { loadFlowSettings } = await import('../services/flow-settings.service.js');
+
+    process.env.FLOW_BIND_ADDRESS = '';
+    await loadFlowSettings();
+
+    const collector = new FlowCollector();
+    const bound = collector as unknown as Bound;
+    bound.socket = fakeSocket(currentPort());
+    bound.boundTo = { port: currentPort(), bindAddress: '0.0.0.0' };
+
+    try {
+      assert.equal(collector.getStatus().bindingOutOfDate, false);
+
+      process.env.FLOW_BIND_ADDRESS = '127.0.0.1';
+      await loadFlowSettings();
+
+      assert.equal(collector.getStatus().bindingOutOfDate, true);
+    } finally {
+      bound.socket = null;
+      process.env.FLOW_BIND_ADDRESS = '';
+      await loadFlowSettings();
+    }
+  });
+
+  it('is not out of date while nothing is bound', () => {
+    // A closed socket is shut, not stale — `enabled` and `listening` already say
+    // so, and reporting drift for it would put a second explanation on screen.
+    assert.equal(new FlowCollector().getStatus().bindingOutOfDate, false);
   });
 
   it('reports the configured port even with no socket to read one from', () => {

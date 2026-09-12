@@ -201,6 +201,9 @@ export const UI_EN = {
   'flow.state.off': 'Off',
   'flow.state.not_listening': 'Not listening',
   'flow.state.listening': 'Listening on {address}:{port}',
+  'flow.binding_stale': 'Listening, but not on the configured port',
+  'flow.binding_stale_note':
+    'The socket was opened before the current settings were read, so it is bound to {bound} while the settings say {configured}. Flow sent to the configured port is not arriving. An administrator can reopen it from Administration settings → Flow collection settings.',
   'flow.bind_failed': 'Flow collection is on, but the socket is not open',
   'flow.bind_failed_note':
     'The collector was asked to listen and could not bind. Either the port is already in use by ' +
@@ -311,8 +314,12 @@ export const UI_EN = {
   'flow_settings.save': 'Save changes',
   'flow_settings.retry_bind': 'Try binding again',
   'flow_settings.rebound_only':
-    'Nothing needed changing — the settings were already right. The socket was reopened and the ' +
-    'state below says whether it took.',
+    'Nothing needed changing — the settings were already right. The socket was reopened and is ' +
+    'listening.',
+  'flow_settings.retry_failed':
+    'The socket was reopened and still could not bind, so nothing is being collected. The port ' +
+    'may still be in use, or the bind address may not be an address on this host. Nothing was ' +
+    'saved — these values were already stored.',
   'flow_settings.nothing_changed': 'Nothing changed — these values were already stored.',
   'flow_settings.saving': 'Saving…',
   'flow_settings.saved': 'Saved, and in force.',
@@ -321,7 +328,7 @@ export const UI_EN = {
   'flow_settings.saved_not_listening':
     'Saved, but the collector could not bind and is NOT listening. The port may be in use, or the ' +
     'bind address may not be an address on this host. The setting is stored and will be used at ' +
-    'the next restart; the state below is what is happening now.',
+    'the next restart; the Flow collection screen shows what is happening now.',
   'flow_settings.nothing_to_save': 'Nothing has changed.',
   'flow_settings.pinned_note':
     'Set by {variable} in the environment. Remove that line and restart the API to manage it here.',

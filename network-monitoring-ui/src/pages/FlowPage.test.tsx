@@ -410,6 +410,54 @@ describe('FlowPage', () => {
     expect(screen.queryByText(/datagram was refused/i)).not.toBeInTheDocument();
   });
 
+  it('says when the socket is open on a port the settings no longer name', async () => {
+    /*
+     * The state neither `enabled` nor `listening` can express, because both are
+     * true. A boot that could not read the settings row binds from the
+     * environment and the defaults and comes up listening; the first read of the
+     * settings recovers the row and republishes it, and from then on the socket
+     * is on one port while everything displayed says another.
+     *
+     * Without its own line the page reported a healthy collector receiving
+     * nothing, with the counters agreeing, and nothing anywhere connecting the
+     * two.
+     */
+    status({
+      ...FLOW_STATUS,
+      listening: true,
+      address: '0.0.0.0',
+      port: 2055,
+      configuredPort: 9995,
+      bindingOutOfDate: true,
+    });
+    renderApp(<FlowPage />, { authenticated: true });
+
+    expect(await screen.findByText(/not on the configured port/i)).toBeInTheDocument();
+    /*
+     * Both numbers in one assertion, because the diagnosis IS the difference
+     * between them — and because a `t()` call missing an ICU parameter renders
+     * the raw key, which has shipped on this page before.
+     */
+    expect(screen.getByText(/bound to 0\.0\.0\.0:2055 while the settings say 9995/i)).toBeInTheDocument();
+  });
+
+  it('does not diagnose the traffic while the binding itself is wrong', async () => {
+    // Every sentence `Diagnosis` can produce is about the wrong socket while this
+    // holds, so "nothing has arrived yet" would send the operator to their router.
+    status({
+      ...FLOW_STATUS,
+      datagrams: 0,
+      records: 0,
+      listening: true,
+      configuredPort: 9995,
+      bindingOutOfDate: true,
+    });
+    renderApp(<FlowPage />, { authenticated: true });
+
+    await screen.findByText(/not on the configured port/i);
+    expect(screen.queryByText(/nothing has arrived yet/i)).not.toBeInTheDocument();
+  });
+
   it('points the operator at the configured port when nothing is bound', async () => {
     /*
      * `port` is null with no socket open, and `?? 0` turned the one sentence

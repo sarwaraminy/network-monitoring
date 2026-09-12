@@ -453,6 +453,8 @@ export const FLOW_STATUS: FlowStatus = {
   address: '0.0.0.0',
   port: 2055,
   configuredPort: 2055,
+  // Bound from the settings that are in force, which is the ordinary case.
+  bindingOutOfDate: false,
   datagrams: 5120,
   // Equal to `datagrams`, which is what it is until somebody edits the allowlist.
   datagramsUnderAllowlist: 5120,

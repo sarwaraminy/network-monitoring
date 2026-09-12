@@ -81,6 +81,20 @@ if all you have is a count. This screen names whichever one applies instead:</p>
   one.</p>
 </div>
 
+<div class="note">
+  <span class="label">Listening, but not where you think</span>
+  <p>There is a third state beyond "on" and "listening". If the server could not read its
+  settings when it started &mdash; a database that was a few seconds behind it, say &mdash;
+  the collector opens a socket from whatever the environment and the defaults said, and
+  carries on reporting itself as listening. When the settings are read later, the screen
+  starts showing the stored port while the socket is still on the other one.</p>
+  <p>The page says so rather than leaving you to compare two numbers: it names the port it is
+  bound to and the port it is configured for. <span class="ui">Try binding again</span> in
+  <a href="administration-settings.html">Administration settings</a> &rarr;
+  <span class="ui">Flow collection settings</span> reopens it on the configured port, and so
+  does any save.</p>
+</div>
+
 <h2>Why a datagram was discarded</h2>
 
 <p>Three unrelated things used to be counted under one number. They are listed separately

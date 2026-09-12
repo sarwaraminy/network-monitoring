@@ -224,7 +224,24 @@ export default function FlowStatusPanel() {
         </Alert>
       )}
 
-      {data.enabled && data.listening && <Diagnosis status={data} />}
+      {/*
+        Open, and on a binding the settings no longer describe.
+        `enabled`/`listening` cannot express this — both are true — so without its
+        own line the page reports a healthy collector on a port nothing is being
+        sent to. Above `Diagnosis`, because every sentence that one can produce is
+        about the wrong socket while this holds.
+      */}
+      {data.enabled && data.listening && data.bindingOutOfDate && (
+        <Alert severity="warning">
+          <AlertTitle>{t('flow.binding_stale')}</AlertTitle>
+          {t('flow.binding_stale_note', {
+            bound: `${data.address ?? '?'}:${data.port ?? 0}`,
+            configured: String(data.configuredPort),
+          })}
+        </Alert>
+      )}
+
+      {data.enabled && data.listening && !data.bindingOutOfDate && <Diagnosis status={data} />}
 
       {data.enabled && (
         <>

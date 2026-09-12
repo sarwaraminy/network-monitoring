@@ -371,6 +371,15 @@ export interface FlowStatus {
    * enough for that sentence.
    */
   configuredPort: number;
+  /**
+   * Listening, but on a binding the current settings would not produce.
+   *
+   * The third state beyond `enabled` and `listening`: the socket is open and
+   * healthy on a port or address that is no longer configured — reachable when a
+   * boot that could not read the settings row binds from the environment and the
+   * row is recovered later.
+   */
+  bindingOutOfDate: boolean;
   datagrams: number;
   /**
    * Datagrams since the allowlist last changed; equals `datagrams` until one is

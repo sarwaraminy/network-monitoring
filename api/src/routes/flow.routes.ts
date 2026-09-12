@@ -141,9 +141,23 @@ flowRouter.put(
      * real outcome of a successful save rather than a failed request: the row was
      * written and is what the next boot will use.
      */
+    const live = flowCollector().getStatus();
     const shouldBeListening = currentFlowResolution().enabled.value === true;
-    const stalled = shouldBeListening && !flowCollector().getStatus().listening;
-    const rebound = saved.needsRebind || stalled;
+    const stalled = shouldBeListening && !live.listening;
+    /*
+     * Open, and on a binding the settings no longer describe.
+     *
+     * The third state, and the one neither `needsRebind` nor `stalled` can see.
+     * A boot that could not read the settings row binds from the environment and
+     * the defaults and comes up listening; the first `GET /settings` recovers the
+     * row and republishes it, and from then on the form shows one port while the
+     * socket is on another. `stalled` keys on `listening` being false and it is
+     * true, so nothing surfaced it and nothing fixed it short of a restart.
+     *
+     * Folded in here so that any save — including the empty patch the retry
+     * button sends — puts the socket back where the settings say it should be.
+     */
+    const rebound = saved.needsRebind || stalled || live.bindingOutOfDate;
     if (rebound) {
       await restartFlowCollector();
     } else if (saved.allowlistChanged) {

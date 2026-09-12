@@ -93,6 +93,25 @@ export interface FlowCollectorStatus {
    * nothing has arrived yet.
    */
   configuredPort: number;
+  /**
+   * Listening, but on a binding the current settings would not produce.
+   *
+   * `enabled` and `listening` differ when a bind failed, which the page has said
+   * since it was written. This is the third state neither covers: the socket is
+   * open and healthy on a port or address that is no longer what is configured.
+   *
+   * It is reachable without anybody doing anything odd. A boot that could not
+   * read the settings row binds from the environment and the defaults and comes
+   * up `listening: true`; the first `GET /settings` recovers the row and
+   * republishes it, so the form and `configuredPort` move to the stored values
+   * while the socket stays where boot left it. Nothing else can see that:
+   * `stalled` and the retry button both key on `listening` being false, and it is
+   * true.
+   *
+   * Without this the form showed a port that was not in effect, with no
+   * indication anywhere, until somebody restarted the API.
+   */
+  bindingOutOfDate: boolean;
   datagrams: number;
   /**
    * Datagrams seen since the allowlist last changed, which equals `datagrams`
@@ -188,6 +207,18 @@ export class FlowCollector {
    * and the per-exporter rows with it to stay coherent.
    */
   private allowlistChangedAt = 0;
+  /**
+   * The settings this socket was actually bound with.
+   *
+   * Recorded rather than read back off `socket.address()`, because the question
+   * is whether the binding still matches the settings in force — and comparing
+   * what we asked for against what we would ask for now answers that exactly,
+   * while comparing against the OS's rendering of an address invites a
+   * normalisation mismatch reading as drift.
+   *
+   * Null while nothing is bound.
+   */
+  private boundTo: { port: number; bindAddress: string } | null = null;
 
   /** Starts listening. Resolves once bound, rejects if the port is unusable. */
   async start(): Promise<void> {
@@ -262,6 +293,7 @@ export class FlowCollector {
     this.socket = socket;
     this.sink = new AlertSink();
     this.startedAt = new Date();
+    this.boundTo = { port, bindAddress };
 
     const address = socket.address();
     log.info(
@@ -345,6 +377,21 @@ export class FlowCollector {
    * the senders rather than of the filter. `resetForRebind` is the one that
    * clears everything, because there the binding itself is new.
    */
+  /**
+   * Whether the open socket was bound from settings that have since changed.
+   *
+   * False when nothing is bound: a closed socket is not out of date, it is shut,
+   * and `enabled`/`listening` already say so. Compared against the settings the
+   * bind was made with rather than against the socket's own address — see
+   * `boundTo`.
+   */
+  private bindingIsOutOfDate(): boolean {
+    if (this.socket === null || this.boundTo === null) return false;
+
+    const { port, bindAddress } = currentFlowSettings();
+    return this.boundTo.port !== port || this.boundTo.bindAddress !== bindAddress;
+  }
+
   resetRefusals(): void {
     this.ignoredReasons.notAllowed = 0;
     this.allowlistChangedAt = this.datagrams;
@@ -360,6 +407,7 @@ export class FlowCollector {
     }
 
     this.startedAt = null;
+    this.boundTo = null;
 
     // Flush before dropping the sink, or the last window of findings is lost.
     const sink = this.sink;
@@ -509,6 +557,7 @@ export class FlowCollector {
       address: address?.address ?? null,
       port: address?.port ?? null,
       configuredPort: currentFlowSettings().port,
+      bindingOutOfDate: this.bindingIsOutOfDate(),
       datagrams: this.datagrams,
       datagramsUnderAllowlist: this.datagrams - this.allowlistChangedAt,
       records: this.records,
