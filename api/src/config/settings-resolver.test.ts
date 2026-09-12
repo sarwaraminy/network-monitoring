@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { createResolver, type FieldSpec } from './settings-resolver.js';
+import { createResolver, type FieldTable } from './settings-resolver.js';
 
 /**
  * The layer walk, on its own.
@@ -25,7 +25,7 @@ interface Demo {
   secret: string;
 }
 
-const FIELDS: Record<keyof Demo, FieldSpec> = {
+const FIELDS: FieldTable<Demo> = {
   enabled: { env: 'DEMO_ENABLED' },
   port: { env: 'DEMO_PORT' },
   label: { env: 'DEMO_LABEL' },
@@ -202,6 +202,30 @@ describe('the three-layer settings walk', () => {
     assert.deepEqual(seen, []);
   });
 
+  it('does not treat an undefined cleared value as a decision', () => {
+    /*
+     * `clearedValue` is now tested by value rather than by key presence. The
+     * alternative resolved such a field to `{ value: undefined, source:
+     * 'database' }` — no value at all, reported as though the row had decided
+     * it, and skipping the default layer that would have supplied one.
+     *
+     * Unreachable through the type now, since no settings type holds
+     * `undefined`, so this drives the resolver with a table that has been cast
+     * past the constraint — which is the only way a JavaScript caller or a
+     * future `as` could produce it.
+     */
+    const loose = createResolver({
+      fields: { ...FIELDS, label: { env: 'DEMO_LABEL', clearedValue: undefined } } as FieldTable<Demo>,
+      defaults: DEFAULTS,
+      parse,
+    });
+
+    const resolution = loose.resolve({}, { label: '' });
+
+    assert.equal(resolution.label.value, 'default');
+    assert.equal(resolution.label.source, 'default');
+  });
+
   it('reports which fields are credentials', () => {
     assert.equal(resolver.isSecret('secret'), true);
     assert.equal(resolver.isSecret('label'), false);
@@ -255,6 +279,21 @@ describe('the three-layer settings walk', () => {
 createResolver({
   // @ts-expect-error - `ghost` is not a key of Demo
   fields: { ...FIELDS, ghost: { env: 'DEMO_GHOST' } },
+  defaults: DEFAULTS,
+  parse,
+});
+
+/*
+ * And a cleared value must be the field's own type.
+ *
+ * The same hole one level down: keys were made exact while values stayed
+ * `unknown`, so `clearedValue: []` on a string field compiled and only surfaced
+ * wherever the value was finally consumed. `FieldSpec<T>` ties it to `S[K]`, and
+ * this line is how we find out if that stops being true.
+ */
+createResolver({
+  // @ts-expect-error - `list` is a string field, so [] is not its cleared value
+  fields: { ...FIELDS, list: { env: 'DEMO_LIST', clearedValue: [] } },
   defaults: DEFAULTS,
   parse,
 });

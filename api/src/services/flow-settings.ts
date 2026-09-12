@@ -32,8 +32,8 @@ import {
 type FieldKind = 'boolean' | 'integer' | 'string';
 
 /**
- * This domain's spec: the shared `env`/`secret`/`blankStoredIsValue`, plus what
- * only `parseFlowField` reads. Structural typing means it satisfies the shared
+ * This domain's spec: the shared `env` and `clearedValue`, plus what only
+ * `parseFlowField` reads. Structural typing means it satisfies the shared
  * `FieldSpec` without saying so.
  */
 interface FlowFieldSpec {
@@ -121,8 +121,8 @@ export function parseFlowField(field: FlowField, raw: unknown): unknown {
    * who clears the allowlist means "accept any sender", but only from the stored
    * row — from the environment a blank is still an unset Compose variable. A
    * parser cannot tell those apart, because it is not told which layer it is
-   * reading. The resolver is, so the exception is `blankStoredIsValue` on the
-   * field above.
+   * reading. The resolver is, so the exception is `clearedValue` on the field
+   * above.
    */
   if (typeof raw === 'string' && raw.trim() === '') return undefined;
 

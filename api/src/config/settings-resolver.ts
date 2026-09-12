@@ -56,7 +56,7 @@ export interface ResolvedField<T = unknown> {
  * looks at it. Structural typing means a richer spec satisfies this one without
  * any declaration saying so.
  */
-export interface FieldSpec {
+export interface FieldSpec<T = unknown> {
   /** The environment variable that pins this field. */
   env: string;
   /**
@@ -89,13 +89,30 @@ export interface FieldSpec {
    * obvious next adopter: a comma-separated list field would resolve to the raw
    * string instead of the array, and the string's length would be reported as
    * the recipient count. Naming the cleared value also settles what "empty" means
-   * for a field whose values are not strings — `''` here, `[]` for a list — which
-   * a boolean could not express at all.
+   * for a field whose values are not strings — `''` here, `[]` for a list.
    *
-   * Tested with `in`, so a field may legitimately declare `undefined`.
+   * **Typed as the field's own value**, so `clearedValue: []` on a string field
+   * is refused at the table rather than surfacing wherever the value is finally
+   * consumed. It was `unknown` when the rename landed, which left exactly the
+   * hole `ExactFields` had just closed for keys: the shared surface is generic
+   * enough for three domains, and per-domain type safety became an `unknown`.
+   *
+   * **`undefined` is not a cleared value**, and `resolve` tests the value rather
+   * than the key for that reason. Declaring it would resolve the field to
+   * `{ value: undefined, source: 'database' }` — no value at all, while claiming
+   * the row decided it, and skipping the default layer that would have supplied
+   * one. No settings type has `undefined` in it, so nothing is lost by refusing.
    */
-  clearedValue?: unknown;
+  clearedValue?: T;
 }
+
+/**
+ * A field table: one spec per setting, each typed to its own field's value.
+ *
+ * The per-field typing is what makes `clearedValue` checkable where it is
+ * written, which is the only place the author can act on it.
+ */
+export type FieldTable<S> = { [K in keyof S]: FieldSpec<S[K]> };
 
 /** A resolution: every field of `S`, with the layer that decided it. */
 export type Resolution<S> = { [K in keyof S]: ResolvedField<S[K]> };
@@ -151,11 +168,11 @@ export interface Resolver<S extends object> {
   isSecret(field: keyof S & string): boolean;
 }
 
-export function createResolver<S extends object, F extends Record<keyof S, FieldSpec>>(
+export function createResolver<S extends object, F extends FieldTable<S>>(
   options: ResolverOptions<S, F>,
 ): Resolver<S> {
   const { defaults, parse } = options;
-  const fields = options.fields as Record<keyof S, FieldSpec>;
+  const fields = options.fields as FieldTable<S>;
   const names = () => Object.keys(fields) as (keyof S & string)[];
 
   return {
@@ -194,11 +211,14 @@ export function createResolver<S extends object, F extends Record<keyof S, Field
         /*
          * A cleared value, for a field that says what clearing means.
          *
-         * Tested against the VALUE, not merely the field: anything non-blank
-         * goes to the parser like every other stored value, so a field whose
-         * parser builds a list still gets a list.
+         * Tested against the VALUE on both sides. The stored value must actually
+         * be blank — anything else goes to the parser like every other stored
+         * value, so a field whose parser builds a list still gets a list. And
+         * `clearedValue` must actually be set: `undefined` is not a cleared
+         * value, because resolving to it would report `source: 'database'` over
+         * no value at all and skip the default that would have supplied one.
          */
-        if ('clearedValue' in spec && typeof rawStored === 'string' && rawStored.trim() === '') {
+        if (spec.clearedValue !== undefined && typeof rawStored === 'string' && rawStored.trim() === '') {
           resolution[field] = { value: spec.clearedValue, source: 'database' } as never;
           continue;
         }
