@@ -600,6 +600,17 @@ export interface NotifyStatus {
  * render it uneditable. A control that accepts an edit and changes nothing is worse
  * than one that is visibly disabled.
  */
+/*
+ * Declared here rather than imported, and that is the one duplication the
+ * resolver extraction deliberately left alone.
+ *
+ * The API's copy lives in `api/src/config/settings-resolver.ts`. This is a
+ * separate TypeScript project with its own tsconfig, so there is no import to
+ * make — the two sides meet over JSON, and this is the browser's description of
+ * what arrives. Sharing it would mean a shared package, which is a decision about
+ * how this repository is laid out rather than a tidy-up of three copies of one
+ * walk. The three the roadmap named were all on the API side.
+ */
 export type SettingSource = 'environment' | 'database' | 'default';
 
 /**

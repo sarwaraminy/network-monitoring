@@ -1,4 +1,10 @@
-import type { SettingSource } from './adhoc-settings.js';
+import {
+  createResolver,
+  type EnvironmentSource,
+  type Resolution,
+  type SettingSource,
+  type StoredSettings,
+} from '../config/settings-resolver.js';
 
 /**
  * The flow collector's settings, resolved environment → stored row → default.
@@ -9,14 +15,13 @@ import type { SettingSource } from './adhoc-settings.js';
  * inconvenience. `FLOW_ENABLED`, `FLOW_PORT`, `FLOW_BIND_ADDRESS` and
  * `FLOW_EXPORTERS` were read once at boot and changeable no other way.
  *
- * **A third hand-written resolver, and that is worth naming rather than hiding.**
- * `notify/settings.ts` and `adhoc-settings.ts` each carry their own copy of this
- * shape. Four fields did not justify refactoring two modules that took several
- * review rounds to settle, so this one is written to match them exactly — same
- * `FieldSpec`, same blank-is-unset rule, same `pinned` semantics — and the
- * extraction is a separate change that can be reviewed on its own. What stops the
- * three drifting in the meantime is `compose-unpinned.test.ts`, which reads all
- * of their field tables and checks the one property that actually broke twice.
+ * **The layer walk comes from `config/settings-resolver.ts`**, which the three
+ * features that resolve settings this way now share. This module was written as
+ * the third hand-written copy, deliberately matching the other two so the
+ * extraction could be reviewed on its own; that is what happened. What stays here
+ * is the field table, the defaults and `parseFlowField` — the parser is a
+ * parameter because the three domains disagree about blanks, bounds and trimming
+ * in ways each of them documents.
  *
  * **No secret here.** Flow has no credential: the protocol is unauthenticated,
  * which is exactly why `FLOW_EXPORTERS` exists and why it matters — reachability
@@ -26,13 +31,20 @@ import type { SettingSource } from './adhoc-settings.js';
 
 type FieldKind = 'boolean' | 'integer' | 'string';
 
-interface FieldSpec {
+/**
+ * This domain's spec: the shared `env` and `clearedValue`, plus what only
+ * `parseFlowField` reads. Structural typing means it satisfies the shared
+ * `FieldSpec` without saying so.
+ */
+interface FlowFieldSpec {
   /** The environment variable that pins this field. */
   env: string;
   kind: FieldKind;
   /** Inclusive bounds for `integer`, matching V19's CHECK constraints. */
   min?: number;
   max?: number;
+  /** What clearing this field means. See `exporters` below and `FieldSpec`. */
+  clearedValue?: unknown;
 }
 
 export const FLOW_FIELDS = {
@@ -55,8 +67,8 @@ export const FLOW_FIELDS = {
    * the value, so the form, the row and the variable cannot disagree about what
    * an empty one means.
    */
-  exporters: { env: 'FLOW_EXPORTERS', kind: 'string' },
-} as const satisfies Record<string, FieldSpec>;
+  exporters: { env: 'FLOW_EXPORTERS', kind: 'string', clearedValue: '' },
+} as const satisfies Record<string, FlowFieldSpec>;
 
 export type FlowField = keyof typeof FLOW_FIELDS;
 
@@ -81,13 +93,15 @@ export const FLOW_DEFAULTS: FlowSettings = {
   exporters: '',
 };
 
-export interface ResolvedField<T = unknown> {
-  value: T;
-  source: SettingSource;
-}
+export type FlowResolution = Resolution<FlowSettings>;
+export type StoredFlowSettings = StoredSettings<FlowSettings>;
 
-export type FlowResolution = { [K in FlowField]: ResolvedField<FlowSettings[K]> };
-export type StoredFlowSettings = Partial<Record<FlowField, unknown>>;
+/** The shared three-layer walk, bound to this domain's table and parser. */
+const resolver = createResolver({
+  fields: FLOW_FIELDS,
+  defaults: FLOW_DEFAULTS,
+  parse: (field, raw) => parseFlowField(field, raw),
+});
 
 /**
  * One value out of whatever a layer offered, or `undefined` if it offered nothing.
@@ -97,20 +111,20 @@ export type StoredFlowSettings = Partial<Record<FlowField, unknown>>;
  * them. See `compose-unpinned.test.ts` for why that matters more than it sounds.
  */
 export function parseFlowField(field: FlowField, raw: unknown): unknown {
-  const spec: FieldSpec = FLOW_FIELDS[field];
+  const spec: FlowFieldSpec = FLOW_FIELDS[field];
   if (raw === undefined || raw === null) return undefined;
-  if (typeof raw === 'string' && raw.trim() === '') {
-    /*
-     * `exporters` is the exception, and only from the stored row.
-     *
-     * An empty allowlist is a real choice — "accept any sender" — so an
-     * administrator who clears the field means it, and treating that as "nobody
-     * has decided" would silently fall back to whatever the environment said.
-     * From the *environment* a blank still means unset, because that is how an
-     * unset Compose variable arrives and the whole file depends on it.
-     */
-    return undefined;
-  }
+  /*
+   * A blank is unset, for every field and every layer, as far as this parser is
+   * concerned.
+   *
+   * `exporters` is the one exception and it does NOT live here: an administrator
+   * who clears the allowlist means "accept any sender", but only from the stored
+   * row — from the environment a blank is still an unset Compose variable. A
+   * parser cannot tell those apart, because it is not told which layer it is
+   * reading. The resolver is, so the exception is `clearedValue` on the field
+   * above.
+   */
+  if (typeof raw === 'string' && raw.trim() === '') return undefined;
 
   if (spec.kind === 'boolean') {
     if (typeof raw === 'boolean') return raw;
@@ -135,44 +149,14 @@ export function parseFlowField(field: FlowField, raw: unknown): unknown {
 }
 
 export function resolveFlowSettings(
-  environmentSource: Record<string, string | undefined>,
+  environmentSource: EnvironmentSource,
   stored: StoredFlowSettings = {},
 ): FlowResolution {
-  const resolution = {} as FlowResolution;
-
-  for (const field of Object.keys(FLOW_FIELDS) as FlowField[]) {
-    const fromEnv = parseFlowField(field, environmentSource[FLOW_FIELDS[field].env]);
-    if (fromEnv !== undefined) {
-      resolution[field] = { value: fromEnv, source: 'environment' } as never;
-      continue;
-    }
-
-    /*
-     * The stored row, where a blank `exporters` is a decision rather than a gap.
-     * Read directly for that field so an administrator who cleared the allowlist
-     * keeps an empty one instead of falling through to the environment.
-     */
-    const rawRow = stored[field];
-    const fromRow =
-      field === 'exporters' && typeof rawRow === 'string' ? rawRow.trim() : parseFlowField(field, rawRow);
-    if (fromRow !== undefined) {
-      resolution[field] = { value: fromRow, source: 'database' } as never;
-      continue;
-    }
-
-    resolution[field] = { value: FLOW_DEFAULTS[field], source: 'default' } as never;
-  }
-
-  return resolution;
+  return resolver.resolve(environmentSource, stored);
 }
 
 export function effectiveFlowSettings(resolution: FlowResolution): FlowSettings {
-  return {
-    enabled: resolution.enabled.value,
-    port: resolution.port.value,
-    bindAddress: resolution.bindAddress.value,
-    exporters: resolution.exporters.value,
-  };
+  return resolver.effective(resolution);
 }
 
 /**
@@ -221,42 +205,17 @@ export function flowForApi(resolution: FlowResolution): Record<string, RedactedF
 
 /** Fields the environment has pinned, which the interface must not offer to edit. */
 export function flowPinnedFields(resolution: FlowResolution): FlowField[] {
-  return (Object.keys(FLOW_FIELDS) as FlowField[]).filter(
-    (field) => resolution[field].source === 'environment',
-  );
+  return resolver.pinned(resolution);
 }
 
 /**
  * `FLOW_*` variables that are set to something this cannot use.
  *
- * An unusable value falls through to the next layer, which is right — pinning a
- * field to a value that can never apply would disable the control and change
- * nothing, the worst of both. What was missing is that it happened in silence.
- *
- * Every piece of evidence then points the wrong way: the variable is there in the
- * operator's Compose file, the collector is running, and the admin form shows the
- * field as editable rather than pinned, because a rejected value does not pin.
- * The one thing that would explain it is the line nobody wrote. `FLOW_PORT=514`
- * leaves the collector on 2055 with nothing anywhere connecting the two.
- *
  * It matters more here than in most places: these are edited by people who
  * cannot easily see the application log, so the log line is what a support
- * conversation ends up turning on.
- *
- * Same shape as `invalidAdhocEnvironmentVariables`, which is where the convention
- * comes from.
+ * conversation ends up turning on. The reasoning for reporting them at all is in
+ * `invalidEnvironment` on the shared resolver.
  */
-export function invalidFlowEnvironmentVariables(
-  environmentSource: Record<string, string | undefined>,
-): string[] {
-  const invalid: string[] = [];
-
-  for (const field of Object.keys(FLOW_FIELDS) as FlowField[]) {
-    const spec = FLOW_FIELDS[field];
-    const raw = environmentSource[spec.env];
-    if (raw === undefined || raw.trim() === '') continue;
-    if (parseFlowField(field, raw) === undefined) invalid.push(spec.env);
-  }
-
-  return invalid;
+export function invalidFlowEnvironmentVariables(environmentSource: EnvironmentSource): string[] {
+  return resolver.invalidEnvironment(environmentSource);
 }
